@@ -1,0 +1,61 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+// Example model with vector embeddings
+model Document {
+  id        String   @id @default(cuid())
+  content   String
+  metadata  Json?
+  embedding Unsupported("vector(384)")?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("documents")
+}
+
+// Example model for chat history
+model ChatMessage {
+  id        String   @id @default(cuid())
+  sessionId String
+  role      String   // 'user' | 'assistant' | 'system'
+  content   String
+  createdAt DateTime @default(now())
+
+  @@index([sessionId])
+  @@map("chat_messages")
+}
+
+// Example model for vector store metadata
+model VectorStore {
+  id          String   @id @default(cuid())
+  namespace   String
+  content     String
+  metadata    Json?
+  embedding   Unsupported("vector(384)")
+  createdAt   DateTime @default(now())
+
+  @@index([namespace])
+}
+
+
+
+
+
+
+// data
+// tenants
+// users
+// projects
+
+
