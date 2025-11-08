@@ -52,10 +52,53 @@ model VectorStore {
 
 
 
+model Chunk {
+  id                      Int     @id @unique @default(autoincrement())
+  file                    File    @relation(fields: [fileId], references: [id])
+  text                    String
+  hash                    String?
+  selection               Int?
+  model                   Model   @relation(fields: [modelName], references: [name])
+  version                 Int
+  xenova_all_minilm_l6_v2 String?
+  fileId                  Int
+  modelName               String
+}
 
-// data
-// tenants
-// users
-// projects
+model File {
+  id        Int      @id @unique @default(autoincrement())
+  project   Project  @relation(fields: [projectId], references: [id])
+  name      String
+  type      FileType @default(TEXT)
+  source    String?
+  version   Int
+  size      Int
+  content   Bytes?
+  Chunk     Chunk[]
+  projectId Int
+}
 
+model Project {
+  id       Int    @id @unique @default(autoincrement())
+  tenant   Tenant @relation(fields: [tenantId], references: [id])
+  name     String @unique
+  File     File[]
+  tenantId Int
+}
 
+model Tenant {
+  id      Int       @id @unique @default(autoincrement())
+  name    String    @unique
+  Project Project[]
+}
+
+model Model {
+  name   String  @id @unique
+  column String
+  Chunk  Chunk[]
+}
+
+enum FileType {
+  TEXT
+  BINARY
+}
