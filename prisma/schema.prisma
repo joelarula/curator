@@ -2,100 +2,101 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
   previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
   extensions = [vector]
 }
 
 // Example model with vector embeddings
 model Document {
-  id        String   @id @default(cuid())
+  id        String                      @id @default(cuid())
   content   String
   metadata  Json?
   embedding Unsupported("vector(384)")?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime                    @default(now())
+  updatedAt DateTime                    @updatedAt
 
   @@map("documents")
 }
 
-// Example model for chat history
-model ChatMessage {
-  id        String   @id @default(cuid())
-  sessionId String
-  role      String   // 'user' | 'assistant' | 'system'
-  content   String
-  createdAt DateTime @default(now())
-
-  @@index([sessionId])
-  @@map("chat_messages")
-}
-
 // Example model for vector store metadata
 model VectorStore {
-  id          String   @id @default(cuid())
-  namespace   String
-  content     String
-  metadata    Json?
-  embedding   Unsupported("vector(384)")
-  createdAt   DateTime @default(now())
+  id        String                     @id @default(cuid())
+  namespace String
+  content   String
+  metadata  Json?
+  embedding Unsupported("vector(384)")
+  createdAt DateTime                   @default(now())
 
   @@index([namespace])
 }
 
-
-
-
-
 model Chunk {
-  id                      Int     @id @unique @default(autoincrement())
-  file                    File    @relation(fields: [fileId], references: [id])
-  text                    String
-  hash                    String?
+  id                      Int                        @id @unique @default(autoincrement())
+  file                    File                       @relation(fields: [fileId], references: [id])
+  text                    String @db.VarChar(2560)
+  hash                    String @db.VarChar(64)
   selection               Int?
-  model                   Model   @relation(fields: [modelName], references: [name])
+  model                   Model                      @relation(fields: [modelId], references: [id])
   version                 Int
-  xenova_all_minilm_l6_v2 String?
+  xenova_all_minilm_l6_v2 Unsupported("vector(384)")
   fileId                  Int
-  modelName               String
+  modelId                 Int
+  createdAt               DateTime                   @default(now())
+  updatedAt               DateTime                   @updatedAt
+
+  @@index([hash, version, modelId, fileId])
 }
 
 model File {
   id        Int      @id @unique @default(autoincrement())
   project   Project  @relation(fields: [projectId], references: [id])
-  name      String
+  name      String   @db.VarChar(2560)
+  mimeType  String   @db.VarChar(64)
   type      FileType @default(TEXT)
-  source    String?
+  source    String?  @db.VarChar(2560)
+  hash      String   @db.VarChar(64)
   version   Int
   size      Int
   content   Bytes?
   Chunk     Chunk[]
   projectId Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([hash, version, projectId])
 }
 
 model Project {
-  id       Int    @id @unique @default(autoincrement())
-  tenant   Tenant @relation(fields: [tenantId], references: [id])
-  name     String @unique
-  File     File[]
-  tenantId Int
+  id        Int      @id @unique @default(autoincrement())
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  name      String   @db.VarChar(100)  @unique
+  File      File[]
+  tenantId  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
 }
 
 model Tenant {
-  id      Int       @id @unique @default(autoincrement())
-  name    String    @unique
-  Project Project[]
+  id        Int        @id @unique @default(autoincrement())
+  name      String     @db.VarChar(100) @unique
+  Project   Project[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 }
 
 model Model {
-  name   String  @id @unique
-  column String
-  Chunk  Chunk[]
+  id         Int      @id @unique @default(autoincrement())
+  name       String   @db.VarChar(128) @unique
+  columnName String   @db.VarChar(64)
+  chunks     Chunk[]
 }
 
 enum FileType {

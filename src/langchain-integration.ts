@@ -6,6 +6,8 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import 'dotenv/config';
 
+const EMBEDDING_MODEL = 'Xenova/all-MiniLM-L6-v2'; // 384-dimensional vectors, runs locally
+
 const prisma = new PrismaClient();
 
 // Type for vector store document
