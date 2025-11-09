@@ -6,6 +6,12 @@ generator client {
   previewFeatures = ["postgresqlExtensions"]
 }
 
+generator typegraphql {
+  provider = "typegraphql-prisma"
+  output   = "../src/generated/type-graphql"
+  emitTranspiledCode = true
+}
+
 datasource db {
   provider   = "postgresql"
   url        = env("DATABASE_URL")
@@ -43,14 +49,11 @@ model Chunk {
   hash                    String @db.VarChar(64)
   selection               Int?
   model                   Model                      @relation(fields: [modelId], references: [id])
-  version                 Int
   xenova_all_minilm_l6_v2 Unsupported("vector(384)")
   fileId                  Int
   modelId                 Int
-  createdAt               DateTime                   @default(now())
-  updatedAt               DateTime                   @updatedAt
 
-  @@index([hash, version, modelId, fileId])
+  @@index([hash, modelId, fileId])
 }
 
 model FileData {
@@ -58,10 +61,8 @@ model FileData {
   project   Project  @relation(fields: [projectId], references: [id])
   name      String   @db.VarChar(2560)
   mimeType  String   @db.VarChar(64)
-  type      FileDataType @default(TEXT)
   source    String?  @db.VarChar(2560)
   hash      String   @db.VarChar(64)
-  version   Int
   size      Int
   content   Bytes?
   Chunk     Chunk[]
@@ -97,10 +98,6 @@ model Model {
   id         Int      @id @unique @default(autoincrement())
   name       String   @db.VarChar(128) @unique
   columnName String   @db.VarChar(64)
+  source    String?   @db.VarChar(2560)
   chunks     Chunk[]
-}
-
-enum FileDataType {
-  TEXT
-  BINARY
 }

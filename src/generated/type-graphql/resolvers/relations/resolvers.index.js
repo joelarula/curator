@@ -1,0 +1,13 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.TenantRelationsResolver = exports.ProjectRelationsResolver = exports.ModelRelationsResolver = exports.FileDataRelationsResolver = exports.ChunkRelationsResolver = void 0;
+var ChunkRelationsResolver_1 = require("./Chunk/ChunkRelationsResolver");
+Object.defineProperty(exports, "ChunkRelationsResolver", { enumerable: true, get: function () { return ChunkRelationsResolver_1.ChunkRelationsResolver; } });
+var FileDataRelationsResolver_1 = require("./FileData/FileDataRelationsResolver");
+Object.defineProperty(exports, "FileDataRelationsResolver", { enumerable: true, get: function () { return FileDataRelationsResolver_1.FileDataRelationsResolver; } });
+var ModelRelationsResolver_1 = require("./Model/ModelRelationsResolver");
+Object.defineProperty(exports, "ModelRelationsResolver", { enumerable: true, get: function () { return ModelRelationsResolver_1.ModelRelationsResolver; } });
+var ProjectRelationsResolver_1 = require("./Project/ProjectRelationsResolver");
+Object.defineProperty(exports, "ProjectRelationsResolver", { enumerable: true, get: function () { return ProjectRelationsResolver_1.ProjectRelationsResolver; } });
+var TenantRelationsResolver_1 = require("./Tenant/TenantRelationsResolver");
+Object.defineProperty(exports, "TenantRelationsResolver", { enumerable: true, get: function () { return TenantRelationsResolver_1.TenantRelationsResolver; } });

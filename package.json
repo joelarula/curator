@@ -8,9 +8,11 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "prisma:push": "prisma db push",
+    "generate:typegraphql": "typegraphql-prisma generate",
     "cli": "ts-node src/cli.ts",
-    "build": "tsc"
-
+    "build": "tsc",
+    "graphql": "ts-node src/graphql/server.ts",
+    "test": "ts-node src/detailed-test.ts"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
@@ -28,18 +30,25 @@
     "@langchain/community": "^0.3.11",
     "@langchain/core": "^0.3.15",
     "@langchain/openai": "^0.3.11",
-    "@prisma/client": "^5.20.0",
     "@types/uuid": "^10.0.0",
+    "apollo-server": "^3.13.0",
     "commander": "^14.0.2",
     "dotenv": "^16.4.5",
     "langchain": "^0.3.5",
-    "uuid": "^13.0.0"
+    "reflect-metadata": "^0.2.2",
+    "uuid": "^13.0.0",
+    "@modelcontextprotocol/sdk": "^1.0.4"
   },
   "devDependencies": {
-    "@types/node": "^22.5.5",
-    "prisma": "^5.20.0",
+    "@prisma/client": "^5.22.0",
+    "@types/node": "^22.19.0",
+    "class-validator": "^0.14.2",
+    "graphql": "^16.12.0",
+    "prisma": "^5.22.0",
     "ts-node": "^10.9.2",
     "tsx": "^4.19.1",
+    "type-graphql": "^2.0.0-rc.2",
+    "typegraphql-prisma": "^0.28.0",
     "typescript": "^5.6.2"
   }
 }

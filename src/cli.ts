@@ -1,6 +1,6 @@
 import { Command } from 'commander';
-import { FileDataType, PrismaClient,FileData } from '@prisma/client';
-import { saveFile,queryData } from './service';
+import { PrismaClient,FileData } from '@prisma/client';
+import { save,remove,consult } from './service';
 import { createSha256Hash } from './utils/hash';
 
 const program = new Command();
@@ -15,61 +15,61 @@ program
 
 program
   .command('add')
-  .description('Add a new item to the project.')
-  .requiredOption('-t, --text <text>', 'The text to add.')
-  .action(async (options: { text: string }) => {
+  .description('Add a new file to the project.')
+   .argument('<text>', 'The text') 
+  //.requiredOption('-t, --text <text>', 'The text to add.')
+  .action(async (text: string) => {
     
-    const hash = createSha256Hash(options.text);
-    console.log(`✅ Adding item: "${options.text}" with hash ${hash}`);
+    const hash = createSha256Hash(text);
+    console.log(`✅ Adding item: "${text}" with hash ${hash}`);
 
     const file: FileData = {
       id: 0, // Will be set by database
-      name: options.text,
-      type: FileDataType.TEXT,
+      name: text,
       hash: hash,
-      size: options.text.length,
+      size: text.length,
       mimeType: 'text/plain',
-      content: Buffer.from(options.text),
+      content: Buffer.from(text),
       source: null,
-      version: 1,
       projectId: 1, // Default project ID
       createdAt: new Date(),
       updatedAt: new Date()
     };
 
-    const savedFile = await saveFile(file);
-    console.log('✅ File saved successfully with ID:', savedFile.id);
-
-    // Add logic for data validation
+    const savedFile = await save(file);
   });
 
 
-// ----------------------------------------------------
-// 3. 'REMOVE' Command: remove <id>
-//    - Requires a positional argument: <id>
-// ----------------------------------------------------
 program
   .command('remove')
-  .description('Remove an item by its ID.')
-  // The <> brackets indicate a required positional argument
-  .argument('<id>', 'The unique ID of the item to remove.') 
-  .action((id: string) => {
-    console.log(`🗑️ Removing item with ID: ${id}`);
-    // Add logic here to remove the item from storage
+  .description('Remove file by its name.')
+  .argument('<name>', 'The unique name of the item to remove.') 
+  .action((name: string) => {
+    remove(name, 1); 
   });
 
 
 program
   .command('query')
-  .description('Query items.')
-  .requiredOption('-q, --query <query>', 'The query string to search for.')
-  .action((options: { query: string }) => {
-    console.log(`� Querying items with query: "${options.query}"`);
-    
-    queryData(options.query).then(results => {
+  .description('Query files.')
+  .argument('<query>', 'The query string to search for.')
+  .action((query: string) => {
+    consult(query).then(results => {
       console.log('✅ Query Results:', results);
     });
 });
 
-// 5. Parse the command-line arguments passed to the Node.js process
+//program
+//  .command('query')
+//  .description('Query items.')
+//  .requiredOption('-q, --query <query>', 'The query string to search for.')
+//  .action((options: { query: string }) => {
+//    console.log(`� Querying items with query: "${options.query}"`);
+//    
+//    queryData(options.query).then(results => {
+//      console.log('✅ Query Results:', results);
+//    });
+//});
+
+
 program.parse(process.argv);
