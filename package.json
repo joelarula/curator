@@ -7,7 +7,10 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
-    "prisma:push": "prisma db push"
+    "prisma:push": "prisma db push",
+    "cli": "ts-node src/cli.ts",
+    "build": "tsc"
+
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
@@ -27,6 +30,7 @@
     "@langchain/openai": "^0.3.11",
     "@prisma/client": "^5.20.0",
     "@types/uuid": "^10.0.0",
+    "commander": "^14.0.2",
     "dotenv": "^16.4.5",
     "langchain": "^0.3.5",
     "uuid": "^13.0.0"
