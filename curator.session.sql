@@ -1,0 +1,1 @@
+SELECT * FROM vector_store

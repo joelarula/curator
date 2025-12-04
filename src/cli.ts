@@ -1,5 +1,6 @@
 import { Command } from 'commander';
-import { PrismaClient,FileData } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
+import type { FileData } from '@prisma/client';
 import { save,remove,consult } from './service';
 import { createSha256Hash } from './utils/hash';
 

@@ -2,7 +2,9 @@
 import { HuggingFaceTransformersEmbeddings } from '@langchain/community/embeddings/huggingface_transformers';
 import { PrismaVectorStore } from '@langchain/community/vectorstores/prisma';
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
-import { PrismaClient, Prisma, Chunk, FileData } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
+import type { Chunk } from '@prisma/client';
+import type { FileData } from '@prisma/client';
 import 'dotenv/config';
 
 export const xenova_all_minilm_l6_v2 = 'Xenova/all-MiniLM-L6-v2'; // 384-dimensional vectors, runs locally

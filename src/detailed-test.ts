@@ -1,5 +1,6 @@
 
-import { PrismaClient, FileData, Prisma } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
+import type { FileData } from '@prisma/client';
 import { save, remove, consult } from './service';
 import { xenova_all_minilm_l6_v2 } from './service';
 import { createHash } from 'crypto';

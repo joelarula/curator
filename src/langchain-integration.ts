@@ -117,6 +117,10 @@ export async function addDocuments(texts: string[], metadatas?: Record<string, a
       for (let i = 0; i < documents.length; i++) {
         const doc = documents[i];
         const vector = vectors[i];
+        if (!doc) {
+          console.warn(`Document at index ${i} is undefined, skipping.`);
+          continue;
+        }
         // Use upsert logic with ON CONFLICT
       await tx.$executeRaw`
           INSERT INTO "VectorStore" (id, namespace, content, metadata, embedding, "createdAt")
