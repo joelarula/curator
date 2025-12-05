@@ -3,42 +3,45 @@ import { HuggingFaceTransformersEmbeddings } from '@langchain/community/embeddin
 import { PrismaVectorStore } from '@langchain/community/vectorstores/prisma';
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 import type { Chunk } from '@prisma/client';
 import type { FileData } from '@prisma/client';
 import 'dotenv/config';
 
 export const xenova_all_minilm_l6_v2 = 'Xenova/all-MiniLM-L6-v2'; // 384-dimensional vectors, runs locally
 
-const prisma = new PrismaClient();
+const connectionString = `${process.env.DATABASE_URL}`;
+const adapter = new PrismaPg({ connectionString });
+const prisma = new PrismaClient({ adapter });
 
 //const enabled = process.env.ENABLE_VECTOR_STORE === 'true';
 
 export async function initializeLangchainVectorStore(): Promise<any> {
 
-  const embeddings = new HuggingFaceTransformersEmbeddings({
-    model: xenova_all_minilm_l6_v2 
-  });
+    const embeddings = new HuggingFaceTransformersEmbeddings({
+        model: xenova_all_minilm_l6_v2
+    });
 
-  return PrismaVectorStore.withModel<Chunk>(prisma).create(
-    embeddings,
-    {
-      prisma: Prisma,
-      tableName: 'Chunk' as const,
-      vectorColumnName: 'xenova_all_minilm_l6_v2',
-      columns: {
-        id: PrismaVectorStore.IdColumn,
-        text: PrismaVectorStore.ContentColumn,
-        hash: true,
-        fileId: true,
-        modelId: true,
-      }
-    }
-  );
+    return PrismaVectorStore.withModel<Chunk>(prisma).create(
+        embeddings,
+        {
+            prisma: Prisma,
+            tableName: 'Chunk' as const,
+            vectorColumnName: 'xenova_all_minilm_l6_v2',
+            columns: {
+                id: PrismaVectorStore.IdColumn,
+                text: PrismaVectorStore.ContentColumn,
+                hash: true,
+                fileId: true,
+                modelId: true,
+            }
+        }
+    );
 }
 
 
 export async function save(file: FileData) {
-    
+
     console.log(`✅ Adding file "${file.name}"`);
     const vectorStore = await initializeLangchainVectorStore();
 
@@ -60,12 +63,12 @@ export async function save(file: FileData) {
         });
 
         //if(latestVersion && latestVersion.hash === file.hash) {
-        //    console.log(`� File "${file.name}" with same hash already exists. Skipping addition.`);
+        //    console.log(` File "${file.name}" with same hash already exists. Skipping addition.`);
         //    return latestVersion;
         //}
-        
-        if(latestVersion) {
-            console.log(`� New version of file "${file.name}" detected. Previous hash: ${latestVersion.hash}, New hash: ${file.hash}`);
+
+        if (latestVersion) {
+            console.log(` New version of file "${file.name}" detected. Previous hash: ${latestVersion.hash}, New hash: ${file.hash}`);
             prisma.chunk.deleteMany({
                 where: {
                     fileId: latestVersion.id
@@ -74,8 +77,8 @@ export async function save(file: FileData) {
         }
 
         const savedFile = await prisma.fileData.upsert({
-            where: { 
-                name_projectId: { 
+            where: {
+                name_projectId: {
                     name: file.name,
                     projectId: file.projectId
                 }
@@ -99,7 +102,7 @@ export async function save(file: FileData) {
         });
 
 
-        const text = file.content?.toString('utf-8') || "";
+        const text = file.content ? Buffer.from(file.content).toString('utf-8') : "";
         console.log(`✅ Adding text "${text}"`);
 
         const model = await prisma.model.findFirst({
@@ -139,7 +142,7 @@ export async function save(file: FileData) {
 
         console.log('✅ File and chunks created successfully');
         return savedFile;
-        
+
     } catch (error) {
         console.error('Error adding file:', error);
         throw error;
@@ -147,7 +150,7 @@ export async function save(file: FileData) {
 }
 
 export async function remove(fileName: string, projectId: number) {
- console.log(`✅ Removing file "${fileName}"`);
+    console.log(`✅ Removing file "${fileName}"`);
     const file = await prisma.fileData.findFirst({
         where: {
             name: fileName,
@@ -156,7 +159,7 @@ export async function remove(fileName: string, projectId: number) {
     });
 
     if (!file) {
-        console.log(`� File "${fileName}" not found.`);
+        console.log(` File "${fileName}" not found.`);
         return null;
     }
 
@@ -177,13 +180,13 @@ export async function remove(fileName: string, projectId: number) {
 }
 
 export async function consult(query: string, k: number = 5) {
-  const vectorStore = await initializeLangchainVectorStore();
-  console.log(`✅ Consult > "${query}".`);
-  const results = await vectorStore.similaritySearchWithScore(query, k);
-  
-  return results.map(([doc, score]: [any, any]) => ({
-    content: doc.pageContent,
-    metadata: doc.metadata,
-    score,
-  }));
+    const vectorStore = await initializeLangchainVectorStore();
+    console.log(`✅ Consult > "${query}".`);
+    const results = await vectorStore.similaritySearchWithScore(query, k);
+
+    return results.map(([doc, score]: [any, any]) => ({
+        content: doc.pageContent,
+        metadata: doc.metadata,
+        score,
+    }));
 }

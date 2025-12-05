@@ -1,27 +1,12 @@
-import 'reflect-metadata';
-import { ApolloServer } from 'apollo-server';
-import { buildSchema } from 'type-graphql';
 import { PrismaClient } from '@prisma/client';
-import { resolvers } from '../generated/type-graphql';
+import { PrismaPg } from '@prisma/adapter-pg';
 
-const prisma = new PrismaClient();
+const connectionString = `${process.env.DATABASE_URL}`;
+const adapter = new PrismaPg({ connectionString });
+const prisma = new PrismaClient({ adapter });
 
 async function bootstrap() {
-  // Build TypeGraphQL schema
-  const schema = await buildSchema({
-    resolvers,
-    validate: false,
-  });
-
-  // Create Apollo Server
-  const server = new ApolloServer({
-    schema,
-    context: () => ({ prisma }),
-  });
-
-  // Start the server
-  const { url } = await server.listen(4000);
-  console.log(`🚀 Server ready at ${url}`);
+  console.log('GraphQL server is currently disabled due to Prisma migration.');
 }
 
 bootstrap().catch(console.error);

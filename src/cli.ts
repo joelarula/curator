@@ -1,11 +1,14 @@
 import { Command } from 'commander';
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 import type { FileData } from '@prisma/client';
-import { save,remove,consult } from './service';
+import { save, remove, consult } from './service';
 import { createSha256Hash } from './utils/hash';
 
 const program = new Command();
-const prisma = new PrismaClient();
+const connectionString = `${process.env.DATABASE_URL}`;
+const adapter = new PrismaPg({ connectionString });
+const prisma = new PrismaClient({ adapter });
 
 
 program
@@ -17,10 +20,10 @@ program
 program
   .command('add')
   .description('Add a new file to the project.')
-   .argument('<text>', 'The text') 
+  .argument('<text>', 'The text')
   //.requiredOption('-t, --text <text>', 'The text to add.')
   .action(async (text: string) => {
-    
+
     const hash = createSha256Hash(text);
     console.log(`✅ Adding item: "${text}" with hash ${hash}`);
 
@@ -44,9 +47,9 @@ program
 program
   .command('remove')
   .description('Remove file by its name.')
-  .argument('<name>', 'The unique name of the item to remove.') 
+  .argument('<name>', 'The unique name of the item to remove.')
   .action((name: string) => {
-    remove(name, 1); 
+    remove(name, 1);
   });
 
 
@@ -58,14 +61,14 @@ program
     consult(query).then(results => {
       console.log('✅ Query Results:', results);
     });
-});
+  });
 
 //program
 //  .command('query')
 //  .description('Query items.')
 //  .requiredOption('-q, --query <query>', 'The query string to search for.')
 //  .action((options: { query: string }) => {
-//    console.log(`� Querying items with query: "${options.query}"`);
+//    console.log(` Querying items with query: "${options.query}"`);
 //    
 //    queryData(options.query).then(results => {
 //      console.log('✅ Query Results:', results);

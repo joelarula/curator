@@ -1,8 +1,14 @@
+import 'dotenv/config'
 import { PrismaClient } from '@prisma/client'
-const prisma = new PrismaClient()
+import { PrismaPg } from '@prisma/adapter-pg'
+import { defaultAllowedOrigins } from 'vite'
+
+const connectionString = process.env.DATABASE_URL!
+const adapter = new PrismaPg({ connectionString })
+const prisma = new PrismaClient({ adapter })
 
 async function main() {
-  const defaultTenant = await prisma.tenant.upsert({
+  const defaultAccount = await prisma.account.upsert({
     where: { name: 'default' },
     update: {},
     create: {
@@ -10,7 +16,7 @@ async function main() {
     }
   })
 
-  console.log('Created default tenant:', defaultTenant)
+  console.log('Created default account:', defaultAccount)
 
   const model = await prisma.model.upsert({
     where: { name: 'Xenova/all-MiniLM-L6-v2' },
@@ -29,7 +35,7 @@ async function main() {
     update: {},
     create: {
       name: "default",
-      tenantId: defaultTenant.id,
+      accountId: defaultAccount.id,
     }
   });
 

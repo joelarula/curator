@@ -6,47 +6,17 @@ generator client {
   previewFeatures = ["postgresqlExtensions"]
 }
 
-generator typegraphql {
-  provider = "typegraphql-prisma"
-  output   = "../src/generated/type-graphql"
-  emitTranspiledCode = true
-}
-
 datasource db {
   provider   = "postgresql"
-  url        = env("DATABASE_URL")
   extensions = [vector]
 }
 
-// Example model with vector embeddings
-model Document {
-  id        String                      @id @default(cuid())
-  content   String
-  metadata  Json?
-  embedding Unsupported("vector(384)")?
-  createdAt DateTime                    @default(now())
-  updatedAt DateTime                    @updatedAt
-
-  @@map("documents")
-}
-
-// Example model for vector store metadata
-model VectorStore {
-  id        String                     @id @default(cuid())
-  namespace String
-  content   String
-  metadata  Json?
-  embedding Unsupported("vector(384)")
-  createdAt DateTime                   @default(now())
-
-  @@index([namespace])
-}
 
 model Chunk {
   id                      Int                        @id @unique @default(autoincrement())
-  file                    FileData                       @relation(fields: [fileId], references: [id])
-  text                    String @db.VarChar(2560)
-  hash                    String @db.VarChar(64)
+  file                    FileData                   @relation(fields: [fileId], references: [id])
+  text                    String                     @db.VarChar(2560)
+  hash                    String                     @db.VarChar(64)
   selection               Int?
   model                   Model                      @relation(fields: [modelId], references: [id])
   xenova_all_minilm_l6_v2 Unsupported("vector(384)")
@@ -75,29 +45,65 @@ model FileData {
 }
 
 model Project {
-  id        Int      @id @unique @default(autoincrement())
-  tenant    Tenant   @relation(fields: [tenantId], references: [id])
-  name      String   @db.VarChar(100)  @unique
+  id        Int        @id @unique @default(autoincrement())
+  account   Account    @relation(fields: [accountId], references: [id])
+  name      String     @unique @db.VarChar(100)
   files     FileData[]
-  tenantId  Int
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  accountId   Int
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 
-  @@index([tenantId])
+  @@index([accountId])
 }
 
-model Tenant {
+model Account {
   id        Int        @id @unique @default(autoincrement())
-  name      String     @db.VarChar(100) @unique
+  name      String     @unique @db.VarChar(100)
   projects  Project[]
+  operators Operator[]
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 }
 
 model Model {
-  id         Int      @id @unique @default(autoincrement())
-  name       String   @db.VarChar(128) @unique
-  columnName String   @db.VarChar(64)
-  source    String?   @db.VarChar(2560)
+  id         Int     @id @unique @default(autoincrement())
+  name       String  @unique @db.VarChar(128)
+  columnName String  @db.VarChar(64)
+  source     String? @db.VarChar(2560)
   chunks     Chunk[]
+}
+
+model User {
+  id        String     @id @default(cuid())
+  email     String     @unique
+  name      String?
+  googleId  String?    @unique
+  operations Operator[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model Operator {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  account    Account   @relation(fields: [accountId], references: [id])
+  accountId  Int
+  role      Role    @relation(fields: [roleId], references: [id])
+  roleId    Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, accountId, roleId])
+  @@index([userId])
+  @@index([accountId])
+  @@index([roleId])
+}
+
+
+model Role{
+  id        Int      @id @default(autoincrement())
+  name      String   @unique @db.VarChar(50)
+  description String? @db.VarChar(256) 
+  operators Operator[]
 }

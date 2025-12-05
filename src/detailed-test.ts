@@ -1,12 +1,15 @@
 
 import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 import type { FileData } from '@prisma/client';
 import { save, remove, consult } from './service';
 import { xenova_all_minilm_l6_v2 } from './service';
 import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
 
-const prisma = new PrismaClient();
+const connectionString = `${process.env.DATABASE_URL}`;
+const adapter = new PrismaPg({ connectionString });
+const prisma = new PrismaClient({ adapter });
 
 type SearchResult = {
   content: string;
@@ -17,10 +20,10 @@ type SearchResult = {
 async function runDetailedTest() {
   try {
     console.log('Starting detailed vector store test...');
-    
+
     // Test documents
     const testDocs = [
-      { 
+      {
         content: 'PostgreSQL is a powerful, open source object-relational database system.',
         source: 'postgres-docs'
       },
@@ -43,7 +46,7 @@ async function runDetailedTest() {
       const content = Buffer.from(doc.content);
       const hash = createHash('sha256').update(content).digest('hex');
       const now = new Date();
-      
+
       const file: FileData = {
         id: 0, // Will be set by DB
         name: `${doc.source}.txt`,
@@ -106,7 +109,7 @@ async function runDetailedTest() {
     // Test semantic search
     console.log('\nTesting semantic search...');
     const searchResults = await consult('vector database', 2);
-    
+
     console.log('\nSearch Results:');
     searchResults.forEach((result: SearchResult, i: number) => {
       console.log(`\n${i + 1}. Content: ${result.content}`);
