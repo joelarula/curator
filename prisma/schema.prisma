@@ -17,7 +17,8 @@ model Chunk {
   file                    FileData                   @relation(fields: [fileId], references: [id])
   text                    String                     @db.VarChar(2560)
   hash                    String                     @db.VarChar(64)
-  selection               Int?
+  selectionStart          Int?
+  selectionEnd            Int?
   model                   Model                      @relation(fields: [modelId], references: [id])
   xenova_all_minilm_l6_v2 Unsupported("vector(384)")
   fileId                  Int
@@ -34,7 +35,9 @@ model FileData {
   source    String?  @db.VarChar(2560)
   hash      String   @db.VarChar(64)
   size      Int
-  content   Bytes?
+  metadata  String?  @db.VarChar(512)
+  content   String?  @db.Text
+  binaryContent Bytes?   
   Chunk     Chunk[]
   projectId Int
   createdAt DateTime @default(now())

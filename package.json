@@ -33,6 +33,7 @@
     "@apollo/client": "^3.14.0",
     "@apollo/server": "^5.2.0",
     "@auth/core": "^0.34.3",
+    "@google/generative-ai": "^0.24.1",
     "@huggingface/transformers": "^3.7.6",
     "@langchain/community": "^0.3.11",
     "@langchain/core": "^0.3.15",

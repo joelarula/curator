@@ -1,0 +1,134 @@
+IRIS 3D
+360° UAS
+DETECTION
+PRODUCT SHEET
+360° COVERAGE IN 3D
+The drone threat can develop in any direction,
+we built IRIS for unrivalled awareness and
+precious time to react. Uniquely, this radar
+combines 360° azimuth views, with 60° elevation
+for real-time 3D technology and complete
+awareness all year round. Day or night.
+BUILT TO INTEGRATE
+Infinitely deployable and simple to integrate, IRIS
+is lightweight at just 29 kg. With an interoperable interface, IRIS slots seamlessly into your tech
+stack to cue other sensors with precision.
+CLASSIFY WITH CONVICTION
+Detection is your first line of defence. IRIS classifies every type of drone in seconds, even
+fixed-wing and hovering drones. Cutting-edge
+micro-doppler and deep neural networks (DNN)
+mean world-class accuracy and low false alarm
+rates.
+MISSION-PROVEN WORLDWIDE
+We’re proud to collaborate closely with 25+
+experienced partners and integrators. IRIS
+is mission-proven all over the globe, supporting
+military and police forces, political summits,
+airports, prisons, large-scale events, oil rigs
+and powerplants to tackle the drone threat.
+DISCOVER OUR SMALL
+BUT MIGHTY 3D DRONE RADAR
+IRIS combines leading classification accuracy, versatility and coverage in a
+deployable 29 kg (64 lb) package.
+PRODUCT SHEET | IRIS
+DEPLOY IN UNDER 15 MINUTES
+Because every moment counts, deploying IRIS
+takes less than 15 minutes. Deploy and redeploy
+on buildings, tripods, and even vehicles.
+DETECT AT 100KM/H
+IRIS detects, tracks and classifies at speeds of up
+to 100 km/h (60 mph) with our On-The-Move
+(OTM) add-on.
+78KM2 COVERAGE AREA
+IRIS is a small drone radar that covers a big area.
+By combining 360° azimuth, 60° elevation, and a
+5 km (3.1 mi) instrumented range, IRIS gives you
+a 78 km2 (30.1 sqm) coverage area in. Extend it
+further by pairing multiple IRIS radar systems.
+Back-to-back sensors allow for 1 second
+update rate and micro-doppler classification
+CUSTOMISE YOUR IRIS
+• Quick-mount tripod or vehicle mount
+• Choose from four colours
+- White
+- Sand Beige
+- Bronze Green
+- Brun terre de France
+• On-The-Move (OTM) hardware upgrade
+1000
+750
+500
+250
+0
+1000
+750
+500
+250
+0
+0
+0
+1000
+1000
+2000
+2000
+GROUND RANGE (M)
+GROUND RANGE (M)
+ALTITUDE (M) ALTITUDE (M)
+3000
+3000
+4000
+4000
+5000
+5000
+IRIS SPECIFICATIONS
+Technology ................................................................................................FMCW
+Frequency...........................................X-Band, 8900 MHz (8775-9100)
+........................................................................................9250 MHz (8975-9300)
+....................................................................................... 9650 MHz (9500-9800)
+Power Output (continuous)........................................................2 x 12 W
+Instrumented Range.............................................................5 km (3.1 mi)
+Main Beam Width ........................................................................................... 6°
+Rotation / Scan Speed...........................................................30 rpm / 1 s
+Elevation Coverage......................................................................................60°
+3D Elevation Accuracy ..................................................................................1°
+Range Accuracy............................................................................ 0.6 m (2 ft)
+Angular Accuracy ...........................................................................0.6 - 0.75°
+Track While Scan...........................................................................................Yes
+Classification Met od......................................................Micro-Doppler
+Upmast Dimensions (Dia. x Height)...........550 mm x 630 mm
+...............................................................................................................(22 x 25 inch)
+Upmast Weight (excl. foot)...............................................29 kg (64 lb)
+Power rating ....................................200 W (nominal) / 336 W (max.)
+Multi-radar .................................Up to four networked IRIS sensors
+IP Rating............................................................................................................IP66
+Ambient Temperature ............-46° C to +50° C (-51° F to 122° F)
+Environmental Testing .............................MIL-STD-810H Certified,
+..............................................................................NPSA Rated, STANAG 4370
+Data Interfaces Available Include: .........................................Asterix,
+................................................................Sapient and proprietary XML-API
+IRIS OTM SPECIFICATIONS
+Max. Vehicle (Radar) Speed...............................100 km/h (62 mph)
+Max. Vehicle Tilt ..............................................................................................10º
+DETECTION &
+CLASSIFICATION RANGES
+Detect. Range*
+3.4 km (2.1 mi)
+4.0 km (2.5 mi)
+Class. Range**
+1.3 km (0.8 mi)
+2.0 km (1.2 mi)
+* These ranges are indicative of the observed ranges achievable
+under good sight conditions.
+** These ranges are typically achieved under varying circumstances
+including moderate clutter.
+*** IRIS requires a processing station and cable to operate.
+Items sold separately.
+TALK TO OUR EXPERTS
+DETECTION COVERAGE DIAGRAM
+For medium target (3kg)
+CLASSIFICATION COVERAGE DIAGRAM
+For medium target (3kg)
+DRONE VIEWER SOFTWARE
+Tel: +31 8 8700 8700 | E-mail: info@robinradar.com | robinradar.com
+The information provided in this document is intended for informational purposes only and is subject to change without notice.
+All rights reserved. RRS.IRIS.A2.2024.V2

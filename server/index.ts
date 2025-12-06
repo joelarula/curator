@@ -8,8 +8,8 @@ import { Strategy as GoogleStrategy } from 'passport-google-oauth20'
 import { Strategy as JwtStrategy, ExtractJwt } from 'passport-jwt'
 import jwt from 'jsonwebtoken'
 import path from 'path'
-import { typeDefs } from './schema'
-import { resolvers } from './resolvers'
+import { typeDefs } from './schema/index'
+import { resolvers } from './resolvers/index'
 import { PrismaClient } from '@prisma/client'
 import { PrismaPg } from '@prisma/adapter-pg'
 
@@ -26,7 +26,8 @@ app.use(cors({
   origin: NODE_ENV === 'production' ? false : 'http://localhost:3000',
   credentials: true
 }))
-app.use(express.json())
+app.use(express.json({ limit: '50mb' }))
+app.use(express.urlencoded({ limit: '50mb', extended: true }))
 app.use(cookieParser())
 app.use(passport.initialize())
 
@@ -139,7 +140,12 @@ async function startServer() {
         operationName: req.body.operationName
       }, { contextValue: context })
       
-      res.json(response.body)
+      // Apollo Server 4 wraps response in body.kind and body.singleResult
+      if (response.body.kind === 'single') {
+        res.json(response.body.singleResult)
+      } else {
+        res.json(response.body)
+      }
     } catch (error) {
       console.error('GraphQL execution error:', error)
       res.status(500).json({ error: 'Internal server error' })

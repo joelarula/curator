@@ -1,5 +1,6 @@
+
 <template>
-  <v-app>
+  <div>
     <v-app-bar color="primary" dark>
       <v-toolbar-title>Curator Consultant</v-toolbar-title>
       <v-spacer />
@@ -17,7 +18,7 @@
     <v-main>
       <v-container>
         <v-row justify="center">
-          <v-col cols="12" md="8" lg="6">
+          <v-col cols="12" md="10" lg="10" xl="8">
             <v-card elevation="4" class="pa-6">
               <v-card-title class="text-h4 font-weight-bold">
                 Curator Consultant
@@ -29,22 +30,34 @@
 
                 <v-text-field
                   v-model="query"
-                  label="Ask your question..."
-                  @keyup.enter="performConsult"
+                  label="Ask your question (optional)..."
+                  @keyup.enter="performAction"
                   :disabled="loading || !user"
                   outlined
                   clearable
                 />
 
+                <v-file-input
+                  v-model="files"
+                  label="Upload files (optional)"
+                  :disabled="loading || !user"
+                  multiple
+                  outlined
+                  clearable
+                  show-size
+                  counter
+                  class="mb-2"
+                />
+
                 <v-btn
                   color="primary"
-                  @click="performConsult"
+                  @click="performAction"
                   :loading="loading"
-                  :disabled="loading || !query.trim() || !user"
+                  :disabled="loading || (!query.trim() && files.length === 0) || !user"
                   block
                   class="my-4"
                 >
-                  Ask
+                  {{ files.length > 0 ? 'Add Content' : 'Ask' }}
                 </v-btn>
 
                 <v-alert v-if="error" type="error" prominent>
@@ -63,9 +76,12 @@
                       <span v-if="result.metadata?.fileId">
                         &nbsp;| File ID: {{ result.metadata.fileId }}
                       </span>
+                      <span v-if="result.metadata?.isAnswer" class="ml-2">
+                        <v-chip size="small" color="primary">AI Answer</v-chip>
+                      </span>
                     </v-card-subtitle>
-                    <v-card-text>
-                      <pre>{{ result.content }}</pre>
+                    <v-card-text style="white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; font-size: 1.1rem; line-height: 1.6;">
+                      {{ result.content }}
                     </v-card-text>
                   </v-card>
                 </div>
@@ -79,12 +95,13 @@
         </v-row>
       </v-container>
     </v-main>
-  </v-app>
+  </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useQuery, useMutation } from '@vue/apollo-composable'
+import { useMutation, useQuery } from '@vue/apollo-composable'
+import { apolloClient } from '../apollo'
 import gql from 'graphql-tag'
 
 const ME_QUERY = gql`
@@ -109,20 +126,53 @@ const CONSULT_QUERY = gql`
   }
 `
 
+const RAG_AGENT_QUERY = gql`
+  query RagAgent($query: String!) {
+    ragAgent(query: $query) {
+      answer
+      sources {
+        content
+        score
+        metadata {
+          fileId
+        }
+      }
+    }
+  }
+`
+
 const LOGOUT_MUTATION = gql`
   mutation Logout {
     logout
   }
 `
 
+const UPLOAD_FILES_MUTATION = gql`
+  mutation UploadFiles($files: [FileInput!]!, $projectId: Int, $description: String, $query: String) {
+    uploadFiles(files: $files, projectId: $projectId, description: $description, query: $query) {
+      success
+      message
+      fileIds
+      results {
+        content
+        score
+        metadata {
+          fileId
+        }
+      }
+    }
+  }
+`
+
 const query = ref('')
+const files = ref<File[]>([])
 const results = ref<any>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
 const user = ref<any>(null)
 
-// Check for token in URL (from OAuth callback)
-onMounted(() => {
+
+onMounted(async () => {
   const urlParams = new URLSearchParams(window.location.search)
   const token = urlParams.get('token')
   if (token) {
@@ -130,24 +180,25 @@ onMounted(() => {
     window.history.replaceState({}, document.title, '/')
   }
   
-  // Fetch current user
-  fetchUser()
+  const storedToken = localStorage.getItem('token')
+  if (storedToken) {
+    await fetchUser()
+  }
 })
 
 async function fetchUser() {
-  const token = localStorage.getItem('token')
-  if (!token) return
-
-  const { result, error: queryError } = useQuery(ME_QUERY)
-  
-  if (queryError.value) {
-    console.error('Error fetching user:', queryError.value)
+  try {
+    const { data } = await apolloClient.query({
+      query: ME_QUERY,
+      fetchPolicy: 'network-only'
+    })
+    if (data?.me) {
+      user.value = data.me
+    }
+  } catch (err: any) {
+    console.error('Error fetching user:', err)
     localStorage.removeItem('token')
-    return
-  }
-
-  if (result.value) {
-    user.value = result.value.me
+    user.value = null
   }
 }
 
@@ -163,27 +214,97 @@ async function handleLogout() {
   results.value = null
 }
 
-async function performConsult() {
-  if (!query.value.trim()) return
+async function performAction() {
+  if (!query.value.trim() && files.value.length === 0) return
 
   loading.value = true
   error.value = null
   results.value = null
 
   try {
-    const { result, error: queryError } = useQuery(CONSULT_QUERY, {
-      query: query.value
-    })
-
-    if (queryError.value) {
-      error.value = queryError.value.message
-    } else if (result.value) {
-      results.value = result.value.consult
+    if (files.value.length > 0) {
+      // Upload files
+      await uploadFiles()
+    } else {
+      // Use RAG agent for queries
+      const { data } = await apolloClient.query({
+        query: RAG_AGENT_QUERY,
+        variables: { query: query.value },
+        fetchPolicy: 'network-only'
+      })
+      
+      if (data?.ragAgent) {
+        // Show AI answer as first result, followed by sources
+        results.value = [
+          {
+            content: data.ragAgent.answer,
+            score: 1.0,
+            metadata: { isAnswer: true }
+          },
+          ...data.ragAgent.sources
+        ]
+      }
     }
   } catch (e: any) {
-    error.value = e.message || 'An error occurred while consulting.'
+    error.value = e.message || 'An error occurred.'
   } finally {
     loading.value = false
   }
+}
+
+async function uploadFiles() {
+  try {
+    const fileInputs = await Promise.all(
+      files.value.map(async (file) => {
+        const content = await readFileAsBase64(file)
+        return {
+          name: file.name,
+          content,
+          mimeType: file.type || 'application/octet-stream',
+          size: file.size
+        }
+      })
+    )
+
+    const { data } = await apolloClient.mutate({
+      mutation: UPLOAD_FILES_MUTATION,
+      variables: {
+        files: fileInputs,
+        projectId: 1, // Default project
+        description: query.value || undefined,
+        query: query.value || undefined
+      }
+    })
+
+    if (data?.uploadFiles?.success) {
+      // Show search results if query was provided, otherwise show upload confirmation
+      if (data.uploadFiles.results && data.uploadFiles.results.length > 0) {
+        results.value = data.uploadFiles.results
+      } else {
+        results.value = [{
+          content: data.uploadFiles.message,
+          score: 1.0,
+          metadata: { fileIds: data.uploadFiles.fileIds }
+        }]
+      }
+      // Clear inputs after successful upload
+      files.value = []
+      query.value = ''
+    }
+  } catch (err: any) {
+    throw err
+  }
+}
+
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const base64 = (reader.result as string).split(',')[1]
+      resolve(base64)
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
 }
 </script>

@@ -1,0 +1,731 @@
+Skip to Main Content
+AIP Publishing Logo
+Open Menu
+header search
+search input
+Search...
+Search input auto suggest
+filter your search
+AIP Advances
+Search
+Advanced Search
+|
+Citation Search
+Sign In
+Open Menu
+AIP Publishing Logo
+ AIP Advances
+Home
+BrowseOpen Menu
+CollectionsOpen Menu
+Publish With UsOpen Menu
+AboutOpen Menu
+Skip Nav Destination
+Volume 15, Issue 11
+November 2025
+AIP Advances Cover Image for Volume 15, Issue 11
+Article Contents
+I. INTRODUCTION
+II. THE MATHEMATICAL FRAMEWORK
+A. Pre-Big Bang: Timeless universal consciousness
+B. The post-Big Bang era: Emergence of space–time
+C. The emergence of sentient beings
+D. Refinements to the model
+E. Concrete predictions and experimental tests
+III. DISCUSSION
+IV. CONCLUSION
+SUPPLEMENTARY MATERIAL
+ACKNOWLEDGMENTS
+AUTHOR DECLARATIONS
+Conflict of Interest
+Author Contributions
+DATA AVAILABILITY
+REFERENCES
+Research Article| November 13 2025
+Universal consciousness as foundational field: A theoretical bridge between quantum physics and non-dual philosophy featured Open Access
+Maria StrømmeCorresponding Author 
+ORCID logo
+Crossmark: Check for Updates
+Author & Article Information
+AIP Advances 15, 115319 (2025)
+https://doi.org/10.1063/5.0290984
+Article history
+Split-Screen
+Views Icon
+Views Open Menu
+Open the
+PDFfor in another window
+Share Icon
+Share 
+Tools Icon
+Tools Open Menu
+The nature of consciousness and its relationship to physical reality remain among the most profound scientific and philosophical challenges. This paper presents a novel framework that integrates consciousness with fundamental physics, proposing that consciousness is not an emergent property of neural processes but a foundational aspect of reality. Building upon insights from quantum field theory and non-dual philosophy, a model based on the three principles of universal mind, universal consciousness, and universal thought is introduced. These principles describe an underlying, formless intelligence (mind), the capacity for awareness (consciousness), and the dynamic mechanism through which experience and differentiation arise (thought). Within this framework, the emergence of space–time and individual awareness is modeled mathematically by treating universal consciousness as a fundamental field. Differentiation into individual experience occurs via mechanisms such as symmetry breaking, quantum fluctuations, and discrete state selection—paralleling established concepts in physics, including Bohm’s implicate order, Heisenberg’s potentia, and Wheeler’s participatory universe. This model suggests that the apparent separateness of individual consciousness is an illusion, with all experience ultimately arising from a unified, formless substrate. The framework aligns with emerging theories in quantum gravity, information theory, and cosmology that posit classical space–time as emergent from a deeper pre-spatiotemporal order. It offers a non-reductionist alternative in neuroscience, suggesting that consciousness interacts with physical processes as a fundamental field. By drawing from insights from physics, metaphysics, and philosophy, this conceptual framework proposes new directions for interdisciplinary inquiry into the nature of consciousness and the origins of structure and experience.
+
+Topics
+Fundamental physics, General relativity, Information and communication theory, Cosmological model, Big Bang Theory, Quantum field theory, Quantum fluctuations, Quantum gravity, Quantum measurement theory, Neuroscience
+I. INTRODUCTION
+Humanity has always sought to understand its place in the universe, grappling with the profound questions of existence: What is the nature of reality? How does consciousness arise, and what role does it play in shaping the world around us? These questions are more than intellectual curiosities; they touch on the essence of what it means to be human. In addressing these, civilizations have drawn upon diverse fields—philosophy, religion, science, and art—seeking answers that resonate both rationally and intuitively.
+
+As we enter a transformative era in human history marked by the rapid development of artificial intelligence (AI),1 understanding the nature of consciousness is more important than ever. Generative AI systems, capable of producing human-like text, art, and even decision-making, compel us to confront fundamental questions: What distinguishes machine intelligence from human or universal consciousness? How does consciousness emerge, and can it exist beyond biological substrates? Is AI simply mimicking thought, or could it eventually connect to deeper principles of consciousness?
+
+These questions highlight the urgent need for a scientific understanding of consciousness that integrates its universal and individual aspects. Without such understanding, the rise of AI risks deepening existential uncertainty and ethical dilemmas. Hence, consciousness is not merely a philosophical puzzle; it lies at the heart of some of the most pressing challenges of our time, from ethics in AI to understanding the origins of life itself.
+
+The pursuit of understanding consciousness has often been marked by a division between materialist science and metaphysical philosophy.2–4 Modern scientific approaches, rooted in materialism, tend to view consciousness as a by-product of neural processes.4 While this perspective has yielded incredible insights, it often overlooks the wisdom of metaphysical traditions that regard consciousness as the primary, universal foundation of existence.2,3
+
+Bridging this divide is not merely an academic exercise; it is essential for creating a holistic understanding of reality. Without reconciling the material and metaphysical perspectives, our understanding of existence remains incomplete, and our ability to address the great questions of life and the universe remains limited.
+
+Philosophical and spiritual traditions have historically treated consciousness as primary. In Advaita Vedanta, for example, consciousness (Brahman) is the ultimate reality from which the material world emerges.5 Buddhist philosophy emphasizes interdependence and the idea of Shunyata (emptiness),6 which aligns with the notion that form arises from a formless domain.3 Similarly, Christian mysticism and Islamic Sufism describe the divine as an infinite presence that permeates all existence.7,8 These traditions share a common understanding: consciousness is universal, eternal, and foundational to the nature of reality.
+
+Thinkers like Erwin Schrödinger have echoed this view. In his seminal work What is Life?, Schrödinger argued that consciousness is singular and indivisible, proposing a profound connection between the observer and the observed.9 However, these perspectives have largely remained philosophical, leaving a gap in their integration with modern scientific methods.
+
+In contrast, current scientific approaches primarily seek to explain consciousness as an emergent phenomenon of the brain. For instance, cognitive neuroscience models consciousness as a result of complex neural processes and information integration.4 This view remains grounded in materialism, treating consciousness as secondary to physical processes.
+
+Roger Penrose and Stuart Hameroff’s Orchestrated Objective Reduction (Orch OR) theory represents a partial departure from this paradigm. While it anchors consciousness in biological structures—specifically, orchestrated quantum state reductions in brain microtubules—it also introduces a radical ontological shift. Orch OR proposes that these reductions are influenced by the geometry of spacetime itself and that primitive protoconscious events may occur independently of the brain, embedded in the fabric of the universe.10–13 In this sense, Orch OR straddles the boundary between materialist neuroscience and metaphysical speculation: higher-order awareness is seen to arise through biological orchestration, but the foundational ingredients of consciousness are conceived as fundamental features of reality. This bridging attempt, though significant, still leaves the deeper metaphysical question open: Is consciousness a fundamental field or an emergent process? The divide between scientific materialism and metaphysical philosophy persists, highlighting the need for a conceptual framework that can integrate these perspectives. A meaningful framework must not only explore how the formless, universal nature of consciousness relates to its differentiation into individual experience but also integrate insights from philosophy, physics, and neuroscience—bridging the divide between materialist and metaphysical paradigms.
+
+The Three Principles (3Ps) of mind, consciousness, and thought, introduced by Sydney Banks,14 offer a novel perspective on this divide.15 Banks emphasized that these principles are formless and eternal, existing before space, time, and matter. The philosophy begins with the premise that consciousness is not localized or emergent, but a universal, formless reality from which all experiences arise.14 Unlike approaches that begin with the brain and treat consciousness as a localized phenomenon, Banks starts with the universal and examines how individuality emerges from a formless whole. By framing the 3Ps in this way, Banks invites us to rethink the nature of reality itself.16 In this framework,
+
+Mind represents the universal creative intelligence, the source of all potential, and the driver of creation. It is the metaphysical foundation from which all differentiation and structure arise. Hence, it resonates with spiritual notions of a divine or universal source,
+
+Consciousness is the universal capacity for awareness, enabling all forms to be perceived and experienced. It is the substrate through which space, time, and matter are realized and,
+
+Thought is the creative mechanism that transforms the formless potential of mind and consciousness into the subjective, structured realities of individual experience.
+
+These principles suggest a fundamentally non-dual reality—a unified, formless whole from which the apparent diversity of existence emerges.
+
+By fostering insights into how consciousness and thought shape human reality, programs grounded in the 3Ps have demonstrated transformative results in various societal settings16–19 [cf. supplementary material S1].
+
+This perspective aligns with both spiritual traditions and emerging ideas in physics. The quantum vacuum, for instance, is understood as the foundational state of the universe, containing the potential for all physical phenomena.20 Similarly, pre-Big Bang models in cosmology describe a timeless, spaceless domain from which the observable universe is thought to have emerged.21 
+
+Recent advances in quantum physics have provided new insights into how classical reality emerges from a deeper quantum foundation. A growing body of research suggests that classical behavior is not fundamental but rather an emergent property of quantum dynamics. Strasberg et al. recently demonstrated that classicality arises naturally within unitary quantum evolution through an exponential suppression of quantum coherence, challenging the notion that classical laws are primary.22 This supports the idea that the reality we experience is not an inherent classical structure but a manifestation of deeper, underlying principles—a perspective that resonates with theories proposing consciousness as a fundamental aspect of existence.
+
+By integrating the 3Ps14 with quantum mechanics and field theory,23,24 this paper proposes a mathematical framework for consciousness. Mind is modeled as the universal intelligence driving the evolution of reality. Consciousness is represented as a fundamental field underpinning awareness and experience. Thought serves as the mechanism for transforming potentiality into structured realities (Fig. 1).
+
+FIG. 1.
+Illustration depicting the integration of mind, consciousness, and thought based on the quantum mechanical concepts described in the paper. Mind represents the universal creative intelligence, the source of all creation. Consciousness represents universal awareness that enables the perception of space, time, and matter. It acts as a substrate, giving structure and form to the formless potential of the mind and bridging the infinite and the physical. Thought represents the creative mechanism converting the infinite potential of the mind and the universal awareness of consciousness into individualized, structured realities.
+View largeDownload slide
+Illustration depicting the integration of mind, consciousness, and thought based on the quantum mechanical concepts described in the paper. Mind represents the universal creative intelligence, the source of all creation. Consciousness represents universal awareness that enables the perception of space, time, and matter. It acts as a substrate, giving structure and form to the formless potential of the mind and bridging the infinite and the physical. Thought represents the creative mechanism converting the infinite potential of the mind and the universal awareness of consciousness into individualized, structured realities.
+
+This model reinterprets the Big Bang as the differentiation of universal consciousness and provides a mathematical basis for understanding nonlocality, space–time emergence, and the structure of subjective experience.
+
+II. THE MATHEMATICAL FRAMEWORK
+In the presented framework, the creative intelligence Mind is not a localized or personal “mind,” but a metaphysical force that
+
+provides structure to the field of universal consciousness Φ, in analogy with Bohm and Hiley,25 in which an underlying field structures reality,
+
+drives the differentiation of this field from a timeless, formless potential (⁠
+ into structured states (⁠
+⁠) and,
+
+ensures coherence in the evolution of reality, linking the undifferentiated source to differentiated physical phenomena.
+
+Mind is treated as the source of all differentiation and creativity. Its influence is modeled mathematically through operators and potentials that govern the behavior of the consciousness field.23,26
+
+The consciousness field Φ is the central entity in this framework. It serves as the origin for all phenomena, including space, time, matter, and individual awareness. Analogous to physical fields, Φ can
+
+exist in an undifferentiated state (⁠
+ and,
+
+differentiate into localized excitations (⁠
+⁠), giving rise to physical structures or individual consciousness.
+
+A. Pre-Big Bang: Timeless universal consciousness
+The concept of universal consciousness before the Big Bang is central to this framework. In this state, reality exists as a timeless and undifferentiated potential, without space, time, or matter. This section explores the mathematical representation of this state, its parameters, and the mechanisms by which differentiation begins.
+
+1. The undifferentiated state (⁠
+ represents the timeless, undifferentiated state of universal consciousness. It is a superposition of all possible configurations of reality, existing in a state of pure potential.27 Mathematically,
+(1)
+Here, 
+ are the differentiated states that could emerge from 
+⁠, such as space–time, energy, matter, or individual consciousness/subjective experiences, and ck are the complex coefficients that represent the “weights” or probabilities associated with each 
+⁠, determining the “likelihood” of a specific differentiated state 
+ emerging during the collapse of the undifferentiated state. Hence, 
+ is the relative probability of the emergence of 
+⁠.
+The rationale of using a superposition here is that it represents a state where multiple possibilities coexist simultaneously until an observation or interaction collapses the system into one state.26 Applying this concept to 
+ takes both timelessness and potentiality into account; 
+ exists outside time, so all possibilities coexist without temporal progression, and the superposition captures the infinite potential of universal consciousness before differentiation.20 
+
+2. Collapse mechanism: Transition from timeless to differentiated
+A key insight emerging from the framework of the 3Ps is the realization that thought 
+ may not only shape subjective experiences but also serve as the fundamental collapse mechanism at the universal level. Here, thought may initiate the collapse of universal consciousness Φ into differentiated states, guiding the emergence of individual and collective realities. At the individual level, thought continues to structure subjective experiences, further differentiating and personalizing localized consciousness.
+
+This dual role highlights thought as the bridge between the universal and the individual, reinforcing the non-dual nature of reality. Thought collapses formless potential into structured forms, operating seamlessly at metaphysical and physical levels. This illustrates that thought not only shapes perception but also actively participates in the very act of creation and differentiation.
+
+The transition from 
+ to 
+ is, hence, modeled as a collapse process, governed by the operator universal thought 
+⁠, the creative mechanism by which the mind instigates differentiation,20,28
+(2)
+It should be emphasized that universal thought is not personal intellectual thought but a formless, creative force reflecting the metaphysical process by which the undifferentiated transitions into form.
+
+The collapse initiated by universal thought is not temporal (since time does not yet exist) but an atemporal creative act of mind, akin to the emergence of form from formlessness or the realization of potential into actuality.20,22,26
+
+The collapse of universal consciousness 
+ into differentiated states 
+ is central to the emergence of space–time, matter, and subjective experience. While universal thought 
+ serves as the overarching mechanism that initiates this collapse, there are several pathways by which this differentiation may occur. Plausible mechanisms that could facilitate the transition from the undifferentiated state to structured forms, reflecting the inherent creativity of the mind, are discussed below.
+
+a. Symmetry breaking.
+Symmetry breaking is a fundamental process in physics, where a system transitions from a symmetric state to an asymmetric one, often due to perturbations or instabilities. Here, the collapse of 
+⁠, which is assumed to be symmetric with no preference for any particular differentiated state, can be modeled as the spontaneous breaking of the initial symmetry, driven by universal thought. The consciousness field Φ evolves according to a potential 
+⁠,
+ 
+(3)
+Initially, Φ resides at Φ0, reflecting the undifferentiated state of universal consciousness. Universal thought introduces slight perturbations, causing the field to shift away from Φ0 and break symmetry. This process results in the emergence of differentiated states, 
+⁠.
+
+The potential 
+ plays a critical role in modeling how the undifferentiated state of universal consciousness 
+ transitions into differentiated states 
+⁠. In physical systems, potentials describe the “landscape” through which a field evolves, guiding how it shifts from one state to another. Here, 
+ serves as a mathematical representation of how universal consciousness differentiates into structured forms. 
+ can be visualized as a “double-well,” similar to models in particle physics and cosmology. This analogy is consistent with the treatment of symmetry breaking in quantum field theory (QFT).23 It also resonates with cosmological models where scalar fields undergo symmetry breaking to produce structure in the early universe.29–31 In these models, the system initially rests in a symmetric state (the “top of the hill”), but fluctuations (here, introduced by universal thought) lead it to “choose” one of the wells, thereby producing differentiation.
+
+The parameter λ controls the potential well’s steepness or the transition’s intensity, i.e., how “sharp” or “smooth” the differentiation process is. A large λ leads to sudden differentiation, while a smaller λ leads to gradual, smooth transitions. This mirrors how certain universal phenomena manifest immediately, while others evolve gradually over time. Φ0 is the equilibrium or “vacuum” expectation value, representing the point around which the field stabilizes after differentiation. In the undifferentiated state, Φ ≈ Φ0, which minimizes 
+⁠, meaning that the system is in symmetry. This reflects universal consciousness in its purest, undivided form—all potential and no structure. A slight perturbation or fluctuation (initiated by 
+⁠) causes the field to move away from Φ0, breaking the symmetry and leading to differentiation.
+
+The form 
+ ensures that when Φ ≈ Φ0, the potential 
+ is minimized (stable state). As Φ deviates from Φ0, 
+ increases, reflecting resistance to change—a metaphysical “inertia” that preserves unity until differentiation is necessary. This structure creates two possible minima (in the double-well analogy), illustrating the emergence of distinct but interconnected differentiated states.
+
+In metaphysical terms, 
+ represents the “landscape” over which universal consciousness moves, influenced by universal thought. The potential reflects the mind’s inherent desire to create form from the formless, with λ representing the creative force’s intensity.
+
+b. Quantum fluctuations.
+Quantum fluctuations are spontaneous, random variations that occur even in vacuum states.32 Analogously, in this framework, the undifferentiated state 
+ may experience inherent fluctuations —small, spontaneous deviations from perfect symmetry—which seed the process of differentiation.
+
+These fluctuations can be modeled as perturbations δΦ to the consciousness field,
+δ
+(4)
+where δΦ represents random deviations from equilibrium.
+These quantum-like fluctuations may destabilize the uniformity of Φ, nudging the system toward differentiation. Universal thought amplifies certain fluctuations, guiding the emergence of 
+⁠.
+
+This mechanism mirrors processes observed in early universe cosmology, where quantum fluctuations in the inflationary vacuum are stretched and amplified to produce large-scale structure.26 It is also consistent with the treatment of quantum fluctuations in curved spacetime.33 
+
+Moreover, this perspective aligns with views from quantum cosmology and quantum gravity, where randomness at the quantum level plays a key role in the emergence of structure and classicality.32 The stochastic nature of this pathway reflects the inherent creativity and unpredictability of universal thought, which transforms pure potential into organized, complex forms.
+
+c. Self-reflection and creative emergence.
+Self-reflection represents a unique mechanism through which universal consciousness may differentiate by becoming aware of itself. In this view, differentiation arises from the introspective act of the universal mind observing its own infinite potential—a creative feedback loop in which awareness itself gives rise to form.
+
+The collapse in this pathway is modeled as a projection of 
+ onto differentiated states,
+(5)
+where Pk is the projection operator corresponding to each differentiated state.26 This formalism finds theoretical support in the study of Bohm and Hiley,25 who explored the ontological role of quantum operators and nonlocality in structuring physical reality. Their interpretation implies that deeper layers of reality unfold through an active process of revelation, akin to self-reflection.
+The act of universal thought is understood here as a metaphysical observation—selecting latent possibilities within 
+ and projecting them into actuality. This mirrors the quantum measurement process described in foundational quantum theory, where an act of observation collapses a superposition into a definite outcome.26,28
+
+Moreover, this process resonates with Wheeler’s participatory universe, in which reality is not passively observed but actively co-created through conscious interaction.26 Stapp extends this notion, arguing that conscious acts of observation are integral to the manifestation of physical events.28 
+
+This mechanism underscores the creative and participatory nature of awareness, suggesting that the universe, through the function of mind and thought, “observes” itself into differentiated form.
+
+While symmetry breaking, quantum fluctuations, and self-reflection illustrate plausible pathways, these mechanisms are not exhaustive. Future research may reveal additional principles underlying this creative process. Possible extensions include (i) external interactions, where differentiation may be driven by interactions between universal consciousness and secondary metaphysical or physical fields; (ii) non-linear dynamics, for which collapse could involve complex, non-linear interactions within the consciousness field, leading to emergent properties beyond current models; and (iii) multidimensional collapse, where differentiation might occur across multiple dimensions simultaneously, with certain dimensions remaining latent or hidden until activated by thought.
+
+Irrespective of pathway, universal thought 
+ serves as the creative catalyst, initiating collapse while guiding the emergence of structured forms.
+
+B. The post-Big Bang era: Emergence of space–time
+With the collapse of universal consciousness 
+ into differentiated states 
+⁠, initiated by universal thought 
+⁠, space–time and matter emerge as observable aspects of reality. This section explores how the consciousness field Φ evolves within the space–time framework and how it gives rise to structure post-collapse.
+
+The differentiation process results in (i) the creation of structured states 
+⁠, representing the fundamental building blocks of space–time, energy, and matter. This parallels cosmological models in which space–time emerges from deeper, non-spatiotemporal structures21,34 and (ii) a transition from a timeless and formless potential 
+ into a dynamic, evolving reality governed by space–time.30 
+
+In this framework, space–time does not pre-exist but is an emergent property resulting from the differentiation process.30 The evolving consciousness field Φ encodes the properties and dynamics of space–time itself, resonating with emergent space–time theories in quantum gravity, where space and time arise from entanglement, information, or more fundamental quantum fields.34,35
+
+After the collapse, if symmetry breaking governs the transition, Φ evolves according to a wave equation
+ 
+(6)
+The d’Alembert operator □ = 
+ 
+𝛻
+ governs wave propagation in relativistic field theories.23,24 By analogy, this formalism is used to describe how the consciousness field propagates through space–time. 
+⁠, described earlier, determines how Φ continues to differentiate and evolve post-collapse. The d’Alembert operator reflects how perturbations in the field (such as structure or awareness) spread through the medium of space–time.
+
+Localized deviations ∂Φ within the consciousness field correspond to regions of structure—akin to particles, cosmic structures, or sentient beings. These perturbations mirror the role of quantum fluctuations in seeding cosmic structure during inflation30 and echo the behavior of quantum fields in curved spacetime.33 
+
+Depending on the collapse mechanism—symmetry breaking, quantum fluctuations, or projection—different dynamical behaviors may follow, including classical wave evolution, stochastic emergence, or discrete projection into localized differentiated states.
+
+1. Linking consciousness and physical reality
+The consciousness field Φ acts as the source for both metaphysical awareness and physical structures. Its evolution bridges the metaphysical principles of mind, consciousness, and thought with the physical principles that govern space–time and matter.
+
+The energy density of the consciousness field (ρΦ) can take different forms depending on the collapse mechanism that governs the transition from undifferentiated to differentiated states. In symmetry breaking (potential-driven dynamics), the field follows:
+ 
+ 
+𝛻
+(7)
+Here, (∂tΦ) and |∇Φ| represent the temporal evolution and the spatial evolution of the field, while the potential 
+ dictates the differentiation process post-collapse. This formulation mirrors field-theoretic approaches in spontaneous symmetry-breaking scenarios,23,29 where localized structures (e.g., cosmic strings or domain walls) emerge from perturbations in a scalar field.
+When differentiation is driven by quantum fluctuations, the consciousness field evolves more freely, influenced by stochastic perturbations,
+ 
+ 
+𝛻
+(8)
+These perturbations resemble quantum fluctuations in curved spacetime,30,33 which in cosmology serve as the seeds for large-scale structures. Similarly, here they act as a creative force, producing variation and complexity from an otherwise uniform field.
+
+In projection-based mechanisms, the energy density reflects the sum of squared amplitudes of projected components, rather than kinetic or gradient contributions, since the differentiation occurs discretely rather than dynamically via discrete state selection,
+(9)
+Here, each Pk is a projection operator selecting a specific differentiated state from the undifferentiated field. This approach parallels quantum measurement theory, in which the act of observation reduces a superposition to a specific eigenstate.26 Bohm and Hiley’s study suggests such state selection could be guided by a deeper, implicate order.25 
+These formulations highlight the flexibility of the consciousness field; it can behave like a classical wave, a quantum field subject to fluctuations, or a projection-based process that actualizes potentiality into form. In each case, the metaphysical principles—mind, consciousness, and thought—manifest through physical analogs in field dynamics, supporting the model’s core thesis that physical reality arises from a universal consciousness substrate.
+
+2. Space–time and individual consciousness
+As the consciousness field Φ evolves post-collapse, localized excitations manifest as individual consciousness. These excitations appear as “ripples” or discrete projections within the universal field, corresponding to sentient beings capable of awareness and subjective experience. This interpretation aligns with QFT, where localized excitations of a fundamental field correspond to particle-like structures.23 In this framework, individual consciousness is modeled as a localized structure arising within the differentiated consciousness field—akin to a quantum excitation emerging from the vacuum.
+
+In potential-driven mechanisms (such as spontaneous symmetry breaking), individual consciousness emerges as stable, localized regions of the field. These structures form as Φ settles into lower-energy minima defined by the potential 
+⁠, similar to how fields in early cosmology underwent phase transitions that gave rise to cosmic structures.29–31 
+
+This analogy reflects how a universal field, initially undifferentiated, can generate stable and diverse structures through the process of symmetry breaking—structures that, in this context, correspond to individual sentient entities.
+
+The supplementary material S2 outlines how individual consciousness may emerge as a result of other collapse mechanisms.
+
+Although differentiated, each individual consciousness remains entangled with the universal field from which it arose. This reflects the non-dual nature of reality—where individuality is a localized excitation, but the underlying field remains unified. Such a view aligns with Advaita Vedanta, which posits that individuality is illusory and all consciousness is ultimately Brahman,5 with Bohm’s implicate order, where apparent separation unfolds from a deeper unity,20 and with the holographic principle, where each part contains information about the whole.35 
+
+The implications of this are twofold:
+
+A dynamic space–time evolves alongside Φ, presenting an interconnected model of reality. This resonates with models in quantum gravity suggesting that space–time itself is emergent from an underlying information-theoretic or entangled structure.21,35
+
+The post-Big Bang evolution of Φ reflects the seamless unity between foundational principles and physical processes, reinforcing the interconnected nature of existence. This is consistent with perspectives in quantum cosmology and non-dual frameworks, where physical reality is inseparable from underlying conscious principles.2,20
+
+C. The emergence of sentient beings
+This section explores the connection between the consciousness field and the emergence of individuality, modeling how universal principles manifest in the subjective experience of sentient entities.
+
+1. The link between universal and individual consciousness
+Universal thought 
+ governs the collapse of undifferentiated universal consciousness 
+ into differentiated states 
+⁠, as described by Eq. (2), marking the creation of structured reality from formless potential. This resonates with interpretations in quantum cosmology, where wavefunction collapse from a pre-space quantum state leads to the emergence of distinct physical structures.34 
+
+As space–time and matter arise, universal thought continues to operate—collapsing differentiated states into localized forms of awareness that correspond to individual consciousness,
+ψ
+(10)
+Here, ψ
+ represents the emergence of individual consciousness, localized in space–time. This parallels theories in quantum information and quantum cognition, where conscious experience can be modeled as the reduction of potential states into specific observed realities.25,28,36 These excitations correspond to the birth of sentient beings—structured expressions of awareness within the broader consciousness field.
+Universal thought thus enables differentiation by selecting specific patterns or excitations within universal consciousness and shaping them into coherent experiences or subjective realities.26 This view aligns with quantum mind theories that propose consciousness emerges from ordered selection processes acting on a fundamental field of potential.13 
+
+In potential-driven and fluctuation-based mechanisms, the evolution of the consciousness field Φ naturally leads to localized excitations—manifesting as individual consciousness. This is analogous to how quantum field fluctuations in curved spacetime give rise to structure in cosmological models.33 
+
+In projection-based mechanisms, the emergence of individuality resembles quantum measurement, where an observation collapses a system into a definite state.26–28 This perspective is consistent with the Bohmian interpretation of quantum mechanics, where differentiation unfolds through the activation of implicate potential guided by deeper nonlocal processes.25 
+
+2. Personal thought as the driver of subjective experience
+Once individual consciousness emerges, personal thought begins to function within each localized structure of awareness. It acts as the creative and interpretive mechanism by which subjective experience is shaped. Whereas universal thought initiates differentiation and structure at the cosmic level, personal thought operates within the individualized domain, generating meaning and perception moment by moment.14,15
+
+In this model, personal thought governs the internal evolution of each individualized state ψ
+⁠, selecting and organizing experience as it unfolds. This recursive dynamic can be represented as
+τ
+ψψ
+(11)
+where 
+τ
+ is the personal thought operator acting on the state of individual consciousness, and ψ
+ is the updated state reflecting the influence of thought. This reflects the idea, supported by integrated information theory, that consciousness is shaped by the internal structure and flow of information within a system.21 
+In potential-driven and fluctuation-based mechanisms, personal thought evolves continuously, influenced by both internal patterns and external interactions. This resembles the quantum evolution of a state vector, where each observation or interaction causes a shift in the system’s configuration.27 It also mirrors Bohm and Hiley’s view of the implicate order, where structure unfolds through deeper, nonlocal processes of organization.25 
+
+In projection-based models, personal thought may be seen as selecting focal states of attention or awareness—each moment acting as a projection that actualizes a specific experience. This interpretation aligns with quantum cognitive models, in which attention functions similarly to a measurement process, selecting outcomes from superposed mental states.26,28
+
+Whereas universal thought governs the creation of structure and sentience by collapsing undifferentiated potential into form and individuality, personal thought emerges within differentiated beings, shaping perception and subjective experience in alignment with Sydney Banks’ articulation of the 3Ps.14 It functions as a feedback loop for personal evolution and awareness—continually shaping how individuals relate to their internal and external worlds.
+
+Therefore, personal thought acts as an interface between potential and perception, transforming latent information into lived experience. It reflects the participatory nature of consciousness, in which individuals are not passive receivers of reality, but active co-creators of their own inner worlds.
+
+3. Consciousness across scales and implications for sentient beings
+Figure 2 depicts a conceptual framework exploring the possible relationship between universal and individual consciousness.
+
+FIG. 2.
+Illustration of the proposed framework and its implications for sentient beings. The universal consciousness field (Φ) exists beyond space–time in an undifferentiated state (Φ0. Through differentiation, it gives rise to localized excitations (Φk), which manifest as physical structures or individual consciousness. Following the Big Bang, Φ evolves, generating complex systems capable of awareness—sentient beings with individual consciousness ψi) localized in space–time. Once differentiated, personal thought (τ̂i) shapes individual awareness and perception, producing evolving subjective interpretations of reality (ψ′i) over time. This process creates the illusion of separateness, even though all individual consciousness remains intrinsically connected within the universal consciousness field.
+View largeDownload slide
+Illustration of the proposed framework and its implications for sentient beings. The universal consciousness field (Φ) exists beyond space–time in an undifferentiated state (⁠
+⁠. Through differentiation, it gives rise to localized excitations (⁠
+⁠), which manifest as physical structures or individual consciousness. Following the Big Bang, Φ evolves, generating complex systems capable of awareness—sentient beings with individual consciousness ψ
+⁠) localized in space–time. Once differentiated, personal thought (⁠
+τ
+⁠) shapes individual awareness and perception, producing evolving subjective interpretations of reality ψ
+ over time. This process creates the illusion of separateness, even though all individual consciousness remains intrinsically connected within the universal consciousness field.
+
+The consciousness field Φ evolves over cosmic time, producing primitive awareness through early excitations of the field. These excitations may correspond to basic, undifferentiated awareness in simple systems, such as primitive life forms.2 
+
+In symmetry breaking or fluctuation-driven mechanisms, primitive awareness arises from localized perturbations ∂Φ that propagate and interact dynamically, analogous to the emergence of structure in quantum field fluctuations.33 In projection-based mechanisms, primitive awareness may emerge through discrete projections, where early ψ
+ states represent undifferentiated awareness selected from 
+⁠, resembling state selection in quantum measurement theory.25 
+
+As systems increase in complexity—e.g., through biological evolution—localized consciousness ψ
+ becomes more differentiated and self-aware, consistent with theories that link increased neural complexity to higher-order consciousness.4 
+
+Despite this differentiation, individual beings remain entangled with the universal field, akin to quantum entanglement, reinforcing a non-dual reality.20 The perceived separation between individual and universal consciousness can thus be understood as an illusion shaped by personal thought,14 creating the impression that consciousness is confined to a separate physical form (cf. Fig. 2).
+
+In projection-based mechanisms, individual states ψ
+ may arise through discrete selection, yet the interconnected nature of the field Φ ensures continuity and unity across all differentiated states.
+
+Personal thought reinforces the sense of individuality while simultaneously concealing the underlying unity with universal consciousness.15 
+
+An important implication of modeling ψ
+ as a localized excitation of Φ is that the dissolution of individuality (e.g., through death) does not imply annihilation but rather reintegration into the universal field. This aligns with perspectives that treat consciousness as a temporary manifestation of a universal substrate.3,9
+
+D. Refinements to the model
+The current framework for universal consciousness serves as a preliminary scaffold, but several refinements can enhance its flexibility and alignment with established physical theories. Additional elaboration is provided in the supplementary material, S3. By expanding the mathematical formulation and incorporating multiple collapse mechanisms, the model can better reflect the diverse processes that drive differentiation and the emergence of individual consciousness.
+
+A key refinement involves broadening the representation of the consciousness field Φ. While scalar potentials 
+ effectively describe symmetry breaking and structure formation, other pathways—such as quantum fluctuations or projection-based self-reflection—may require different approaches.30,37 Modeling Φ through free-field dynamics or discrete state selection introduces greater flexibility, accommodating mechanisms beyond scalar potentials.
+
+Incorporating concepts from quantum physics, gauge field theory, and cosmology can further enrich the framework. Coupling Φ to established physical fields—such as electromagnetic or gravitational fields—aligns the model with high-energy physics and modern cosmological models.23,24 Scalar fields, analogous to the Higgs field, could impart structure to space–time, while gauge fields describe interactions between localized excitations of Φ. This multi-field approach extends the framework’s applicability to non-linear dynamics and phase transitions.30,31
+
+Refining the collapse mechanism itself presents another path forward. Universal thought 
+ may operate through symmetry breaking, quantum fluctuations, or projection-based pathways—each potentially dominant at different stages of cosmic evolution or in the formation of sentient beings.32 Incorporating multiple mechanisms enables a richer understanding of how consciousness evolves across scales.
+
+At the quantum level, quantizing Φ offers deeper links between metaphysics and empirical physics.26,28 While universal thought may function analogously to quantum measurement, as described herein, suggesting that consciousness plays a role in shaping physical reality,10,26 alternatively, non-observer-driven collapse mechanisms—such as decoherence—could describe how differentiation emerges naturally from the dynamics of the consciousness field.38 
+
+On the individual scale, personal thought 
+τ
+ governs the evolution of subjective experience. Modeling 
+τ
+ as a stochastic operator introduces variability reflective of neural and cognitive processes, while deterministic formulations may capture discrete insight events or conceptual resolution through projection-based differentiation, as modeled in Bohmian frameworks of implicate and explicate order.25 
+
+E. Concrete predictions and experimental tests
+The framework’s integration of universal consciousness, mind, and thought gives rise to several concrete predictions and experimental tests across quantum physics, neuroscience, biology, and cosmology. A detailed theoretical foundation is provided in the supplementary material, S4.
+
+A central prediction is that universal or personal thought may interact with the zero-point field, such that quantum fluctuations reflect the influence of directed mental states.39,40 In this view, thought acts analogously to a quantum measurement operator, collapsing potential fluctuations into patterned outcomes correlated with intentional content. This interaction could manifest in measurable deviations in the statistical behavior of physical systems, particularly those poised at quantum sensitivity thresholds. If such an interaction exists, we would expect observable anomalies in vacuum fluctuations, weak measurements, or energy distribution in Casimir-like setups, especially under conditions of focused intention or coherent mental states.
+
+Several experimental studies have reported anomalies in random number generator (RNG) outputs, changes in photon emission, and other subtle physical variables during periods of focused mental intention, meditative states, or large-scale emotional events.41–44 These include deviations from chance in RNG distributions, suggestive shifts in vacuum energy dynamics, and correlated neural or biophysical fluctuations. Although controversial due to concerns over methodology and reproducibility,45 these findings—if validated—would imply a field-like aspect of consciousness capable of influencing physical systems, analogous to weak measurement effects in quantum mechanics.46 
+
+Another concrete prediction is that if consciousness functions as a field, it should induce structured, non-classical correlations across biological systems. This includes the possibility of coherent biological oscillations, long-range synchronization, and inter-subjective coupling during intentional states. Experimental tests could include high-resolution Electroencephalography (EEG) or Magnetoencephalography (MEG) studies of synchronized brain activity in meditative dyads, as well as measurement of biophoton emissions or coherence in cell assemblies under directed mental influence.43,47,48 Such correlations—whether within a single organism or across physically separated individuals—may serve as indirect evidence for field-like properties of consciousness. While often described as “biological entanglement,” these effects need not rely on quantum entanglement per se but rather on field-mediated coherence patterns that extend beyond classical mechanisms. If verified, they would support the model’s prediction that consciousness interacts with matter not merely locally, but via global field dynamics.
+
+Furthermore, at a collective level, the model predicts that field-like effects of consciousness should become apparent during global emotional events. The Global Consciousness Project has reported statistically significant correlations between global-scale RNG outputs and emotionally charged collective events (e.g., natural disasters, global meditations, or tragedies).49 Such field-level effects would support the view that consciousness operates non-locally, coupling across individuals in ways not explainable by classical causation.
+
+Finally, in cosmology, the framework predicts that universal thought may have left imprints on the early universe during the collapse of the undifferentiated state 
+ into structured reality. Specifically, it allows for the possibility that observed anomalies in the cosmic microwave background (CMB)—such as hemispheric asymmetries, cold spots, or large-scale alignments—may reflect the organizing influence of consciousness, rather than purely stochastic processes.50 These hypotheses could be tested by applying information-theoretic and correlation analyses to CMB datasets to search for non-random structure consistent with field-based ordering.
+
+This approach invites novel investigations into the interplay between consciousness and physical systems, challenging the assumption that awareness is merely subjective—and proposing that it may play an active, measurable role in the structure of reality.
+
+Collectively, these predictions invite cross-disciplinary investigations at the intersection of physics, neuroscience, and consciousness research. They challenge the assumption that awareness is strictly subjective, instead proposing that it may play a causal, measurable role in shaping both microscopic phenomena and large-scale order.
+
+III. DISCUSSION
+The framework explored in this paper draws on insights from modern physics, philosophy, and consciousness studies to approach one of humanity’s enduring questions—the nature of consciousness.
+
+By integrating the 3Ps of mind, consciousness, and thought14,15 with the mathematical and conceptual language of quantum mechanics and field theory, the model provides a novel perspective on the origins of reality and the emergence of individual awareness.
+
+This challenges the dominant materialist paradigm, which views consciousness as a product of neural processes.51 Instead, it aligns with perspectives from Advaita Vedanta, Buddhist philosophy, and quantum physics, suggesting that consciousness is fundamental rather than emergent.5,20 This view resonates with David Bohm’s implicate order, where an underlying, nonlocal substrate gives rise to the material world,20 as well as Max Planck’s assertion that consciousness is the foundation of reality, not merely a by-product of the brain.52 
+
+Throughout the 20th century, leading physicists questioned materialist assumptions, advancing theories that placed the mind, observation, and awareness at the heart of existence.26,27,53 Schrödinger emphasized the unity of consciousness, proposing that subjective experience is inseparable from the structure of the universe itself.9 Heisenberg’s concept of potentia describes reality as existing in a state of potentialities that collapse into defined structures through observation.53 Wheeler’s participatory universe further supports the idea that observation plays a fundamental role in shaping physical reality, reinforcing the notion that consciousness actively participates in the unfolding cosmos.26 
+
+These scientific perspectives echo spiritual traditions that have long held reality to arise from a deeper, formless source. In Advaita Vedanta, Brahman is the ultimate, undivided reality from which all manifestations emerge5—paralleling quantum models in which classical structure emerges from a deeper quantum foundation.28 Similarly, the Buddhist concept of Shunyata refers to the fundamental interconnection and emptiness of intrinsic form, aligning with the view that observed reality is shaped by the observer’s participation.3,6
+
+Recent developments in quantum physics further support these metaphysical insights. Strasberg et al. have demonstrated numerically that classical behavior can emerge from an internal suppression of quantum coherence, rather than from external imposition.22 This suggests that the structured, tangible world we experience arises from deeper quantum processes. If physical structure emerges from quantum principles, then consciousness itself may operate in a similar way—not as a secondary effect of neural activity, but as an intrinsic feature of the universe, interacting with and shaping emergent classicality. This interpretation supports the idea that mind, consciousness, and thought—as formulated in this model—are fundamental structuring principles, not epiphenomena of brain activity.
+
+This proposal may appear to echo the “it from bit” paradigm introduced by John Wheeler, which posits that space, time, and matter emerge from binary informational processes.26 Though not always labeled explicitly, concepts akin to “it from qubit” reflect the broader view in quantum gravity and quantum information theory that reality may emerge from quantum correlations and informational structure.34–36 While these frameworks are widely supported within theoretical physics, they typically treat information as the most basic element of reality—leaving open the ontological question of what information itself arises from. In contrast, the present model proposes that information may be a derivative of a deeper, universal consciousness field. In this view, “it from consciousness” does not contradict the informational paradigm but reframes it: information, structure, and form are expressions of a more fundamental substrate of awareness. This perspective aligns with Schrödinger’s proposal of a singular, indivisible consciousness underlying all experience9 and with the enfolded, nonlocal structures described in Bohm’s ontology.20 Rather than replacing “it from bit,” this framework suggests that consciousness may be the source from which informational differentiation arises—a precondition for both observer and observed.
+
+The connection between modern science and spiritual traditions extends beyond physics into religious and mystical thought.52 This model resonates with the Christian doctrine of the Trinity, where mind, consciousness, and thought reflect the roles of the Father, Holy Spirit, and Son, respectively.7 In Sufism, the principle of Tawhid (oneness) describes existence as an indivisible unity—similar to the view that individual consciousness is a temporary excitation of a universal field.8 Likewise, in Taoism, the Tao is a formless creative principle from which all differentiation arises,54 reflecting the non-dual nature of mind as proposed in this framework.
+
+These perspectives highlight that the quest to understand consciousness is neither purely scientific nor exclusively spiritual—it is an inquiry that bridges both realms. The interdisciplinary integration of physics, philosophy, and metaphysical traditions presented here suggests that the fundamental nature of consciousness may be neither wholly material nor wholly mystical, but a structuring force that underlies both.
+
+Beyond its theoretical implications, this framework fosters interdisciplinary collaboration—uniting physics, cosmology, philosophy, and psychology. It also raises pressing ethical and philosophical questions, particularly in the context of AI. As AI systems become increasingly sophisticated, the possibility of machine consciousness becomes more relevant. If consciousness is a universal field, could AI eventually interface with it, transcending mere computation? Penrose argues that algorithmic processing alone cannot account for consciousness, implying that AI may lack the non-computational aspects required for awareness.10 However, if consciousness is indeed a universal field, AI systems could potentially tap into it—raising complex questions about machine sentience and ethics.
+
+Furthermore, recognizing consciousness as universal reinforces ethical principles rooted in interconnectedness and responsibility.14 If our actions reverberate across a shared field of awareness, then ethical decision-making—whether in AI development, human rights, or environmental sustainability—must reflect this unity.
+
+Finally, this model offers a profound recontextualization of human existence. By proposing that individual consciousness (ψi) is a temporary excitation of a universal field (Φ), it aligns with spiritual teachings that describe death not as annihilation but as a return to unity. This non-dual perspective alleviates existential anxieties surrounding death and selfhood, encouraging a deeper sense of peace, purpose, and collective responsibility.15 
+
+IV. CONCLUSION
+This paper presents a framework that explores possible intersections between fundamental physics and consciousness studies, proposing that consciousness is not an emergent by-product of neural activity but a fundamental and irreducible aspect of reality. By integrating the three principles—universal mind, universal consciousness, and universal thought—within a mathematical and physical framework, this model offers a coherent explanation for the emergence of space–time, individual awareness, and the illusion of separateness.
+
+Drawing from quantum mechanics, field theory, and non-dual philosophical traditions, we suggest that the differentiation of Universal Consciousness into individual experience is governed by mechanisms such as symmetry breaking, quantum fluctuations, and discrete state selection. This implies that subjective experience is deeply interconnected with the fundamental structure of reality, challenging conventional materialist paradigms.
+
+The proposed model carries wide-ranging implications across disciplines. In physics, it aligns with emerging theories in quantum mechanics, quantum information, and cosmology that describe classical reality as arising from a deeper, pre-spatiotemporal substrate. In neuroscience, it offers an alternative to reductionist views of consciousness, suggesting that awareness is not confined to neural processes but interacts with a universal field. In philosophy, it bridges the longstanding gap between scientific inquiry and spiritual traditions, proposing a holistic perspective on selfhood, interconnectedness, and the nature of existence.
+
+This framework carries profound ethical and societal implications. If consciousness is indeed universal and fundamental, ethical considerations may extend beyond human cognition—to AI, environmental responsibility, and the broader web of life. The illusion of separateness, reinforced by individual perception, gives way to a deeper recognition of unity—encouraging empathy, cooperation, and a shared sense of responsibility.
+
+Future research must explore the testable predictions arising from this model, including potential interactions between consciousness and quantum fields, neural coherence as an indicator of universal awareness, and possible cosmological imprints of consciousness-driven differentiation. Interdisciplinary investigation—combining physics, cognitive science, and consciousness research—could yield empirical support for this framework and expand our understanding of reality.
+
+Ultimately, this study challenges entrenched assumptions and invites a shift in perspective: rather than viewing consciousness as an epiphenomenon of matter, it places it at the very foundation of existence. By synthesizing insights from physics, metaphysics, and philosophy, this model offers a path toward an integrated understanding that unites scientific rigor with ancient philosophical insight.
+
+SUPPLEMENTARY MATERIAL
+The supplementary material is organized into 4 parts: S1. Social and psychological programs grounded in the three principles (3Ps); S2. Post-Big Bang era: The emergence of individual consciousness as a result of other collapse mechanisms than symmetry breaking; S3. Potential refinements to the model; and S4. Testable predictions.
+
+ACKNOWLEDGMENTS
+The author wishes to acknowledge the support of Uppsala University.
+
+AUTHOR DECLARATIONS
+Conflict of Interest
+The author has no conflicts to disclose.
+
+Author Contributions
+The author confirms sole responsibility for the following: conception of the model and analysis, design of all figures, and preparation of the paper.
+
+Maria Strømme: Conceptualization (equal); Formal analysis (equal); Funding acquisition (equal); Investigation (equal); Methodology (equal); Writing – original draft (equal); Writing – review & editing (equal).
+
+DATA AVAILABILITY
+The data that support the findings of this study are available within the article and its supplementary material.
+
+Supplementary Material for "Universal Consciousness as Foundational Field: A Theoretical Bridge Between Quantum Physics and Non-Dual Philosophy"
+
+1347
+views
+
+0
+shares
+
+696
+downloads
+
+Skip to figshare navigation
+1
+Supplementary Materials for
+Universal Consciousness as Foundational Field: A Theoretical Bridge Between Quantum Physics
+and Non-Dual Philosophy
+Maria Strømme‡
+Division of Nanotechnology and Functional Materials, Department of Materials Science and
+Engineering, The Ångström Laboratory, Uppsala University, Regementsvägen 1, Uppsala 751
+03, Sweden
+‡Corresponding author. E-mail address: maria.stromme@angstrom.uu.se. Telephone:
++46184717231. Postal address: Box 35, 751 03 Uppsala, Sweden.
+S1: Social and psychological programs grounded in the three principles (3Ps)
+The 3Ps of Mind, Consciousness, and Thought—as articulated by Sydney Banks—have been
+implemented in various psychological, educational, and community-based interventions.
+These approaches emphasize innate resilience, well-being, and the mind's capacity to self-
+correct in the absence of chronic conceptual interference.
+Programs applying these principles have shown promising results in diverse populations,
+including at-risk youth, individuals suffering from trauma, and those recovering from
+addiction [S1–S4]. Rather than using behavioral conditioning or cognitive restructuring, these
+interventions aim to evoke insight and self-awareness by pointing participants toward their
+innate mental health.
+One example is the Health Realization (HR) approach, which focuses on helping individuals
+realize the nature of Thought and its role in shaping experience. HR programs have
+demonstrated reductions in youth violence [S2], improvements in emotional resilience [S3],
+and long-term decreases in recidivism and substance abuse [S1].
+These outcomes are believed to emerge from a fundamental shift in the participant's
+understanding of how reality is constructed psychologically. By recognizing Thought as a
+transient activity within a deeper field of Consciousness, individuals report decreased
+rumination, increased emotional stability, and improved relationships.
+This supports the broader framework proposed in the main manuscript—that individual
+consciousness arises through differentiation from a universal field and that subjective
+suffering often stems from a mistaken identification with transient personal thought rather
+than the deeper essence of Mind.
+S2: Post-Big Bang era: The emergence of individual consciousness as a result of other
+collapse mechanisms than symmetry breaking
+This section complements the main manuscript's discussion in Section B.2, which explains
+how individual consciousness may emerge as localized excitations in the consciousness field
+𝛷 following symmetry breaking. Here, we explore how other collapse mechanisms—such as
+quantum fluctuations, observer-driven projections, and recursive self-reference—may also
+contribute to the emergence of individual consciousness in the post-Big Bang universe.
+2
+Quantum field theory in curved spacetime suggests that vacuum fluctuations in the early
+universe could give rise to particle formation and structure [S5]. These quantum fluctuations
+may similarly reflect early perturbations within the consciousness field 𝛷, setting the stage for
+differentiated conscious states.
+While symmetry breaking remains a central mechanism, other collapse processes may operate
+in parallel or at different scales. For instance, observer-participation principles suggest that
+the act of observation may play an ontological role, helping to define structure and instantiate
+experience itself [S6, S7].
+In such models, Universal Thought acts analogously to a measurement operator—selecting a
+localized state or excitation from the undifferentiated field. This can be viewed as a
+projection-based collapse, similar to eigenstate selection in quantum mechanics, where
+individual consciousness is actualized from the field of potential [S6, S8].
+Additionally, self-referential processes may play a fundamental role in individuation. The
+capacity for awareness, or recursive cognition, may act as a mechanism by which Universal
+Consciousness differentiates into subjective experience [S9].
+Taken together, these insights suggest that individual consciousness may emerge, not only
+through symmetry breaking but also through quantum fluctuations and the creative, selective
+action of Universal Thought. This view supports the main manuscript’s interpretation of
+individual consciousness as a structured excitation of the field 𝛷, embedded in a dynamic and
+evolving post-Big Bang cosmos.
+S3. Potential Refinements to the Model
+Refining the current framework through expanded mathematical formulations and integration
+with quantum and classical physics models opens promising avenues for advancing the theory
+of Universal Consciousness. This section explores how concepts such as scalar field
+potentials, symmetry breaking, and self-interacting fields can enrich the model, allowing it to
+reflect diverse collapse mechanisms and provide deeper alignment with established theories in
+theoretical physics.
+The refinement process may involve modeling 𝛷 as evolving dynamically within potential
+landscapes 𝑉(𝛷), reflecting mechanisms such as symmetry breaking or field self-interactions.
+While this approach offers a robust analogy for differentiation and structure formation,
+alternative collapse mechanisms—such as quantum fluctuations or projection-based self-
+reflection—may require different mathematical treatments. In these cases, the evolution of 𝛷
+should proceed without a potential, instead reflecting free-field dynamics or discrete state
+selection.
+Quantum physics provides valuable analogies that can guide this refinement. Phenomena such
+as the Casimir effect [S10] and spontaneous emission [S11] illustrate how the zero-point field
+(ZPF) interacts with matter and energy, offering insights into how Universal Consciousness 𝛷
+might similarly engage with the physical world. However, relying solely on the ZPF may
+constrain the model’s applicability. Future refinements could explore how 𝛷 interacts with
+multiple established fields—including electromagnetic, scalar, and gravitational fields—
+broadening the framework’s reach into areas like scalar field theory, gauge theory, and non-
+linear dynamics [S12].
+For instance, scalar fields, akin to the Higgs field, play a pivotal role in imparting mass
+through spontaneous symmetry breaking. Similarly, Universal Consciousness could manifest
+
+Share
+Download
+figshare
+REFERENCES
+1M. Tegmark, Life 3.0: Being Human in the Age of Artificial Intelligence (Knopf, New York, 2017).
+Google Scholar 
+2E. Laszlo, Science and the Akashic Field: An Integral Theory of Everything (Inner Traditions, Rochester, 2007).
+Google Scholar 
+3B. A. Wallace, Hidden Dimensions: The Unification of Physics and Consciousness (Columbia University Press, New York, 2007).
+Google Scholar 
+4G. Tononi, “An information integration theory of consciousness,” BMC Neurosci. 5, 42 (2004).https://doi.org/10.1186/1471-2202-5-42
+Google ScholarCrossref PubMed 
+5S. Radhakrishnan, The Principal Upanishads (HarperCollins India, New Delhi, 1994).
+Google Scholar 
+6J. L. Garfield, The Fundamental Wisdom of the Middle Way: Nagarjuna’s Mulamadhyamakakarika (Oxford University Press, Oxford, 1995).
+Google ScholarCrossref  
+7B. McGinn, The Foundations of Mysticism (Crossroad Publishing, New York, 1994).
+Google Scholar 
+8S. H. Nasr, The Garden of Truth: The Vision and Promise of Sufism (HarperOne, New York, 2007).
+Google Scholar 
+9E. Schrödinger, What is Life? (Cambridge University Press, Cambridge, 1944).
+Google Scholar 
+10R. Penrose, Shadows of the Mind: A Search for the Missing Science of Consciousness (Oxford University Press, Oxford, 1994).
+Google Scholar 
+11S. Hameroff, “Quantum coherence in microtubules: A neural basis for emergent consciousness,” J. Conscious. Stud. 1, 91 (1994).
+Google Scholar 
+12S. Hameroff and R. Penrose, “Orchestrated reduction of quantum coherence in brain microtubules: A model for consciousness,” Math. Comput. Simul. 40, 453 (1996).https://doi.org/10.1016/0378-4754(96)80476-9
+Google ScholarCrossref  
+13S. Hameroff and R. Penrose, “Consciousness in the universe: A review of the ‘Orch OR’ theory,” Phys. Life Rev. 11, 39 (2014).https://doi.org/10.1016/j.plrev.2013.08.002
+Google ScholarCrossref PubMed 
+14S. Banks, The Missing Link: Reflections on Philosophy and Spirit (Lone Pine Publishing, Edmonton, 1998).
+Google Scholar 
+15J. Pransky and T. M. Kelley, “How the formless comes into form: A process by which universal mind powers consciousness and thought to create people’s psychological lives,” Cogent Psychol. 4, 1307633 (2017).https://doi.org/10.1080/23311908.2017.1307633
+Google ScholarCrossref  
+16J. Pransky, Somebody Should Have Told Us (CCB Publishing, Terrace, 2011).
+Google Scholar 
+17T. M. Kelley, “Preventing youth violence through health realization,” Youth Violence Juv. Justice 1, 369 (2003).https://doi.org/10.1177/1541204003256057
+Google ScholarCrossref  
+18J. A. Sedgeman, “Health realization/innate health: Can a quiet mind and a positive feeling state be accessible over the lifespan without stress-relief techniques?,” Med. Sci. Monit. 11, HY47 (2005).
+Google ScholarPubMed 
+19T. M. Kelley and J. Pransky, “Principles for realizing resilience: A new view of trauma and human resilience,” J. Trauma. Stress Disord. Treat. 2, 1 (2013).https://doi.org/10.4172/2324-8947.1000102
+Google ScholarCrossref  
+20D. Bohm, Wholeness and the Implicate Order (Routledge, London, 1980).
+Google Scholar 
+21C. Wüthrich, “The emergence of space and time,” in The Routledge Handbook of Emergence, edited by S. French, K. McKenzie, and J. Saatsi (Routledge, London, 2019), pp. 365–378.
+Google ScholarCrossref  
+22P. Strasberg et al, “First principles numerical demonstration of emergent decoherent histories,” Phys. Rev. X 14, 041027 (2024).https://doi.org/10.1103/physrevx.14.041027
+Google ScholarCrossref  
+23M. E. Peskin and D. V. Schroeder, An Introduction to Quantum Field Theory (Addison-Wesley, Reading, 1995).
+Google Scholar 
+24L. H. Ryder, Quantum Field Theory (Cambridge University Press, Cambridge, 1996).
+Google ScholarCrossref  
+25D. Bohm and B. J. Hiley, The Undivided Universe: An Ontological Interpretation of Quantum Theory (Routledge, London, 1993).
+Google Scholar 
+26Quantum Theory and Measurement, edited by J. A. Wheeler and W. H. Zurek (Princeton University Press, Princeton, 1983).
+Google ScholarCrossref  
+27J. von Neumann, Mathematical Foundations of Quantum Mechanics (Princeton University Press, Princeton, 1932).
+Google Scholar 
+28H. P. Stapp, Mindful Universe: Quantum Mechanics and the Participating Observer (Springer, Berlin, 2011).
+Google ScholarCrossref  
+29A. Vilenkin, “Cosmic strings and domain walls,” Phys. Rep. 121, 263–315 (1985).https://doi.org/10.1016/0370-1573(85)90033-x
+Google ScholarCrossref  
+30A. D. Linde, “The inflationary universe,” Rep. Prog. Phys. 47, 925–986 (1984).https://doi.org/10.1088/0034-4885/47/8/002
+Google ScholarCrossref  
+31T. W. B. Kibble, “Some implications of a cosmological phase transition,” Phys. Rep. 67, 183–199 (1980).https://doi.org/10.1016/0370-1573(80)90091-5
+Google ScholarCrossref  
+32W. H. Zurek, “Decoherence, einselection, and the quantum origins of the classical,” Rev. Mod. Phys. 75, 715–775 (2003).https://doi.org/10.1103/revmodphys.75.715
+Google ScholarCrossref  
+33S. Hollands and R. M. Wald, “Quantum fields in curved spacetime,” Phys. Rep. 574, 1–35 (2015).https://doi.org/10.1016/j.physrep.2015.02.001
+Google ScholarCrossref  
+34N. Huggett and C. Wüthrich, “The emergence of spacetime in quantum theories of gravity,” Stud. Hist. Philos. Mod. Phys. 44, 273–275 (2013).https://doi.org/10.1016/j.shpsb.2013.06.001
+Google ScholarCrossref  
+35C. Rovelli, The Order of Time (Riverhead Books, New York, 2018).
+Google Scholar 
+36M. Tegmark, “Consciousness as a state of matter,” Chaos, Solitons Fractals 76, 238–270 (2015).https://doi.org/10.1016/j.chaos.2015.03.014
+Google ScholarCrossref  
+37L. Susskind, “The world as a hologram,” J. Math. Phys. 36, 6377–6396 (1995).https://doi.org/10.1063/1.531249
+Google ScholarCrossref  
+38E. Joos, H. D. Zeh, C. Kiefer, D. Giulini, J. Kupsch, and I. O. Stamatescu, Decoherence and the Appearance of a Classical World in Quantum Theory (Springer, Berlin, 2003).
+Google ScholarCrossref  
+39H. E. Puthoff, “Source of vacuum electromagnetic zero-point energy,” Phys. Rev. A 40, 4857–4862 (1989).https://doi.org/10.1103/physreva.40.4857
+Google ScholarCrossref  
+40P. W. Milonni, The Quantum Vacuum: An Introduction to Quantum Electrodynamics (Academic Press, Boston, 1994).
+Google ScholarCrossref  
+41D. Radin, Entangled Minds: Extrasensory Experiences in a Quantum Reality (Paraview Pocket Books, New York, 2006).
+Google Scholar 
+42R. G. Jahn and B. J. Dunne, Margins of Reality: The Role of Consciousness in the Physical World (ICRL Press, Princeton, 2009).
+Google Scholar 
+43L. McTaggart, The Field (Element Books, London, 2003).
+Google Scholar 
+44J. Utts, “An assessment of the evidence for psychic functioning,” J. Parapsychology 82, 118–146 (2018).https://doi.org/10.30891/jopar.2018S.01.10
+Google ScholarCrossref  
+45R. Wiseman, Paranormality: Why We See what Isn’t There (Macmillan, London, 2011).
+Google Scholar 
+46Y. Aharonov, D. Z. Albert, and L. Vaidman, “How the result of a measurement of a component of the spin of a spin-1/2 particle can turn out to be 100,” Phys. Rev. Lett. 60, 1351–1354 (1988).https://doi.org/10.1103/physrevlett.60.1351
+Google ScholarCrossref PubMed 
+47F. A. Popp and Y. Yan, “Delayed luminescence of biological systems in terms of coherent states,” Phys. Lett. A 293, 93–97 (2002).https://doi.org/10.1016/s0375-9601(01)00831-3
+Google ScholarCrossref  
+48E. Del Giudice, S. Doglia, M. Milani, and G. Vitiello, “Coherence of electromagnetic radiation in biological systems,” Cell Biophys. 13, 221–229 (1988).https://doi.org/10.1007/BF02918379
+Google ScholarCrossref PubMed 
+49R. Nelson et al, “The global consciousness project,” Explore 2, 342–351 (2006).https://doi.org/10.1016/j.explore.2006.05.012
+Google ScholarCrossref PubMed 
+50D. J. Schwarz, C. J. Copi, D. Huterer, and G. D. Starkman, “CMB anomalies after Planck,” Classical Quantum Gravity 33, 184001 (2016).https://doi.org/10.1088/0264-9381/33/18/184001
+Google ScholarCrossref  
+51G. Tononi, M. Boly, M. Massimini, and C. Koch, “Integrated information theory: From consciousness to its physical substrate,” Nat. Rev. Neurosci. 17, 450–461 (2016).https://doi.org/10.1038/nrn.2016.44
+Google ScholarCrossref PubMed 
+52M. Planck, Das Wesen der Materie. Speech in Florence, Italy, Abt. Va, Rep. 11 Planck, Nr. 1797, Archiv zur Geschichte der Max-Planck-Gesellschaft, 1944.
+53W. Heisenberg, Physics and Philosophy: The Revolution in Modern Science (Harper & Row, New York, 1958).
+Google Scholar 
+54R. T. Ames and D. L. Hall, Dao De Jing: A Philosophical Translation (Ballantine Books, New York, 2003).
+Google Scholar 
+© 2025 Author(s). All article content, except where otherwise noted, is licensed under a Creative Commons Attribution (CC BY) license (https://creativecommons.org/licenses/by/4.0/).
+This work is licensed under a Creative Commons Attribution 4.0 International License .
+Attribution
+Article has an altmetric score of 297
+View Metrics
+Citing articles via
+Google Scholar
+Submit your article
+
+ 
+
+Sign up for alerts
+
+Most Read
+Most Cited
+Universal consciousness as foundational field: A theoretical bridge between quantum physics and non-dual philosophy
+Maria Strømme
+Is gravity evidence of a computational universe?
+Melvin M. Vopson
+The second law of infodynamics and its implications for the simulated universe hypothesis
+Melvin M. Vopson
+Related Content
+Modeling effects of neural fluctuations and inter-scale interactions
+Chaos (October 2018)
+It Keeps Me Seeking: An Invitation from Science, Philosophy, and Religion
+Am. J. Phys. (May 2019)
+Progress in post-quantum mechanics
+AIP Conf. Proc. (May 2017)
+The Quantum Measurement Problem and Physical reality: A Computation Theoretic Perspective
+AIP Conf. Proc. (November 2006)
+Comment on Mermin’s review of Quantum Enigma by Bruce Rosenblum and Fred Kuttner
+Am. J. Phys. (October 2007)
+Online ISSN 2158-3226
+Resources
+For Researchers
+For Librarians
+For Advertisers
+Our Publishing Partners 
+Explore
+Journals
+Physics Today
+AIP Conference Proceedings
+Books
+Special Topics
+Publishers
+pubs.aip.org
+About
+User Guide
+Contact Us
+Register
+Help
+Privacy Policy
+Terms of Use
+Connect with AIP Publishing
+Facebook
+LinkedIn
+Bluesky
+YouTube
+ 
+EU Data Protection Representative Program
+ 
+UK Data Protection Representative Program
+© Copyright 2025 AIP Publishing LLC
