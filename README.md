@@ -1,217 +1,83 @@
-# Curator - PostgreSQL with pgvector, Prisma & Langchain
+# Curator
 
-A complete setup for building AI-powered applications with vector similarity search using PostgreSQL (pgvector), Prisma ORM, and Langchain.
+Curator is a semantic document management system. This project uses PostgreSQL (with pgvector), Prisma, Apollo Server (GraphQL), and LangChain for RAG-based interactions.
 
-## Features
+## 🚀 Quick Start
 
-- 🐘 PostgreSQL 16 with pgvector extension
-- 🔷 Prisma ORM with TypeScript support
-- 🦜 Langchain integration for RAG applications
-- 🐳 Docker Compose for easy setup
-- 🔍 Vector similarity search support
-- 📝 Type-safe database queries
+### 1. Prerequisites
+- **Node.js**: v18+ 
+- **Docker**: For running the PostgreSQL database.
+- **API Keys**: OpenAI or Google Gemini (depending on the embedding/LLM model used).
 
-## Prerequisites
-
-- Docker & Docker Compose
-- Node.js 18+ and npm/yarn
-- OpenAI API key (optional, for embeddings)
-
-## Quick Start
-
-### 1. Start the Database
-
-```powershell
-docker-compose up -d
-```
-
-### 2. Install Dependencies
-
-```powershell
-npm install
-```
-
-### 3. Configure Environment
-
-Copy `.env.example` to `.env` and update with your settings:
-
-```powershell
+### 2. Environment Setup
+Copy the example environment file and fill in your keys:
+```bash
 cp .env.example .env
 ```
 
-Add your OpenAI API key to `.env`:
-```
-OPENAI_API_KEY=your-api-key-here
-```
-
-### 4. Setup Prisma
-
-Generate Prisma Client:
-```powershell
-npm run prisma:generate
-```
-
-Push the schema to database:
-```powershell
-npm run prisma:push
-```
-
-Or create migrations:
-```powershell
-npm run prisma:migrate
-```
-
-### 5. View Database (Optional)
-
-Open Prisma Studio to explore your data:
-```powershell
-npm run prisma:studio
-```
-
-## Database Connection
-
-- **Host**: localhost
-- **Port**: 5432
-- **Database**: curator
-- **Username**: postgres
-- **Password**: postgres
-
-Connection string:
-```
-postgresql://postgres:postgres@localhost:5432/curator
-```
-
-## Project Structure
-
-```
-curator/
-├── docker-compose.yml      # Docker setup
-├── prisma/
-│   └── schema.prisma       # Database schema with vector support
-├── src/
-│   ├── prisma-client.ts    # Prisma client with vector helpers
-│   └── langchain-integration.ts  # Langchain + RAG examples
-├── .env                    # Environment variables
-└── package.json           # Dependencies
-```
-
-## Usage Examples
-
-### Basic Prisma Usage
-
-```typescript
-import prisma from './src/prisma-client';
-
-// Create a document
-await prisma.document.create({
-  data: {
-    content: 'Your text here',
-    metadata: { source: 'example' }
-  }
-});
-
-// Query documents
-const docs = await prisma.document.findMany();
-```
-
-### Vector Search with Prisma
-
-```typescript
-import { findSimilarDocuments } from './src/prisma-client';
-
-// Find similar documents by embedding
-const embedding = [0.1, 0.2, 0.3, ...]; // 1536 dimensions
-const similar = await findSimilarDocuments(embedding, 5);
-```
-
-### Langchain Integration
-
-```typescript
-import { 
-  addDocuments, 
-  semanticSearch, 
-  ragQuery 
-} from './src/langchain-integration';
-
-// Add documents to vector store
-await addDocuments(
-  ['Document 1', 'Document 2'],
-  [{ source: 'web' }, { source: 'api' }]
-);
-
-// Semantic search
-const results = await semanticSearch('your query', 5);
-
-// RAG query
-const answer = await ragQuery('What is pgvector?');
-```
-
-## Prisma Schema
-
-The schema includes models for:
-- **Document**: General documents with embeddings
-- **ChatMessage**: Chat history storage
-- **VectorStore**: Langchain-compatible vector store
-
-All models support vector embeddings (1536 dimensions for OpenAI text-embedding-3-small).
-
-## Vector Search Operations
-
-The pgvector extension supports three distance operators:
-- `<->` - L2 distance
-- `<#>` - Inner product
-- `<=>` - Cosine distance (recommended for similarity)
-
-## Managing Docker
-
-```powershell
-# View logs
-docker-compose logs -f
-
-# Stop database
-docker-compose down
-
-# Stop and remove all data (WARNING: destructive)
-docker-compose down -v
-
-# Restart database
-docker-compose restart
-```
-
-## Customization
-
-- **Database credentials**: Edit `docker-compose.yml` environment variables
-- **Schema**: Modify `prisma/schema.prisma` and run `npm run prisma:migrate`
-- **Vector dimensions**: Update `vector(1536)` in schema to match your embedding model
-- **Embedding model**: Change in `langchain-integration.ts`
-
-## Troubleshooting
-
-**Prisma can't connect to database:**
-```powershell
-# Check if database is running
-docker-compose ps
-
-# Check logs
-docker-compose logs postgres
-```
-
-**Vector extension not found:**
-```powershell
-# Restart database to ensure init.sql runs
-docker-compose down -v
+### 3. Database Setup
+Start the PostgreSQL container:
+```bash
 docker-compose up -d
 ```
 
-**TypeScript errors:**
-```powershell
-# Regenerate Prisma Client
-npm run prisma:generate
+### 4. Install Dependencies
+```bash
+npm install
 ```
 
-## Resources
+### 5. Database Setup & Maintenance
+Initialize your database schema and seed initial data:
+```bash
+# 1. Generate the Prisma client
+npm run prisma:generate
 
-- [pgvector Documentation](https://github.com/pgvector/pgvector)
-- [Prisma Documentation](https://www.prisma.io/docs)
-- [Langchain Documentation](https://js.langchain.com/docs)
-- [OpenAI Embeddings](https://platform.openai.com/docs/guides/embeddings)
+# 2. Sync schema to database (Prototyping/Initial Setup)
+npm run prisma:push
+
+# 3. Create/Run migrations (Development)
+npm run prisma:migrate
+
+# 4. Seed the database (Optional)
+npx prisma db seed
+```
+
+---
+
+## 🛠️ Available Scripts
+
+### Development
+- `npm run dev`: Runs both the server and the client concurrently.
+- `npm run dev:server`: Starts the backend server only (with auto-reload).
+- `npm run dev:client`: Starts the Vite development server for the frontend.
+
+### Database Maintenance (Prisma)
+- `npm run prisma:generate`: Regenerates the Prisma Client.
+- `npm run prisma:migrate`: Creates a new migration and applies it to the DB.
+- `npm run prisma:push`: Syncs the schema with the database WITHOUT creating migrations.
+- `npm run prisma:studio`: Opens a browser UI (GUI) to view and edit your database data.
+- `npx prisma db seed`: Runs the seeding script defined in `prisma/seed.ts`.
+- `npx prisma migrate reset`: **CAUTION**: Deletes all data and reapplies all migrations (useful for a clean slate).
+
+### Testing & CLI
+- `npm run test`: Runs the detailed test suite (`src/detailed-test.ts`).
+- `npm run cli`: Runs the command-line interface (`src/cli.ts`).
+
+### Production
+- `npm run build`: Builds both the client and server for production.
+- `npm run build:client`: Builds the frontend (Vite).
+- `npm run build:server`: Compiles the server TypeScript code.
+- `npm run start`: Starts the application in production mode.
+
+---
+
+## 📁 Project Structure
+- `server/`: Express + Apollo Server backend.
+  - `schema/`: GraphQL type definitions.
+  - `resolvers/`: GraphQL resolvers (queries/mutations).
+- `client/`: Vue 3 + Vuetify + Apollo Client frontend.
+- `prisma/`: Database schema and migrations.
+- `data/`: Local storage for processed files and indices.
+
+## 🤖 Agent Instructions
+For AI agents working on this project, please refer to [AGENT.md](./AGENT.md) for architectural patterns and [project rules](./.cursorrules).

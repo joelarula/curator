@@ -1,4 +1,5 @@
-import { save as saveService, consult as consultService } from '../../service'
+import { consult as consultService } from '../../consultant/consultant.service'
+import { save as saveService } from '../fileoperations'
 import { GraphQLError } from 'graphql'
 import crypto from 'crypto'
 
@@ -29,7 +30,7 @@ export const uploadFiles = async (
     for (const file of files) {
       const contentBuffer = Buffer.from(file.content, 'base64')
       const hash = crypto.createHash('sha256').update(contentBuffer).digest('hex')
-      
+
       const fileData = {
         name: file.name,
         content: file.content,
@@ -46,7 +47,7 @@ export const uploadFiles = async (
 
     let searchResults = null
     if (query && query.trim()) {
-      const results = await consultService(query)
+      const results = await consultService(query, projectId)
       searchResults = results.map((result: any) => ({
         content: result.content || result.pageContent || result.text,
         score: result.score || 0,

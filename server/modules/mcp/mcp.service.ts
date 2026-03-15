@@ -10,7 +10,7 @@ import {
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import {consult } from './service';
+import { consult } from '../consultant/consultant.service';
 
 const server = new Server(
   {
@@ -52,7 +52,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   if (name === "consult") {
-    const { query} = args as { query: string };
+    const { query } = args as { query: string };
 
     const consultResults: Array<{ content: string; score: number; metadata: { fileId: string } }> = await consult(query);
     const results = consultResults.map((res) => ({

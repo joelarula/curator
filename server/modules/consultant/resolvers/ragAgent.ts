@@ -1,6 +1,6 @@
 import { GraphQLError } from 'graphql'
 
-export const ragAgent = async (_: any, { query }: { query: string }, context: any) => {
+export const ragAgent = async (_: any, { query, projectId }: { query: string, projectId?: number }, context: any) => {
   if (!context.user) {
     throw new GraphQLError('Not authenticated', {
       extensions: { code: 'UNAUTHENTICATED' }
@@ -14,8 +14,8 @@ export const ragAgent = async (_: any, { query }: { query: string }, context: an
   }
 
   try {
-    const { ragAgent: ragAgentService } = await import('../../service')
-    const result = await ragAgentService(query)
+    const { ragAgent: ragAgentService } = await import('../consultant.service')
+    const result = await ragAgentService(query, projectId)
     return {
       answer: result.answer,
       sources: result.sources.map((source: any) => ({
