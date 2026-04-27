@@ -1,0 +1,113 @@
+model User {
+  id       String        @id @default(cuid())
+  email    String        @unique
+  name     String?
+  googleId String?       @unique
+  consents UserConsent[]
+  sessions Session[]
+  roles    UserRole[]
+  quotas   UserQuota[]
+  texts    Text[]
+  feeds    Feed[]
+  sources  Source[]
+
+  existent  Boolean? @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Role {
+  id          String     @id @default(cuid())
+  name        String     @unique
+  description String?    @db.Text
+  users       UserRole[]
+
+  existent  Boolean? @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model UserRole {
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId String
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  existent Boolean? @default(true)
+
+  @@id([userId, roleId])
+}
+
+model UserQuota {
+  id      String   @id @default(cuid())
+  userId  String
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type    String
+  limit   Int
+  usage   Int      @default(0)
+  resetAt DateTime
+
+  existent  Boolean? @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, type])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+
+  existent  Boolean? @default(true)
+  createdAt DateTime @default(now())
+
+  consents UserConsent[]
+}
+
+model UserConsent {
+  id      String             @id @default(cuid())
+  userId  String
+  user    User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  termsId String
+  terms   TermsAndConditions @relation(fields: [termsId], references: [id])
+
+  entityType String?
+  entityId   String?
+
+  sessionId String?
+  session   Session? @relation(fields: [sessionId], references: [id])
+
+  consentType String   @default("GENERAL")
+  consentDate DateTime @default(now())
+
+  existent Boolean? @default(true)
+
+  @@index([userId])
+  @@index([termsId])
+  @@index([entityId, entityType])
+}
+
+model TermsAndConditions {
+  id       String        @id @default(cuid())
+  version  String        @unique
+  content  String        @db.Text
+  isActive Boolean       @default(true)
+  consents UserConsent[]
+
+  existent  Boolean? @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  entityType String
+  entityId   String
+  action     String
+  userId     String?
+  metadata   Json?
+  timestamp  DateTime @default(now())
+}

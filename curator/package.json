@@ -1,0 +1,77 @@
+{
+  "name": "curator",
+  "displayName": "Curator",
+  "description": "VS Code extension for browsing and editing the wiki knowledge graph as a virtual filesystem.",
+  "version": "0.0.1",
+  "publisher": "your-publisher-id",
+  "engines": {
+    "vscode": ">=1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "icon": "media/curator.svg",
+  "activationEvents": [
+    "onView:curator-explorer",
+    "onCommand:curator.helloWorld"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "curator.helloWorld",
+        "title": "Curator: Hello World"
+      },
+      {
+        "command": "curator.signIn",
+        "title": "Curator: Sign In to Wiki"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "curator-explorer",
+          "title": "Curator",
+          "icon": "media/curator.svg"
+        }
+      ]
+    },
+    "views": {
+      "curator-explorer": [
+        {
+          "id": "curator-filesystem",
+          "name": "Wiki Filesystem"
+        }
+      ]
+    },
+    "configuration": {
+      "type": "object",
+      "title": "Curator Configuration",
+      "properties": {
+        "curator.apiToken": {
+          "type": "string",
+          "default": "",
+          "description": "API token for authenticating with the wiki backend."
+        },
+        "curator.apiUrl": {
+          "type": "string",
+          "default": "http://localhost:4000/graphql",
+          "description": "GraphQL API endpoint for the wiki backend."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.116.0",
+    "eslint": "^8.0.0",
+    "typescript": "^5.0.0",
+    "vscode": "^1.1.37"
+  }
+}

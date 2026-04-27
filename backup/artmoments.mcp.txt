@@ -1,0 +1,262 @@
+#!/usr/bin/env node
+
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+import Database from "better-sqlite3";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Database path
+const DB_PATH = path.join(__dirname, "data", "artmoments.db");
+
+// Initialize database connection
+const db = new Database(DB_PATH, { readonly: true });
+
+// Server setup
+const server = new Server(
+  {
+    name: "artmoments-server",
+    version: "1.0.0",
+  },
+  {
+    capabilities: {
+      tools: {},
+      resources: {},
+      prompts: {},
+    },
+  }
+);
+
+// List available tools
+server.setRequestHandler(ListToolsRequestSchema, async () => {
+  return {
+    tools: [
+      {
+        name: "get_paintings_by_category",
+        description: "Get all published paintings in a specific category",
+        inputSchema: {
+          type: "object",
+          properties: {
+            category_key: {
+              type: "string",
+              description: "Category key (e.g., 'ABSTRACT', 'FLOWERS', 'NATURE')",
+            },
+            limit: {
+              type: "number",
+              description: "Maximum number of paintings to return (default: 50)",
+            },
+          },
+          required: ["category_key"],
+        },
+      },
+    ],
+  };
+});
+
+// Handle tool calls
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const { name, arguments: args } = request.params;
+
+  if (name === "get_paintings_by_category") {
+    const { category_key, limit = 50 } = args as { category_key: string; limit?: number };
+
+    const paintings = db
+      .prepare(
+        `
+        SELECT 
+          p.name,
+          p.photo,
+          p.link,
+          a.name as author_name,
+          c.name as category_name
+        FROM paintings p
+        JOIN authors a ON p.author_key = a.key
+        JOIN painting_categories pc ON p.key = pc.painting_key
+        JOIN categories c ON pc.category_key = c.key
+        WHERE c.key = ? AND p.published = 1
+        LIMIT ?
+      `
+      )
+      .all(category_key, limit);
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(paintings, null, 2),
+        },
+      ],
+    };
+  }
+
+  throw new Error(`Unknown tool: ${name}`);
+});
+
+// List available resources
+server.setRequestHandler(ListResourcesRequestSchema, async () => {
+  return {
+    resources: [
+      {
+        uri: "artmoments://categories",
+        mimeType: "application/json",
+        name: "All Categories",
+        description: "List of all painting categories",
+      },
+      {
+        uri: "artmoments://authors",
+        mimeType: "application/json",
+        name: "All Authors",
+        description: "List of all artists/authors",
+      },
+    ],
+  };
+});
+
+// Handle resource reads
+server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  const { uri } = request.params;
+
+  if (uri === "artmoments://categories") {
+    const categories = db
+      .prepare(
+        `
+        SELECT 
+          c.key,
+          c.name,
+          c.name_en,
+          c.link,
+          c.published,
+          COUNT(pc.painting_key) as painting_count
+        FROM categories c
+        LEFT JOIN painting_categories pc ON c.key = pc.category_key
+        LEFT JOIN paintings p ON pc.painting_key = p.key AND p.published = 1
+        GROUP BY c.id
+        ORDER BY painting_count DESC
+      `
+      )
+      .all();
+
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: "application/json",
+          text: JSON.stringify(categories, null, 2),
+        },
+      ],
+    };
+  }
+
+  if (uri === "artmoments://authors") {
+    const authors = db
+      .prepare(
+        `
+        SELECT 
+          a.key,
+          a.name,
+          a.link,
+          COUNT(p.id) as painting_count
+        FROM authors a
+        LEFT JOIN paintings p ON a.key = p.author_key AND p.published = 1
+        GROUP BY a.id
+        ORDER BY painting_count DESC
+      `
+      )
+      .all();
+
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: "application/json",
+          text: JSON.stringify(authors, null, 2),
+        },
+      ],
+    };
+  }
+
+  throw new Error(`Unknown resource: ${uri}`);
+});
+
+// List available prompts
+server.setRequestHandler(ListPromptsRequestSchema, async () => {
+  return {
+    prompts: [
+      {
+        name: "painting_query",
+        description: "Help formulate a query to find paintings",
+        arguments: [
+          {
+            name: "category",
+            description: "Category to search in (optional)",
+            required: false,
+          },
+          {
+            name: "author",
+            description: "Author name to filter by (optional)",
+            required: false,
+          },
+        ],
+      },
+    ],
+  };
+});
+
+// Handle prompt requests
+server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+  const { name, arguments: args } = request.params;
+
+  if (name === "painting_query") {
+    const { category, author } = (args || {}) as { category?: string; author?: string };
+
+    let promptText = "I can help you find paintings in the Artmoments gallery.\n\n";
+
+    if (category) {
+      promptText += `Looking for paintings in the ${category} category.\n`;
+    }
+
+    if (author) {
+      promptText += `Filtering by author: ${author}.\n`;
+    }
+
+    promptText += "\nAvailable categories: ABSTRACT, FLOWERS, NATURE, VARIA, DRAWINGS, STILL_LIFE, FIGURATIVE, CHILDRENS, SWEDISH_MODELS, UNCATEGORIZED\n";
+    promptText += "\nWhat would you like to know about the paintings?";
+
+    return {
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: promptText,
+          },
+        },
+      ],
+    };
+  }
+
+  throw new Error(`Unknown prompt: ${name}`);
+});
+
+// Start server
+async function runServer() {
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  console.error("Artmoments MCP Server running on stdio");
+}
+
+runServer().catch((error) => {
+  console.error("Fatal error running server:", error);
+  process.exit(1);
+});

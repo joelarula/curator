@@ -1,0 +1,70 @@
+model PromptTemplate {
+  id          String          @id @default(cuid())
+  name        String          @unique
+  description String?
+  versions    PromptVersion[]
+
+  existent  Boolean? @default(true)
+  createdAt DateTime @default(now())
+}
+
+model PromptVersion {
+  id         String         @id @default(cuid())
+  templateId String
+  template   PromptTemplate @relation(fields: [templateId], references: [id])
+  version    Int
+  content    String         @db.Text
+
+  optimizedForModelId String?
+  optimizedForModel   AIModel? @relation(fields: [optimizedForModelId], references: [id])
+
+  reports Report[]
+
+  existent  Boolean? @default(true)
+  createdAt DateTime @default(now())
+}
+
+model Report {
+  id     String @id @default(cuid())
+  status String @default("PENDING")
+
+  sourceId String
+  source   Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  texts Text[] @relation("ReportContent")
+
+  aiModelId       String
+  aiModel         AIModel        @relation(fields: [aiModelId], references: [id])
+  promptVersionId String?
+  promptVersion   PromptVersion? @relation(fields: [promptVersionId], references: [id])
+
+  resultJson        Json?
+  metrics           AnalysisMetric[]
+  isAiGenerated     Boolean          @default(true)
+  transparencyLabel String?
+
+  isPublished Boolean @default(false)
+  permalink   String? @unique
+  tags        Tag[]
+
+  existent  Boolean? @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AnalysisMetric {
+  id       String  @id @default(cuid())
+  reportId String?
+  report   Report? @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  textId String?
+  text   Text?   @relation(fields: [textId], references: [id], onDelete: Cascade)
+
+  name  String
+  value Float
+
+  justification String
+
+  existent  Boolean? @default(true)
+  createdAt DateTime @default(now())
+}

@@ -1,0 +1,221 @@
+// --- LOOKUP TABLES (Replacing Enums) ---
+
+model SourceType {
+  id      String   @id // e.g. "WEB", "BOOK", "WIKI_PAGE"
+  sources Source[]
+}
+
+model SourceStatus {
+  id      String   @id // e.g. "NEW", "ACTIVE", "ARCHIVED"
+  sources Source[]
+}
+
+model TextRole {
+  id    String @id // e.g. "MAIN", "SUMMARY", "TRANSCRIPT"
+  texts Text[]
+}
+
+model RelationRole {
+  id        String     @id // e.g. "REFERENCE", "ORIGIN"
+  relations Relation[]
+}
+
+// --- CORE WIKI IDENTITY: SOURCE ---
+
+model Source {
+  id               String  @id @default(cuid())
+  url              String? @db.VarChar(2560)
+  path             String?
+  materializedPath String? @unique
+  depth            Int     @default(0)
+  title            String? @db.VarChar(255)
+  description      String? @db.Text
+
+  typeId String     @default("WEB")
+  type   SourceType @relation(fields: [typeId], references: [id])
+
+  reliabilityScore Float?    @default(1.0)
+  isPublished      Boolean   @default(false)
+  publishedAt      DateTime?
+
+  statusId String?       @default("NEW")
+  status   SourceStatus? @relation(fields: [statusId], references: [id])
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  parentId String?
+  parent   Source?  @relation("SourceHierarchy", fields: [parentId], references: [id])
+  children Source[] @relation("SourceHierarchy")
+
+  texts Text[] @relation("SourceTexts")
+
+  outboundRelations Relation[] @relation("SourceOutbound")
+  inboundRelations  Relation[] @relation("SourceInbound")
+
+  metadata Json?
+
+  tags        Tag[]
+  attachments Attachment[]
+  feeds       Feed[]       @relation("FeedSources")
+  reports     Report[]
+
+  existent  Boolean? @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([url])
+  @@unique([parentId, path])
+  @@index([existent])
+  @@index([parentId])
+  @@index([materializedPath])
+}
+
+// --- CORE WIKI CONTENT: TEXT ---
+
+model Text {
+  id       String  @id @default(cuid())
+  content  String  @db.Text
+  language String? @default("et")
+
+  roleId String   @default("MAIN")
+  role   TextRole @relation(fields: [roleId], references: [id])
+
+  version           Int     @default(1)
+  isLatest          Boolean @default(true)
+  previousVersionId String?
+  previousVersion   Text?   @relation("TextHistory", fields: [previousVersionId], references: [id])
+  nextVersions      Text[]  @relation("TextHistory")
+
+  isPublished Boolean  @default(false)
+  existent    Boolean? @default(true)
+
+  originSourceId String
+  originSource   Source @relation("SourceTexts", fields: [originSourceId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  chunks  Chunk[]
+  tags    Tag[]
+  metrics AnalysisMetric[]
+  reports Report[]         @relation("ReportContent")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([originSourceId])
+}
+
+// --- SEMANTIC LINKING: RELATION ---
+
+model Relation {
+  id String @id @default(cuid())
+
+  roleId String       @default("REFERENCE")
+  role   RelationRole @relation(fields: [roleId], references: [id])
+
+  fromSourceId String
+  fromSource   Source @relation("SourceOutbound", fields: [fromSourceId], references: [id], onDelete: Cascade)
+
+  toSourceId String
+  toSource   Source @relation("SourceInbound", fields: [toSourceId], references: [id], onDelete: Cascade)
+
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([fromSourceId])
+  @@index([toSourceId])
+}
+
+model Chunk {
+  id     String @id @default(cuid())
+  textId String
+  text   Text   @relation(fields: [textId], references: [id], onDelete: Cascade)
+
+  content        String @db.Text
+  selectionStart Int?
+  selectionEnd   Int?
+
+  aiModelId String
+  aiModel   AIModel @relation(fields: [aiModelId], references: [id])
+
+  bge_base_en_v1_5       Unsupported("vector(768)")?
+  all_minilm_l6_v2       Unsupported("vector(384)")?
+  text_embedding_3_small Unsupported("vector(1536)")?
+  text_embedding_004     Unsupported("vector(768)")?
+
+  existent  Boolean? @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([textId])
+}
+
+model AIModel {
+  id       String  @id @default(cuid())
+  name     String  @unique
+  provider String
+  version  String?
+
+  reports        Report[]
+  chunks         Chunk[]
+  promptVersions PromptVersion[]
+
+  existent  Boolean? @default(true)
+  createdAt DateTime @default(now())
+}
+
+model Feed {
+  id            String    @id @default(cuid())
+  url           String    @unique
+  name          String
+  pollingPeriod Int       @default(60)
+  lastPolledAt  DateTime?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  sources Source[] @relation("FeedSources")
+
+  defaultTagName  String?
+  defaultTagValue String?
+  aiPrompt        String? @db.Text
+
+  enabled   Boolean  @default(true)
+  existent  Boolean? @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Attachment {
+  id       String @id @default(cuid())
+  filename String
+  mimetype String
+  url      String
+  size     Int
+
+  sourceId String?
+  source   Source? @relation(fields: [sourceId], references: [id])
+
+  existent  Boolean? @default(true)
+  createdAt DateTime @default(now())
+}
+
+model Tag {
+  id      String   @id @default(cuid())
+  name    String
+  value   String?
+  reports Report[]
+  texts   Text[]
+  sources Source[]
+
+  isPublished Boolean @default(false)
+  permalink   String? @unique
+
+  existent Boolean? @default(true)
+
+  @@unique([name, value])
+  @@index([name])
+  @@index([value])
+}

@@ -1,0 +1,14 @@
+node_modules
+dist
+build
+.next
+out
+.git
+.env
+.env.local
+.env.*.local
+*.log
+__pycache__
+*.py[cod]
+.DS_Store
+Thumbs.db

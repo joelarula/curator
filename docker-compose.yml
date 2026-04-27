@@ -1,25 +1,23 @@
-version: '3.8'
-
 services:
-  postgres:
-    image: pgvector/pgvector:pg16
-    container_name: curator-postgres
+  db:
+    image: ankane/pgvector:latest
+    container_name: padagaskar-db
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: curator
+      POSTGRES_DB: padagaskar
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-    restart: unless-stopped
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U user -d padagaskar"]
       interval: 10s
       timeout: 5s
       retries: 5
 
 volumes:
-  postgres_data:
-    driver: local
+  pgdata:
+
+

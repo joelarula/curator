@@ -1,0 +1,132 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// --- CORE & INFRASTRUCTURE ---
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [vector]
+}
+
+model Model {
+  id         Int         @id @unique @default(autoincrement())
+  name       String      @unique @db.VarChar(128)
+  columnName String      @db.VarChar(64)
+  source     String?     @db.VarChar(2560)
+  chunks     Chunk[]
+  codeBlocks CodeBlock[]
+}
+
+// --- USER & AUTHENTICATION MODULE ---
+
+model User {
+  id         String     @id @default(cuid())
+  email      String     @unique
+  name       String?
+  googleId   String?    @unique
+  operations Operator[]
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+}
+
+model Account {
+  id        Int        @id @unique @default(autoincrement())
+  name      String     @unique @db.VarChar(100)
+  projects  Project[]
+  operators Operator[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model Operator {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  account   Account  @relation(fields: [accountId], references: [id])
+  accountId Int
+  role      Role     @relation(fields: [roleId], references: [id])
+  roleId    Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, accountId, roleId])
+  @@index([userId])
+  @@index([accountId])
+  @@index([roleId])
+}
+
+model Role {
+  id          Int        @id @default(autoincrement())
+  name        String     @unique @db.VarChar(50)
+  description String?    @db.VarChar(256)
+  operators   Operator[]
+}
+
+// --- PROJECT & DATA MODULE ---
+
+model Project {
+  id        Int        @id @unique @default(autoincrement())
+  account   Account    @relation(fields: [accountId], references: [id])
+  name      String     @unique @db.VarChar(100)
+  files     FileData[]
+  accountId Int
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@index([accountId])
+}
+
+model FileData {
+  id            Int      @id @unique @default(autoincrement())
+  project       Project  @relation(fields: [projectId], references: [id])
+  name          String   @db.VarChar(2560)
+  mimeType      String   @db.VarChar(64)
+  source        String?  @db.VarChar(2560)
+  hash          String   @db.VarChar(64)
+  size          Int
+  metadata      String?  @db.VarChar(512)
+  content       String?  @db.Text
+  binaryContent Bytes?
+  chunks        Chunk[]
+  projectId     Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([name, projectId])
+  @@index([name, projectId])
+}
+
+// --- CONSULTANT & AI MODULE ---
+
+model Chunk {
+  id                      Int                        @id @unique @default(autoincrement())
+  file                    FileData                   @relation(fields: [fileId], references: [id])
+  text                    String                     @db.VarChar(2560)
+  hash                    String                     @db.VarChar(64)
+  selectionStart          Int?
+  selectionEnd            Int?
+  model                   Model                      @relation(fields: [modelId], references: [id])
+  xenova_all_minilm_l6_v2 Unsupported("vector(384)")
+  fileId                  Int
+  modelId                 Int
+  projectId               Int? // Denormalized for fast filtering
+
+  @@index([hash, modelId, fileId, projectId])
+}
+
+model CodeBlock {
+  id                      Int                        @id @unique @default(autoincrement())
+  name                    String                     @db.VarChar(256)
+  description             String?                    @db.VarChar(256)
+  text                    String                     @db.VarChar(2560)
+  model                   Model?                     @relation(fields: [modelId], references: [id])
+  modelId                 Int?
+  xenova_all_minilm_l6_v2 Unsupported("vector(384)")
+
+  @@index([name])
+}
