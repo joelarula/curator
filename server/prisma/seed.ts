@@ -1,5 +1,15 @@
 import { PrismaClient } from '@prisma/client';
-const prisma = new PrismaClient()
+import { PrismaPg } from '@prisma/adapter-pg';
+import pkg from 'pg';
+const { Pool } = pkg;
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const connectionString = process.env.DATABASE_URL!;
+const pool = new Pool({ connectionString });
+const adapter = new PrismaPg(pool as any);
+const prisma = new PrismaClient({ adapter });
 
 async function main() {
   // Seed application user 'curator'
@@ -22,9 +32,28 @@ async function main() {
     skipDuplicates: true,
   })
 
+  // Seed ResourceStatus
+  await prisma.resourceStatus.createMany({
+    data: [
+      { name: 'DRAFT' },
+      { name: 'ACTIVE' },
+      { name: 'ARCHIVED' },
+    ],
+    skipDuplicates: true,
+  })
 
-
-
+  // Seed ResourceType
+  await prisma.resourceType.createMany({
+    data: [
+      { name: 'ENTITY' },
+      { name: 'PROPERTY' },
+      { name: 'CLASS' },
+      { name: 'URL' },
+      { name: 'LOCATION' },
+      { name: 'FEED' },
+    ],
+    skipDuplicates: true,
+  })
 }
 
 main()

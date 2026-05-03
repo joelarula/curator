@@ -91,8 +91,6 @@ export const typeDefs = gql`
     id: Int!
     "Unique RDF-compatible URI identifier"
     uri: String!
-    "Optional external web URL"
-    url: String
     "Human-readable display title"
     title: String
     "Short description"
@@ -140,8 +138,8 @@ export const typeDefs = gql`
   Multiple Texts on the same Resource support versioning and multi-role content.
   """
   type Text {
-    "Unique identifier (CUID)"
-    id: ID!
+    "Unique identifier"
+    id: Int!
     "Full text content"
     content: String!
     "Content role (MAIN, SUMMARY, TRANSCRIPT)"
@@ -176,10 +174,8 @@ export const typeDefs = gql`
   and justification strings for AI-generated triples.
   """
   type Relation {
-    "Unique identifier (CUID)"
-    id: ID!
-    "Unique RDF-compatible URI for this triple"
-    uri: String!
+    "Auto-incrementing integer primary key"
+    id: Int!
     "Classification type of this relation"
     resourceType: ResourceType!
     "Subject Resource (integer FK for join performance)"
@@ -198,8 +194,6 @@ export const typeDefs = gql`
     justification: String
     "AI Response that generated this triple (null for manual triples)"
     response: Response
-    "Optional origin resource ID"
-    originResourceId: Int
     createdAt: String!
   }
 
@@ -260,7 +254,7 @@ export const typeDefs = gql`
   provided as context.
   """
   type Prompt {
-    id: ID!
+    id: Int!
     "Unique URI identifier"
     uri: String!
     "PromptTemplate used to generate this prompt"
@@ -287,7 +281,7 @@ export const typeDefs = gql`
   Supports retry counting and distributed locking via lockedBy/lockedAt.
   """
   type Request {
-    id: ID!
+    id: Int!
     "Processing status"
     status: RequestStatus!
     "Number of retry attempts"
@@ -315,7 +309,7 @@ export const typeDefs = gql`
   extracted by the AI agent.
   """
   type Response {
-    id: ID!
+    id: Int!
     "Parent request"
     request: Request!
     "Parent conversation"
@@ -331,7 +325,7 @@ export const typeDefs = gql`
 
   "A conversation grouping multiple Requests and Responses."
   type Conversation {
-    id: ID!
+    id: Int!
     "Requests in this conversation"
     requests: [Request!]!
     "Responses in this conversation"
@@ -372,28 +366,32 @@ export const typeDefs = gql`
 
   "Input for creating or updating a Resource."
   input ResourceInput {
-    "Unique RDF-compatible URI (required on create)"
+    "Optional integer ID (for upsert/update)"
+    id: Int
+    "Unique RDF-compatible URI"
     uri: String
-    "Optional external web URL"
-    url: String
     "Display title"
     title: String
     "Short description"
     description: String
     "ResourceType lookup ID"
     resourceTypeId: Int
+    "ResourceType lookup name (e.g. 'FEED', 'LOCATION')"
+    resourceTypeName: String
     "ResourceStatus lookup ID"
     statusId: Int
+    "ResourceStatus lookup name (e.g. 'DRAFT', 'ACTIVE')"
+    statusName: String
     "Whether publicly visible"
     isPublished: Boolean
   }
 
   "Input for creating an RDF triple."
   input RelationInput {
-    "Unique URI for this triple"
-    uri: String!
     "ResourceType lookup ID for the relation"
-    resourceTypeId: Int!
+    resourceTypeId: Int
+    "ResourceType lookup name (e.g. 'PROPERTY')"
+    resourceTypeName: String
     "Subject Resource integer ID"
     subjectId: Int!
     "Predicate Resource integer ID"
@@ -526,6 +524,8 @@ export const typeDefs = gql`
     createResource(input: ResourceInput!): Resource!
     "Update an existing Resource by integer ID."
     updateResource(id: Int!, input: ResourceInput!): Resource!
+    "Upsert a Resource (create if URI missing, update if URI exists)."
+    upsertResource(input: ResourceInput!): Resource!
     "Soft-delete a Resource (sets existent to null)."
     deleteResource(id: Int!): Boolean!
 

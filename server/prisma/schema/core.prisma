@@ -27,7 +27,6 @@ model TextRole {
 model Resource {
   id                 Int             @id @default(autoincrement())
   uri                String          @unique
-  url                String?         @db.VarChar(2560)
   title              String?         @db.VarChar(255)
   description        String?         @db.Text
   isPublished        Boolean         @default(false)
@@ -69,19 +68,17 @@ model Text {
 }
 
 model Relation {
-  id               String    @id @default(cuid())
-  uri              String    @unique
+  id               Int       @id @default(autoincrement())
   resourceTypeId   Int
   resourceType     ResourceType @relation(fields: [resourceTypeId], references: [id])
   subjectId        Int
   predicateId      Int
   objectId         Int
-  originResourceId Int?
   subject          Resource  @relation("RelationSubject", fields: [subjectId], references: [id], onDelete: Cascade)
   predicate        Resource  @relation("RelationPredicate", fields: [predicateId], references: [id], onDelete: Cascade)
   object           Resource  @relation("RelationObject", fields: [objectId], references: [id], onDelete: Cascade)
   createdAt        DateTime  @default(now())
-  responseId       String?
+  responseId       Int?
   response         Response? @relation(fields: [responseId], references: [id])
 
   literalValue   Float?
@@ -138,7 +135,7 @@ model PromptTemplate {
 }
 
 model Prompt {
-  id         String         @id @default(cuid())
+  id         Int            @id @default(autoincrement())
   uri        String         @unique
   templateId String
   template   PromptTemplate @relation(fields: [templateId], references: [id])
@@ -155,12 +152,12 @@ model Prompt {
 }
 
 model Request {
-  id             String        @id @default(cuid())
+  id             Int           @id @default(autoincrement())
   status         RequestStatus @default(NEW)
   retryCount     Int           @default(0)
-  promptId       String?
+  promptId       Int?
   prompt         Prompt?       @relation(fields: [promptId], references: [id])
-  conversationId String
+  conversationId Int
   conversation   Conversation  @relation(fields: [conversationId], references: [id])
   scheduledAt    DateTime      @default(now())
   lockedBy       String?
@@ -169,14 +166,19 @@ model Request {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
   responses      Response[]
+
+  // Workflow tracking
+  parentId       Int?
+  parent         Request?      @relation("Workflow", fields: [parentId], references: [id])
+  children       Request[]     @relation("Workflow")
 }
 
 model Response {
   relations      Relation[]
-  id             String       @id @default(cuid())
-  requestId      String
+  id             Int          @id @default(autoincrement())
+  requestId      Int
   request        Request      @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  conversationId String
+  conversationId Int
   conversation   Conversation @relation(fields: [conversationId], references: [id])
   content        String       @db.Text
   toolCalls      Json?
@@ -184,7 +186,7 @@ model Response {
 }
 
 model Conversation {
-  id        String     @id @default(cuid())
+  id        Int        @id @default(autoincrement())
   requests  Request[]
   responses Response[]
   existent  Boolean?   @default(true)

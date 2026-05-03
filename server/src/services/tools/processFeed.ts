@@ -17,9 +17,12 @@ export async function processFeed(
     const parser = new Parser();
     const feed = await parser.parseURL(url);
 
-    // 1. Ensure ResourceType 'FEED' exists
+    // 1. Ensure ResourceType 'FEED' and ResourceStatus 'DRAFT' exist
     let feedType = await prisma.resourceType.findUnique({ where: { name: 'FEED' } });
     if (!feedType) feedType = await prisma.resourceType.create({ data: { name: 'FEED' } });
+
+    let draftStatus = await prisma.resourceStatus.findUnique({ where: { name: 'DRAFT' } });
+    if (!draftStatus) draftStatus = await prisma.resourceStatus.create({ data: { name: 'DRAFT' } });
 
     // 2. Upsert the feed as a Resource
     const feedUri = `feed:${url}`;
@@ -31,6 +34,7 @@ export async function processFeed(
                 title: feed.title || url,
                 description: feed.description || null,
                 resourceTypeId: feedType.id,
+                statusId: draftStatus.id,
                 userId,
                 isPublished: true,
             }
@@ -82,6 +86,7 @@ export async function processFeed(
                     title: item.title || item.link,
                     description: item.contentSnippet || null,
                     resourceTypeId: urlType.id,
+                    statusId: draftStatus.id,
                     userId,
                     isPublished: false,
                 }
@@ -100,7 +105,6 @@ export async function processFeed(
         if (!existingRelation) {
             await prisma.relation.create({
                 data: {
-                    uri: `relation:${crypto.randomUUID()}`,
                     resourceTypeId: predicate.resourceTypeId!,
                     subjectId: feedResource.id,
                     predicateId: predicate.id,
@@ -136,7 +140,7 @@ export async function processFeed(
                             status: 'NEW',
                             promptId: newPrompt.id,
                             conversationId: request.conversationId,
-                            // Optionally track workflow parent/child via a parentId field if added later
+                            parentId: request.id,
                         }
                     });
                     console.log(`[Tools] Spawning child request for extracted item using template: ${templateName}`);

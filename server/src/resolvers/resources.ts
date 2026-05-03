@@ -17,6 +17,18 @@
  *   status, resourceType, user, texts, attachments,
  *   subjectRelations, predicateRelations, objectRelations, prompts.
  */
+import { PrismaClient } from '@prisma/client';
+
+async function resolveResourceIds(input: any, prisma: PrismaClient) {
+    if (input.resourceTypeName && !input.resourceTypeId) {
+        const rt = await prisma.resourceType.findUnique({ where: { name: input.resourceTypeName } });
+        if (rt) input.resourceTypeId = rt.id;
+    }
+    if (input.statusName && !input.statusId) {
+        const rs = await prisma.resourceStatus.findUnique({ where: { name: input.statusName } });
+        if (rs) input.statusId = rs.id;
+    }
+}
 
 export const resourceResolvers = {
     Query: {
@@ -84,10 +96,11 @@ export const resourceResolvers = {
             if (!context.user) throw new Error('Unauthorized');
             if (!input.uri) throw new Error('URI is required');
 
+            await resolveResourceIds(input, context.prisma);
+
             return await context.prisma.resource.create({
                 data: {
                     uri: input.uri,
-                    url: input.url || null,
                     title: input.title || null,
                     description: input.description || null,
                     resourceTypeId: input.resourceTypeId || null,
@@ -102,9 +115,10 @@ export const resourceResolvers = {
         updateResource: async (_parent: any, { id, input }: { id: number; input: any }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
 
+            await resolveResourceIds(input, context.prisma);
+
             const data: any = {};
             if (input.uri !== undefined) data.uri = input.uri;
-            if (input.url !== undefined) data.url = input.url;
             if (input.title !== undefined) data.title = input.title;
             if (input.description !== undefined) data.description = input.description;
             if (input.resourceTypeId !== undefined) data.resourceTypeId = input.resourceTypeId;
@@ -114,6 +128,37 @@ export const resourceResolvers = {
             return await context.prisma.resource.update({
                 where: { id },
                 data,
+                include: { status: true, resourceType: true, user: true },
+            });
+        },
+        
+        upsertResource: async (_parent: any, { input }: { input: any }, context: any) => {
+            if (!context.user) throw new Error('Unauthorized');
+            
+            await resolveResourceIds(input, context.prisma);
+            
+            const where: any = input.id ? { id: input.id } : { uri: input.uri };
+            if (!where.id && !where.uri) throw new Error('Either id or uri is required for upsert');
+
+            return await context.prisma.resource.upsert({
+                where,
+                update: {
+                    uri: input.uri,
+                    title: input.title,
+                    description: input.description,
+                    resourceTypeId: input.resourceTypeId,
+                    statusId: input.statusId,
+                    isPublished: input.isPublished ?? undefined,
+                },
+                create: {
+                    uri: input.uri || `resource:${Date.now()}`,
+                    title: input.title || null,
+                    description: input.description || null,
+                    resourceTypeId: input.resourceTypeId || null,
+                    statusId: input.statusId || null,
+                    isPublished: input.isPublished || false,
+                    userId: context.user.id,
+                },
                 include: { status: true, resourceType: true, user: true },
             });
         },

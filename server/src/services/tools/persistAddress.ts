@@ -92,7 +92,6 @@ export async function persistAddress(
     if (!existingRelation) {
         await prisma.relation.create({
             data: {
-                uri: `relation:${crypto.randomUUID()}`,
                 resourceTypeId: predicate.resourceTypeId!,
                 subjectId: subject.id,
                 predicateId: predicate.id,

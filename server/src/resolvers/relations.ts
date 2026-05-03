@@ -15,6 +15,14 @@
  *   subject, predicate, object (all resolve to Resource via Int FK),
  *   resourceType, response.
  */
+import { PrismaClient } from '@prisma/client';
+
+async function resolveRelationIds(input: any, prisma: PrismaClient) {
+    if (input.resourceTypeName && !input.resourceTypeId) {
+        const rt = await prisma.resourceType.findUnique({ where: { name: input.resourceTypeName } });
+        if (rt) input.resourceTypeId = rt.id;
+    }
+}
 
 export const relationResolvers = {
     Query: {
@@ -40,7 +48,7 @@ export const relationResolvers = {
             });
         },
 
-        relation: async (_parent: any, { id }: { id: string }, context: any) => {
+        relation: async (_parent: any, { id }: { id: number }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             return await context.prisma.relation.findUnique({
                 where: { id },
@@ -59,6 +67,8 @@ export const relationResolvers = {
         createRelation: async (_parent: any, { input }: { input: any }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
 
+            await resolveRelationIds(input, context.prisma);
+
             // Validate all three resource IDs exist
             const [subject, predicate, object] = await Promise.all([
                 context.prisma.resource.findUnique({ where: { id: input.subjectId } }),
@@ -72,7 +82,6 @@ export const relationResolvers = {
 
             return await context.prisma.relation.create({
                 data: {
-                    uri: input.uri,
                     resourceTypeId: input.resourceTypeId,
                     subjectId: input.subjectId,
                     predicateId: input.predicateId,
@@ -92,7 +101,7 @@ export const relationResolvers = {
             });
         },
 
-        deleteRelation: async (_parent: any, { id }: { id: string }, context: any) => {
+        deleteRelation: async (_parent: any, { id }: { id: number }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             await context.prisma.relation.delete({ where: { id } });
             return true;
