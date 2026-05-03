@@ -10,12 +10,13 @@ export async function executeTool(
     args: any, 
     prisma: PrismaClient, 
     userId: string,
-    responseId: string
+    responseId: string,
+    request: any
 ) {
     if (toolName === 'persist_address') {
         await persistAddress(args, prisma, userId, responseId);
     } else if (toolName === 'process_feed') {
-        await processFeed(args, prisma, userId, responseId);
+        await processFeed(args, prisma, userId, responseId, request);
     } else {
         throw new Error(`Unknown tool: ${toolName}`);
     }

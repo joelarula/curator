@@ -75,40 +75,34 @@ export class RequestProcessor {
             // using prompt.prompt and prompt.toolCalls.
             // For this simplest implementation, we will simulate an AI response
             // that uses the `persist_address` tool.
-            // -------------------------------------------------------------
-
+            // In the "Everything is a Tool" architecture, RequestProcessor blindly executes toolCalls.
+            // If the prompt needs AI processing, it will have an "ask_llm" toolCall!
             let callsToExecute: any[] = [];
-            let aiTextResponse = "";
+            let aiTextResponse = "Executed requested tools.";
 
             const promptTools: any = prompt.toolCalls;
-            const isDirectToolExecution = !prompt.prompt && Array.isArray(promptTools) && promptTools.length > 0 && promptTools[0].name && promptTools[0].args;
-
-            if (isDirectToolExecution) {
-                // 1. Direct Tool Execution (No AI involved)
-                console.log(`[RequestProcessor] Executing deterministic tool calls from prompt!`);
+            if (Array.isArray(promptTools)) {
                 callsToExecute = promptTools;
-                aiTextResponse = "Executed direct tool calls from template.";
-            } else if (prompt.prompt && prompt.aiModelId) {
-                // 2. Delegate to AI Model (Simulated for now)
-                console.log(`[RequestProcessor] Delegating to AI Model for prompt: "${prompt.prompt}"`);
-                
-                // Simulated AI extraction result
-                callsToExecute = [
-                    {
-                        name: "persist_address",
-                        args: {
-                            address: "123 Main St, New York, NY 10001",
-                            context: "Found on homepage footer"
-                        }
-                    }
-                ];
-                aiTextResponse = "I have extracted the addresses and saved them to the database.";
-                console.log(`[RequestProcessor] Executing simulated AI tool calls.`);
-            } else {
-                throw new Error("Invalid Prompt: Must contain either pure tool calls or a text prompt with an AI Model.");
             }
 
-            // Save the raw AI response
+            if (callsToExecute.length === 0) {
+                // If there are no explicit tool calls, but there is a text prompt, fallback to simulated LLM tool
+                if (prompt.prompt && prompt.aiModelId) {
+                    console.log(`[RequestProcessor] Text prompt found without explicit tools. Falling back to ask_llm.`);
+                    callsToExecute = [
+                        {
+                            name: "ask_llm",
+                            args: {
+                                prompt: prompt.prompt
+                            }
+                        }
+                    ];
+                } else {
+                    console.log(`[RequestProcessor] Nothing to do for request ${request.id}.`);
+                }
+            }
+
+            // Save the raw response shell for tools to attach data to
             const response = await this.prisma.response.create({
                 data: {
                     requestId: request.id,
@@ -126,7 +120,8 @@ export class RequestProcessor {
                         call.args,
                         this.prisma,
                         prompt.userId,
-                        response.id
+                        response.id,
+                        request
                     );
                 }
             }

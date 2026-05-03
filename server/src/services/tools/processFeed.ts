@@ -3,10 +3,11 @@ import crypto from 'crypto';
 import Parser from 'rss-parser';
 
 export async function processFeed(
-    args: { url: string }, 
+    args: { url: string; onItemExtracted?: { yieldTemplateName: string } }, 
     prisma: PrismaClient, 
     userId: string,
-    responseId: string
+    responseId: string,
+    request: any
 ) {
     const { url } = args;
     if (!url) throw new Error("Missing required argument: url");
@@ -108,6 +109,41 @@ export async function processFeed(
                 }
             });
             extractedCount++;
+            
+            // Check for onItemExtracted callback to spawn a new Request
+            if (args.onItemExtracted?.yieldTemplateName) {
+                const templateName = args.onItemExtracted.yieldTemplateName;
+                const template = await prisma.promptTemplate.findUnique({
+                    where: { userId_name: { userId, name: templateName } }
+                });
+
+                if (template) {
+                    // Create a new Prompt using the template, attached to this new linkResource
+                    const newPrompt = await prisma.prompt.create({
+                        data: {
+                            uri: `prompt:yield-${Date.now()}-${Math.random()}`,
+                            templateId: template.id,
+                            userId,
+                            prompt: template.prompt,
+                            toolCalls: template.toolCalls as any || null,
+                            resources: { connect: { id: linkResource.id } }
+                        }
+                    });
+
+                    // Push a new Request into the same Conversation!
+                    await prisma.request.create({
+                        data: {
+                            status: 'NEW',
+                            promptId: newPrompt.id,
+                            conversationId: request.conversationId,
+                            // Optionally track workflow parent/child via a parentId field if added later
+                        }
+                    });
+                    console.log(`[Tools] Spawning child request for extracted item using template: ${templateName}`);
+                } else {
+                    console.warn(`[Tools] Callback template '${templateName}' not found for user ${userId}.`);
+                }
+            }
         }
     }
 
