@@ -3,24 +3,39 @@ import { gql } from 'graphql-tag';
 /**
  * schema/index.ts
  *
- * GraphQL SDL type definitions for the Padagaskar knowledge platform.
+ * GraphQL SDL type definitions for the Curator knowledge platform.
  *
  * Architecture overview:
- *   Source   — Stable identity node. Every piece of knowledge is anchored to a
- *              Source, which holds a unique URL or wiki path.  Sources form a
- *              tree via parentId / materializedPath and a semantic graph via
- *              Relation edges.
- *   Text     — Content layer. A Source can have many Text records (versions,
- *              translations). The newest one is used for reading / editing.
- *   Relation — Directed, role-typed edge between two Sources.
- *   Feed     — RSS/Atom subscription.  Polling creates new Sources; an optional
- *              aiPrompt triggers the FeedAgentService tool-calling pipeline.
- *   Report   — AI analysis result attached to a Source + Text pair.
- *   Tag      — Key-value label attached to Sources or Texts.
+ *   Resource — Core identity node. Every piece of knowledge is anchored to a
+ *              Resource with a unique URI (and optional URL). Resources have
+ *              integer primary keys for triple-join performance.
+ *   Text     — Content layer. A Resource can have many Text records with
+ *              different roles (MAIN, SUMMARY, TRANSCRIPT).
+ *   Relation — RDF triple: subject → predicate → object. All three positions
+ *              reference Resource nodes (including predicates like rdf:type).
+ *   Prompt   — Materialized AI prompt with template, model, and resource context.
+ *   Request  — Queued agentic request (status lifecycle: NEW→WAITING→COMPLETED/FAILED).
+ *   Response — AI response with parsed Relations and raw tool call output.
+ *   Agent    — Polling agent with schedule and prompt template.
  *
  * All queries and mutations require a valid Bearer JWT (Google OAuth).
  */
 export const typeDefs = gql`
+  scalar JSON
+
+  "Represents a tool call execution instruction"
+  type ToolCall {
+    name: String!
+    args: JSON
+  }
+
+  "Input for a tool call execution instruction"
+  input ToolCallInput {
+    name: String!
+    args: JSON
+  }
+
+  # ─── Auth ────────────────────────────────────────────────────────────────────
 
   """
   An authenticated user of the platform.
@@ -33,124 +48,112 @@ export const typeDefs = gql`
     email: String!
     "Display name from Google profile"
     name: String
-    "Google OAuth subject ID — used to match returning users on subsequent logins"
+    "Google OAuth subject ID"
     googleId: String
     createdAt: String!
     updatedAt: String!
   }
 
+  # ─── Lookup Tables ──────────────────────────────────────────────────────────
+
+  "Lookup: resource classification — ENTITY, PROPERTY, CLASS, etc."
+  type ResourceType {
+    id: Int!
+    name: String!
+  }
+
+  "Lookup: resource lifecycle status — NEW, ACTIVE, ARCHIVED, etc."
+  type ResourceStatus {
+    id: Int!
+    name: String!
+  }
+
+  "Lookup: text role — MAIN, SUMMARY, TRANSCRIPT, etc."
+  type TextRole {
+    id: Int!
+    name: String!
+  }
+
+  # ─── Core Types ─────────────────────────────────────────────────────────────
+
   """
   The core identity node of the knowledge graph.
 
-  A Source is a stable, addressable piece of knowledge — a wiki page (WIKI_PAGE),
-  a web article (WEB), a book, an RSS item, etc.
+  A Resource is a stable, addressable piece of knowledge — an entity, a property,
+  a class, a web article, a concept, etc. Resources use integer primary keys
+  for optimal triple-store join performance.
 
-  Dual structure:
-    1. Tree  — via parentId / materializedPath (e.g. 'science/ai/agents').
-               materializedPath is the full slash-separated route used as the wiki URL.
-    2. Graph — via Relation edges connecting arbitrary Sources.
-
-  Soft-delete: set existent = null to hide a Source without destroying its data.
+  The 'uri' field is the stable external identifier (RDF-compatible).
+  The 'url' field is an optional web URL for external resources.
   """
-  type Source {
-    "Unique identifier (CUID)"
-    id: ID!
-    "External origin URL (null for pure wiki pages)"
+  type Resource {
+    "Auto-incrementing integer primary key (optimized for triple joins)"
+    id: Int!
+    "Unique RDF-compatible URI identifier"
+    uri: String!
+    "Optional external web URL"
     url: String
-    "Local slug segment within its parent (e.g. 'agents')"
-    path: String
-    "Full slash-separated path from root (e.g. 'science/ai/agents'). Used as the wiki URL."
-    materializedPath: String
-    "Nesting depth in the tree (0 = root)"
-    depth: Int
     "Human-readable display title"
     title: String
-    "Short summary or subtitle"
+    "Short description"
     description: String
-    "Source type: WEB | WIKI_PAGE | BOOK | etc."
-    type: String!
-    "Lifecycle status: NEW | REVIEWED | PROCESSED | DISCARDED | IMPORTANT | ARCHIVE | AI_FAILED"
-    status: String
-    "Whether this source is publicly visible"
-    isPublished: Boolean
-    "Formal publication date (ISO string)"
-    publishedAt: String
+    "Whether this resource is publicly visible"
+    isPublished: Boolean!
+    "Lifecycle status (NEW, ACTIVE, ARCHIVED, etc.)"
+    status: ResourceStatus
+    "Classification type (ENTITY, PROPERTY, CLASS, etc.)"
+    resourceType: ResourceType
+    "Owner user"
+    user: User!
 
-    "Direct parent in the wiki hierarchy tree"
-    parent: Source
-    "Parent node ID (denormalised for query performance)"
-    parentId: ID
-    "Direct children in the wiki hierarchy tree"
-    children: [Source!]!
-
-    "Versioned Text content records, ordered newest-first. Paginated."
-    texts(skip: Int, take: Int): [Text!]!
-    "Semantic Relation edges where this Source is the origin"
-    outboundRelations: [Relation!]!
-    "Semantic Relation edges where this Source is the target"
-    inboundRelations: [Relation!]!
-
-    "Classification tags attached to this Source"
-    tags: [Tag!]!
-    "File attachments linked to this Source"
+    "Content records attached to this resource"
+    texts: [Text!]!
+    "File attachments linked to this resource"
     attachments: [Attachment!]!
-    "Raw JSON metadata blob (OG tags, favicon URL, etc.) serialised as a string"
-    metadata: String
 
-    "All ancestor Sources from root down to this node's parent, derived from materializedPath"
-    ancestors: [Source!]!
-    "All descendant Sources below this node, derived from materializedPath prefix"
-    descendants: [Source!]!
-    "Aggregate counts — used by the sidebar tree to decide whether to show an expand arrow"
-    _count: SourceCount
+    "RDF triples where this resource is the subject"
+    subjectRelations: [Relation!]!
+    "RDF triples where this resource is the predicate/property"
+    predicateRelations: [Relation!]!
+    "RDF triples where this resource is the object"
+    objectRelations: [Relation!]!
 
+    "Prompts that reference this resource as context"
+    prompts: [Prompt!]!
+
+    "Soft-delete flag (true = active, null = archived)"
+    existent: Boolean
     createdAt: String!
     updatedAt: String!
   }
 
-  "Aggregate child-count helper returned alongside Source nodes."
-  type SourceCount {
-    "Number of direct child Sources in the tree"
-    children: Int
-    "Number of Text records attached to this Source"
-    texts: Int
-  }
-
-  "Paginated list of Source nodes."
-  type SourceConnection {
-    items: [Source!]!
+  "Paginated list of Resource nodes."
+  type ResourceConnection {
+    items: [Resource!]!
     totalCount: Int!
   }
 
   """
-  A versioned content record attached to a Source.
+  A versioned content record attached to a Resource.
 
-  Every wiki page has at least one Text. The most recently created Text is
-  treated as the current content for reading and editing. Multiple Texts on
-  the same Source can represent different languages, drafts, or versions.
+  Each Text has a role (MAIN, SUMMARY, TRANSCRIPT) defining its purpose.
+  Multiple Texts on the same Resource support versioning and multi-role content.
   """
   type Text {
     "Unique identifier (CUID)"
     id: ID!
-    "Full markdown content of this text block"
+    "Full text content"
     content: String!
-    "BCP-47 language code (e.g. 'et', 'en')"
-    language: String
+    "Content role (MAIN, SUMMARY, TRANSCRIPT)"
+    role: TextRole!
     "Whether this text is publicly visible"
-    isPublished: Boolean
-
-    "The Source identity this Text belongs to"
-    originSource: Source!
-    "The user who authored this Text"
+    isPublished: Boolean!
+    "The Resource this text belongs to"
+    resource: Resource
+    "The user who authored this text"
     user: User!
-
-    "AI analysis Reports that reference this Text"
-    reports: [Report!]!
-    "Classification tags attached to this Text"
-    tags: [Tag!]!
-    "Quantitative analysis metrics derived from this Text"
-    metrics: [AnalysisMetric!]!
-
+    "Soft-delete flag"
+    existent: Boolean
     createdAt: String!
     updatedAt: String!
   }
@@ -162,120 +165,50 @@ export const typeDefs = gql`
   }
 
   """
-  A directed, role-typed semantic edge between two Source nodes.
+  An RDF triple: subject → predicate → object.
 
-  Roles: LINK (wiki [[link]]), CITATION, SUMMARY, ORIGIN, REFERENCE.
-  Allows building a knowledge graph layer on top of the tree hierarchy.
+  All three positions (subject, predicate, object) reference Resource nodes.
+  The predicate is itself a Resource with resourceType = PROPERTY.
+
+  Example: Resource(Alice) --predicate:Resource(knows)--> Resource(Bob)
+
+  Supports optional literal values (Float), text selection ranges,
+  and justification strings for AI-generated triples.
   """
   type Relation {
     "Unique identifier (CUID)"
     id: ID!
-    "Semantic role of this edge: LINK | CITATION | SUMMARY | ORIGIN | REFERENCE"
-    role: String!
-    "The Source where this relation originates"
-    fromSource: Source!
-    "The Source this relation points to"
-    toSource: Source!
-    "Optional JSON metadata blob (e.g. anchor text, selection offset) serialised as a string"
-    metadata: String
+    "Unique RDF-compatible URI for this triple"
+    uri: String!
+    "Classification type of this relation"
+    resourceType: ResourceType!
+    "Subject Resource (integer FK for join performance)"
+    subject: Resource!
+    "Predicate Resource — the property/relationship type"
+    predicate: Resource!
+    "Object Resource — the target of the assertion"
+    object: Resource!
+    "Optional numeric literal value for quantitative assertions"
+    literalValue: Float
+    "Optional text selection start offset"
+    selectionStart: Int
+    "Optional text selection end offset"
+    selectionEnd: Int
+    "Optional AI-generated justification for this triple"
+    justification: String
+    "AI Response that generated this triple (null for manual triples)"
+    response: Response
+    "Optional origin resource ID"
+    originResourceId: Int
     createdAt: String!
   }
 
-  """
-  An AI analysis result linked to a Source and one or more Texts.
-
-  Reports track the lifecycle of AI processing:
-    PENDING → PROCESSING → COMPLETED | FAILED
-  """
-  type Report {
-    "Unique identifier (CUID)"
-    id: ID!
-    "Processing status: PENDING | PROCESSING | COMPLETED | FAILED"
-    status: String!
-
-    "The Source this report analyses"
-    source: Source!
-    "The Text records included in this analysis run"
-    texts: [Text!]!
-
-    "The AI model used to generate this report"
-    aiModel: AIModel!
-    "The specific versioned prompt used — links back to a PromptTemplate"
-    promptVersion: PromptVersion
-
-    "Raw JSON output from the AI, serialised as a string scalar"
-    resultJson: String
-    "Quantitative metrics extracted during analysis"
-    metrics: [AnalysisMetric!]!
-
-    "True if generated by AI (vs. human-authored)"
-    isAiGenerated: Boolean!
-    "Human-readable label describing the AI methodology used"
-    transparencyLabel: String
-    "Whether this report is publicly visible"
-    isPublished: Boolean!
-
-    createdAt: String!
-    updatedAt: String!
-  }
-
-  "A named numeric metric extracted from a text analysis run."
-  type AnalysisMetric {
-    id: ID!
-    "Metric name (e.g. 'readability_score', 'sentiment')"
-    name: String!
-    "Numeric score value"
-    value: Float!
-    "AI-generated explanation of why this score was assigned"
-    justification: String!
-    "The Text this metric was derived from"
-    text: Text
-  }
-
-  "A registered AI model tracked for analysis provenance."
-  type AIModel {
-    id: ID!
-    "Model identifier (e.g. 'gemini-2.0-flash', 'text-embedding-004')"
-    name: String!
-    "Provider name (e.g. 'Google')"
-    provider: String!
-    "Model class: GENERATIVE | EMBEDDING"
-    type: String!
-  }
-
-  "A specific versioned instance of a system prompt used to generate a Report."
-  type PromptVersion {
-    id: ID!
-    "Monotonically increasing version number within a PromptTemplate"
-    version: Int!
-    "The full prompt text that was sent to the AI model"
-    content: String!
-    "The named template this version belongs to"
-    template: PromptTemplate!
-  }
-
-  "A named prompt template that groups multiple PromptVersions for change tracking."
-  type PromptTemplate {
-    id: ID!
-    "Unique human-readable name (e.g. 'TEXT_SUMMARY_ENGINE_V1')"
-    name: String!
-    "What this prompt template is designed to accomplish"
-    description: String
-  }
-
-  "A key-value label that can be attached to Sources or Texts for classification."
-  type Tag {
-    id: ID!
-    "Tag key (e.g. 'author', 'topic', 'priority', 'region')"
-    name: String!
-    "Tag value (e.g. 'Tallinn', 'high'). Null for boolean-style presence tags."
-    value: String
-  }
-
-  "A file attachment linked to a Source or Text."
+  "A file attachment linked to a Resource."
   type Attachment {
     id: ID!
-    "Original filename as uploaded"
+    "Unique URI identifier"
+    uri: String!
+    "Original filename"
     filename: String!
     "MIME type (e.g. 'image/png', 'application/pdf')"
     mimetype: String!
@@ -283,241 +216,359 @@ export const typeDefs = gql`
     url: String!
     "File size in bytes"
     size: Int!
+    "Parent resource"
+    resource: Resource
+    createdAt: String!
+  }
+
+  # ─── Agentic Pipeline Types ─────────────────────────────────────────────────
+
+  "A registered AI model tracked for prompt provenance."
+  type AIModel {
+    id: ID!
+    "Unique URI identifier"
+    uri: String!
+    "Model name (e.g. 'gemini-2.0-flash')"
+    name: String!
+    "Provider name (e.g. 'Google')"
+    provider: String!
+    "Model version string"
+    version: String
+  }
+
+  "A named prompt template that groups materialized Prompts for reuse."
+  type PromptTemplate {
+    id: ID!
+    "Human-readable template name"
+    name: String!
+    "Template prompt text"
+    prompt: String
+    "Tool calls definitions or execution instructions"
+    toolCalls: [ToolCall!]
+    "Owner user"
+    user: User!
+    "Materialized prompts derived from this template"
+    prompts: [Prompt!]!
+    createdAt: String!
   }
 
   """
-  An RSS/Atom feed subscription for automated content discovery.
+  A materialized AI prompt: template + model + resource context.
 
-  When polled, each unseen item URL creates a new Source (status: NEW).
-  If aiPrompt is set, the FeedAgentService runs a multi-turn Gemini
-  tool-calling pipeline to autonomously approve, discard, tag, or save
-  an AI analysis of each new article.
+  Created when a user submits a prompt for processing. Links to the
+  PromptTemplate used, the AIModel targeted, and the Resource(s)
+  provided as context.
   """
-  type Feed {
-    "Unique identifier (CUID)"
+  type Prompt {
     id: ID!
-    "RSS/Atom feed URL"
-    url: String!
-    "Human-readable display name"
+    "Unique URI identifier"
+    uri: String!
+    "PromptTemplate used to generate this prompt"
+    template: PromptTemplate!
+    "AIModel targeted for processing"
+    aiModel: AIModel
+    "Owner user"
+    user: User!
+    "Materialized prompt text sent to the AI"
+    prompt: String
+    "Tool call definitions or execution instructions"
+    toolCalls: [ToolCall!]
+    "Resources provided as context"
+    resources: [Resource!]!
+    "Requests that use this prompt"
+    requests: [Request!]!
+    createdAt: String!
+  }
+
+  """
+  A queued agentic request.
+
+  Lifecycle: NEW → WAITING → COMPLETED | FAILED
+  Supports retry counting and distributed locking via lockedBy/lockedAt.
+  """
+  type Request {
+    id: ID!
+    "Processing status"
+    status: RequestStatus!
+    "Number of retry attempts"
+    retryCount: Int!
+    "The prompt to process"
+    prompt: Prompt
+    "Parent conversation"
+    conversation: Conversation!
+    "When this request is scheduled to run"
+    scheduledAt: String!
+    "Worker lock holder ID"
+    lockedBy: String
+    "When the lock was acquired"
+    lockedAt: String
+    "AI responses to this request"
+    responses: [Response!]!
+    createdAt: String!
+    updatedAt: String!
+  }
+
+  """
+  An AI response to a Request.
+
+  Contains the raw AI output, parsed tool calls, and the RDF Relations
+  extracted by the AI agent.
+  """
+  type Response {
+    id: ID!
+    "Parent request"
+    request: Request!
+    "Parent conversation"
+    conversation: Conversation!
+    "Raw AI response content"
+    content: String!
+    "Tool call results (JSON serialized)"
+    toolCalls: String
+    "RDF triples extracted from this response"
+    relations: [Relation!]!
+    createdAt: String!
+  }
+
+  "A conversation grouping multiple Requests and Responses."
+  type Conversation {
+    id: ID!
+    "Requests in this conversation"
+    requests: [Request!]!
+    "Responses in this conversation"
+    responses: [Response!]!
+    "Soft-delete flag"
+    existent: Boolean
+    createdAt: String!
+    updatedAt: String!
+  }
+
+  """
+  A polling agent with a prompt template and schedule.
+
+  Agents periodically poll a URL and create Requests for processing.
+  """
+  type Agent {
+    id: ID!
+    "Human-readable name"
     name: String!
-    "Polling interval in minutes (default: 60)"
-    pollingPeriod: Int!
-    "Timestamp of the most recent successful poll (ISO string)"
+    "PromptTemplate linked to this agent"
+    template: PromptTemplate!
+    "Natural language schedule (e.g. 'every 5 minutes', 'at 12:00pm')"
+    schedule: String!
+    "Timestamp of last successful poll"
     lastPolledAt: String
-    "Source records created from this feed's items"
-    sources: [Source!]!
-    "Default tag key applied to every new Source created from this feed"
-    defaultTagName: String
-    "Default tag value applied alongside defaultTagName"
-    defaultTagValue: String
-    "Gemini system prompt run against every new item via FeedAgentService. Supports tool calling."
-    aiPrompt: String
-    "Whether automated polling is currently active"
+    "Owner user"
+    user: User!
+    "Whether polling is active"
     enabled: Boolean!
     createdAt: String!
     updatedAt: String!
   }
 
-  "Per-feed result summary returned by pollAllFeeds."
-  type FeedPollResult {
-    feedId: ID!
-    name: String!
-    "Number of new Source records created in this poll cycle"
-    newItems: Int
-    "Error message if polling this feed failed"
-    error: String
-  }
+  "Request processing status lifecycle."
+  enum RequestStatus { NEW WAITING COMPLETED FAILED }
 
   # ─── Input Types ─────────────────────────────────────────────────────────────
 
-  """
-  Input for creating or updating a wiki page (Source + Text in one operation).
-  If 'id' is provided, the existing Source is updated. Otherwise a new Source
-  is created at the given 'path' within the wiki hierarchy via WikiService.
-  """
-  input WikiPageInput {
-    "ID of an existing Source to update. Omit when creating a new page."
-    id: ID
-    "Local path slug (e.g. 'agents'). Auto-slugified by the server. Omit to use the generated CUID."
-    path: String
-    "Display title for the Source node"
-    title: String
-    "Markdown content written into the linked Text record"
-    content: String!
-    "BCP-47 language code for the Text (default: 'et')"
-    language: String
-    "Origin URL if this page was extracted from an external article"
-    url: String
-    "Formal publication date (ISO string)"
-    publishedAt: String
-    "Whether to mark this page as publicly published"
-    isPublished: Boolean
-    "Tags to attach to the Text record (replaces existing tags on update)"
-    tags: [TagInput!]
-    "ID of a parent Text for the legacy text-fragment hierarchy. Prefer parentId."
-    textParentId: ID
-    "ID of a parent Source to nest this page under in the wiki tree"
-    parentId: ID
-  }
-
-  "Input for creating a standalone Source (non-wiki flow)."
-  input SourceInput {
-    "External URL"
+  "Input for creating or updating a Resource."
+  input ResourceInput {
+    "Unique RDF-compatible URI (required on create)"
+    uri: String
+    "Optional external web URL"
     url: String
     "Display title"
     title: String
     "Short description"
     description: String
-    "Source type: WEB | WIKI_PAGE | BOOK | etc."
-    type: String!
-  }
-
-  "A key-value tag pair used in mutations and filter inputs."
-  input TagInput {
-    "Tag key (e.g. 'author', 'region')"
-    name: String!
-    "Tag value. Omit for boolean-style presence tags."
-    value: String
-  }
-
-  "Filter options for paginated Source queries."
-  input WikiFilterInput {
-    "Free-text search across title, description, path, and materializedPath"
-    search: String
-    "Restrict to Sources that have at least one of these tags"
-    tags: [TagInput!]
-    "Restrict to Sources created on or after this ISO date"
-    startDate: String
-    "Restrict to Sources created on or before this ISO date"
-    endDate: String
-  }
-
-  "Filter options for paginated Text queries."
-  input TextFilterInput {
-    "Free-text search within content"
-    search: String
-    "Restrict to Texts that have at least one of these tags"
-    tags: [TagInput!]
-    "Restrict to Texts created on or after this ISO date"
-    startDate: String
-    "Restrict to Texts created on or before this ISO date"
-    endDate: String
-    "Restrict to published or unpublished Texts only"
+    "ResourceType lookup ID"
+    resourceTypeId: Int
+    "ResourceStatus lookup ID"
+    statusId: Int
+    "Whether publicly visible"
     isPublished: Boolean
+  }
+
+  "Input for creating an RDF triple."
+  input RelationInput {
+    "Unique URI for this triple"
+    uri: String!
+    "ResourceType lookup ID for the relation"
+    resourceTypeId: Int!
+    "Subject Resource integer ID"
+    subjectId: Int!
+    "Predicate Resource integer ID"
+    predicateId: Int!
+    "Object Resource integer ID"
+    objectId: Int!
+    "Optional numeric literal value"
+    literalValue: Float
+    "Optional text selection start offset"
+    selectionStart: Int
+    "Optional text selection end offset"
+    selectionEnd: Int
+    "Optional justification text"
+    justification: String
+    "Optional Response ID that generated this triple"
+    responseId: ID
+  }
+
+  "Input for creating a materialized Prompt."
+  input PromptInput {
+    "Unique URI"
+    uri: String!
+    "PromptTemplate ID"
+    templateId: ID!
+    "Target AIModel ID (optional)"
+    aiModelId: ID
+    "Materialized prompt text sent to the model"
+    prompt: String
+    "Tool call definitions or execution instructions"
+    toolCalls: [ToolCallInput!]
+    "Resource integer IDs to attach as context"
+    resourceIds: [Int!]
+  }
+
+  "Input for creating or updating an Agent."
+  input AgentInput {
+    "Human-readable name"
+    name: String
+    "PromptTemplate ID"
+    templateId: ID
+    "Natural language schedule (e.g. 'every 5 minutes')"
+    schedule: String
+  }
+
+  "Input for upserting an Agent and its PromptTemplate."
+  input UpsertAgentWithTemplateInput {
+    "Agent name (used for unique matching)"
+    agentName: String!
+    "Natural language schedule"
+    schedule: String!
+    "PromptTemplate name (used for unique matching)"
+    templateName: String!
+    "Template prompt text"
+    prompt: String
+    "Tool calls definitions or execution instructions"
+    toolCalls: [ToolCallInput!]
+  }
+
+  "Runtime state of the background agent workers"
+  type AgentWorkerState {
+    schedulerRunning: Boolean!
+    processorRunning: Boolean!
+    activeBreeJobs: Int!
+    requestsProcessed: Int!
   }
 
   # ─── Queries ──────────────────────────────────────────────────────────────────
 
   type Query {
-    "Returns the currently authenticated user, or null if the token is missing/invalid."
+    "Returns the currently authenticated user, or null if the token is invalid."
     me: User
+    
+    "Returns the runtime health and statistics of the background workers."
+    agentWorkerState: AgentWorkerState!
 
-    "Fetches a single wiki Source by its full materializedPath (e.g. 'science/ai/agents'). Returns null if the path does not exist."
-    wikiPage(path: String!): Source
+    # Resource queries (integer IDs)
+    "Fetch a single Resource by integer ID."
+    resource(id: Int!): Resource
+    "Fetch a single Resource by its URI."
+    resourceByUri(uri: String!): Resource
+    "Paginated, filterable list of Resources owned by the current user."
+    resources(typeId: Int, statusId: Int, search: String, skip: Int, take: Int): ResourceConnection!
 
-    "Returns the direct children of a wiki node. Pass parentId: null to get root-level nodes. Used for lazy sidebar tree loading."
-    wikiTree(parentId: ID): [Source!]!
-
-    "Paginated, filterable list of all Sources owned by the current user."
-    sources(filter: WikiFilterInput, skip: Int, take: Int): SourceConnection!
-
-    "Fetches a single Source by its CUID with full relation includes."
-    source(id: ID!): Source
-
-    "Lists all AI analysis Reports, optionally filtered by status string."
-    reports(status: String): [Report!]!
-
-    "Fetches a single Report by CUID with all nested includes."
-    report(id: ID!): Report
-
-    "Paginated, filterable list of Text records owned by the current user."
-    texts(filter: TextFilterInput, skip: Int, take: Int): TextConnection!
-
-    "Fetches a single Text by CUID with originSource, tags, and reports."
+    # Text queries
+    "Paginated list of Text records, optionally filtered by resource or role."
+    texts(resourceId: Int, roleId: Int, skip: Int, take: Int): TextConnection!
+    "Fetch a single Text by CUID."
     text(id: ID!): Text
 
-    "Returns all Tags in the system (not scoped to the current user)."
-    tags: [Tag!]!
+    # Relation queries (RDF graph traversal with integer resource IDs)
+    "Query RDF triples by subject, predicate, and/or object Resource IDs."
+    relations(subjectId: Int, predicateId: Int, objectId: Int, skip: Int, take: Int): [Relation!]!
+    "Fetch a single Relation by CUID."
+    relation(id: ID!): Relation
 
-    "Lists all active (non-deleted), non-soft-deleted Feed subscriptions owned by the current user."
-    feeds: [Feed!]!
+    # Lookup tables
+    "All resource type definitions."
+    resourceTypes: [ResourceType!]!
+    "All resource status definitions."
+    resourceStatuses: [ResourceStatus!]!
+    "All text role definitions."
+    textRoles: [TextRole!]!
 
-    "Paginated Source inbox — Sources with the given status from feeds owned by the current user. Defaults to status: NEW."
-    sourcesReview(status: String, skip: Int, take: Int): SourceConnection!
+    # Agentic pipeline
+    "Paginated list of Prompts."
+    prompts(skip: Int, take: Int): [Prompt!]!
+    "Fetch a single Prompt by CUID."
+    prompt(id: ID!): Prompt
+    "All prompt templates for the current user."
+    promptTemplates: [PromptTemplate!]!
+    "Fetch a specific prompt template by name. User ID defaults to current user."
+    promptTemplate(name: String!, userId: ID): PromptTemplate
+    "Paginated list of Conversations."
+    conversations(skip: Int, take: Int): [Conversation!]!
+    "Fetch a single Conversation by CUID."
+    conversation(id: ID!): Conversation
+    "Paginated list of Requests, optionally filtered by status."
+    requests(status: RequestStatus, skip: Int, take: Int): [Request!]!
+    "All agents for the current user."
+    agents: [Agent!]!
+    "Fetch a specific agent by name. User ID defaults to current user."
+    agent(name: String!, userId: ID): Agent
   }
 
   # ─── Mutations ────────────────────────────────────────────────────────────────
 
   type Mutation {
-    """
-    Creates or updates a wiki page (Source + Text) atomically via WikiService.
-    Handles path resolution, slug creation, parent linking, and tag management.
-    If the materializedPath changes (rename), callers should navigate to the new URL.
-    """
-    saveWikiPage(input: WikiPageInput!): Source!
+    # Resource lifecycle (integer IDs)
+    "Create a new Resource."
+    createResource(input: ResourceInput!): Resource!
+    "Update an existing Resource by integer ID."
+    updateResource(id: Int!, input: ResourceInput!): Resource!
+    "Soft-delete a Resource (sets existent to null)."
+    deleteResource(id: Int!): Boolean!
 
-    "Hard-deletes a Source and all its child content. Irreversible — use removeSource for a soft-delete."
-    deleteWikiPage(id: ID!): Boolean!
+    # Text management
+    "Create a new Text record for a Resource."
+    createText(resourceId: Int!, content: String!, roleId: Int!): Text!
+    "Update an existing Text's content."
+    updateText(id: ID!, content: String!): Text!
 
-    "Creates a directed semantic Relation edge between two Sources."
-    addRelation(fromSourceId: ID!, toSourceId: ID!, role: String!, metadata: String): Relation!
+    # RDF Relations
+    "Create a new RDF triple (Relation)."
+    createRelation(input: RelationInput!): Relation!
+    "Delete a Relation by CUID."
+    deleteRelation(id: ID!): Boolean!
 
-    "Permanently removes a Relation edge."
-    removeRelation(id: ID!): Boolean!
+    # Agentic pipeline
+    "Create a new PromptTemplate."
+    createPromptTemplate(name: String!, prompt: String, toolCalls: [ToolCallInput!]): PromptTemplate!
+    "Create a materialized Prompt."
+    createPrompt(input: PromptInput!): Prompt!
+    "Submit a Request for processing (creates with status NEW)."
+    submitRequest(promptId: ID!, conversationId: ID): Request!
+    "Create a new Conversation."
+    createConversation: Conversation!
 
-    "Registers a new RSS/Atom feed. The feed is active by default."
-    createFeed(url: String!, name: String!, pollingPeriod: Int, aiPrompt: String): Feed!
+    # Agent management
+    "Create a new polling Agent."
+    createAgent(input: AgentInput!): Agent!
+    "Update an existing Agent."
+    updateAgent(id: ID!, input: AgentInput!): Agent!
+    "Toggle an Agent's enabled status."
+    toggleAgent(id: ID!, enabled: Boolean!): Agent!
+    "Manually trigger an Agent to create a Request."
+    triggerAgent(id: ID!): Request!
+    "Upsert an Agent and its PromptTemplate together in one call. Matches by name."
+    upsertAgentWithTemplate(input: UpsertAgentWithTemplateInput!): Agent!
 
-    "Updates feed settings: URL, name, polling interval, default tags, or AI prompt."
-    updateFeed(id: ID!, url: String, name: String, pollingPeriod: Int, defaultTagName: String, defaultTagValue: String, aiPrompt: String): Feed!
-
-    "Toggles the enabled flag on a feed without deleting it."
-    toggleFeed(id: ID!, enabled: Boolean!): Feed!
-
-    "Soft-deletes a feed (sets existent: false). Its Sources are preserved."
-    deleteFeed(id: ID!): Boolean!
-
-    "Manually triggers a poll for a single feed. Returns the count of new Sources created."
-    pollFeed(id: ID!): Int!
-
-    "Polls all active, enabled feeds and returns a per-feed result summary."
-    pollAllFeeds: [FeedPollResult!]!
-
-    "Soft-deletes a Source (sets existent: null). The Source is archived and hidden, not destroyed."
-    removeSource(id: ID!): Source!
-
-    "Hard-deletes multiple Sources by CUID. Use with caution — content is permanently lost."
-    batchDeleteSources(ids: [ID!]!): Int!
-
-    "Marks multiple Sources as DISCARDED status without hard-deleting them."
-    batchDiscardSources(ids: [ID!]!): Int!
-
-    """
-    Full article ingestion pipeline for a Source that has a URL:
-      1. Scrapes the full article text (ScraperService / Cheerio)
-      2. Runs AI summary + author extraction (AIService / Gemini)
-      3. Creates a Text record with a linked AI Summary
-      4. Generates vector embeddings for RAG (ChunkingService / pgvector)
-      5. Sets the Source status to PROCESSED
-    Returns the created Text record.
-    """
-    initializeTextFromSource(id: ID!, topicId: ID): Text!
-
-    "Creates a PENDING Report linked to a Source and Text (uses the latest Text if textId is omitted)."
-    analyzePage(sourceId: ID!, textId: ID): Report!
-
-    "Attaches a Tag to a Source or Text. targetType must be 'SOURCE' or 'TEXT'."
-    addTag(targetId: ID!, targetType: String!, input: TagInput!): Tag!
-
-    "Detaches a Tag from a Source or Text without deleting the Tag record itself."
-    removeTag(tagId: ID!, targetId: ID!, targetType: String!): Boolean!
-
-    """
-    Developer tool: runs the full FeedAgentService agentic pipeline against any
-    URL with a custom Gemini prompt. Finds or creates a Source, then lets the AI
-    autonomously scrape, approve/discard, tag, and save an analysis via tool calling.
-    Returns the Source reflecting all actions the agent performed.
-    """
-    processUrlWithPrompt(url: String!, prompt: String!): Source!
+    # Lookup seed mutations (admin)
+    "Create a new ResourceType."
+    createResourceType(name: String!): ResourceType!
+    "Create a new ResourceStatus."
+    createResourceStatus(name: String!): ResourceStatus!
+    "Create a new TextRole."
+    createTextRole(name: String!): TextRole!
   }
 `;

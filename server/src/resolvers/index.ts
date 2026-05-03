@@ -1,24 +1,39 @@
+/**
+ * resolvers/index.ts
+ *
+ * Merges all resolver modules into a single resolver map for Apollo Server.
+ */
 import { authResolvers } from './auth.js';
-import { coreResolvers } from './core.js';
-import { analysisResolvers } from './analysis.js';
-import { feedsResolver } from './feeds.js';
+import { resourceResolvers } from './resources.js';
+import { textResolvers } from './texts.js';
+import { relationResolvers } from './relations.js';
+import { agenticResolvers } from './agentic.js';
+import { lookupResolvers } from './lookup.js';
 
-// Merge all resolver modules into a single resolver map
+import GraphQLJSON from 'graphql-type-json';
+
 export const resolvers = {
-    ...coreResolvers,
-    ...authResolvers,
-    ...analysisResolvers,
-    ...feedsResolver,
+    JSON: GraphQLJSON,
+    // Spread field resolvers from each module
+    ...resourceResolvers,
+    ...textResolvers,
+    ...relationResolvers,
+    ...agenticResolvers,
+
     Query: {
         ...authResolvers.Query,
-        ...coreResolvers.Query,
-        ...analysisResolvers.Query,
-        ...feedsResolver.Query,
+        ...resourceResolvers.Query,
+        ...textResolvers.Query,
+        ...relationResolvers.Query,
+        ...agenticResolvers.Query,
+        ...lookupResolvers.Query,
     },
     Mutation: {
         ...authResolvers.Mutation,
-        ...coreResolvers.Mutation,
-        ...analysisResolvers.Mutation,
-        ...feedsResolver.Mutation,
+        ...resourceResolvers.Mutation,
+        ...textResolvers.Mutation,
+        ...relationResolvers.Mutation,
+        ...agenticResolvers.Mutation,
+        ...lookupResolvers.Mutation,
     },
 };

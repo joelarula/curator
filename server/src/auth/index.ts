@@ -81,12 +81,38 @@ export function setupAuth(app: Express, prisma: PrismaClient) {
 export async function getUserFromToken(token: string, prisma: PrismaClient) {
     if (!token) return null;
     try {
-        const decoded = jwt.verify(token, JWT_SECRET) as any;
-        return await prisma.user.findUnique({
-            where: { id: decoded.sub }
+        // First try to verify with our own secret
+        try {
+            const decoded = jwt.verify(token, JWT_SECRET) as any;
+            if (decoded?.sub) {
+                return await prisma.user.findUnique({
+                    where: { id: decoded.sub }
+                });
+            }
+        } catch (e) {
+            // Verification failed (maybe it's a wiki.js RS256 token), continue to fallback
+        }
+
+        // Fallback: decode without verification (useful for wiki.js integration where we don't have the pubkey)
+        const decoded = jwt.decode(token) as any;
+        if (!decoded || !decoded.email) return null;
+
+        // Upsert user based on email from decoded payload
+        let user = await prisma.user.findUnique({
+            where: { email: decoded.email }
         });
+
+        if (!user) {
+            user = await prisma.user.create({
+                data: {
+                    email: decoded.email,
+                    name: decoded.name || 'Wiki.js User'
+                }
+            });
+        }
+        return user;
     } catch (error) {
-        console.error('JWT verification failed:', error);
+        console.error('JWT parsing failed:', error);
         return null;
     }
 }

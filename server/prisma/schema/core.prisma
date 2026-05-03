@@ -1,221 +1,211 @@
-// --- LOOKUP TABLES (Replacing Enums) ---
-
-model SourceType {
-  id      String   @id // e.g. "WEB", "BOOK", "WIKI_PAGE"
-  sources Source[]
+enum RequestStatus {
+  NEW
+  WAITING
+  COMPLETED
+  FAILED
 }
 
-model SourceStatus {
-  id      String   @id // e.g. "NEW", "ACTIVE", "ARCHIVED"
-  sources Source[]
-}
-
-model TextRole {
-  id    String @id // e.g. "MAIN", "SUMMARY", "TRANSCRIPT"
-  texts Text[]
-}
-
-model RelationRole {
-  id        String     @id // e.g. "REFERENCE", "ORIGIN"
+model ResourceType {
+  id        Int        @id @default(autoincrement())
+  name      String     @unique // e.g. "ENTITY", "PROPERTY", "CLASS"
+  resources Resource[]
   relations Relation[]
 }
 
-// --- CORE WIKI IDENTITY: SOURCE ---
+model ResourceStatus {
+  id        Int        @id @default(autoincrement())
+  name      String     @unique // e.g. "NEW", "ACTIVE", "ARCHIVED"
+  resources Resource[]
+}
 
-model Source {
-  id               String  @id @default(cuid())
-  url              String? @db.VarChar(2560)
-  path             String?
-  materializedPath String? @unique
-  depth            Int     @default(0)
-  title            String? @db.VarChar(255)
-  description      String? @db.Text
+model TextRole {
+  id    Int    @id @default(autoincrement())
+  name  String @unique // e.g. "MAIN", "SUMMARY", "TRANSCRIPT"
+  texts Text[]
+}
 
-  typeId String     @default("WEB")
-  type   SourceType @relation(fields: [typeId], references: [id])
+model Resource {
+  id                 Int             @id @default(autoincrement())
+  uri                String          @unique
+  url                String?         @db.VarChar(2560)
+  title              String?         @db.VarChar(255)
+  description        String?         @db.Text
+  isPublished        Boolean         @default(false)
+  statusId           Int?
+  status             ResourceStatus? @relation(fields: [statusId], references: [id])
+  resourceTypeId     Int?
+  resourceType       ResourceType?   @relation(fields: [resourceTypeId], references: [id])
+  userId             String
+  user               User            @relation(fields: [userId], references: [id])
+  prompts            Prompt[]        @relation("PromptResources")
+  texts              Text[]          @relation("ResourceTexts")
+  subjectRelations   Relation[]      @relation("RelationSubject")
+  predicateRelations Relation[]      @relation("RelationPredicate")
+  objectRelations    Relation[]      @relation("RelationObject")
+  attachments        Attachment[]
+  existent           Boolean?        @default(true)
 
-  reliabilityScore Float?    @default(1.0)
-  isPublished      Boolean   @default(false)
-  publishedAt      DateTime?
-
-  statusId String?       @default("NEW")
-  status   SourceStatus? @relation(fields: [statusId], references: [id])
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  parentId String?
-  parent   Source?  @relation("SourceHierarchy", fields: [parentId], references: [id])
-  children Source[] @relation("SourceHierarchy")
-
-  texts Text[] @relation("SourceTexts")
-
-  outboundRelations Relation[] @relation("SourceOutbound")
-  inboundRelations  Relation[] @relation("SourceInbound")
-
-  metadata Json?
-
-  tags        Tag[]
-  attachments Attachment[]
-  feeds       Feed[]       @relation("FeedSources")
-  reports     Report[]
-
-  existent  Boolean? @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([url])
-  @@unique([parentId, path])
   @@index([existent])
-  @@index([parentId])
-  @@index([materializedPath])
 }
-
-// --- CORE WIKI CONTENT: TEXT ---
 
 model Text {
-  id       String  @id @default(cuid())
-  content  String  @db.Text
-  language String? @default("et")
+  resourceId  Int?
+  resource    Resource? @relation("ResourceTexts", fields: [resourceId], references: [id])
+  id          String    @id @default(cuid())
+  content     String    @db.Text
+  roleId      Int
+  role        TextRole  @relation(fields: [roleId], references: [id])
+  isPublished Boolean   @default(false)
+  existent    Boolean?  @default(true)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  roleId String   @default("MAIN")
-  role   TextRole @relation(fields: [roleId], references: [id])
-
-  version           Int     @default(1)
-  isLatest          Boolean @default(true)
-  previousVersionId String?
-  previousVersion   Text?   @relation("TextHistory", fields: [previousVersionId], references: [id])
-  nextVersions      Text[]  @relation("TextHistory")
-
-  isPublished Boolean  @default(false)
-  existent    Boolean? @default(true)
-
-  originSourceId String
-  originSource   Source @relation("SourceTexts", fields: [originSourceId], references: [id], onDelete: Cascade)
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  chunks  Chunk[]
-  tags    Tag[]
-  metrics AnalysisMetric[]
-  reports Report[]         @relation("ReportContent")
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([originSourceId])
+  @@index([resourceId])
 }
-
-// --- SEMANTIC LINKING: RELATION ---
 
 model Relation {
-  id String @id @default(cuid())
+  id               String    @id @default(cuid())
+  uri              String    @unique
+  resourceTypeId   Int
+  resourceType     ResourceType @relation(fields: [resourceTypeId], references: [id])
+  subjectId        Int
+  predicateId      Int
+  objectId         Int
+  originResourceId Int?
+  subject          Resource  @relation("RelationSubject", fields: [subjectId], references: [id], onDelete: Cascade)
+  predicate        Resource  @relation("RelationPredicate", fields: [predicateId], references: [id], onDelete: Cascade)
+  object           Resource  @relation("RelationObject", fields: [objectId], references: [id], onDelete: Cascade)
+  createdAt        DateTime  @default(now())
+  responseId       String?
+  response         Response? @relation(fields: [responseId], references: [id])
 
-  roleId String       @default("REFERENCE")
-  role   RelationRole @relation(fields: [roleId], references: [id])
-
-  fromSourceId String
-  fromSource   Source @relation("SourceOutbound", fields: [fromSourceId], references: [id], onDelete: Cascade)
-
-  toSourceId String
-  toSource   Source @relation("SourceInbound", fields: [toSourceId], references: [id], onDelete: Cascade)
-
-  metadata Json?
-
-  createdAt DateTime @default(now())
-
-  @@index([fromSourceId])
-  @@index([toSourceId])
-}
-
-model Chunk {
-  id     String @id @default(cuid())
-  textId String
-  text   Text   @relation(fields: [textId], references: [id], onDelete: Cascade)
-
-  content        String @db.Text
+  literalValue   Float?
   selectionStart Int?
   selectionEnd   Int?
 
-  aiModelId String
-  aiModel   AIModel @relation(fields: [aiModelId], references: [id])
+  justification String?
 
-  bge_base_en_v1_5       Unsupported("vector(768)")?
-  all_minilm_l6_v2       Unsupported("vector(384)")?
-  text_embedding_3_small Unsupported("vector(1536)")?
-  text_embedding_004     Unsupported("vector(768)")?
+  @@unique([subjectId, predicateId, objectId])
+  @@index([subjectId])
+  @@index([predicateId])
+  @@index([objectId])
+}
 
-  existent  Boolean? @default(true)
-  createdAt DateTime @default(now())
-
-  @@index([textId])
+model Attachment {
+  resourceId Int?
+  resource   Resource? @relation(fields: [resourceId], references: [id])
+  id         String    @id @default(cuid())
+  uri        String    @unique
+  filename   String
+  mimetype   String
+  url        String
+  size       Int
+  existent   Boolean?  @default(true)
+  createdAt  DateTime  @default(now())
 }
 
 model AIModel {
   id       String  @id @default(cuid())
+  uri      String  @unique
   name     String  @unique
   provider String
   version  String?
 
-  reports        Report[]
-  chunks         Chunk[]
-  promptVersions PromptVersion[]
+  prompts Prompt[]
 
   existent  Boolean? @default(true)
   createdAt DateTime @default(now())
 }
 
-model Feed {
-  id            String    @id @default(cuid())
-  url           String    @unique
-  name          String
-  pollingPeriod Int       @default(60)
-  lastPolledAt  DateTime?
+model PromptTemplate {
+  id        String   @id @default(cuid())
+  name      String
+  prompt    String?  @db.Text
+  toolCalls Json?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  prompts   Prompt[]
+  agents    Agent[]
+  existent  Boolean? @default(true)
+  createdAt DateTime @default(now())
 
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
+  @@unique([userId, name])
+}
 
-  sources Source[] @relation("FeedSources")
+model Prompt {
+  id         String         @id @default(cuid())
+  uri        String         @unique
+  templateId String
+  template   PromptTemplate @relation(fields: [templateId], references: [id])
+  requests   Request[]
+  aiModelId  String?
+  aiModel    AIModel?       @relation(fields: [aiModelId], references: [id])
+  userId     String
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  prompt     String?        @db.Text
+  toolCalls  Json?
+  existent   Boolean?       @default(true)
+  createdAt  DateTime       @default(now())
+  resources  Resource[]     @relation("PromptResources")
+}
 
-  defaultTagName  String?
-  defaultTagValue String?
-  aiPrompt        String? @db.Text
+model Request {
+  id             String        @id @default(cuid())
+  status         RequestStatus @default(NEW)
+  retryCount     Int           @default(0)
+  promptId       String?
+  prompt         Prompt?       @relation(fields: [promptId], references: [id])
+  conversationId String
+  conversation   Conversation  @relation(fields: [conversationId], references: [id])
+  scheduledAt    DateTime      @default(now())
+  lockedBy       String?
+  lockedAt       DateTime?
+  existent       Boolean?      @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  responses      Response[]
+}
+
+model Response {
+  relations      Relation[]
+  id             String       @id @default(cuid())
+  requestId      String
+  request        Request      @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  content        String       @db.Text
+  toolCalls      Json?
+  createdAt      DateTime     @default(now())
+}
+
+model Conversation {
+  id        String     @id @default(cuid())
+  requests  Request[]
+  responses Response[]
+  existent  Boolean?   @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model Agent {
+  id             String    @id @default(cuid())
+  name           String
+  templateId     String
+  template       PromptTemplate @relation(fields: [templateId], references: [id])
+  schedule       String    @default("every 10 minutes")
+  lastPolledAt   DateTime?
+  userId         String
+  user           User      @relation(fields: [userId], references: [id])
 
   enabled   Boolean  @default(true)
   existent  Boolean? @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-}
 
-model Attachment {
-  id       String @id @default(cuid())
-  filename String
-  mimetype String
-  url      String
-  size     Int
-
-  sourceId String?
-  source   Source? @relation(fields: [sourceId], references: [id])
-
-  existent  Boolean? @default(true)
-  createdAt DateTime @default(now())
-}
-
-model Tag {
-  id      String   @id @default(cuid())
-  name    String
-  value   String?
-  reports Report[]
-  texts   Text[]
-  sources Source[]
-
-  isPublished Boolean @default(false)
-  permalink   String? @unique
-
-  existent Boolean? @default(true)
-
-  @@unique([name, value])
-  @@index([name])
-  @@index([value])
+  @@unique([userId, name])
 }

@@ -1,18 +1,19 @@
 services:
   db:
     image: ankane/pgvector:latest
-    container_name: padagaskar-db
+    container_name: curator-db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: padagaskar
+      POSTGRES_DB: curator
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./db-init:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d padagaskar"]
+      test: ["CMD-SHELL", "pg_isready -U user -d curator"]
       interval: 10s
       timeout: 5s
       retries: 5
