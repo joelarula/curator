@@ -237,8 +237,9 @@ export class RequestProcessor {
             // Handle Callbacks (onItemExtracted, onSuccess, onFailure)
             const callbacks = call.callbacks || {};
             for (const [hook, flow] of Object.entries(callbacks)) {
-                if (hook === 'onItemExtracted' && result?.extractedItems) {
-                    for (const item of result.extractedItems) {
+                const items = result?.items || result?.extractedItems;
+                if (hook === 'onItemExtracted' && Array.isArray(items)) {
+                    for (const item of items) {
                         await this.dispatchFlow(flow as any, req, [item, ...resourceStack], responseId, { item, toolData: result.data });
                     }
                 } else if (hook === 'onSuccess' && result) {

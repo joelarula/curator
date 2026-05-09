@@ -64,6 +64,7 @@ export class AIQBuilder {
         AIQBuilder.prototype as unknown as Record<string, (...args: any[]) => any>;
 
     private calls: any[] = [];
+    private pendingSpawn = false;
 
     constructor(calls: any[] = []) {
         this.calls = calls;
@@ -117,14 +118,24 @@ export class AIQBuilder {
 
     // ─── Entry points ────────────────────────────────────────────────────────
 
-    /** Entry point for ask_llm. Accepts a string prompt or an args object. */
-    static ask(promptOrArgs: string | Record<string, any>): AIQBuilder & AIQPlugins {
-        return new AIQBuilder().ask(promptOrArgs) as any;
+    /** Entry point for in-process execution. */
+    static chain(toolName?: string, args?: any): AIQBuilder & AIQPlugins {
+        return new AIQBuilder().chain(toolName, args) as any;
     }
 
-    /** Entry point for process_feed. Accepts a string URL or an args object. */
-    static feed(urlOrArgs: string | Record<string, any>): AIQBuilder & AIQPlugins {
-        return new AIQBuilder().feed(urlOrArgs) as any;
+    /** Entry point for detached/database-backed execution. */
+    static spawn(toolName?: string, args?: any): AIQBuilder & AIQPlugins {
+        return new AIQBuilder().spawn(toolName, args) as any;
+    }
+
+    /** Entry point for an empty chain. */
+    static empty(): AIQBuilder & AIQPlugins {
+        return new AIQBuilder() as any;
+    }
+
+    /** Entry point used by the AIQ() factory. */
+    static start(): AIQBuilder & AIQPlugins {
+        return new AIQBuilder() as any;
     }
 
     /**
@@ -140,29 +151,28 @@ export class AIQBuilder {
 
     // ─── Factory helpers ──────────────────────────────────────────────────────
 
-    /**
-     * Start a new toolchain that executes IMMEDIATELY in the current thread.
-     */
-    static chain(name: string, args: Record<string, any> = {}): AIQBuilder & AIQPlugins {
-        return new AIQBuilder().then(name, args) as any;
+    /** Appends a tool call to the chain. (In-process execution) */
+    chain(toolName?: string, args?: any): this {
+        if (!toolName) {
+            this.pendingSpawn = false;
+            return this;
+        }
+        this.calls.push({ name: toolName, args: args ?? {}, spawn: false });
+        return this;
+    }
+
+    /** Appends a tool call that should be spawned as a detached request. */
+    spawn(toolName?: string, args?: any): this {
+        if (!toolName) {
+            this.pendingSpawn = true;
+            return this;
+        }
+        this.calls.push({ name: toolName, args: args ?? {}, spawn: true });
+        return this;
     }
 
     /**
-     * Start a new toolchain where the first tool is SPAWNED as a detached request.
-     */
-    static spawn(name: string, args: Record<string, any> = {}): AIQBuilder & AIQPlugins {
-        return new AIQBuilder().spawn(name, args) as any;
-    }
-
-    /**
-     * Internal factory for empty builder. Use AIQ() function for public access.
-     */
-    static start(): AIQBuilder & AIQPlugins {
-        return new AIQBuilder() as AIQBuilder & AIQPlugins;
-    }
-
-    /**
-     * Add a tool call that executes INLINE in the current thread (sequential).
+     * Legacy support for functional chaining
      */
     then(
         nameOrFn: string | ((res: Record<string, string>) => AIQBuilder), 
@@ -174,15 +184,9 @@ export class AIQBuilder {
             this.onSuccess().chain(childChain);
             return this;
         }
-        this.calls.push({ name: nameOrFn, args, ...(callbacks ? { callbacks } : {}) });
-        return this;
-    }
-
-    /**
-     * Add a tool call that is SPAWNED as a new child Request (parallel).
-     */
-    spawn(name: string, args: Record<string, any> = {}, callbacks?: Record<string, any>): this {
-        this.calls.push({ name, args, spawn: true, ...(callbacks ? { callbacks } : {}) });
+        const spawn = this.pendingSpawn;
+        this.pendingSpawn = false; // Reset after use
+        this.calls.push({ name: nameOrFn, args, spawn, ...(callbacks ? { callbacks } : {}) });
         return this;
     }
 
@@ -257,7 +261,7 @@ class ToolFlowBuilder {
     /**
      * Execute the callback as a new detached child Request in the database.
      */
-    spawn(chainOrFn: AIQBuilder | ((item: any) => AIQBuilder)): AIQBuilder {
+    spawn(chainOrFn: AIQBuilder | ((item: Record<string, string>) => AIQBuilder)): AIQBuilder {
         const childChain = typeof chainOrFn === 'function' ? chainOrFn(this.proxy) : chainOrFn;
         this.call.callbacks = this.call.callbacks ?? {};
         this.call.callbacks[this.key] = { spawn: childChain.toJSON() };
@@ -267,7 +271,7 @@ class ToolFlowBuilder {
     /**
      * Execute the callback immediately in the same request loop (inline).
      */
-    chain(chainOrFn: AIQBuilder | ((item: any) => AIQBuilder)): AIQBuilder {
+    chain(chainOrFn: AIQBuilder | ((item: Record<string, string>) => AIQBuilder)): AIQBuilder {
         const childChain = typeof chainOrFn === 'function' ? chainOrFn(this.proxy) : chainOrFn;
         this.call.callbacks = this.call.callbacks ?? {};
         this.call.callbacks[this.key] = { chain: childChain.toJSON() };
@@ -302,6 +306,9 @@ export const AIQ = (() => {
     
     return factory as (typeof AIQBuilder & (() => AIQBuilder & AIQPlugins));
 })();
+
+// Auto-initialize behind the scenes
+AIQBuilder.init();
 
 /** Type alias for better clarity in external code */
 export type AIQ = AIQBuilder & AIQPlugins;

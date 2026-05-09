@@ -9,7 +9,7 @@ import pkg from 'pg';
 const { Pool } = pkg;
 import { PrismaPg } from '@prisma/adapter-pg';
 
-import { AIQ } from '../services/AIQ.js';
+import { AIQ, AIQBuilder } from '../services/AIQ.js';
 
 async function main() {
     const args = process.argv.slice(2);
@@ -57,14 +57,15 @@ async function main() {
         }
 
         // 4. Execute the primary chain (enforcing one chain per script rule)
-        const chains = (AIQ as any).rootChains;
+        const chains = (AIQ as any).rootChains as AIQBuilder[];
         if (chains.length === 0) {
             console.log("[AIQ] No chains were started in the script.");
             return;
         }
 
-        const primaryBuilder = chains[0];
-        const toolCalls = primaryBuilder.toJSON();
+        // Pick the first builder that actually has calls (skips the empty one from init())
+        const primaryBuilder = chains.find(c => c.toJSON().length > 0) || chains[chains.length - 1];
+        const toolCalls = primaryBuilder!.toJSON();
         let lastResult: any = null;
 
         for (const call of toolCalls) {
@@ -115,11 +116,15 @@ async function main() {
         console.log(`--- SCRIPT RETURN ---`);
         console.log(JSON.stringify(lastResult, null, 2));
         console.log(`----------------------`);
+        console.log(`[AIQ] Script execution finished.`);
     } catch (error: any) {
         console.error(`[AIQ] Error: ${error.message}`);
         process.exit(1);
     } finally {
         await prisma.$disconnect();
+        await pool.end();
+        console.log(`[AIQ] Cleanup complete. Exiting.`);
+        process.exit(0);
     }
 }
 
