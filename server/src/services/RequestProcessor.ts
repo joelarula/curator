@@ -218,6 +218,9 @@ export class RequestProcessor {
                     where: { id: req.id },
                     data: { resources: { connect: { id: result.createdItem.id } } }
                 });
+                // Update local stack for subsequent tools in this chain
+                resourceStack.unshift(result.createdItem);
+                
                 if (!req.resources) req.resources = [];
                 if (!req.resources.some((r: any) => r.id === result.createdItem.id)) {
                     req.resources.push(result.createdItem);
@@ -225,8 +228,9 @@ export class RequestProcessor {
             }
 
             // Persistence: Response Data
-            if (result?.data) {
-                let content = typeof result.data === 'string' ? result.data : JSON.stringify(result.data, null, 2);
+            const responseData = result?.data ?? result;
+            if (responseData) {
+                let content = typeof responseData === 'string' ? responseData : JSON.stringify(responseData, null, 2);
                 await this.prisma.response.update({ where: { id: responseId }, data: { content } });
                 
                 if (this.isAdHoc) {

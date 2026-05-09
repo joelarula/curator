@@ -43,8 +43,8 @@ export async function classifyEstonian(
     args: { text: string; labels: string[]; model?: string; minScore?: number; template?: string },
     prisma: PrismaClient,
     userId: string,
-    responseId: number,
-    request: any,
+    responseId?: number,
+    request?: any,
 ) {
     const { text, labels, model = 'estroberta', minScore = 0.20, template } = args;
 
@@ -151,7 +151,7 @@ export async function classifyEstonian(
                         predicateId: predicate.id,
                         objectId: categoryResource.id,
                         resourceTypeId: predicate.resourceTypeId!,
-                        responseId,
+                        responseId: responseId ?? null,
                         literalValue: score,
                     },
                 });

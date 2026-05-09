@@ -27,7 +27,8 @@ export async function queryResources(
     },
     prisma: PrismaClient,
     userId: string,
-    responseId: number
+    responseId?: number,
+    request?: any
 ) {
     const { subjectUri, predicateUri, objectUri, yieldRole = 'subject', statuses, limit = 100 } = args;
 

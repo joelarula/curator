@@ -25,7 +25,8 @@ export async function extractResourceLinks(
     },
     prisma: PrismaClient,
     userId: string,
-    responseId: number
+    responseId?: number,
+    request?: any
 ) {
     const { resourceUri, url, maxLinks = 50, sameDomainOnly = false } = args;
     if (!resourceUri) throw new Error('extract_resource_links requires "resourceUri"');

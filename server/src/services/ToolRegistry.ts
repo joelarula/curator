@@ -25,8 +25,8 @@ export type ToolHandler = (
     args: any,
     prisma: PrismaClient,
     userId: string,
-    responseId: number,
-    request: any
+    responseId?: number,
+    request?: any
 ) => Promise<any>;
 
 // ─── Tool Definition ──────────────────────────────────────────────────────────
@@ -51,7 +51,7 @@ const TOOLS: ToolDefinition[] = [
         name: 'persist_address',
         description: 'Saves a physical address as a Resource (type: LOCATION) and creates an extracted_address relation.',
         version: '1.0.0',
-        handler: (args, prisma, userId, responseId) => persistAddress(args, prisma, userId, responseId),
+        handler: persistAddress,
     },
     {
         name: 'process_feed',
@@ -81,7 +81,7 @@ const TOOLS: ToolDefinition[] = [
         name: 'upsert_resource',
         description: 'Idempotently creates or updates a Resource by URI. Auto-creates the ResourceType if it does not exist.',
         version: '1.0.0',
-        handler: (args, prisma, userId, responseId) => upsertResource(args, prisma, userId, responseId),
+        handler: upsertResource,
     },
     {
         name: 'upsert_text',
@@ -93,31 +93,31 @@ const TOOLS: ToolDefinition[] = [
         name: 'upsert_relation',
         description: 'Idempotently creates or updates an RDF triple by resolving subject, predicate, and object URIs. Auto-creates stub Resources as needed.',
         version: '1.0.0',
-        handler: (args, prisma, userId, responseId) => upsertRelation(args, prisma, userId, responseId),
+        handler: upsertRelation,
     },
     {
         name: 'query_resources',
         description: 'Queries Resources by RDF relation filters (subject/predicate/object URI) and fans out a child tool call per matched resource via onItemExtracted.',
         version: '1.0.0',
-        handler: (args, prisma, userId, responseId) => queryResources(args, prisma, userId, responseId),
+        handler: queryResources,
     },
     {
         name: 'fetch_html',
         description: 'Fetches raw HTML from a URL and stores it as Text(role=HTML) on the Resource. Downstream tools (scrape_resource, extract_resource_links) read from this cache instead of re-fetching.',
         version: '1.0.0',
-        handler: (args, prisma, userId, responseId) => fetchHtml(args, prisma, userId, responseId),
+        handler: fetchHtml,
     },
     {
         name: 'scrape_resource',
         description: 'Fetches a web page via ScraperService, upserts it as a Resource (type: ARTICLE), and creates/replaces a Text record (role: MAIN by default) with the extracted content.',
         version: '1.0.0',
-        handler: (args, prisma, userId, responseId) => scrapeResource(args, prisma, userId, responseId),
+        handler: scrapeResource,
     },
     {
         name: 'extract_resource_links',
         description: 'Fetches the HTML of a Resource URL, extracts all hyperlinks, upserts each as a stub Resource, creates links_to relations, and fans out extractedItems for downstream tool calls.',
         version: '1.0.0',
-        handler: (args, prisma, userId, responseId) => extractResourceLinks(args, prisma, userId, responseId),
+        handler: extractResourceLinks,
     },
     {
         name: 'execute_script',
@@ -163,8 +163,8 @@ export async function executeTool(
     args: any,
     prisma: PrismaClient,
     userId: string,
-    responseId: number,
-    request: any
+    responseId?: number,
+    request?: any
 ) {
     const handler = HANDLER_MAP.get(toolName);
     if (!handler) {

@@ -20,8 +20,8 @@ export async function executeScript(
     args: { scriptName?: string; scriptId?: number; body?: string; args?: Record<string, any> },
     prisma: PrismaClient,
     userId: string,
-    responseId: number,
-    request: any
+    responseId?: number,
+    request?: any
 ) {
     const { scriptName, scriptId, body: inlineBody, args: scriptArgs = {} } = args;
 

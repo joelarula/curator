@@ -5,8 +5,8 @@ export async function processFeed(
     args: { url: string }, 
     prisma: PrismaClient, 
     userId: string,
-    responseId: number,
-    request: any
+    responseId?: number,
+    request?: any
 ) {
     const { url } = args;
     if (!url) throw new Error("Missing required argument: url");
@@ -79,12 +79,14 @@ export async function processFeed(
 
     return {
         success: true,
-        feed: feedResource,
-        items: enrichedItems,
-        stats: {
-            total: enrichedItems.length,
-            new: enrichedItems.filter((i: any) => i.isNew).length,
-            existing: enrichedItems.filter((i: any) => !i.isNew).length
-        }
+        data: {
+            feed: feedResource,
+            stats: {
+                total: enrichedItems.length,
+                new: enrichedItems.filter((i: any) => i.isNew).length,
+                existing: enrichedItems.filter((i: any) => !i.isNew).length
+            }
+        },
+        items: enrichedItems
     };
 }

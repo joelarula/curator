@@ -16,7 +16,8 @@ export async function fetchHtml(
     args: { url: string; resourceUri?: string; title?: string; onSuccess?: any },
     prisma: PrismaClient,
     userId: string,
-    responseId: number
+    responseId?: number,
+    request?: any
 ) {
     const { url, resourceUri, title } = args;
     if (!url) throw new Error('fetch_html requires a "url" argument');

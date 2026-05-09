@@ -17,7 +17,8 @@ export async function scrapeResource(
     args: { url: string; resourceUri?: string; role?: string; onSuccess?: any },
     prisma: PrismaClient,
     userId: string,
-    responseId: number
+    responseId?: number,
+    request?: any
 ) {
     const { url, resourceUri, role = 'MAIN' } = args;
     if (!url) throw new Error('scrape_resource requires a "url" argument');

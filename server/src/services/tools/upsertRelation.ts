@@ -21,7 +21,8 @@ export async function upsertRelation(
     },
     prisma: PrismaClient,
     userId: string,
-    responseId: number
+    responseId?: number,
+    request?: any
 ) {
     const { subjectUri, predicateUri, objectUri, justification, literalValue } = args;
 

@@ -91,8 +91,8 @@ export async function udcCat(
     args: any,
     prisma: PrismaClient,
     userId: string,
-    responseId: number,
-    request: any
+    responseId?: number,
+    request?: any
 ) {
     const { code, category_name, explanation } = args;
     if (!code) throw new Error('udc_cat requires a "code" argument');
@@ -134,7 +134,7 @@ export async function udcCat(
             predicateId: subjectPredicate.id,
             objectId: udcRes.id,
             resourceTypeId: propertyType?.id || 1,
-            responseId
+            responseId: responseId ?? null
         }
     });
 

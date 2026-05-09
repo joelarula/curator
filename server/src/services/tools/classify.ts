@@ -28,8 +28,8 @@ export async function classify(
     args: { text: string; labels: string[]; model?: string; minScore?: number },
     prisma: PrismaClient,
     userId: string,
-    responseId: number,
-    request: any
+    responseId?: number,
+    request?: any
 ) {
     const { text, labels, model = 'distilbert', minScore = 0.10 } = args;
 
@@ -111,7 +111,7 @@ export async function classify(
                         predicateId: predicate.id,
                         objectId: categoryResource.id,
                         resourceTypeId: predicate.resourceTypeId!,
-                        responseId,
+                        responseId: responseId ?? null,
                         literalValue: score,
                     }
                 });

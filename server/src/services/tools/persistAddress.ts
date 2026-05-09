@@ -8,7 +8,8 @@ export async function persistAddress(
     args: { address: string, context?: string }, 
     prisma: PrismaClient, 
     userId: string,
-    responseId: number
+    responseId?: number,
+    request?: any
 ) {
     const { address, context } = args;
     if (!address) throw new Error("Missing required argument: address");
@@ -96,7 +97,7 @@ export async function persistAddress(
                 subjectId: subject.id,
                 predicateId: predicate.id,
                 objectId: addressResource.id,
-                responseId,
+                responseId: responseId ?? null,
             }
         });
         console.log(`[Tools] Created RDF triple: [Agent Context] -> [Extracted Address] -> [${address}]`);

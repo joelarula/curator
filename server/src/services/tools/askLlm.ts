@@ -6,8 +6,8 @@ export async function askLlm(
     args: any,
     prisma: PrismaClient,
     userId: string,
-    responseId: number,
-    request: any
+    responseId?: number,
+    request?: any
 ) {
     console.log(`[Tool] Executing ask_llm...`);
     const { prompt: rawPrompt, saveAsRole, model: modelArg, output = 'TEXT' } = args;

@@ -12,8 +12,8 @@ export async function upsertText(
     args: { resourceUri?: string; role?: string; content: string },
     prisma: PrismaClient,
     userId: string,
-    responseId: number,
-    request: any
+    responseId?: number,
+    request?: any
 ) {
     const { role = 'MAIN', content } = args;
     if (!content) {

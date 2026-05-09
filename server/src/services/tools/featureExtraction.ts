@@ -26,8 +26,8 @@ export async function featureExtraction(
     args: { text: string; model?: string; role?: string },
     prisma: PrismaClient,
     userId: string,
-    responseId: number,
-    request: any,
+    responseId?: number,
+    request?: any,
 ) {
     const { text, model = 'me5', role = 'EMBEDDING' } = args;
 

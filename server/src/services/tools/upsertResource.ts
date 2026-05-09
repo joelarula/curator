@@ -24,7 +24,8 @@ export async function upsertResource(
     },
     prisma: PrismaClient,
     userId: string,
-    responseId: number
+    responseId?: number,
+    request?: any
 ) {
     const { uri, title, description, status, language, notation, isPublished } = args;
     const type = args.type || args.resourceType;

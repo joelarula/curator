@@ -10,8 +10,8 @@ export async function classifyUdc(
     args: any,
     prisma: PrismaClient,
     userId: string,
-    responseId: number,
-    request: any
+    responseId?: number,
+    request?: any
 ) {
     console.log(`[Tool] Executing classify_udc...`);
     const { model: modelArg } = args;
