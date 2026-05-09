@@ -231,6 +231,21 @@ export const typeDefs = gql`
     createdAt: String!
   }
 
+  "A node in a hierarchical resource tree (e.g. UDC)"
+  type ResourceTreeNode {
+    id: Int!
+    treeName: String!
+    resource: Resource!
+    parentId: Int
+    parent: ResourceTreeNode
+    children: [ResourceTreeNode!]
+    treeStart: Float!
+    treeEnd: Float!
+    depth: Int!
+    createdAt: String!
+    updatedAt: String!
+  }
+
   # ─── Agentic Pipeline Types ─────────────────────────────────────────────────
 
   "A registered AI model tracked for prompt provenance."

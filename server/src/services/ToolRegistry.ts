@@ -17,6 +17,7 @@ import { classifyEstonian }     from './tools/classifyEstonian.js';
 import { featureExtraction }    from './tools/featureExtraction.js';
 import { classifyUdc }         from './tools/classifyUdc.js';
 import { udcCat }             from './tools/udcCat.js';
+import { TOOL_NAMES }       from './tools/manifest.js';
 
 // ─── Tool Handler Type ────────────────────────────────────────────────────────
 
@@ -141,8 +142,8 @@ const TOOLS: ToolDefinition[] = [
 // ─── Register all tools as AIQ plugins ─────────────────────────────────
 // Runs once on module load. After this every tool is a fluent method:
 //   AIQ.start().process_feed({ url }).upsert_resource({ uri }).toJSON()
-for (const tool of TOOLS) {
-    AIQ.register(tool.name);
+for (const name of TOOL_NAMES) {
+    AIQ.register(name);
 }
 
 // ─── Internal Dispatch Map ────────────────────────────────────────────────────

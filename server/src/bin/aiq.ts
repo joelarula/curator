@@ -9,6 +9,8 @@ import pkg from 'pg';
 const { Pool } = pkg;
 import { PrismaPg } from '@prisma/adapter-pg';
 
+import { AIQ } from '../services/AIQ.js';
+
 async function main() {
     const args = process.argv.slice(2);
     if (args.length === 0) {
@@ -34,20 +36,19 @@ async function main() {
     const adapter = new PrismaPg(pool as any);
     const prisma = new PrismaClient({ adapter });
     const processor = new RequestProcessor(prisma);
+    processor.isAdHoc = true;
 
     try {
-        const body = await fs.readFile(scriptPath, 'utf8');
-        console.log(`[AIQ] Executing script: ${scriptPath}`);
-
         // 1. Resolve a user (required for requests)
         const user = await prisma.user.findFirst();
         if (!user) throw new Error('No user found in database.');
 
-        // 2. Evaluate the script to get toolCalls
-        const toolCalls = await ScriptRunner.evaluate(body, scriptArgs, prisma, user.id);
+        // 2. Evaluate the script
+        // Use pathToFileURL for Windows absolute path compatibility
+        const { pathToFileURL } = await import('node:url');
+        await import(pathToFileURL(scriptPath).href);
 
-        // 3. Create a Request
-        // We also need a conversation
+        // 3. Resolve Conversation
         let conversation = await prisma.conversation.findFirst({ where: { userId: user.id } });
         if (!conversation) {
             conversation = await prisma.conversation.create({
@@ -55,21 +56,65 @@ async function main() {
             });
         }
 
-        const request = await prisma.request.create({
-            data: {
-                userId: user.id,
-                conversationId: conversation.id,
-                toolCalls: toolCalls,
-                status: 'WAITING'
+        // 4. Execute the primary chain (enforcing one chain per script rule)
+        const chains = (AIQ as any).rootChains;
+        if (chains.length === 0) {
+            console.log("[AIQ] No chains were started in the script.");
+            return;
+        }
+
+        const primaryBuilder = chains[0];
+        const toolCalls = primaryBuilder.toJSON();
+        let lastResult: any = null;
+
+        for (const call of toolCalls) {
+            if (call.spawn) {
+                // Database flow starts here
+                console.log(`[AIQ] Spawning detached request for: ${call.name}`);
+                const request = await prisma.request.create({
+                    data: {
+                        userId: user.id,
+                        conversationId: conversation.id,
+                        toolName: call.name,
+                        toolArgs: call.args ?? null,
+                        toolCalls: [{ ...call, spawn: false }],
+                        status: 'NEW'
+                    }
+                });
+                await (processor as any).processRequest(request);
+                
+                const response = await prisma.response.findFirst({
+                    where: { requestId: request.id },
+                    orderBy: { createdAt: 'desc' }
+                });
+                lastResult = response?.content;
+            } else {
+                // Direct in-process execution
+                const { executeTool } = await import('../services/Tools.js');
+                console.log(`[AIQ] Executing local chain: ${call.name}`);
+                
+                // Mock request object for context
+                const mockRequest = {
+                    id: 0,
+                    userId: user.id,
+                    conversationId: conversation.id,
+                    resourceStack: []
+                };
+
+                lastResult = await executeTool(
+                    call.name, 
+                    call.args, 
+                    prisma, 
+                    user.id, 
+                    0, // responseId 0
+                    mockRequest
+                );
             }
-        });
+        }
 
-        console.log(`[AIQ] Created request ${request.id}. Processing...`);
-
-        // 4. Process the request immediately
-        await (processor as any).processRequest(request);
-
-        console.log(`[AIQ] Request ${request.id} completed.`);
+        console.log(`--- SCRIPT RETURN ---`);
+        console.log(JSON.stringify(lastResult, null, 2));
+        console.log(`----------------------`);
     } catch (error: any) {
         console.error(`[AIQ] Error: ${error.message}`);
         process.exit(1);

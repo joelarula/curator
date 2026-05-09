@@ -2,7 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import Parser from 'rss-parser';
 
 export async function processFeed(
-    args: { url: string; onItemExtracted?: { yieldTemplateName?: string, prompt?: string, toolCalls?: any } }, 
+    args: { url: string }, 
     prisma: PrismaClient, 
     userId: string,
     responseId: number,

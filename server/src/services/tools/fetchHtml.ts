@@ -81,8 +81,7 @@ export async function fetchHtml(
 
     return {
         data: {
-            resourceId: resource.id,
-            resourceUri: resource.uri,
+            ...resource,
             textId: text.id,
             bytesFetched: html.length,
         },

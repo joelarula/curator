@@ -33,6 +33,8 @@
  *   }
  */
 
+import { TOOL_NAMES } from './tools/manifest.js';
+
 /** Extend this interface to get type-safe plugin methods on AIQ. */
 export interface AIQPlugins {
     ask(promptOrArgs: string | Record<string, any>): AIQ;
@@ -43,7 +45,17 @@ export interface AIQPlugins {
 /**
  * AIQBuilder — Internal fluent builder for composing agentic tool call pipelines.
  */
-class AIQBuilder {
+export class AIQBuilder {
+    /**
+     * Track all root builder instances created during script execution.
+     */
+    static rootChains: AIQBuilder[] = [];
+
+    /**
+     * Track the last created builder instance globally. 
+     */
+    static lastCreated: AIQBuilder | null = null;
+
     /**
      * jQuery-style reference to the prototype — lets external code write:
      *   AIQ.fn.myTool = function(args) { return this.then('myTool', args); }
@@ -55,6 +67,8 @@ class AIQBuilder {
 
     constructor(calls: any[] = []) {
         this.calls = calls;
+        AIQBuilder.lastCreated = this;
+        AIQBuilder.rootChains.push(this);
     }
 
     // ─── Plugin registration (jQuery $.fn pattern) ───────────────────────────
@@ -99,6 +113,29 @@ class AIQBuilder {
     feed(urlOrArgs: string | Record<string, any>): this {
         const args = typeof urlOrArgs === 'string' ? { url: urlOrArgs } : urlOrArgs;
         return (this as any).process_feed(args);
+    }
+
+    // ─── Entry points ────────────────────────────────────────────────────────
+
+    /** Entry point for ask_llm. Accepts a string prompt or an args object. */
+    static ask(promptOrArgs: string | Record<string, any>): AIQBuilder & AIQPlugins {
+        return new AIQBuilder().ask(promptOrArgs) as any;
+    }
+
+    /** Entry point for process_feed. Accepts a string URL or an args object. */
+    static feed(urlOrArgs: string | Record<string, any>): AIQBuilder & AIQPlugins {
+        return new AIQBuilder().feed(urlOrArgs) as any;
+    }
+
+    /**
+     * One-stop initialization: registers all known tools from the manifest.
+     * Allows using AIQ.feed(), AIQ.ask(), etc. without manual registration.
+     */
+    static init(): typeof AIQ {
+        TOOL_NAMES.forEach(name => {
+            AIQBuilder.register(name);
+        });
+        return AIQ;
     }
 
     // ─── Factory helpers ──────────────────────────────────────────────────────
@@ -255,13 +292,13 @@ class ToolFlowBuilder {
 export const AIQ = (() => {
     const factory = () => AIQBuilder.start();
     
-    // Attach static methods
-    (factory as any).start = AIQBuilder.start;
-    (factory as any).chain = AIQBuilder.chain;
-    (factory as any).spawn = AIQBuilder.spawn;
-    (factory as any).register = AIQBuilder.register;
-    (factory as any).registerSpawn = AIQBuilder.registerSpawn;
-    (factory as any).fn = AIQBuilder.fn;
+    // Attach all static methods and properties from AIQBuilder
+    Object.getOwnPropertyNames(AIQBuilder).forEach(name => {
+        const desc = Object.getOwnPropertyDescriptor(AIQBuilder, name);
+        if (desc) {
+            Object.defineProperty(factory, name, desc);
+        }
+    });
     
     return factory as (typeof AIQBuilder & (() => AIQBuilder & AIQPlugins));
 })();

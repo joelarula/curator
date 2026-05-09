@@ -8,6 +8,8 @@ export class RequestProcessor {
     private workerId = `worker-${Math.random().toString(36).substring(7)}`;
     private requestsProcessed = 0;
 
+    public isAdHoc = false;
+
     constructor(prisma: PrismaClient) {
         this.prisma = prisma;
     }
@@ -87,7 +89,7 @@ export class RequestProcessor {
         return stack;
     }
 
-    private async processRequest(request: any) {
+    public async processRequest(request: any) {
         console.log(`[RequestProcessor] Processing request ${request.id}`);
         try {
             // Fetch request details
@@ -157,7 +159,7 @@ export class RequestProcessor {
             // Handle legacy spawn boolean or new ToolFlow structure
             const isSpawn = call.spawn === true;
             if (isSpawn) {
-                await this.prisma.request.create({
+                const childReq = await this.prisma.request.create({
                     data: {
                         status: 'NEW',
                         toolName: call.name,
@@ -165,7 +167,7 @@ export class RequestProcessor {
                         callbacks: call.callbacks ?? null,
                         scriptId: req.scriptId,
                         userId: req.userId,
-                        toolCalls: [call] as any,
+                        toolCalls: [{ ...call, spawn: false }] as any,
                         conversationId: req.conversationId,
                         parentId: req.id,
                         // Inherit current resources
@@ -173,6 +175,10 @@ export class RequestProcessor {
                     }
                 });
                 console.log(`[Orchestrator] Spawned detached child Request for tool: ${call.name}`);
+                
+                if (this.isAdHoc) {
+                    await this.processRequest(childReq);
+                }
                 continue;
             }
 
@@ -222,6 +228,10 @@ export class RequestProcessor {
             if (result?.data) {
                 let content = typeof result.data === 'string' ? result.data : JSON.stringify(result.data, null, 2);
                 await this.prisma.response.update({ where: { id: responseId }, data: { content } });
+                
+                if (this.isAdHoc) {
+                    console.log(`--- RESPONSE (${call.name}) ---\n${content}\n------------------------`);
+                }
             }
 
             // Handle Callbacks (onItemExtracted, onSuccess, onFailure)
@@ -270,7 +280,7 @@ export class RequestProcessor {
         } else {
             // SPAWN NEW REQUEST
             const primary = materializedCalls[0];
-            await this.prisma.request.create({
+            const childReq = await this.prisma.request.create({
                 data: {
                     status: 'NEW',
                     toolName: primary.name,
@@ -288,6 +298,10 @@ export class RequestProcessor {
                 }
             });
             console.log(`[Orchestrator] Spawned child request for ${primary.name}`);
+            
+            if (this.isAdHoc) {
+                await this.processRequest(childReq);
+            }
         }
     }
 

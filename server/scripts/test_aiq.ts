@@ -1,9 +1,7 @@
 import { AIQ } from '../src/services/AIQ.js';
 
-// Mocking tool registration for the test script environment
-AIQ.register('process_feed');
-AIQ.register('ask_llm');
-AIQ.register('upsert_resource');
+// One-stop registration for all known tools
+AIQ.init();
 
 console.log("--- AIQ Simple Chain ---");
 const simple = AIQ.chain("upsert_resource", { uri: "https://example.com" })
@@ -15,7 +13,7 @@ console.log(JSON.stringify(simple, null, 2));
 
 console.log("\n--- AIQ processFeed Granular Flow ---");
 const feedChain = AIQ.feed('https://news.ycombinator.com/rss')
-    .onItem().spawn(item => AIQ.spawn('ask_llm', { 
+    .onItem().spawn((item: any) => AIQ.spawn('ask_llm', { 
         prompt: `Extract tags for: ${item.title}`,
         itemUri: item.uri 
     }))

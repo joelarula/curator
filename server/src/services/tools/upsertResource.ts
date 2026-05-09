@@ -11,12 +11,24 @@ import { PrismaClient } from '@prisma/client';
  *   status:      Optional resource status name (e.g. "ACTIVE", "ARCHIVED"). Looked up by name.
  */
 export async function upsertResource(
-    args: { uri: string; title?: string; description?: string; type?: string; status?: string },
+    args: { 
+        uri: string; 
+        title?: string; 
+        description?: string; 
+        type?: string; 
+        resourceType?: string; 
+        status?: string; 
+        language?: string; 
+        notation?: string;
+        isPublished?: boolean;
+    },
     prisma: PrismaClient,
     userId: string,
     responseId: number
 ) {
-    const { uri, title, description, type, status } = args;
+    const { uri, title, description, status, language, notation, isPublished } = args;
+    const type = args.type || args.resourceType;
+
     if (!uri) throw new Error('upsert_resource requires a "uri" argument');
 
     console.log(`[Tools] Executing upsert_resource for URI: "${uri}"`);
@@ -43,6 +55,22 @@ export async function upsertResource(
         statusId = resourceStatus.id;
     }
 
+    // Resolve optional Language by code
+    let languageId: number | null = null;
+    if (language) {
+        let lang = await prisma.language.findUnique({ where: { code: language.toLowerCase() } });
+        if (!lang) {
+            lang = await prisma.language.create({ 
+                data: { 
+                    code: language.toLowerCase(), 
+                    name: language.toUpperCase() // Fallback name
+                } 
+            });
+            console.log(`[Tools] Created new Language: ${language.toLowerCase()}`);
+        }
+        languageId = lang.id;
+    }
+
     // Default status for NEW records (DRAFT)
     let draftStatusId: number;
     const draftStatus = await prisma.resourceStatus.findUnique({ where: { name: 'DRAFT' } });
@@ -59,28 +87,41 @@ export async function upsertResource(
         update: {
             ...(title         !== undefined && { title }),
             ...(description   !== undefined && { description }),
+            ...(notation      !== undefined && { notation }),
+            ...(isPublished   !== undefined && { isPublished }),
             ...(resourceTypeId !== null     && { resourceTypeId }),
             ...(statusId       !== null     && { statusId }),
+            ...(languageId     !== null     && { languageId }),
         },
         create: {
             uri,
             title: title || uri,
             description: description ?? null,
+            notation: notation ?? null,
+            isPublished: isPublished ?? false,
             resourceTypeId,
-            statusId: statusId ?? draftStatusId, // Always set to DRAFT on insert if not provided
+            statusId: statusId ?? draftStatusId,
+            languageId,
             userId,
-            isPublished: false,
         },
+        include: {
+            status: true,
+            resourceType: true,
+            language: true,
+        }
     });
 
-    console.log(`[Tools] Upserted Resource ID: ${resource.id} (${resource.uri}) status=${status ?? 'unchanged'}`);
+    console.log(`[Tools] Upserted Resource ID: ${resource.id} (${resource.uri}) status=${resource.status?.name}`);
+
+    // Return object with lookup names instead of IDs for transparency
+    const { statusId: _sid, resourceTypeId: _rtid, languageId: _lid, status: s, resourceType: rt, language: l, ...rest } = resource as any;
 
     return {
         data: {
-            id: resource.id,
-            uri: resource.uri,
-            title: resource.title,
-            description: resource.description,
+            ...rest,
+            status: s?.name || null,
+            resourceType: rt?.name || null,
+            language: l?.code || null,
             action: 'upserted',
         },
         createdItem: resource,
