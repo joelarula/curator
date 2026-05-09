@@ -56,62 +56,44 @@ async function main() {
             });
         }
 
-        // 4. Execute the primary chain (enforcing one chain per script rule)
+        // 4. Execute the primary chain
         const chains = (AIQ as any).rootChains as AIQBuilder[];
         if (chains.length === 0) {
             console.log("[AIQ] No chains were started in the script.");
             return;
         }
 
-        // Pick the first builder that actually has calls (skips the empty one from init())
+        // Pick the first builder that actually has calls
         const primaryBuilder = chains.find(c => c.toJSON().length > 0) || chains[chains.length - 1];
         const toolCalls = primaryBuilder!.toJSON();
-        let lastResult: any = null;
-
-        for (const call of toolCalls) {
-            if (call.spawn) {
-                // Database flow starts here
-                console.log(`[AIQ] Spawning detached request for: ${call.name}`);
-                const request = await prisma.request.create({
-                    data: {
-                        userId: user.id,
-                        conversationId: conversation.id,
-                        toolName: call.name,
-                        toolArgs: call.args ?? null,
-                        toolCalls: [{ ...call, spawn: false }],
-                        status: 'NEW'
-                    }
-                });
-                await (processor as any).processRequest(request);
-                
-                const response = await prisma.response.findFirst({
-                    where: { requestId: request.id },
-                    orderBy: { createdAt: 'desc' }
-                });
-                lastResult = response?.content;
-            } else {
-                // Direct in-process execution
-                const { executeTool } = await import('../services/Tools.js');
-                console.log(`[AIQ] Executing local chain: ${call.name}`);
-                
-                // Mock request object for context
-                const mockRequest = {
-                    id: 0,
-                    userId: user.id,
-                    conversationId: conversation.id,
-                    resourceStack: []
-                };
-
-                lastResult = await executeTool(
-                    call.name, 
-                    call.args, 
-                    prisma, 
-                    user.id, 
-                    0, // responseId 0
-                    mockRequest
-                );
-            }
+        
+        if (toolCalls.length === 0) {
+            console.log("[AIQ] No tool calls found in the primary chain.");
+            return;
         }
+
+        console.log(`[AIQ] Executing orchestrated pipeline (${toolCalls.length} steps)...`);
+        
+        // Create the root request to drive the pipeline
+        const request = await prisma.request.create({
+            data: {
+                userId: user.id,
+                conversationId: conversation.id,
+                toolName: toolCalls[0].name,
+                toolArgs: toolCalls[0].args ?? null,
+                toolCalls: toolCalls, // Full chain for orchestration
+                status: 'NEW'
+            }
+        });
+
+        await processor.processRequest(request);
+
+        // Fetch the final response
+        const response = await prisma.response.findFirst({
+            where: { requestId: request.id },
+            orderBy: { createdAt: 'desc' }
+        });
+        const lastResult = response?.content;
 
         console.log(`--- SCRIPT RETURN ---`);
         console.log(JSON.stringify(lastResult, null, 2));

@@ -152,7 +152,10 @@ export class RequestProcessor {
     /**
      * Executes a sequence of tool calls. Chained callbacks execute recursively here.
      */
-    private async executeToolSequence(calls: any[], req: any, resourceStack: any[], responseId: number) {
+    private async executeToolSequence(calls: any[], req: any, resourceStack: any[], responseId: number, previousResults: Record<string, any> = {}, initialToolData: any = null) {
+        const toolResults = { ...previousResults };
+        let currentToolData = initialToolData;
+
         for (const call of calls) {
             if (!call.name) continue;
 
@@ -184,7 +187,11 @@ export class RequestProcessor {
 
             // Execute INLINE
             const { onItemExtracted: _oie, onSuccess: _os, ...toolArgs } = call.args ?? {};
-            const materializedArgs = this.materializeToolArgs(toolArgs, { resources: resourceStack });
+            const materializedArgs = this.materializeToolArgs(toolArgs, { 
+                resources: resourceStack,
+                toolResults,
+                toolData: currentToolData
+            });
 
             const result: any = await executeTool(
                 call.name,
@@ -196,6 +203,10 @@ export class RequestProcessor {
             );
 
             console.log(`[Orchestrator] Tool ${call.name} result: data=${!!result?.data}, createdItem=${!!result?.createdItem}`);
+
+            // Store result for subsequent tools in this chain
+            currentToolData = result.data ?? result;
+            toolResults[call.name] = currentToolData;
 
             // Persistence: AI Model
             if (result?.aiModel) {
@@ -244,10 +255,17 @@ export class RequestProcessor {
                 const items = result?.items || result?.extractedItems;
                 if (hook === 'onItemExtracted' && Array.isArray(items)) {
                     for (const item of items) {
-                        await this.dispatchFlow(flow as any, req, [item, ...resourceStack], responseId, { item, toolData: result.data });
+                        await this.dispatchFlow(flow as any, req, [item, ...resourceStack], responseId, { 
+                            item, 
+                            toolData: result.data,
+                            toolResults
+                        });
                     }
                 } else if (hook === 'onSuccess' && result) {
-                    await this.dispatchFlow(flow as any, req, resourceStack, responseId, { toolData: result.data });
+                    await this.dispatchFlow(flow as any, req, resourceStack, responseId, { 
+                        toolData: result.data,
+                        toolResults
+                    });
                 }
             }
         }
@@ -281,7 +299,7 @@ export class RequestProcessor {
         if (flow.chain) {
             // IMMEDIATE RECURSION
             console.log(`[Orchestrator] Chaining ${materializedCalls.length} calls immediately.`);
-            await this.executeToolSequence(materializedCalls, req, resourceStack, responseId);
+            await this.executeToolSequence(materializedCalls, req, resourceStack, responseId, context.toolResults);
         } else {
             // SPAWN NEW REQUEST
             const primary = materializedCalls[0];
@@ -318,14 +336,15 @@ export class RequestProcessor {
     }
 
     /**
-     * Replaces placeholders like {{resource.title}}, {{item.code}}, {{toolData.result}} in tool arguments with actual data.
+     * Replaces placeholders like {{resource.title}}, {{item.code}}, {{toolData.result}}, or {{tool_name.field}} in tool arguments.
      */
-    private materializeToolArgs(args: any, context: { resources?: any[], toolData?: any, item?: any }): any {
+    private materializeToolArgs(args: any, context: { resources?: any[], toolData?: any, item?: any, toolResults?: Record<string, any> }): any {
         if (!args) return args;
 
         const resource = context.resources?.[0];
         const toolData = context.toolData || {};
         const item = context.item || {};
+        const toolResults = context.toolResults || {};
 
         const cloneAndMaterialize = (obj: any): any => {
             if (Array.isArray(obj)) {
@@ -334,8 +353,6 @@ export class RequestProcessor {
             if (obj && typeof obj === 'object') {
                 const result: any = {};
                 for (const [k, v] of Object.entries(obj)) {
-                    // CRITICAL: Do NOT materialize spawn-time orchestration templates.
-                    // They must retain their {{resource.*}} placeholders for the NEXT lifecycle.
                     if (k === 'spawn' || k === 'chain' || k === 'onSuccess' || k === 'onItemExtracted' || k === 'onFailure') {
                         result[k] = v;
                     } else {
@@ -354,10 +371,11 @@ export class RequestProcessor {
                     if (root === 'resource') source = resource;
                     else if (root === 'item') source = item;
                     else if (root === 'toolData') source = toolData;
+                    else if (toolResults[root]) source = toolResults[root];
 
                     if (!source) return match;
 
-                    // Resolve nested properties if any
+                    // Resolve nested properties
                     const value = property ? property.split('.').reduce((acc: any, p: string) => acc?.[p], source) : source;
                     return value !== undefined && value !== null ? String(value) : match;
                 });

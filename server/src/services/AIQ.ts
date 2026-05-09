@@ -39,7 +39,7 @@ import { TOOL_NAMES } from './tools/manifest.js';
 export interface AIQPlugins {
     ask(promptOrArgs: string | Record<string, any>): AIQ;
     feed(urlOrArgs: string | Record<string, any>): AIQ;
-    foreach(chainOrFn: AIQ | ((item: ItemProxyType) => AIQ)): AIQ;
+    foreach(chainOrFn: AIQ | ((item: any) => AIQ)): AIQ;
 }
 
 /**
@@ -233,7 +233,7 @@ export class AIQBuilder {
      * Legacy shorthand for onItemExtracted().spawn(fanOutChain).
      * @deprecated Use .onItemExtracted().spawn(...) or .chain(...)
      */
-    foreach(chainOrFn: AIQBuilder | ((item: ItemProxyType) => AIQBuilder)): this {
+    foreach(chainOrFn: AIQBuilder | ((item: any) => AIQBuilder)): this {
         return this.onItemExtracted().spawn(chainOrFn) as any;
     }
 
@@ -261,8 +261,8 @@ class ToolFlowBuilder {
     /**
      * Execute the callback as a new detached child Request in the database.
      */
-    spawn(chainOrFn: AIQBuilder | ((item: Record<string, string>) => AIQBuilder)): AIQBuilder {
-        const childChain = typeof chainOrFn === 'function' ? chainOrFn(this.proxy) : chainOrFn;
+    spawn(chainOrFn: AIQBuilder | ((item: Record<string, string>, context: any) => AIQBuilder)): AIQBuilder {
+        const childChain = typeof chainOrFn === 'function' ? chainOrFn(this.proxy, contextProxy) : chainOrFn;
         this.call.callbacks = this.call.callbacks ?? {};
         this.call.callbacks[this.key] = { spawn: childChain.toJSON() };
         return this.parent;
@@ -271,8 +271,8 @@ class ToolFlowBuilder {
     /**
      * Execute the callback immediately in the same request loop (inline).
      */
-    chain(chainOrFn: AIQBuilder | ((item: Record<string, string>) => AIQBuilder)): AIQBuilder {
-        const childChain = typeof chainOrFn === 'function' ? chainOrFn(this.proxy) : chainOrFn;
+    chain(chainOrFn: AIQBuilder | ((item: Record<string, string>, context: any) => AIQBuilder)): AIQBuilder {
+        const childChain = typeof chainOrFn === 'function' ? chainOrFn(this.proxy, contextProxy) : chainOrFn;
         this.call.callbacks = this.call.callbacks ?? {};
         this.call.callbacks[this.key] = { chain: childChain.toJSON() };
         return this.parent;
@@ -333,38 +333,33 @@ export function ref(toolName: string, field?: string): string {
  * Used automatically when you pass a callback to `.onItemExtracted()`:
  *   .onItemExtracted(item => start().upsert_resource({ uri: item.uri, title: item.title }))
  */
-export type ItemProxyType = Record<string, string>;
-
-export const itemProxy: ItemProxyType = new Proxy({} as ItemProxyType, {
-    get(_target, prop: string) {
-        return `{{item.${prop}}}`;
-    },
-    has(_target, _prop) { return true; },
-});
-
-/**
- * A build-time proxy for the `resource` variable inside `onSuccess` or `.then(res => ...)` callbacks.
- * Property access produces `{{resource.field}}` template strings.
- */
-export const resourceProxy: Record<string, string> = new Proxy({} as Record<string, string>, {
-    get(_target, prop: string) {
-        return `{{resource.${prop}}}`;
-    },
-    has(_target, _prop) { return true; },
-});
-
-/**
- * Create a build-time proxy for the output of a named tool in the chain.
- * Property access produces `{{toolName.field}}` template strings.
- *
- *   const feed = toolProxy('process_feed');
- *   start().process_feed({ url: '...' }).upsert_resource({ title: feed.title })
- */
-export function toolProxy(toolName: string): Record<string, string> {
-    return new Proxy({} as Record<string, string>, {
-        get(_target, prop: string) {
-            return `{{${toolName}.${prop}}}`;
+function createRecursiveProxy(root: string, path: string[] = []): any {
+    return new Proxy({}, {
+        get(_target: any, prop: string) {
+            if (typeof prop === 'symbol') return undefined;
+            if (prop === 'toString' || prop === 'valueOf' || prop === 'toJSON') {
+                const fullPath = [root, ...path].join('.');
+                return () => `{{${fullPath}}}`;
+            }
+            return createRecursiveProxy(root, [...path, prop]);
         },
-        has(_target, _prop) { return true; },
-    });
+        [Symbol.toPrimitive](hint: string) {
+            return `{{${[root, ...path].join('.')}}}`;
+        }
+    } as any);
+}
+
+export const itemProxy: any = createRecursiveProxy('item');
+export const toolDataProxy: any = createRecursiveProxy('toolData');
+export const contextProxy: any = new Proxy({}, {
+    get(_target: any, prop: string) {
+        if (typeof prop === 'symbol' || prop === 'toJSON') return undefined;
+        if (TOOL_NAMES.includes(prop as any)) return toolProxy(prop);
+        return toolDataProxy[prop];
+    },
+    has(_target, _prop) { return true; },
+});
+export const resourceProxy: any = createRecursiveProxy('resource');
+export function toolProxy(toolName: string): any {
+    return createRecursiveProxy(toolName);
 }
