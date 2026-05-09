@@ -1,0 +1,56 @@
+services:
+  db:
+    image: ankane/pgvector:latest
+    container_name: curator-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U user -d curator" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: curator-server
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL}
+      FRONTEND_URL: ${FRONTEND_URL}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      PORT: 4000
+    ports:
+      - "4040:4000" # Shifted from 4000 to avoid collision with dev server
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: curator-frontend
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - "8080:80" # Shifted from 80 to avoid collision with dev frontend
+    environment:
+      VITE_API_URL: ${VITE_API_URL}
+
+volumes:
+  pgdata:

@@ -1,0 +1,18 @@
+### Get All Topics
+POST http://localhost:4000/graphql
+Content-Type: application/json
+
+{
+  "query": "query GetTopics { topics { id title description summary isPublished texts { id content sources { id title url } specimens { id feature { id name category { id name } } metrics { id name value } } } } }"
+}
+
+### Get Single Topic
+POST http://localhost:4000/graphql
+Content-Type: application/json
+
+{
+  "query": "query GetTopic($id: ID!) { topic(id: $id) { id title description summary isPublished texts { id content sources { id title url } specimens { id feature { id name category { id name } } metrics { id name value } } } } }",
+  "variables": {
+    "id": "REPLACE_WITH_REAL_ID"
+  }
+}
