@@ -26,6 +26,14 @@ export interface Fannable<T = any> {
     items: T[];
 }
 
+export interface AIQContext {
+    feed?: Resource;
+    resources?: Resource[];
+    toolData?: any;
+    parentItem?: any;
+}
+
+
 /**
  * Specific Tool Input/Output Types
  */
@@ -34,7 +42,18 @@ export interface Fannable<T = any> {
 export interface ProcessFeedInput {
     url: string;
 }
-export interface ProcessFeedOutput extends ToolResult, Fannable {
+export interface FeedItem {
+    title: string;
+    link: string;
+    content: string;
+    categories: string[];
+    isoDate: string;
+    isNew: boolean;
+    resource: Resource | null;
+}
+
+export interface ProcessFeedOutput extends ToolResult, Fannable<FeedItem> {
+
     data: {
         feed: Resource;
         stats: { total: number; new: number; existing: number };
@@ -238,5 +257,21 @@ export interface IterateInput {
 }
 export interface IterateOutput extends ToolResult, Fannable {
     data: { success: true };
+}
+
+
+// context
+export interface SetContextInput {
+    key: string;
+    value: any;
+}
+export interface GetContextInput {
+    key: string;
+}
+
+// get_resource
+export interface GetResourceInput {
+    id?: number;
+    uri?: string;
 }
 

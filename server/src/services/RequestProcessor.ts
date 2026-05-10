@@ -195,12 +195,14 @@ export class RequestProcessor {
 
             // Execute INLINE
             const { onItemExtracted: _oie, onSuccess: _os, ...toolArgs } = call.args ?? {};
-            const materializedArgs = this.materializeToolArgs(toolArgs, { 
+            const materializedArgs = await this.materializeToolArgs(toolArgs, { 
                 resources: resourceStack,
                 toolResults,
                 toolData: currentToolData,
+                conversationId: req.conversationId,
                 ...initialContext
             });
+
 
             const result: any = await executeTool(
                 call.name,
@@ -270,13 +272,23 @@ export class RequestProcessor {
 
                 if (hook === 'onItemExtracted' && Array.isArray(items)) {
                     for (const item of items) {
-                        await this.dispatchFlow(flow as any, req, resourceStack, responseId, { 
+                        const childContext = { 
                             ...context,
                             item,
                             parentItem: initialContext.item 
-                        });
+                        };
+                        
+                        // Apply alias if specified (e.g. .as('article'))
+                        const alias = (flow as any).as;
+                        if (alias) {
+                            (childContext as any)[alias] = item;
+                        }
+
+
+                        await this.dispatchFlow(flow as any, req, resourceStack, responseId, childContext);
                     }
                 } else if (hook === 'onSuccess' && result) {
+
                     await this.dispatchFlow(flow as any, req, resourceStack, responseId, context);
                 }
             }
@@ -303,10 +315,12 @@ export class RequestProcessor {
         if (!childCalls || childCalls.length === 0) return;
 
         // Materialize templates in the calls using the provided context
-        const materializedCalls = this.materializeToolArgs(childCalls, {
+        const materializedCalls = await this.materializeToolArgs(childCalls, {
             resources: resourceStack,
+            conversationId: req.conversationId,
             ...context
         });
+
 
         if (flow.chain) {
             // IMMEDIATE RECURSION
@@ -349,10 +363,25 @@ export class RequestProcessor {
     }
 
     /**
-     * Replaces placeholders like {{resource.title}}, {{item.code}}, {{toolData.result}}, or {{tool_name.field}} in tool arguments.
+     * Replaces placeholders like {{resource.title}}, {{item.code}}, {{toolData.result}}, {{conversation.topic}}, or {{tool_name.field}} in tool arguments.
      */
-    private materializeToolArgs(args: any, context: { resources?: any[], toolData?: any, item?: any, toolResults?: Record<string, any> }): any {
+    private async materializeToolArgs(args: any, context: { resources?: any[], toolData?: any, item?: any, toolResults?: Record<string, any>, conversationId?: number }): Promise<any> {
         if (!args) return args;
+
+        // Pre-fetch conversation with related resources
+        let conversationView: any = {};
+        if (context.conversationId) {
+            const conv = await this.prisma.conversation.findUnique({ 
+                where: { id: context.conversationId },
+                include: { resources: true }
+            });
+            conversationView = {
+                ...((conv?.metadata as any) || {}),
+                id: conv?.id,
+                externalId: conv?.externalId,
+                resources: conv?.resources || []
+            };
+        }
 
 
         const resource = context.resources?.[0];
@@ -360,49 +389,55 @@ export class RequestProcessor {
         const item = context.item || {};
         const toolResults = context.toolResults || {};
 
-        const cloneAndMaterialize = (obj: any): any => {
+        const processRecursive = async (obj: any): Promise<any> => {
+            if (obj === null || obj === undefined) return obj;
+
             if (Array.isArray(obj)) {
-                return obj.map(cloneAndMaterialize);
+                return Promise.all(obj.map(item => processRecursive(item)));
             }
-            if (obj && typeof obj === 'object') {
+
+            if (typeof obj === 'object') {
                 const result: any = {};
                 for (const [k, v] of Object.entries(obj)) {
+                    // Don't materialize callback flows yet
                     if (k === 'spawn' || k === 'chain' || k === 'onSuccess' || k === 'onItemExtracted' || k === 'onFailure') {
                         result[k] = v;
                     } else {
-                        result[k] = cloneAndMaterialize(v);
+                        result[k] = await processRecursive(v);
                     }
                 }
                 return result;
             }
+
             if (typeof obj === 'string') {
-                // If the entire string is exactly one template, return the raw value
+                // 1. Handle Full Match (Direct object injection)
                 const fullMatch = obj.match(/^\{\{([^}]+)\}\}$/);
                 if (fullMatch) {
                     const path = fullMatch[1];
                     if (!path) return obj;
                     const parts = path.split('.');
 
-                    const root = parts[0] as string;
+                    const root = parts[0];
                     const property = parts.slice(1).join('.');
 
                     let source: any = null;
                     if (root === 'resource') source = resource;
                     else if (root === 'item') source = item;
                     else if (root === 'toolData') source = toolData;
+                    else if (root === 'conversation') source = conversationView;
                     else if (root && toolResults[root]) source = toolResults[root];
-
+                    else if (root && (context as any)[root]) source = (context as any)[root];
 
                     if (source) {
+                        const pathString = path || "";
                         const value = property ? property.split('.').reduce((acc: any, p: string) => acc?.[p], source) : source;
                         if (value !== undefined && value !== null && typeof value !== 'function') return value;
-
                     }
                 }
 
-                // Otherwise handle as a template string with interpolation
-                return obj.replace(/\{\{([^}]+)\}\}/g, (match, path) => {
-
+                // 2. Handle Interpolation (String replacement)
+                return obj.replace(/\{\{([^}]+)\}\}/g, (match, pathString) => {
+                    const path = pathString || "";
                     const parts = path.split('.');
                     const root = parts[0];
                     const property = parts.slice(1).join('.');
@@ -411,11 +446,12 @@ export class RequestProcessor {
                     if (root === 'resource') source = resource;
                     else if (root === 'item') source = item;
                     else if (root === 'toolData') source = toolData;
-                    else if (toolResults[root]) source = toolResults[root];
+                    else if (root === 'conversation') source = conversationView;
+                    else if (root && toolResults[root]) source = toolResults[root];
+                    else if (root && (context as any)[root]) source = (context as any)[root];
 
                     if (!source) return match;
 
-                    // Resolve nested properties, avoiding functions/prototypes
                     const value = property ? property.split('.').reduce((acc: any, p: string) => acc?.[p], source) : source;
                     
                     if (path.startsWith('item.')) {
@@ -426,9 +462,11 @@ export class RequestProcessor {
                 });
 
             }
+
             return obj;
         };
 
-        return cloneAndMaterialize(args);
+        return processRecursive(args);
     }
+
 }

@@ -252,30 +252,58 @@ export class AIQBuilder {
  * ToolFlowBuilder — handles the spawn/chain decision for callbacks.
  */
 class ToolFlowBuilder {
+    private alias: string | null = null;
+
     constructor(
         private call: any,
         private key: string,
         private parent: AIQBuilder,
         private proxy: any
-    ) {}
+    ) {
+        // Automatically assign a unique lexical scope ID to every loop
+        // This prevents shadowing and context collision by default.
+        if (key === 'onItemExtracted') {
+            this.as(`_item_${++loopCounter}`);
+        }
+    }
+
+
+    /**
+     * Alias the item in this flow (e.g. .as('article')).
+     * This prevents shadowing in nested loops.
+     */
+    as(name: string): this {
+        this.alias = name;
+        this.proxy = createRecursiveProxy(name);
+        return this;
+    }
+
 
     /**
      * Execute the callback as a new detached child Request in the database.
      */
-    spawn(chainOrFn: AIQBuilder | ((item: Record<string, string>, context: any) => AIQBuilder)): AIQBuilder {
+    spawn<T = any>(chainOrFn: AIQBuilder | ((item: T, context: any) => AIQBuilder)): AIQBuilder {
         const childChain = typeof chainOrFn === 'function' ? chainOrFn(this.proxy, contextProxy) : chainOrFn;
         this.call.callbacks = this.call.callbacks ?? {};
-        this.call.callbacks[this.key] = { spawn: childChain.toJSON() };
+        this.call.callbacks[this.key] = { 
+            spawn: childChain.toJSON(),
+            as: this.alias 
+        };
+
         return this.parent;
     }
 
     /**
      * Execute the callback immediately in the same request loop (inline).
      */
-    chain(chainOrFn: AIQBuilder | ((item: Record<string, string>, context: any) => AIQBuilder)): AIQBuilder {
+    chain<T = any>(chainOrFn: AIQBuilder | ((item: T, context: any) => AIQBuilder)): AIQBuilder {
         const childChain = typeof chainOrFn === 'function' ? chainOrFn(this.proxy, contextProxy) : chainOrFn;
         this.call.callbacks = this.call.callbacks ?? {};
-        this.call.callbacks[this.key] = { chain: childChain.toJSON() };
+        this.call.callbacks[this.key] = { 
+            chain: childChain.toJSON(),
+            as: this.alias 
+        };
+
         return this.parent;
     }
 
@@ -327,8 +355,11 @@ export function ref(toolName: string, field?: string): string {
     return field ? `{{${toolName}.${field}}}` : `{{${toolName}}}`;
 }
 
+let loopCounter = 0;
+
 /**
  * A build-time proxy for the `item` variable inside `onItemExtracted` callbacks.
+
  * Property access produces `{{item.field}}` template strings.
  *
  * Used automatically when you pass a callback to `.onItemExtracted()`:
@@ -338,17 +369,15 @@ function createRecursiveProxy(root: string, path: string[] = []): any {
     return new Proxy({}, {
         get(_target: any, prop: string) {
             if (typeof prop === 'symbol') return undefined;
-            if (prop === 'toString' || prop === 'valueOf' || prop === 'toJSON') {
+            if (prop === 'toString' || prop === 'valueOf' || prop === 'toJSON' || prop === 'then') {
                 const fullPath = [root, ...path].join('.');
                 return () => `{{${fullPath}}}`;
             }
             return createRecursiveProxy(root, [...path, prop]);
-        },
-        [Symbol.toPrimitive](hint: string) {
-            return `{{${[root, ...path].join('.')}}}`;
         }
     } as any);
 }
+
 
 export const itemProxy: any = createRecursiveProxy('item');
 export const toolDataProxy: any = createRecursiveProxy('toolData');

@@ -18,11 +18,4 @@ const flow = AIQ.chain("query_resources", {
 });
 
 
-
-
-// 2. Output the serialized flow
-console.log("--- Serialized Relation Query ---");
-console.log(JSON.stringify(flow, null, 2));
-console.log("---------------------------------");
-
 export default flow;

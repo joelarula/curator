@@ -7,7 +7,6 @@ import { classify }          from './tools/classify.js';
 import { askLlm }          from './tools/askLlm.js';
 import { upsertResource }      from './tools/upsertResource.js';
 import { upsertRelation }      from './tools/upsertRelation.js';
-import { queryResources }      from './tools/queryResources.js';
 import { fetchHtml }           from './tools/fetchHtml.js';
 import { scrapeResource }      from './tools/scrapeResource.js';
 import { extractResourceLinks } from './tools/extractResourceLinks.js';
@@ -19,6 +18,12 @@ import { classifyUdc }         from './tools/classifyUdc.js';
 import { udcCat }             from './tools/udcCat.js';
 import { iterate }            from './tools/iterate.js';
 import { debug }              from './tools/debug.js';
+import { queryResources }      from './tools/queryResources.js';
+import { setContext, getContext } from './tools/context.js';
+import { getResource }         from './tools/getResource.js';
+
+
+
 
 import { TOOL_NAMES }       from './tools/manifest.js';
 import type * as T from './tools/types.js';
@@ -150,7 +155,26 @@ const TOOLS: ToolDefinition[] = [
         version: '1.0.0',
         handler: debug,
     },
+    {
+        name: 'set_context',
+        description: 'Sets a persistent context key-value pair for the current execution chain.',
+        version: '1.0.0',
+        handler: setContext,
+    },
+    {
+        name: 'get_context',
+        description: 'Retrieves a context value for the current execution chain.',
+        version: '1.0.0',
+        handler: getContext,
+    },
+    {
+        name: 'get_resource',
+        description: 'Fetches a single resource with all its relations and texts.',
+        version: '1.0.0',
+        handler: getResource,
+    },
 ];
+
 
 
 // ─── Register all tools as AIQ plugins ─────────────────────────────────

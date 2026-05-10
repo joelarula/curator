@@ -20,7 +20,11 @@ export const TOOL_NAMES = [
     'classify_udc',
     'udc_cat',
     'iterate',
-    'debug'
+    'debug',
+    'set_context',
+    'get_context',
+    'get_resource'
+
 ] as const;
 
 export type ToolName = typeof TOOL_NAMES[number];
