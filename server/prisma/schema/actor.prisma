@@ -13,11 +13,14 @@ model User {
   requests        Request[]
   conversations   Conversation[]
   agents          Agent[]
+  feeds           Feed[]
 
-  existent  Boolean? @default(true)
+
+  deletedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
 
 model Role {
   id          String     @id @default(cuid())
@@ -25,10 +28,11 @@ model Role {
   description String?    @db.Text
   users       UserRole[]
 
-  existent  Boolean? @default(true)
+  deletedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
 
 model UserRole {
   userId String
@@ -36,7 +40,8 @@ model UserRole {
   roleId String
   role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
-  existent Boolean? @default(true)
+  deletedAt DateTime?
+
 
   @@id([userId, roleId])
 }
@@ -50,9 +55,10 @@ model UserQuota {
   usage   Int      @default(0)
   resetAt DateTime
 
-  existent  Boolean? @default(true)
+  deletedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
 
   @@unique([userId, type])
 }
@@ -64,8 +70,9 @@ model Session {
   token     String   @unique
   expiresAt DateTime
 
-  existent  Boolean? @default(true)
+  deletedAt DateTime?
   createdAt DateTime @default(now())
+
 
   consents UserConsent[]
 }
@@ -86,7 +93,8 @@ model UserConsent {
   consentType String   @default("GENERAL")
   consentDate DateTime @default(now())
 
-  existent Boolean? @default(true)
+  deletedAt DateTime?
+
 
   @@index([userId])
   @@index([termsId])
@@ -100,10 +108,11 @@ model TermsAndConditions {
   isActive Boolean       @default(true)
   consents UserConsent[]
 
-  existent  Boolean? @default(true)
+  deletedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
 
 model AuditLog {
   id         String   @id @default(cuid())

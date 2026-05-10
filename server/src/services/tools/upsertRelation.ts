@@ -13,7 +13,11 @@ export async function upsertRelation(
     request?: any
 ): Promise<UpsertRelationOutput> {
 
-    const { subjectUri, predicateUri, objectUri, justification, literalValue } = args;
+    const { 
+        subjectUri, predicateUri, objectUri, 
+        justification, 
+        literalValue, literalString, literalDate, literalBoolean, literalDatatype 
+    } = args;
 
     if (!subjectUri)   throw new Error('upsert_relation requires "subjectUri"');
     if (!predicateUri) throw new Error('upsert_relation requires "predicateUri"');
@@ -21,26 +25,19 @@ export async function upsertRelation(
 
     console.log(`[Tools] upsert_relation: <${subjectUri}> <${predicateUri}> <${objectUri}>`);
 
-    // Ensure ResourceType RELATION and PROPERTY exist
-    const ensureType = async (name: string) => {
-        let type = await prisma.resourceType.findUnique({ where: { name } });
-        if (!type) type = await prisma.resourceType.create({ data: { name } });
-        return type;
-    };
-    const relationResourceType = await ensureType('RELATION');
-    const propertyType = await ensureType('PROPERTY');
-
-    // Resolve or auto-create a Resource by URI
-    const resolveResource = async (uri: string, fallbackTypeId: number) => {
-        let resource = await prisma.resource.findUnique({ where: { uri } });
+    // Resolve or auto-create a Resource by URI (Scoped to User)
+    const resolveResource = async (uri: string) => {
+        let resource = await prisma.resource.findUnique({ 
+            where: { userId_uri: { userId, uri } } 
+        });
         if (!resource) {
             resource = await prisma.resource.create({
                 data: {
                     uri,
                     title: uri,
-                    resourceTypeId: fallbackTypeId,
                     userId,
                     isPublished: false,
+                    deletedAt: null
                 },
             });
             console.log(`[Tools] Auto-created stub Resource: ${uri} (id ${resource.id})`);
@@ -48,9 +45,11 @@ export async function upsertRelation(
         return resource;
     };
 
-    const subject   = await resolveResource(subjectUri,   relationResourceType.id);
-    const predicate = await resolveResource(predicateUri, propertyType.id);
-    const object    = await resolveResource(objectUri,    relationResourceType.id);
+    const [subject, predicate, object] = await Promise.all([
+        resolveResource(subjectUri),
+        resolveResource(predicateUri),
+        resolveResource(objectUri)
+    ]);
 
     // Upsert the Relation triple
     const relation = await prisma.relation.upsert({
@@ -64,15 +63,22 @@ export async function upsertRelation(
         update: {
             ...(justification !== undefined && { justification }),
             ...(literalValue  !== undefined && { literalValue }),
+            ...(literalString !== undefined && { literalString }),
+            ...(literalDate   !== undefined && { literalDate: literalDate ? new Date(literalDate) : null }),
+            ...(literalBoolean !== undefined && { literalBoolean }),
+            ...(literalDatatype !== undefined && { literalDatatype }),
             ...(responseId && { responseId }),
         },
         create: {
             subjectId:    subject.id,
             predicateId:  predicate.id,
             objectId:     object.id,
-            resourceTypeId: relationResourceType.id,
             justification:  justification ?? null,
             literalValue:   literalValue  ?? null,
+            literalString:  literalString ?? null,
+            literalDate:    literalDate ? new Date(literalDate) : null,
+            literalBoolean: literalBoolean ?? null,
+            literalDatatype: literalDatatype ?? null,
             responseId:     responseId    ?? null,
         },
     });
@@ -82,13 +88,12 @@ export async function upsertRelation(
     return {
         success: true,
         data: {
-            id:           relation.id,
+            ...relation,
             subjectUri,
             predicateUri,
             objectUri,
-            justification: relation.justification,
-            literalValue:  relation.literalValue,
             action: 'upserted',
         },
     };
 }
+

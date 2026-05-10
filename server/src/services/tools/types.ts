@@ -83,7 +83,12 @@ export interface UpsertRelationInput {
     objectUri: string;
     justification?: string;
     literalValue?: number;
+    literalString?: string;
+    literalDate?: string; // ISO string
+    literalBoolean?: boolean;
+    literalDatatype?: string;
 }
+
 export interface UpsertRelationOutput extends ToolResult {
     data: {
         id: number;
@@ -164,7 +169,12 @@ export interface QueryResourcesInput {
         literalValue?: number;
         literalGte?: number;
         literalLte?: number;
+        literalString?: string;
+        literalDate?: string;
+        literalBoolean?: boolean;
+        literalDatatype?: string;
     };
+
 
     limit?: number;
     offset?: number;

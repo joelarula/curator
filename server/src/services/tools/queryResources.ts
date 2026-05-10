@@ -27,8 +27,9 @@ export async function queryResources(
 
     const where: Prisma.ResourceWhereInput = {
         userId, // Always scope to user
-        existent: true,
+        deletedAt: null,
     };
+
 
     // 1. String Filters
     if (uri)         where.uri = uri;
@@ -43,15 +44,41 @@ export async function queryResources(
     // 2. Enum/Type Filters (nested)
     if (isPublished !== undefined) where.isPublished = isPublished;
 
+    // 2. Semantic Filters (Virtualized via Relations)
+    const semanticCriteria: Prisma.RelationWhereInput[] = [];
+
     if (status) {
         const statusList = Array.isArray(status) ? status : [status];
-        where.status = { name: { in: statusList.map(s => s.toUpperCase()), mode: 'insensitive' } };
+        semanticCriteria.push({
+            predicate: { uri: 'https://schema.org/status' },
+            object: { uri: { in: statusList.map(s => `status:${s.toLowerCase()}`) } }
+        });
     }
 
     if (type) {
         const typeList = Array.isArray(type) ? type : [type];
-        where.resourceType = { name: { in: typeList.map(t => t.toUpperCase()), mode: 'insensitive' } };
+        semanticCriteria.push({
+            predicate: { uri: 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type' },
+            object: { uri: { in: typeList.map(t => `type:${t.toLowerCase()}`) } }
+        });
     }
+
+    if (language) {
+        const langList = Array.isArray(language) ? language : [language];
+        semanticCriteria.push({
+            predicate: { uri: 'https://schema.org/inLanguage' },
+            object: { uri: { in: langList.map(l => `lang:${l.toLowerCase()}`) } }
+        });
+    }
+
+    if (semanticCriteria.length > 0) {
+        where.subjectRelations = {
+            some: {
+                AND: semanticCriteria
+            }
+        };
+    }
+
 
     // 3. Date Filters
     if (createdAfter || createdBefore) {
@@ -81,7 +108,7 @@ export async function queryResources(
             relationFilter.object = { uri: relation.objectUri };
         }
 
-        // literalValue filters
+        // literal filters
         if (relation.literalValue !== undefined || relation.literalGte !== undefined || relation.literalLte !== undefined) {
             relationFilter.literalValue = {
                 ...(relation.literalValue !== undefined && { equals: relation.literalValue }),
@@ -89,6 +116,19 @@ export async function queryResources(
                 ...(relation.literalLte !== undefined && { lte: relation.literalLte }),
             };
         }
+        if (relation.literalString !== undefined) {
+            relationFilter.literalString = { contains: relation.literalString, mode: 'insensitive' };
+        }
+        if (relation.literalDate !== undefined) {
+            relationFilter.literalDate = { equals: new Date(relation.literalDate) };
+        }
+        if (relation.literalBoolean !== undefined) {
+            relationFilter.literalBoolean = relation.literalBoolean;
+        }
+        if (relation.literalDatatype !== undefined) {
+            relationFilter.literalDatatype = relation.literalDatatype;
+        }
+
 
         where.subjectRelations = {
             some: relationFilter

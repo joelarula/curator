@@ -23,21 +23,18 @@ export async function getResource(
 
     console.log(`[Tools] get_resource: Fetching resource by ${id ? `ID ${id}` : `URI ${uri}`}`);
 
-    const where = id ? { id } : { uri: uri! };
+    const where: any = id ? { id, userId, deletedAt: null } : { userId_uri: { userId, uri: uri! }, deletedAt: null };
 
-    const resource = await prisma.resource.findUnique({
+    const resource = await prisma.resource.findFirst({
         where,
-
         include: {
-            resourceType: true,
-            status: true,
-            language: true,
             texts: {
-                include: { role: true, language: true }
+                include: { role: true }
             },
             subjectRelations: {
                 include: { predicate: true, object: true }
             },
+
             objectRelations: {
                 include: { subject: true, predicate: true }
             },

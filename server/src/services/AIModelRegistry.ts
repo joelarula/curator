@@ -141,7 +141,6 @@ export async function syncAIModelsToDatabase(prisma: PrismaClient): Promise<void
                 type: model.type,
                 url: model.url || null,
                 version: model.version || null,
-                existent: true
             },
             create: {
                 shortName: model.shortName,
@@ -150,8 +149,8 @@ export async function syncAIModelsToDatabase(prisma: PrismaClient): Promise<void
                 type: model.type,
                 url: model.url || null,
                 version: model.version || null,
-                existent: true
             }
+
         });
     }
     console.log(`[AIModelRegistry] ${AI_MODELS.length} models synced.`);

@@ -21,65 +21,15 @@ export async function upsertResource(
 
     console.log(`[Tools] Executing upsert_resource for URI: "${uri}"`);
 
-    // Resolve optional ResourceType by name
-    let resourceTypeId: number | null = null;
-    if (type) {
-        let resourceType = await prisma.resourceType.findUnique({ where: { name: type.toUpperCase() } });
-        if (!resourceType) {
-            resourceType = await prisma.resourceType.create({ data: { name: type.toUpperCase() } });
-            console.log(`[Tools] Created new ResourceType: ${type.toUpperCase()}`);
-        }
-        resourceTypeId = resourceType.id;
-    }
-
-    // Resolve optional ResourceStatus by name
-    let statusId: number | null = null;
-    if (status) {
-        let resourceStatus = await prisma.resourceStatus.findUnique({ where: { name: status.toUpperCase() } });
-        if (!resourceStatus) {
-            resourceStatus = await prisma.resourceStatus.create({ data: { name: status.toUpperCase() } });
-            console.log(`[Tools] Created new ResourceStatus: ${status.toUpperCase()}`);
-        }
-        statusId = resourceStatus.id;
-    }
-
-    // Resolve optional Language by code
-    let languageId: number | null = null;
-    if (language) {
-        let lang = await prisma.language.findUnique({ where: { code: language.toLowerCase() } });
-        if (!lang) {
-            lang = await prisma.language.create({ 
-                data: { 
-                    code: language.toLowerCase(), 
-                    name: language.toUpperCase() // Fallback name
-                } 
-            });
-            console.log(`[Tools] Created new Language: ${language.toLowerCase()}`);
-        }
-        languageId = lang.id;
-    }
-
-    // Default status for NEW records (DRAFT)
-    let draftStatusId: number;
-    const draftStatus = await prisma.resourceStatus.findUnique({ where: { name: 'DRAFT' } });
-    if (draftStatus) {
-        draftStatusId = draftStatus.id;
-    } else {
-        const created = await prisma.resourceStatus.create({ data: { name: 'DRAFT' } });
-        draftStatusId = created.id;
-    }
-
-    // Upsert the Resource
+    // 1. Upsert the Core Resource
     const resource = await prisma.resource.upsert({
-        where: { uri },
+        where: { userId_uri: { userId, uri } },
         update: {
             ...(title         !== undefined && { title }),
             ...(description   !== undefined && { description }),
             ...(notation      !== undefined && { notation }),
             ...(isPublished   !== undefined && { isPublished }),
-            ...(resourceTypeId !== null     && { resourceTypeId }),
-            ...(statusId       !== null     && { statusId }),
-            ...(languageId     !== null     && { languageId }),
+            deletedAt: null, // Restore if soft-deleted
         },
         create: {
             uri,
@@ -87,32 +37,80 @@ export async function upsertResource(
             description: description ?? null,
             notation: notation ?? null,
             isPublished: isPublished ?? false,
-            resourceTypeId,
-            statusId: statusId ?? draftStatusId,
-            languageId,
             userId,
+            deletedAt: null,
         },
-        include: {
-            status: true,
-            resourceType: true,
-            language: true,
-        }
     });
 
-    console.log(`[Tools] Upserted Resource ID: ${resource.id} (${resource.uri}) status=${resource.status?.name}`);
+    console.log(`[Tools] Upserted Resource Core ID: ${resource.id} (${resource.uri})`);
 
-    // Return object with lookup names instead of IDs for transparency
-    const { statusId: _sid, resourceTypeId: _rtid, languageId: _lid, status: s, resourceType: rt, language: l, ...rest } = resource as any;
+    // 2. Virtual Semantic Mapping: Type, Status, Language
+    const mappings = [
+        { key: 'type',     predicate: 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type', prefix: 'type:' },
+        { key: 'status',   predicate: 'https://schema.org/status',                      prefix: 'status:' },
+        { key: 'language', predicate: 'https://schema.org/inLanguage',                  prefix: 'lang:' }
+    ];
+
+    for (const mapping of mappings) {
+        const value = (args as any)[mapping.key];
+        if (value) {
+            const semanticUri = `${mapping.prefix}${value.toString().toLowerCase()}`;
+            
+            // Ensure the semantic entity exists
+            const semanticResource = await prisma.resource.upsert({
+                where: { userId_uri: { userId, uri: semanticUri } },
+                update: { deletedAt: null },
+                create: {
+                    uri: semanticUri,
+                    title: value.toString(),
+                    userId,
+                    deletedAt: null
+                }
+            });
+
+            // Create/Update the relation
+            await prisma.relation.upsert({
+                where: {
+                    subjectId_predicateId_objectId: {
+                        subjectId: resource.id,
+                        predicateId: await getPredicateId(prisma, mapping.predicate, userId),
+                        objectId: semanticResource.id
+                    }
+                },
+                update: {},
+                create: {
+                    subjectId: resource.id,
+                    predicateId: await getPredicateId(prisma, mapping.predicate, userId),
+                    objectId: semanticResource.id
+                }
+            });
+        }
+    }
 
     return {
         success: true,
         data: {
-            ...rest,
-            status: s?.name || null,
-            resourceType: rt?.name || null,
-            language: l?.code || null,
+            ...resource,
             action: 'upserted',
         },
         createdItem: resource,
     };
 }
+
+/**
+ * Helper to get or create a predicate resource ID.
+ */
+async function getPredicateId(prisma: PrismaClient, uri: string, userId: string): Promise<number> {
+    const res = await prisma.resource.upsert({
+        where: { userId_uri: { userId, uri } },
+        update: { deletedAt: null },
+        create: {
+            uri,
+            title: uri,
+            userId,
+            deletedAt: null
+        }
+    });
+    return res.id;
+}
+

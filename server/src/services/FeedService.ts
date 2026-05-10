@@ -47,51 +47,30 @@ export class FeedService {
             if (!item.link) continue;
 
             // Only skip if the URL exists AND is still active.
-            // Removed sources (existent: null) won't block re-creation.
-            const existing = await prisma.source.findFirst({
-                where: { url: item.link, existent: true }
+            // Removed sources (deletedAt is set) won't block re-creation.
+            const existing = await prisma.resource.findFirst({
+                where: { userId: feed.userId, uri: item.link, deletedAt: null }
             } as any);
+
 
             if (!existing) {
                 const sourceData: any = {
-                    url: item.link,
+                    uri: item.link,
                     title: item.title || 'Untitled',
                     description: item.contentSnippet || item.content || '',
-                    type: 'WEB',
-                    status: 'NEW',
                     userId: feed.userId,
                     isPublished: false,
-                    feeds: {
-                        connect: { id: feed.id }
-                    }
+                    deletedAt: null
                 };
 
-                // Auto-tagging from feed defaults
-                if (feed.defaultTagName) {
-                    sourceData.tags = {
-                        connectOrCreate: [{
-                            where: { 
-                                name_value: { 
-                                    name: feed.defaultTagName, 
-                                    value: feed.defaultTagValue || null 
-                                } 
-                            },
-                            create: { 
-                                name: feed.defaultTagName, 
-                                value: feed.defaultTagValue || null 
-                            }
-                        }]
-                    };
-                }
-
-                const newSource = await prisma.source.create({
+                const newResource = await prisma.resource.create({
                     data: sourceData
                 });
 
                 // AI Pipeline: scrape full content, then run user's prompt
                 if (feed.aiPrompt && item.link) {
                     // Fire-and-forget: don't block the polling loop
-                    this.processAITask(prisma, feed, newSource, item.link).catch(err => {
+                    this.processAITask(prisma, feed, newResource, item.link).catch(err => {
                         console.error(`AI pipeline error for ${item.link}:`, err.message);
                     });
                 }
@@ -133,12 +112,13 @@ export class FeedService {
             console.log(`  Actions: ${result.actions.join(', ') || 'none'}`);
         } catch (error: any) {
             console.error(`Agent pipeline failed for ${url}:`, error.message);
-            await prisma.source.update({
+            await prisma.resource.update({
                 where: { id: source.id },
-                data: { status: 'AI_FAILED' }
+                data: {} // Just touch it
             }).catch(() => {});
         }
     }
+
 
     /**
      * Polls all active and enabled feeds.

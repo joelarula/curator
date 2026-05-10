@@ -16,49 +16,53 @@ model Tool {
 }
 
 
-model ResourceType {
-  id        Int        @id @default(autoincrement())
-  name      String     @unique // e.g. "ENTITY", "PROPERTY", "CLASS"
-  resources Resource[]
-  relations Relation[]
-}
-
-model ResourceStatus {
-  id        Int        @id @default(autoincrement())
-  name      String     @unique // e.g. "NEW", "ACTIVE", "ARCHIVED"
-  resources Resource[]
-}
-
 model TextRole {
   id    Int    @id @default(autoincrement())
   name  String @unique // e.g. "MAIN", "SUMMARY", "TRANSCRIPT"
   texts Text[]
 }
 
-model Language {
-  id        Int        @id @default(autoincrement())
-  code      String     @unique // BCP 47, e.g. "et", "en", "de"
-  name      String     @unique // e.g. "Estonian", "English"
-  texts     Text[]
-  relations Relation[]
-  resources Resource[]
+model Feed {
+  id              String    @id @default(cuid())
+  url             String
+  name            String
+  lastPolledAt    DateTime?
+  enabled         Boolean   @default(true)
+  
+  aiPrompt        String?   @db.Text // Optional prompt for the agentic pipeline
+  defaultTagName  String?
+  defaultTagValue String?
+
+  userId          String
+  user            User      @relation(fields: [userId], references: [id])
+  
+  deletedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([userId, url])
 }
+
+
+
 
 model Resource {
   id                 Int               @id @default(autoincrement())
-  uri                String            @unique
+  uri                String            
   title              String?           @db.VarChar(255)
   notation           String?           @db.VarChar(50)
   description        String?           @db.Text
   isPublished        Boolean           @default(false)
-  statusId           Int?
-  status             ResourceStatus?   @relation(fields: [statusId], references: [id])
-  resourceTypeId     Int?
-  resourceType       ResourceType?     @relation(fields: [resourceTypeId], references: [id])
-  languageId         Int?
-  language           Language?         @relation(fields: [languageId], references: [id])
+  
   userId             String
   user               User              @relation(fields: [userId], references: [id])
+  
+  metadata           Json?             // Extensible storage for external IDs, AI confidence, etc.
+  
+  deletedAt          DateTime?         // Soft delete timestamp
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
   requests           Request[]         @relation("RequestResources")
   conversations      Conversation[]    @relation("ConversationResources")
   texts              Text[]            @relation("ResourceTexts")
@@ -67,14 +71,14 @@ model Resource {
   objectRelations    Relation[]        @relation("RelationObject")
   treeNodes          ResourceTree[]
   attachments        Attachment[]
-  existent           Boolean?          @default(true)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([existent])
+  @@unique([userId, uri])              // Multi-tenant URI safety
+  @@index([uri])
+  @@index([deletedAt])
   @@index([notation])
 }
+
+
 
 model Text {
   resourceId  Int?
@@ -83,24 +87,21 @@ model Text {
   content     String    @db.Text
   roleId      Int
   role        TextRole  @relation(fields: [roleId], references: [id])
-  languageId  Int?
-  language    Language? @relation(fields: [languageId], references: [id])
+  
   isPublished Boolean   @default(false)
-  existent    Boolean?  @default(true)
+  deletedAt   DateTime?
   userId      String
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   @@index([resourceId])
-  @@index([languageId])
   @@unique([resourceId, roleId])
 }
 
+
 model Relation {
   id             Int          @id @default(autoincrement())
-  resourceTypeId Int
-  resourceType   ResourceType @relation(fields: [resourceTypeId], references: [id])
   subjectId      Int
   predicateId    Int
   objectId       Int
@@ -110,23 +111,25 @@ model Relation {
   createdAt      DateTime     @default(now())
   responseId     Int?
   response       Response?    @relation(fields: [responseId], references: [id])
-  aiModelId      Int?
-  aiModel        AIModel?     @relation(fields: [aiModelId], references: [id])
+  
+  literalValue     Float?
+  literalString    String?   @db.Text
+  literalDate      DateTime?
+  literalBoolean   Boolean?
+  literalDatatype  String?   // RDF Datatype URI (e.g. xsd:string)
 
-  literalValue   Float?
   selectionStart Int?
   selectionEnd   Int?
 
-  justification String?
 
-  languageId Int?
-  language   Language? @relation(fields: [languageId], references: [id])
+  justification String?
 
   @@unique([subjectId, predicateId, objectId])
   @@index([subjectId])
   @@index([predicateId])
   @@index([objectId])
 }
+
 
 model Attachment {
   resourceId Int?
@@ -152,11 +155,12 @@ model AIModel {
 
   requests  Request[]
   responses Response[]
-  relations Relation[]
 
-  existent  Boolean? @default(true)
+
+  deletedAt DateTime?
   createdAt DateTime @default(now())
 }
+
 
 model Script {
   id        Int       @id @default(autoincrement())
@@ -167,8 +171,9 @@ model Script {
   user      User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
   requests  Request[]
   agents    Agent[]
-  existent  Boolean?  @default(true)
+  deletedAt DateTime?
   createdAt DateTime  @default(now())
+
 
   @@unique([name])
 }
@@ -195,9 +200,10 @@ model Request {
   scheduledAt    DateTime     @default(now())
   lockedBy       String?
   lockedAt       DateTime?
-  existent       Boolean?     @default(true)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   responses      Response[]
 
   // Workflow tracking
@@ -229,10 +235,11 @@ model Conversation {
   responses  Response[]
   resources  Resource[] @relation("ConversationResources")
   metadata   Json?
-  existent   Boolean?   @default(true)
+  deletedAt DateTime?
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
 }
+
 
 model ResourceTree {
   id         Int      @id @default(autoincrement())
@@ -248,12 +255,15 @@ model ResourceTree {
   treeEnd    Float
   depth      Int      @default(0)
 
+  deletedAt  DateTime?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   @@unique([treeName, resourceId])
   @@index([treeName, treeStart, treeEnd])
+  @@index([deletedAt])
 }
+
 
 model UdcLookup {
   id         Int      @id @default(autoincrement())
@@ -281,9 +291,10 @@ model Agent {
   user         User      @relation(fields: [userId], references: [id])
 
   enabled   Boolean  @default(true)
-  existent  Boolean? @default(true)
+  deletedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
 
   @@unique([name])
 }

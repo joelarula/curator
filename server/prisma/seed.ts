@@ -36,43 +36,8 @@ async function main() {
     skipDuplicates: true,
   })
 
-  // Seed ResourceStatus
-  await prisma.resourceStatus.createMany({
-    data: [
-      { name: 'DRAFT' },
-      { name: 'PENDING_REVIEW' },
-      { name: 'ACTIVE' },
-      { name: 'ARCHIVED' },
-    ],
-    skipDuplicates: true,
-  })
-
-  // Seed ResourceType
-  await prisma.resourceType.createMany({
-    data: [
-      { name: 'ENTITY' },
-      { name: 'PROPERTY' },
-      { name: 'CLASS' },
-      { name: 'URL' },
-      { name: 'LOCATION' },
-      { name: 'FEED' },
-    ],
-    skipDuplicates: true,
-  })
-
-  // Seed Languages
-  await prisma.language.createMany({
-    data: [
-      { code: 'et', name: 'Estonian' },
-      { code: 'en', name: 'English' }
-    ],
-    skipDuplicates: true,
-  })
-
-  const archivedStatus = await prisma.resourceStatus.findUnique({ where: { name: 'ARCHIVED' } });
-  const classType = await prisma.resourceType.findUnique({ where: { name: 'CLASS' } });
-  
   const { udcCategories } = await import('./seedData/udcCategories.js');
+
   
   console.log(`[Seed] Seeding ${udcCategories.length} UDC categories into Lookup table...`);
   

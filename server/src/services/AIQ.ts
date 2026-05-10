@@ -86,7 +86,14 @@ export class AIQBuilder {
         ): AIQBuilder {
             return this.then(toolName, { ...defaults, ...args });
         };
+        // Also attach to the static class for entry points
+        (AIQBuilder as any)[toolName] = function (
+            args: Record<string, any> = {},
+        ): AIQBuilder {
+            return new AIQBuilder().chain(toolName, { ...defaults, ...args });
+        };
     }
+
 
     /**
      * Like `register`, but the generated method calls `this.spawn()` instead of `this.then()`.
@@ -100,7 +107,14 @@ export class AIQBuilder {
         ): AIQBuilder {
             return this.spawn(toolName, { ...defaults, ...args });
         };
+        // Also attach to the static class for entry points
+        (AIQBuilder as any)[toolName] = function (
+            args: Record<string, any> = {},
+        ): AIQBuilder {
+            return new AIQBuilder().spawn(toolName, { ...defaults, ...args });
+        };
     }
+
 
     // ─── Aliases ──────────────────────────────────────────────────────────────
 
@@ -137,6 +151,12 @@ export class AIQBuilder {
     static start(): AIQBuilder & AIQPlugins {
         return new AIQBuilder() as any;
     }
+
+    /** Shorthand for debugging output. */
+    static debug(args: any): AIQBuilder {
+        return new AIQBuilder().chain('debug', args);
+    }
+
 
     /**
      * One-stop initialization: registers all known tools from the manifest.
@@ -242,6 +262,12 @@ export class AIQBuilder {
     toJSON(): any[] {
         return JSON.parse(JSON.stringify(this.calls));
     }
+
+    /** Alias for toJSON used to finalize a script execution. */
+    run(): any[] {
+        return this.toJSON();
+    }
+
 
     get primaryToolName(): string | null {
         return this.calls[0]?.name ?? null;
@@ -351,25 +377,35 @@ class ToolFlowBuilder {
  * Works as a function: AIQ().process_feed(...)
  * Or as a namespace: AIQ.run("tool", ...)
  */
-export const AIQ = (() => {
-    const factory = () => AIQBuilder.start();
-    
-    // Attach all static methods and properties from AIQBuilder
-    Object.getOwnPropertyNames(AIQBuilder).forEach(name => {
-        const desc = Object.getOwnPropertyDescriptor(AIQBuilder, name);
-        if (desc) {
-            Object.defineProperty(factory, name, desc);
+export const AIQ = new Proxy(() => AIQBuilder.start(), {
+    get(target, prop) {
+        if (typeof prop === 'symbol') return undefined;
+        
+        // 1. Check if the property exists on the AIQBuilder class itself (static methods)
+        if (prop in AIQBuilder) {
+            return (AIQBuilder as any)[prop];
         }
-    });
-    
-    return factory as (typeof AIQBuilder & (() => AIQBuilder & AIQPlugins));
-})();
+        
+        // 2. Fallback to the factory function's own properties (like .apply)
+        if (prop in target) {
+            return (target as any)[prop];
+        }
+
+        return undefined;
+    },
+    // Ensure it can be called as a function: AIQ()...
+    apply(target, thisArg, argArray) {
+        return target.apply(thisArg, argArray);
+    }
+}) as (typeof AIQBuilder & (() => AIQBuilder & AIQPlugins));
+
 
 // Auto-initialize behind the scenes
 AIQBuilder.init();
 
 /** Type alias for better clarity in external code */
 export type AIQ = AIQBuilder & AIQPlugins;
+
 
 /**
  * Build a runtime reference to a field produced by a previous tool call.
