@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 
 import { AIQ } from './AIQ.js';
-import { persistAddress }  from './tools/persistAddress.js';
+
 import { processFeed }     from './tools/processFeed.js';
 import { classify }          from './tools/classify.js';
 import { askLlm }          from './tools/askLlm.js';
@@ -17,17 +17,23 @@ import { classifyEstonian }     from './tools/classifyEstonian.js';
 import { featureExtraction }    from './tools/featureExtraction.js';
 import { classifyUdc }         from './tools/classifyUdc.js';
 import { udcCat }             from './tools/udcCat.js';
+import { iterate }            from './tools/iterate.js';
+import { debug }              from './tools/debug.js';
+
 import { TOOL_NAMES }       from './tools/manifest.js';
+import type * as T from './tools/types.js';
+
 
 // ─── Tool Handler Type ────────────────────────────────────────────────────────
 
-export type ToolHandler = (
-    args: any,
+export type ToolHandler<I = any, O = any> = (
+    args: I,
     prisma: PrismaClient,
     userId: string,
     responseId?: number,
     request?: any
-) => Promise<any>;
+) => Promise<O>;
+
 
 // ─── Tool Definition ──────────────────────────────────────────────────────────
 
@@ -47,12 +53,7 @@ const TOOLS: ToolDefinition[] = [
         version: '1.0.0',
         handler: askLlm,
     },
-    {
-        name: 'persist_address',
-        description: 'Saves a physical address as a Resource (type: LOCATION) and creates an extracted_address relation.',
-        version: '1.0.0',
-        handler: persistAddress,
-    },
+
     {
         name: 'process_feed',
         description: 'Polls an RSS/Atom feed URL and processes each new item through a nested tool call chain.',
@@ -137,7 +138,20 @@ const TOOLS: ToolDefinition[] = [
         version: '1.0.0',
         handler: udcCat,
     },
+    {
+        name: 'iterate',
+        description: 'Utility tool that simply returns the provided items array for fan-out (onItem).',
+        version: '1.0.0',
+        handler: iterate,
+    },
+    {
+        name: 'debug',
+        description: 'Logs a message or object to the server console for debugging resolved templates.',
+        version: '1.0.0',
+        handler: debug,
+    },
 ];
+
 
 // ─── Register all tools as AIQ plugins ─────────────────────────────────
 // Runs once on module load. After this every tool is a fluent method:
@@ -187,23 +201,27 @@ export function getRegisteredTools(): Omit<ToolDefinition, 'handler'>[] {
 // ─── TypeScript plugin type augmentation ─────────────────────────────────────
 declare module './AIQ.js' {
     interface AIQPlugins {
-        ask_llm(args?: Record<string, any>): AIQ & AIQPlugins;
-        persist_address(args?: Record<string, any>): AIQ & AIQPlugins;
-        process_feed(args?: Record<string, any>): AIQ & AIQPlugins;
-        classify(args?: Record<string, any>): AIQ & AIQPlugins;
-        upsert_resource(args?: Record<string, any>): AIQ & AIQPlugins;
-        upsert_text(args?: Record<string, any>): AIQ & AIQPlugins;
-        upsert_relation(args?: Record<string, any>): AIQ & AIQPlugins;
-        query_resources(args?: Record<string, any>): AIQ & AIQPlugins;
-        fetch_html(args?: Record<string, any>): AIQ & AIQPlugins;
-        scrape_resource(args?: Record<string, any>): AIQ & AIQPlugins;
-        extract_resource_links(args?: Record<string, any>): AIQ & AIQPlugins;
-        execute_script(args?: Record<string, any>): AIQ & AIQPlugins;
-        classify_et(args?: Record<string, any>): AIQ & AIQPlugins;
-        feature_extraction(args?: Record<string, any>): AIQ & AIQPlugins;
-        classify_udc(args?: Record<string, any>): AIQ & AIQPlugins;
-        udc_cat(args?: Record<string, any>): AIQ & AIQPlugins;
+        ask_llm(args: T.AskLlmInput): AIQ & AIQPlugins;
+
+        process_feed(args: T.ProcessFeedInput): AIQ & AIQPlugins;
+        classify(args: T.ClassifyInput): AIQ & AIQPlugins;
+        upsert_resource(args: T.UpsertResourceInput): AIQ & AIQPlugins;
+        upsert_text(args: any): AIQ & AIQPlugins;
+        upsert_relation(args: T.UpsertRelationInput): AIQ & AIQPlugins;
+        query_resources(args: T.QueryResourcesInput): AIQ & AIQPlugins;
+        fetch_html(args: T.FetchHtmlInput): AIQ & AIQPlugins;
+        scrape_resource(args: T.ScrapeResourceInput): AIQ & AIQPlugins;
+        extract_resource_links(args: T.ExtractResourceLinksInput): AIQ & AIQPlugins;
+        execute_script(args: T.ExecuteScriptInput): AIQ & AIQPlugins;
+        classify_et(args: T.ClassifyEtInput): AIQ & AIQPlugins;
+        feature_extraction(args: T.FeatureExtractionInput): AIQ & AIQPlugins;
+        classify_udc(args: T.ClassifyUdcInput): AIQ & AIQPlugins;
+        udc_cat(args: T.UdcCatInput): AIQ & AIQPlugins;
+        iterate(args: T.IterateInput): AIQ & AIQPlugins;
+        debug(args: T.DebugInput): AIQ & AIQPlugins;
     }
+
+
 }
 
 export async function syncToolsToDatabase(prisma: PrismaClient): Promise<void> {

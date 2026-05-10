@@ -4,7 +4,7 @@
  */
 export const TOOL_NAMES = [
     'ask_llm',
-    'persist_address',
+
     'process_feed',
     'classify',
     'classify_et',
@@ -18,7 +18,9 @@ export const TOOL_NAMES = [
     'extract_resource_links',
     'execute_script',
     'classify_udc',
-    'udc_cat'
+    'udc_cat',
+    'iterate',
+    'debug'
 ] as const;
 
 export type ToolName = typeof TOOL_NAMES[number];

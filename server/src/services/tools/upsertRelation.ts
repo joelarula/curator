@@ -1,29 +1,18 @@
 import { PrismaClient } from '@prisma/client';
+import type { UpsertRelationInput, UpsertRelationOutput } from './types.js';
 
 /**
  * Upserts an RDF triple (Relation) by resolving subject, predicate, and object URIs.
  * Auto-creates any missing Resource nodes as stubs if they do not exist.
- *
- * Args:
- *   subjectUri:    URI of the subject Resource (e.g. "person:joel-arula").
- *   predicateUri:  URI of the predicate Resource (e.g. "property:knows").
- *   objectUri:     URI of the object Resource (e.g. "person:alice").
- *   justification: Optional explanation for the triple.
- *   literalValue:  Optional numeric value for quantitative assertions.
  */
 export async function upsertRelation(
-    args: {
-        subjectUri: string;
-        predicateUri: string;
-        objectUri: string;
-        justification?: string;
-        literalValue?: number;
-    },
+    args: UpsertRelationInput,
     prisma: PrismaClient,
     userId: string,
     responseId?: number,
     request?: any
-) {
+): Promise<UpsertRelationOutput> {
+
     const { subjectUri, predicateUri, objectUri, justification, literalValue } = args;
 
     if (!subjectUri)   throw new Error('upsert_relation requires "subjectUri"');
@@ -91,6 +80,7 @@ export async function upsertRelation(
     console.log(`[Tools] Upserted Relation id ${relation.id}`);
 
     return {
+        success: true,
         data: {
             id:           relation.id,
             subjectUri,

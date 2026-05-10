@@ -14,5 +14,12 @@ AIQ.spawn("process_feed", { url: "http://uudised.err.ee/uudised_rss.php" })
             subjectUri: context.feed.uri, // Reference the feed resource URI
             predicateUri: "https://schema.org/provider",
             objectUri: item.link
+        }).foreach((item as any).categories).chain((category) => {
+            return AIQ.chain("upsert_relation", {
+                subjectUri: "{{resource.uri}}",
+                predicateUri: "https://schema.org/about",
+                objectUri: category // The category string from the array
+            });
         });
+
     });

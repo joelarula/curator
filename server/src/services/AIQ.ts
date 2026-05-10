@@ -230,11 +230,12 @@ export class AIQBuilder {
     }
 
     /**
-     * Legacy shorthand for onItemExtracted().spawn(fanOutChain).
-     * @deprecated Use .onItemExtracted().spawn(...) or .chain(...)
+     * Iterates over a collection (e.g. {{item.categories}}) by fanning out via the 'iterate' tool.
+     * Usage: .foreach(item.categories).chain(c => ...)
      */
-    foreach(chainOrFn: AIQBuilder | ((item: any) => AIQBuilder)): this {
-        return this.onItemExtracted().spawn(chainOrFn) as any;
+    foreach(items: any): ToolFlowBuilder {
+        this.calls.push({ name: 'iterate', args: { items }, spawn: false });
+        return this.onItem();
     }
 
     /** Serialize the chain to the toolCalls[] format used by RequestProcessor. */

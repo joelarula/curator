@@ -1,36 +1,23 @@
 import { PrismaClient } from '@prisma/client';
+import type { UpsertResourceInput, UpsertResourceOutput } from './types.js';
 
 /**
  * Upserts a Resource by URI.
- *
- * Args:
- *   uri:         The unique URI identifier for the resource (e.g. "person:joel-arula").
- *   title:       Optional human-readable title. Defaults to the URI if not provided.
- *   description: Optional description / summary text.
- *   type:        Optional resource type name (e.g. "PERSON", "ARTICLE"). Looked up by name.
- *   status:      Optional resource status name (e.g. "ACTIVE", "ARCHIVED"). Looked up by name.
  */
 export async function upsertResource(
-    args: { 
-        uri: string; 
-        title?: string; 
-        description?: string; 
-        type?: string; 
-        resourceType?: string; 
-        status?: string; 
-        language?: string; 
-        notation?: string;
-        isPublished?: boolean;
-    },
+    args: UpsertResourceInput,
     prisma: PrismaClient,
     userId: string,
-    responseId?: number,
-    request?: any
-) {
+    _responseId?: number,
+    _request?: any
+): Promise<UpsertResourceOutput> {
     const { uri, title, description, status, language, notation, isPublished } = args;
     const type = args.type || args.resourceType;
 
     if (!uri) throw new Error('upsert_resource requires a "uri" argument');
+    if (uri.includes('{{')) {
+        throw new Error(`upsert_resource: URI "${uri}" contains unresolved template placeholders. Refusing to save literal template to database.`);
+    }
 
     console.log(`[Tools] Executing upsert_resource for URI: "${uri}"`);
 
@@ -118,6 +105,7 @@ export async function upsertResource(
     const { statusId: _sid, resourceTypeId: _rtid, languageId: _lid, status: s, resourceType: rt, language: l, ...rest } = resource as any;
 
     return {
+        success: true,
         data: {
             ...rest,
             status: s?.name || null,

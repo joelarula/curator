@@ -152,7 +152,15 @@ export class RequestProcessor {
     /**
      * Executes a sequence of tool calls. Chained callbacks execute recursively here.
      */
-    private async executeToolSequence(calls: any[], req: any, resourceStack: any[], responseId: number, previousResults: Record<string, any> = {}, initialToolData: any = null) {
+    private async executeToolSequence(
+        calls: any[], 
+        req: any, 
+        resourceStack: any[], 
+        responseId: number, 
+        previousResults: Record<string, any> = {}, 
+        initialToolData: any = null,
+        initialContext: Record<string, any> = {}
+    ) {
         const toolResults = { ...previousResults };
         let currentToolData = initialToolData;
 
@@ -190,7 +198,8 @@ export class RequestProcessor {
             const materializedArgs = this.materializeToolArgs(toolArgs, { 
                 resources: resourceStack,
                 toolResults,
-                toolData: currentToolData
+                toolData: currentToolData,
+                ...initialContext
             });
 
             const result: any = await executeTool(
@@ -253,19 +262,22 @@ export class RequestProcessor {
             const callbacks = call.callbacks || {};
             for (const [hook, flow] of Object.entries(callbacks)) {
                 const items = result?.items || result?.extractedItems;
+                const context = {
+                    ...initialContext,
+                    toolData: result.data,
+                    toolResults
+                };
+
                 if (hook === 'onItemExtracted' && Array.isArray(items)) {
                     for (const item of items) {
-                        await this.dispatchFlow(flow as any, req, [item, ...resourceStack], responseId, { 
-                            item, 
-                            toolData: result.data,
-                            toolResults
+                        await this.dispatchFlow(flow as any, req, resourceStack, responseId, { 
+                            ...context,
+                            item,
+                            parentItem: initialContext.item 
                         });
                     }
                 } else if (hook === 'onSuccess' && result) {
-                    await this.dispatchFlow(flow as any, req, resourceStack, responseId, { 
-                        toolData: result.data,
-                        toolResults
-                    });
+                    await this.dispatchFlow(flow as any, req, resourceStack, responseId, context);
                 }
             }
         }
@@ -299,7 +311,8 @@ export class RequestProcessor {
         if (flow.chain) {
             // IMMEDIATE RECURSION
             console.log(`[Orchestrator] Chaining ${materializedCalls.length} calls immediately.`);
-            await this.executeToolSequence(materializedCalls, req, resourceStack, responseId, context.toolResults);
+            await this.executeToolSequence(materializedCalls, req, resourceStack, responseId, context.toolResults, context.toolData, context);
+
         } else {
             // SPAWN NEW REQUEST
             const primary = materializedCalls[0];
@@ -341,6 +354,7 @@ export class RequestProcessor {
     private materializeToolArgs(args: any, context: { resources?: any[], toolData?: any, item?: any, toolResults?: Record<string, any> }): any {
         if (!args) return args;
 
+
         const resource = context.resources?.[0];
         const toolData = context.toolData || {};
         const item = context.item || {};
@@ -362,7 +376,33 @@ export class RequestProcessor {
                 return result;
             }
             if (typeof obj === 'string') {
+                // If the entire string is exactly one template, return the raw value
+                const fullMatch = obj.match(/^\{\{([^}]+)\}\}$/);
+                if (fullMatch) {
+                    const path = fullMatch[1];
+                    if (!path) return obj;
+                    const parts = path.split('.');
+
+                    const root = parts[0] as string;
+                    const property = parts.slice(1).join('.');
+
+                    let source: any = null;
+                    if (root === 'resource') source = resource;
+                    else if (root === 'item') source = item;
+                    else if (root === 'toolData') source = toolData;
+                    else if (root && toolResults[root]) source = toolResults[root];
+
+
+                    if (source) {
+                        const value = property ? property.split('.').reduce((acc: any, p: string) => acc?.[p], source) : source;
+                        if (value !== undefined && value !== null && typeof value !== 'function') return value;
+
+                    }
+                }
+
+                // Otherwise handle as a template string with interpolation
                 return obj.replace(/\{\{([^}]+)\}\}/g, (match, path) => {
+
                     const parts = path.split('.');
                     const root = parts[0];
                     const property = parts.slice(1).join('.');
@@ -375,10 +415,16 @@ export class RequestProcessor {
 
                     if (!source) return match;
 
-                    // Resolve nested properties
+                    // Resolve nested properties, avoiding functions/prototypes
                     const value = property ? property.split('.').reduce((acc: any, p: string) => acc?.[p], source) : source;
-                    return value !== undefined && value !== null ? String(value) : match;
+                    
+                    if (path.startsWith('item.')) {
+                        console.log(`[RequestProcessor] Template Replace: path="${path}" value=${JSON.stringify(value)}`);
+                    }
+
+                    return value !== undefined && value !== null && typeof value !== 'function' ? String(value) : match;
                 });
+
             }
             return obj;
         };

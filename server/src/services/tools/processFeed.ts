@@ -1,13 +1,14 @@
 import { PrismaClient } from '@prisma/client';
 import Parser from 'rss-parser';
+import type { ProcessFeedInput, ProcessFeedOutput } from './types.js';
 
 export async function processFeed(
-    args: { url: string }, 
+    args: ProcessFeedInput, 
     prisma: PrismaClient, 
     userId: string,
-    responseId?: number,
-    request?: any
-) {
+    _responseId?: number,
+    _request?: any
+): Promise<ProcessFeedOutput> {
     const { url } = args;
     if (!url) throw new Error("Missing required argument: url");
 

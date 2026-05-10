@@ -1,116 +1,123 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
+import type { QueryResourcesInput, QueryResourcesOutput } from './types.js';
 
 /**
- * Queries Resources filtered by an RDF relation and fans out a child tool call per result.
- *
- * At least one of subjectUri, predicateUri, or objectUri must be provided.
- * The matching resources (subjects, objects, or both) are returned as extractedItems
- * so the orchestrator can spawn onItemExtracted child requests for each one.
- *
- * Args:
- *   subjectUri:   Filter by subject URI (exact match).
- *   predicateUri: Filter by predicate URI (exact match).
- *   objectUri:    Filter by object URI (exact match).
- *   yieldRole:    Which side of the triple to yield as the item — "subject" | "object" (default: "subject").
- *   statuses:     Optional — only yield resources whose status name is in this list (e.g. ["DRAFT", "ACTIVE"]).
- *   limit:        Max number of resources to yield (default: 100).
+ * Advanced Resource Query tool.
+ * Enables searching resources by various metadata (URI, title, notation, status, type, dates)
+ * and advanced RDF-style relation criteria (subject/predicate/object/literal).
  */
 export async function queryResources(
-    args: {
-        subjectUri?: string;
-        predicateUri?: string;
-        objectUri?: string;
-        yieldRole?: 'subject' | 'object';
-        statuses?: string[];
-        limit?: number;
-        onItemExtracted?: any;
-    },
+    args: QueryResourcesInput,
     prisma: PrismaClient,
-    userId: string,
-    responseId?: number,
-    request?: any
-) {
-    const { subjectUri, predicateUri, objectUri, yieldRole = 'subject', statuses, limit = 100 } = args;
+    userId: string
+): Promise<QueryResourcesOutput> {
+    const { 
+        uri, uriContains, 
+        title, titleContains, 
+        notation, notationContains,
+        status, type, isPublished,
+        createdAfter, createdBefore,
+        updatedAfter, updatedBefore,
+        relation,
+        limit = 50,
+        offset = 0
+    } = args;
 
-    if (!subjectUri && !predicateUri && !objectUri) {
-        throw new Error('query_resources requires at least one of: subjectUri, predicateUri, objectUri');
+    console.log(`[Tools] query_resources: criteria=${JSON.stringify(args)}`);
+
+    const where: Prisma.ResourceWhereInput = {
+        userId, // Always scope to user
+        existent: true,
+    };
+
+    // 1. String Filters
+    if (uri)         where.uri = uri;
+    else if (uriContains) where.uri = { contains: uriContains, mode: 'insensitive' };
+
+    if (title)       where.title = title;
+    else if (titleContains) where.title = { contains: titleContains, mode: 'insensitive' };
+
+    if (notation)    where.notation = notation;
+    else if (notationContains) where.notation = { contains: notationContains, mode: 'insensitive' };
+
+    // 2. Enum/Type Filters (nested)
+    if (isPublished !== undefined) where.isPublished = isPublished;
+
+    if (status) {
+        const statusList = Array.isArray(status) ? status : [status];
+        where.status = { name: { in: statusList.map(s => s.toUpperCase()), mode: 'insensitive' } };
     }
 
-    console.log(`[Tools] query_resources — subject=${subjectUri ?? '*'} predicate=${predicateUri ?? '*'} object=${objectUri ?? '*'} yield=${yieldRole}`);
+    if (type) {
+        const typeList = Array.isArray(type) ? type : [type];
+        where.resourceType = { name: { in: typeList.map(t => t.toUpperCase()), mode: 'insensitive' } };
+    }
 
-    // Build Prisma where clause
-    const where: any = {};
-    if (subjectUri) {
-        const subject = await prisma.resource.findUnique({ where: { uri: subjectUri } });
-        if (!subject) {
-            console.warn(`[Tools] query_resources: subjectUri "${subjectUri}" not found — returning 0 items`);
-            return { data: { count: 0 }, extractedItems: [] };
+    // 3. Date Filters
+    if (createdAfter || createdBefore) {
+        where.createdAt = {
+            ...(createdAfter && { gte: new Date(createdAfter) }),
+            ...(createdBefore && { lte: new Date(createdBefore) }),
+        };
+    }
+    if (updatedAfter || updatedBefore) {
+        where.updatedAt = {
+            ...(updatedAfter && { gte: new Date(updatedAfter) }),
+            ...(updatedBefore && { lte: new Date(updatedBefore) }),
+        };
+    }
+
+    // 4. Advanced Relation Filter (searching for subjects of matching triples)
+    if (relation) {
+        const relationFilter: Prisma.RelationWhereInput = {};
+        
+        if (relation.subjectUri) {
+            relationFilter.subject = { uri: relation.subjectUri };
         }
-        where.subjectId = subject.id;
-    }
-    if (predicateUri) {
-        const predicate = await prisma.resource.findUnique({ where: { uri: predicateUri } });
-        if (!predicate) {
-            console.warn(`[Tools] query_resources: predicateUri "${predicateUri}" not found — returning 0 items`);
-            return { data: { count: 0 }, extractedItems: [] };
+        if (relation.predicateUri) {
+            relationFilter.predicate = { uri: relation.predicateUri };
         }
-        where.predicateId = predicate.id;
-    }
-    if (objectUri) {
-        const object = await prisma.resource.findUnique({ where: { uri: objectUri } });
-        if (!object) {
-            console.warn(`[Tools] query_resources: objectUri "${objectUri}" not found — returning 0 items`);
-            return { data: { count: 0 }, extractedItems: [] };
+        if (relation.objectUri) {
+            relationFilter.object = { uri: relation.objectUri };
         }
-        where.objectId = object.id;
+
+        // literalValue filters
+        if (relation.literalValue !== undefined || relation.literalGte !== undefined || relation.literalLte !== undefined) {
+            relationFilter.literalValue = {
+                ...(relation.literalValue !== undefined && { equals: relation.literalValue }),
+                ...(relation.literalGte !== undefined && { gte: relation.literalGte }),
+                ...(relation.literalLte !== undefined && { lte: relation.literalLte }),
+            };
+        }
+
+        where.subjectRelations = {
+            some: relationFilter
+        };
     }
 
-    // Optionally resolve status filter (multi-valued)
-    let filterStatusIds: Set<number> | null = null;
-    if (statuses && statuses.length > 0) {
-        filterStatusIds = new Set<number>();
-        for (const s of statuses) {
-            const resourceStatus = await prisma.resourceStatus.findUnique({ where: { name: s.toUpperCase() } });
-            if (resourceStatus) {
-                filterStatusIds.add(resourceStatus.id);
-            } else {
-                console.warn(`[Tools] query_resources: status "${s.toUpperCase()}" not found in DB — skipped`);
-            }
-        }
-        if (filterStatusIds.size === 0) {
-            console.warn(`[Tools] query_resources: none of the requested statuses exist — returning 0 items`);
-            return { data: { count: 0, statuses }, extractedItems: [] };
-        }
-        console.log(`[Tools] query_resources: filtering by statuses [${[...filterStatusIds].join(', ')}]`);
-    }
+    console.log(`[Tools] query_resources: generated where =`, JSON.stringify(where, null, 2));
 
-    // Fetch matching relations with both sides included
-    const relations = await prisma.relation.findMany({
-        where,
-        take: limit,
-        include: {
-            subject: { include: { status: true } },
-            object:  { include: { status: true } },
-        },
-    });
+    // 5. Execute Query
+    const [resources, total] = await Promise.all([
+        prisma.resource.findMany({
+            where,
+            include: { status: true, resourceType: true, language: true },
+            orderBy: { createdAt: 'desc' },
+            take: limit,
+            skip: offset
+        }),
+        prisma.resource.count({ where })
+    ]);
 
-    // Yield either the subject or object side of each triple, then filter by status
-    let extractedItems = relations.map(r => yieldRole === 'object' ? r.object : r.subject);
-    if (filterStatusIds !== null) {
-        extractedItems = extractedItems.filter(r => r.statusId !== null && filterStatusIds!.has(r.statusId));
-    }
-
-    console.log(`[Tools] query_resources found ${extractedItems.length} resources to yield (statuses=${statuses?.join(',') ?? 'any'})`);
+    console.log(`[Tools] query_resources: found ${resources.length} (total ${total}) resources.`);
 
     return {
+        success: true,
         data: {
-            count: extractedItems.length,
-            subjectUri,
-            predicateUri,
-            objectUri,
-            yieldRole,
-            statuses: statuses ?? null,
+            count: resources.length,
+            total
         },
-        extractedItems,
+        items: resources
     };
 }
+
