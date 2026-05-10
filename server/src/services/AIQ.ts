@@ -282,8 +282,21 @@ class ToolFlowBuilder {
     /**
      * Execute the callback as a new detached child Request in the database.
      */
-    spawn<T = any>(chainOrFn: AIQBuilder | ((item: T, context: any) => AIQBuilder)): AIQBuilder {
-        const childChain = typeof chainOrFn === 'function' ? chainOrFn(this.proxy, contextProxy) : chainOrFn;
+    spawn<T = any>(toolNameOrFn: string | AIQBuilder | ((item: T, context: any) => AIQBuilder), args?: any): AIQBuilder {
+        let childChain: any;
+        if (typeof toolNameOrFn === 'string') {
+            childChain = new AIQBuilder().spawn(toolNameOrFn, args);
+        } else if (typeof toolNameOrFn === 'function') {
+            childChain = toolNameOrFn(this.proxy, contextProxy);
+        } else {
+            childChain = toolNameOrFn;
+        }
+
+        if (!childChain || typeof childChain.toJSON !== 'function') {
+            console.error(`[AIQ] Callback did not return a valid AIQBuilder. Got:`, childChain);
+            throw new Error(`The callback for ${this.key} must return an AIQ.chain(...) or another builder instance.`);
+        }
+
         this.call.callbacks = this.call.callbacks ?? {};
         this.call.callbacks[this.key] = { 
             spawn: childChain.toJSON(),
@@ -293,19 +306,35 @@ class ToolFlowBuilder {
         return this.parent;
     }
 
+
     /**
      * Execute the callback immediately in the same request loop (inline).
      */
-    chain<T = any>(chainOrFn: AIQBuilder | ((item: T, context: any) => AIQBuilder)): AIQBuilder {
-        const childChain = typeof chainOrFn === 'function' ? chainOrFn(this.proxy, contextProxy) : chainOrFn;
+    chain<T = any>(toolNameOrFn: string | AIQBuilder | ((item: T, context: any) => AIQBuilder), args?: any): AIQBuilder {
+        let childChain: any;
+        if (typeof toolNameOrFn === 'string') {
+            childChain = new AIQBuilder().chain(toolNameOrFn, args);
+        } else if (typeof toolNameOrFn === 'function') {
+            childChain = toolNameOrFn(this.proxy, contextProxy);
+        } else {
+            childChain = toolNameOrFn;
+        }
+        
+        if (!childChain || typeof childChain.toJSON !== 'function') {
+            console.error(`[AIQ] Callback did not return a valid AIQBuilder. Got:`, childChain);
+            throw new Error(`The callback for ${this.key} must return an AIQ.chain(...) or another builder instance.`);
+        }
+
         this.call.callbacks = this.call.callbacks ?? {};
         this.call.callbacks[this.key] = { 
             chain: childChain.toJSON(),
             as: this.alias 
         };
 
+
         return this.parent;
     }
+
 
     /**
      * Yield to a saved script by name.

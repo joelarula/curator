@@ -23,7 +23,9 @@ export const TOOL_NAMES = [
     'debug',
     'set_context',
     'get_context',
-    'get_resource'
+    'get_resource',
+    'extract_udc_hierarchy'
+
 
 ] as const;
 

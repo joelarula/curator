@@ -21,6 +21,8 @@ import { debug }              from './tools/debug.js';
 import { queryResources }      from './tools/queryResources.js';
 import { setContext, getContext } from './tools/context.js';
 import { getResource }         from './tools/getResource.js';
+import { extractUdcHierarchy } from './tools/udcUtils.js';
+
 
 
 
@@ -173,7 +175,14 @@ const TOOLS: ToolDefinition[] = [
         version: '1.0.0',
         handler: getResource,
     },
+    {
+        name: 'extract_udc_hierarchy',
+        description: 'Calculates the parent UDC notation from a URI.',
+        version: '1.0.0',
+        handler: extractUdcHierarchy,
+    },
 ];
+
 
 
 
