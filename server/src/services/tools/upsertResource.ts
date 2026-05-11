@@ -11,7 +11,7 @@ export async function upsertResource(
     _responseId?: number,
     _request?: any
 ): Promise<UpsertResourceOutput> {
-    const { uri, title, description, status, language, notation, isPublished } = args;
+    const { uri, title, description, status, language, isPublished } = args;
     const type = args.type || args.resourceType;
 
     if (!uri) throw new Error('upsert_resource requires a "uri" argument');
@@ -23,14 +23,12 @@ export async function upsertResource(
 
     // 1. Upsert the Core Resource
     const safeTitle = (title || uri).substring(0, 250);
-    const safeNotation = notation ? notation.substring(0, 45) : null;
 
     const resource = await prisma.resource.upsert({
         where: { userId_uri: { userId, uri } },
         update: {
             ...(title         !== undefined && { title: safeTitle }),
             ...(description   !== undefined && { description }),
-            ...(notation      !== undefined && { notation: safeNotation }),
             ...(isPublished   !== undefined && { isPublished }),
             deletedAt: null, // Restore if soft-deleted
         },
@@ -38,7 +36,6 @@ export async function upsertResource(
             uri,
             title: safeTitle,
             description: description ?? null,
-            notation: safeNotation,
             isPublished: isPublished ?? false,
             userId,
             deletedAt: null,

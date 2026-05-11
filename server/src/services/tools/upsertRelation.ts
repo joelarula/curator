@@ -25,25 +25,22 @@ export async function upsertRelation(
 
     console.log(`[Tools] upsert_relation: <${subjectUri}> <${predicateUri}> <${objectUri}>`);
 
-    // Resolve or auto-create a Resource by URI (Scoped to User)
+    // Resolve or auto-create a Resource by URI (Atomic & Scoped to User)
     const resolveResource = async (uri: string) => {
-        let resource = await prisma.resource.findUnique({ 
-            where: { userId_uri: { userId, uri } } 
+        const safeTitle = uri.substring(0, 250);
+        return await prisma.resource.upsert({
+            where: { userId_uri: { userId, uri } },
+            update: { deletedAt: null },
+            create: {
+                uri,
+                title: safeTitle,
+                userId,
+                isPublished: false,
+                deletedAt: null
+            },
         });
-        if (!resource) {
-            resource = await prisma.resource.create({
-                data: {
-                    uri,
-                    title: uri,
-                    userId,
-                    isPublished: false,
-                    deletedAt: null
-                },
-            });
-            console.log(`[Tools] Auto-created stub Resource: ${uri} (id ${resource.id})`);
-        }
-        return resource;
     };
+
 
     const [subject, predicate, object] = await Promise.all([
         resolveResource(subjectUri),
@@ -61,9 +58,9 @@ export async function upsertRelation(
             },
         },
         update: {
-            ...(justification !== undefined && { justification }),
+            ...(justification !== undefined && { justification: justification?.substring(0, 1000) }),
             ...(literalValue  !== undefined && { literalValue }),
-            ...(literalString !== undefined && { literalString }),
+            ...(literalString !== undefined && { literalString: literalString?.substring(0, 2000) }),
             ...(literalDate   !== undefined && { literalDate: literalDate ? new Date(literalDate) : null }),
             ...(literalBoolean !== undefined && { literalBoolean }),
             ...(literalDatatype !== undefined && { literalDatatype }),
@@ -73,14 +70,15 @@ export async function upsertRelation(
             subjectId:    subject.id,
             predicateId:  predicate.id,
             objectId:     object.id,
-            justification:  justification ?? null,
+            justification:  justification ? justification.substring(0, 1000) : null,
             literalValue:   literalValue  ?? null,
-            literalString:  literalString ?? null,
+            literalString:  literalString ? literalString.substring(0, 2000) : null,
             literalDate:    literalDate ? new Date(literalDate) : null,
             literalBoolean: literalBoolean ?? null,
             literalDatatype: literalDatatype ?? null,
             responseId:     responseId    ?? null,
         },
+
     });
 
     console.log(`[Tools] Upserted Relation id ${relation.id}`);

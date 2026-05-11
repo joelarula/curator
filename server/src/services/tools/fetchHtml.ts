@@ -38,54 +38,54 @@ export async function fetchHtml(
     const html = await response.text();
     console.log(`[Tools] fetch_html: received ${html.length} bytes`);
 
-    // 2. Ensure ResourceType URL and TextRole HTML exist
-    let urlType = await prisma.resourceType.findUnique({ where: { name: 'URL' } });
-    if (!urlType) urlType = await prisma.resourceType.create({ data: { name: 'URL' } });
-
-    let htmlRole = await prisma.textRole.findUnique({ where: { name: 'HTML' } });
-    if (!htmlRole) htmlRole = await prisma.textRole.create({ data: { name: 'HTML' } });
-
-    // 3. Upsert the Resource stub
+    // 2. Upsert the Resource stub (using atomic pattern)
     const resource = await prisma.resource.upsert({
-        where: { uri },
-        update: { ...(title && { title }) },
+        where: { userId_uri: { userId, uri } },
+        update: { 
+            ...(title && { title: title.substring(0, 250) }),
+            deletedAt: null 
+        },
         create: {
             uri,
-            title: title || url,
-            resourceTypeId: urlType.id,
+            title: (title || url).substring(0, 250),
             userId,
             isPublished: false,
+            deletedAt: null
         },
     });
 
-    // 4. Upsert the HTML Text (replace if already cached)
-    const existing = await prisma.text.findFirst({
-        where: { resourceId: resource.id, roleId: htmlRole.id },
+    // 3. Ensure "HTML" TextRole exists
+    let htmlRole = await prisma.textRole.findUnique({ where: { name: 'HTML' } });
+    if (!htmlRole) htmlRole = await prisma.textRole.create({ data: { name: 'HTML' } });
+
+    // 4. Upsert the HTML Text (Multi-tenant safe)
+    const existingText = await prisma.text.findFirst({ 
+        where: { resourceId: resource.id, roleId: htmlRole.id, userId } 
     });
 
-    let text;
-    if (existing) {
-        text = await prisma.text.update({ where: { id: existing.id }, data: { content: html } });
-        console.log(`[Tools] fetch_html: updated cached HTML Text id=${text.id}`);
-    } else {
-        text = await prisma.text.create({
-            data: {
-                content: html,
-                roleId: htmlRole.id,
-                resourceId: resource.id,
-                userId,
-                isPublished: false,
-            },
-        });
-        console.log(`[Tools] fetch_html: stored HTML Text id=${text.id} (${html.length} bytes)`);
-    }
+    const text = await prisma.text.upsert({
+        where: { 
+            id: existingText?.id || '0' // cuid is string
+        },
+        update: { content: html },
+        create: {
+            content: html,
+            resourceId: resource.id,
+            roleId: htmlRole.id,
+            userId,
+            isPublished: false,
+        }
+    });
+
 
     return {
         data: {
             ...resource,
+            content: html, // Pass HTML content to downstream tools
             textId: text.id,
             bytesFetched: html.length,
         },
-        createdItem: resource,  // for onSuccess orchestration
+        createdItem: resource,
     };
 }
+

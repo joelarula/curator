@@ -84,11 +84,6 @@ export const typeDefs = gql`
     name: String!
   }
 
-  "Lookup: text role — MAIN, SUMMARY, TRANSCRIPT, etc."
-  type TextRole {
-    id: Int!
-    name: String!
-  }
 
   # ─── Core Types ─────────────────────────────────────────────────────────────
 
@@ -159,7 +154,8 @@ export const typeDefs = gql`
     "Full text content"
     content: String!
     "Content role (MAIN, SUMMARY, TRANSCRIPT)"
-    role: TextRole!
+    role: String!
+
     "Whether this text is publicly visible"
     isPublished: Boolean!
     "The Resource this text belongs to"
@@ -245,6 +241,31 @@ export const typeDefs = gql`
     createdAt: String!
     updatedAt: String!
   }
+
+  "A category in the isolated UDC taxonomy lookup table."
+  type UdcCategory {
+    "Unique URI identifier"
+    uri: String!
+    "Universal Decimal Classification notation (e.g. '004.8')"
+    notation: String!
+    "URI of the parent category"
+    parentUri: String
+    "Human-readable title"
+    title: String!
+    "English label"
+    enLabel: String
+    "Estonian label"
+    etLabel: String
+    "Nested set: start bound"
+    treeStart: Int!
+    "Nested set: end bound"
+    treeEnd: Int!
+    "Depth in the hierarchy"
+    depth: Int!
+    createdAt: String!
+    updatedAt: String!
+  }
+
 
   # ─── Agentic Pipeline Types ─────────────────────────────────────────────────
 
@@ -410,6 +431,41 @@ export const typeDefs = gql`
     isPublished: Boolean
   }
 
+  "Input for filtering resources by relations (predicate + object intersection)."
+  input RelationFilterInput {
+    "Predicate Resource URI"
+    predicateUri: String
+    "Object Resource URI"
+    objectUri: String
+    "Predicate Resource integer ID"
+    predicateId: Int
+    "Object Resource integer ID"
+    objectId: Int
+  }
+
+  "Input for advanced resource searching."
+  input ResourceFilterInput {
+    "Filter by URI containing string (fuzzy)"
+    uriContains: String
+    "Filter by title containing string (fuzzy)"
+    titleContains: String
+    "ResourceType ID"
+    resourceTypeId: Int
+    "ResourceStatus ID"
+    statusId: Int
+    "Filter by relations (AND intersection)"
+    relations: [RelationFilterInput!]
+    "Date range: Created after (ISO string)"
+    createdAtStart: String
+    "Date range: Created before (ISO string)"
+    createdAtEnd: String
+    "Date range: Updated after (ISO string)"
+    updatedAtStart: String
+    "Date range: Updated before (ISO string)"
+    updatedAtEnd: String
+  }
+
+
   "Input for creating an RDF triple."
   input RelationInput {
     "ResourceType lookup ID for the relation"
@@ -526,8 +582,17 @@ export const typeDefs = gql`
     "Fetch the knowledge graph data for visualization."
     knowledgeGraph(rootResourceId: Int, depth: Int): KnowledgeGraph!
 
-    "Fetch a specific resource tree (e.g. 'UDC')."
+    "Fetch a specific resource tree."
     resourceTree(treeName: String!, rootResourceId: Int): [ResourceTreeNode!]!
+
+    # UDC Taxonomy (Isolated Lookup)
+    "Fetch a single UDC category by its URI."
+    udcCategoryByUri(uri: String!): UdcCategory
+    "Paginated lookup of UDC categories."
+    udcCategories(search: String, skip: Int, take: Int): [UdcCategory!]!
+    "Fetch a subtree of UDC categories starting from a specific parent."
+    udcSubtree(parentUri: String!, depth: Int): [UdcCategory!]!
+
 
     # Resource queries (integer IDs)
     "Fetch a single Resource by integer ID."
@@ -536,12 +601,16 @@ export const typeDefs = gql`
     resourceByUri(uri: String!): Resource
     "Paginated, filterable list of Resources owned by the current user."
     resources(typeId: Int, statusId: Int, search: String, skip: Int, take: Int): ResourceConnection!
+    "Advanced resource search with relational intersections and date ranges."
+    queryResources(filter: ResourceFilterInput, skip: Int, take: Int): ResourceConnection!
     "Find resources that are the subject of a specific relation (predicate + object)."
     findResourcesByRelation(predicateUri: String, objectUri: String, predicateId: Int, objectId: Int): [Resource!]!
 
+
     # Text queries
     "Paginated list of Text records, optionally filtered by resource or role."
-    texts(resourceId: Int, roleId: Int, skip: Int, take: Int): TextConnection!
+    texts(resourceId: Int, role: String, skip: Int, take: Int): TextConnection!
+
     "Fetch a single Text by CUID."
     text(id: ID!): Text
 
@@ -556,8 +625,7 @@ export const typeDefs = gql`
     resourceTypes: [ResourceType!]!
     "All resource status definitions."
     resourceStatuses: [ResourceStatus!]!
-    "All text role definitions."
-    textRoles: [TextRole!]!
+
 
     # Agentic pipeline
     "All scripts for the current user."
@@ -597,7 +665,8 @@ export const typeDefs = gql`
 
     # Text management
     "Create a new Text record for a Resource."
-    createText(resourceId: Int!, content: String!, roleId: Int!): Text!
+    createText(resourceId: Int!, content: String!, role: String!): Text!
+
     "Update an existing Text's content."
     updateText(id: ID!, content: String!): Text!
 
@@ -640,7 +709,6 @@ export const typeDefs = gql`
     createResourceType(name: String!): ResourceType!
     "Create a new ResourceStatus."
     createResourceStatus(name: String!): ResourceStatus!
-    "Create a new TextRole."
-    createTextRole(name: String!): TextRole!
   }
+
 `;

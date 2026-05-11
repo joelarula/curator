@@ -36,8 +36,8 @@ export const resourceResolvers = {
                     { title: { contains: search, mode: 'insensitive' } },
                     { description: { contains: search, mode: 'insensitive' } },
                     { uri: { contains: search, mode: 'insensitive' } },
-                    { notation: { contains: search, mode: 'insensitive' } },
                 ];
+
             }
 
             const [items, totalCount] = await Promise.all([
@@ -52,6 +52,77 @@ export const resourceResolvers = {
 
             return { items, totalCount };
         },
+
+        queryResources: async (_parent: any, { filter, skip, take }: any, context: any) => {
+            if (!context.user) throw new Error('Unauthorized');
+            const prisma = context.prisma;
+            const userId = context.user.id;
+
+            const where: any = { userId, deletedAt: null };
+
+            if (filter) {
+                if (filter.uriContains) where.uri = { contains: filter.uriContains, mode: 'insensitive' };
+                if (filter.titleContains) where.title = { contains: filter.titleContains, mode: 'insensitive' };
+                if (filter.resourceTypeId) where.resourceTypeId = filter.resourceTypeId;
+                if (filter.statusId) where.statusId = filter.statusId;
+
+                // Date ranges
+                if (filter.createdAtStart || filter.createdAtEnd) {
+                    where.createdAt = {};
+                    if (filter.createdAtStart) where.createdAt.gte = new Date(filter.createdAtStart);
+                    if (filter.createdAtEnd) where.createdAt.lte = new Date(filter.createdAtEnd);
+                }
+                if (filter.updatedAtStart || filter.updatedAtEnd) {
+                    where.updatedAt = {};
+                    if (filter.updatedAtStart) where.updatedAt.gte = new Date(filter.updatedAtStart);
+                    if (filter.updatedAtEnd) where.updatedAt.lte = new Date(filter.updatedAtEnd);
+                }
+
+                // Relational intersections (AND logic)
+                if (filter.relations && filter.relations.length > 0) {
+                    const relationConditions = await Promise.all(filter.relations.map(async (rel: any) => {
+                        let predicateId = rel.predicateId;
+                        let objectId = rel.objectId;
+
+                        // Resolve URIs to IDs if needed
+                        if (!predicateId && rel.predicateUri) {
+                            const p = await prisma.resource.findFirst({ where: { uri: rel.predicateUri, userId }, select: { id: true } });
+                            predicateId = p?.id;
+                        }
+                        if (!objectId && rel.objectUri) {
+                            const o = await prisma.resource.findFirst({ where: { uri: rel.objectUri, userId }, select: { id: true } });
+                            objectId = o?.id;
+                        }
+
+                        if (!predicateId && !objectId) return null;
+
+                        const condition: any = {};
+                        if (predicateId) condition.predicateId = predicateId;
+                        if (objectId) condition.objectId = objectId;
+
+                        return { subjectRelations: { some: condition } };
+                    }));
+
+                    const validConditions = relationConditions.filter(Boolean);
+                    if (validConditions.length > 0) {
+                        where.AND = [...(where.AND || []), ...validConditions];
+                    }
+                }
+            }
+
+            const [items, totalCount] = await Promise.all([
+                prisma.resource.findMany({
+                    where,
+                    skip: skip || 0,
+                    take: take || 20,
+                    orderBy: { updatedAt: 'desc' },
+                }),
+                prisma.resource.count({ where }),
+            ]);
+
+            return { items, totalCount };
+        },
+
     },
 
     Mutation: {

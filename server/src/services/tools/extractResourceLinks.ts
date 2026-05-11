@@ -21,6 +21,7 @@ export async function extractResourceLinks(
         url?: string;
         maxLinks?: number;
         sameDomainOnly?: boolean;
+        selector?: string; // New: CSS selector to target specific links
         onItemExtracted?: any;  // consumed by the orchestrator
     },
     prisma: PrismaClient,
@@ -28,30 +29,31 @@ export async function extractResourceLinks(
     responseId?: number,
     request?: any
 ) {
-    const { resourceUri, url, maxLinks = 50, sameDomainOnly = false } = args;
+    const { resourceUri, url, maxLinks = 50, sameDomainOnly = false, selector } = args;
     if (!resourceUri) throw new Error('extract_resource_links requires "resourceUri"');
 
     const pageUrl = url || resourceUri;
-    console.log(`[Tools] extract_resource_links: extracting links from "${pageUrl}"`);
+    console.log(`[Tools] extract_resource_links: extracting links from "${pageUrl}"${selector ? ` using selector "${selector}"` : ''}`);
 
-    // 1. Find the parent Resource (must exist)
+    // 1. Find the parent Resource (must exist and belong to user)
     const parentResource = await prisma.resource.findUnique({
-        where: { uri: resourceUri },
+        where: { userId_uri: { userId, uri: resourceUri } },
         include: { texts: { include: { role: true } } },
     });
-    if (!parentResource) throw new Error(`extract_resource_links: Resource not found for URI "${resourceUri}"`);
+    if (!parentResource) throw new Error(`extract_resource_links: Resource not found for URI "${resourceUri}" (userId: ${userId})`);
 
     // 2. Use cached HTML if available, otherwise fetch
     let links: { url: string; title: string }[];
-    const cachedHtml = parentResource.texts?.find(t => (t.role as any)?.name === 'HTML');
+    const cachedHtml = parentResource.texts?.find(t => t.role?.name === 'HTML');
 
     if (cachedHtml) {
         console.log(`[Tools] extract_resource_links: using cached HTML (Text id=${cachedHtml.id})`);
-        links = ScraperService.extractLinksFromHtml(cachedHtml.content, pageUrl);
+        links = ScraperService.extractLinksFromHtml(cachedHtml.content, pageUrl, selector);
     } else {
         console.log(`[Tools] extract_resource_links: no cache — fetching "${pageUrl}"`);
-        links = await ScraperService.extractLinksFromUrl(pageUrl);
+        links = await ScraperService.extractLinksFromUrl(pageUrl, selector);
     }
+
 
     // 3. Filter and limit
     if (sameDomainOnly) {

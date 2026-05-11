@@ -88,9 +88,8 @@ export class ScraperService {
      * Fetches a URL and extracts all unique absolute links from the HTML.
      * Returns an array of { url, title } objects, deduplicated by URL.
      * Relative links are resolved against the base URL.
-     * Fragment-only links (#section) are excluded.
      */
-    static async extractLinksFromUrl(pageUrl: string): Promise<{ url: string; title: string }[]> {
+    static async extractLinksFromUrl(pageUrl: string, selector: string = 'a[href]'): Promise<{ url: string; title: string }[]> {
         try {
             const response = await fetch(pageUrl, {
                 headers: {
@@ -102,26 +101,7 @@ export class ScraperService {
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
             const html = await response.text();
-            const $ = cheerio.load(html);
-            const base = new URL(pageUrl);
-            const seen = new Set<string>();
-            const links: { url: string; title: string }[] = [];
-
-            $('a[href]').each((_i, el) => {
-                const href = $(el).attr('href') ?? '';
-                if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
-                try {
-                    const resolved = new URL(href, base).toString();
-                    if (!seen.has(resolved)) {
-                        seen.add(resolved);
-                        links.push({ url: resolved, title: $(el).text().trim() || resolved });
-                    }
-                } catch {
-                    // ignore malformed hrefs
-                }
-            });
-
-            return links;
+            return this.extractLinksFromHtml(html, pageUrl, selector);
         } catch (error: any) {
             console.error(`Link extraction error for ${pageUrl}:`, error.message);
             throw new Error(`Failed to extract links from URL: ${error.message}`);
@@ -159,24 +139,52 @@ export class ScraperService {
      * Extracts unique absolute links from pre-fetched HTML string.
      * Same logic as extractLinksFromUrl but skips the HTTP request.
      */
-    static extractLinksFromHtml(html: string, baseUrl: string): { url: string; title: string }[] {
+    static extractLinksFromHtml(html: string, baseUrl: string, selector: string = 'a[href]'): { url: string; title: string }[] {
         const $ = cheerio.load(html);
         const base = new URL(baseUrl);
         const seen = new Set<string>();
         const links: { url: string; title: string }[] = [];
 
-        $('a[href]').each((_i, el) => {
-            const href = $(el).attr('href') ?? '';
+        // Ensure the selector targets an <a> tag or contains one
+        const finalSelector = selector.includes('a') ? selector : `${selector} a[href]`;
+
+        $(finalSelector).each((_i, el) => {
+            const $el = $(el);
+            const href = $el.attr('href') || $el.find('a').attr('href') || '';
+            
             if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
             try {
                 const resolved = new URL(href, base).toString();
                 if (!seen.has(resolved)) {
                     seen.add(resolved);
-                    links.push({ url: resolved, title: $(el).text().trim() || resolved });
+                    links.push({ url: resolved, title: $el.text().trim() || resolved });
                 }
             } catch { /* ignore malformed hrefs */ }
         });
-
         return links;
     }
+
+    /**
+     * High-precision extraction using a map of jQuery/CSS selectors.
+     */
+    static extractBySelectors(
+        html: string, 
+        baseUrl: string, 
+        selectors: Record<string, string>
+    ): { title: string; content: string; extractedFields: Record<string, string> } {
+        const $ = cheerio.load(html);
+        const extractedFields: Record<string, string> = {};
+
+        for (const [key, selector] of Object.entries(selectors)) {
+            const $el = $(selector);
+            extractedFields[key] = $el.text().trim();
+        }
+
+        // Standardise title and content from the extracted fields or fallback
+        const title = extractedFields['title'] || $('title').text().trim() || baseUrl;
+        const content = extractedFields['content'] || extractedFields['description'] || $('body').text().trim();
+
+        return { title, content, extractedFields };
+    }
 }
+

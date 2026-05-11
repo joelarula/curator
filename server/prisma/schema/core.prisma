@@ -16,11 +16,6 @@ model Tool {
 }
 
 
-model TextRole {
-  id    Int    @id @default(autoincrement())
-  name  String @unique // e.g. "MAIN", "SUMMARY", "TRANSCRIPT"
-  texts Text[]
-}
 
 model Feed {
   id              String    @id @default(cuid())
@@ -50,7 +45,6 @@ model Resource {
   id                 Int               @id @default(autoincrement())
   uri                String            
   title              String?           @db.VarChar(255)
-  notation           String?           @db.VarChar(50)
   description        String?           @db.Text
   isPublished        Boolean           @default(false)
   
@@ -75,7 +69,6 @@ model Resource {
   @@unique([userId, uri])              // Multi-tenant URI safety
   @@index([uri])
   @@index([deletedAt])
-  @@index([notation])
 }
 
 
@@ -85,8 +78,8 @@ model Text {
   resource    Resource? @relation("ResourceTexts", fields: [resourceId], references: [id])
   id          String    @id @default(cuid())
   content     String    @db.Text
-  roleId      Int
-  role        TextRole  @relation(fields: [roleId], references: [id])
+  role        String    @default("MAIN")
+
   
   isPublished Boolean   @default(false)
   deletedAt   DateTime?
@@ -96,7 +89,8 @@ model Text {
   updatedAt   DateTime  @updatedAt
 
   @@index([resourceId])
-  @@unique([resourceId, roleId])
+  @@unique([resourceId, role])
+
 }
 
 
@@ -285,4 +279,27 @@ model Agent {
 
 
   @@unique([name])
+}
+
+model UdcLookup {
+  uri       String   @id
+  notation  String   @unique
+  parentUri String?
+
+
+  title     String
+
+  enLabel   String?
+  etLabel   String?
+  
+  // Nested Set for hierarchical queries
+  treeStart Int
+  treeEnd   Int
+  depth     Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([treeStart, treeEnd])
+  @@index([notation])
 }

@@ -69,7 +69,7 @@ export interface UpsertResourceInput {
     resourceType?: string;
     status?: string;
     language?: string;
-    notation?: string;
+
     isPublished?: boolean;
 }
 export interface UpsertResourceOutput extends ToolResult, ResourceProducer {
@@ -147,8 +147,7 @@ export interface QueryResourcesInput {
     uriContains?: string;
     title?: string;
     titleContains?: string;
-    notation?: string;
-    notationContains?: string;
+
 
     // Enum/Type filters (uses string names)
     status?: string | string[];
@@ -162,23 +161,26 @@ export interface QueryResourcesInput {
     updatedBefore?: string;
 
     // Advanced Relation-based search
-    relation?: {
-        subjectUri?: string;
-        predicateUri?: string;
-        objectUri?: string;
-        literalValue?: number;
-        literalGte?: number;
-        literalLte?: number;
-        literalString?: string;
-        literalDate?: string;
-        literalBoolean?: boolean;
-        literalDatatype?: string;
-    };
-
+    relation?: RelationFilter;
+    relations?: RelationFilter[]; // New: Intersection of multiple relation criteria
 
     limit?: number;
     offset?: number;
 }
+
+export interface RelationFilter {
+    subjectUri?: string;
+    predicateUri?: string;
+    objectUri?: string;
+    literalValue?: number;
+    literalGte?: number;
+    literalLte?: number;
+    literalString?: string;
+    literalDate?: string;
+    literalBoolean?: boolean;
+    literalDatatype?: string;
+}
+
 export interface QueryResourcesOutput extends ToolResult, Fannable<Resource> {
     data: { 
         count: number;
