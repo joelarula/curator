@@ -7,7 +7,7 @@ import { AIQ } from '../src/services/AIQ.js';
  * 3. Categorizes and tags in the Knowledge Graph.
  */
 AIQ.chain("process_feed", { 
-    url: "https://news.google.com/rss/search?q=hiphop+muusika&hl=et&gl=EE&ceid=EE:et" 
+    url: "http://uudised.err.ee/uudised_rss.php" 
 })
 
 
@@ -22,13 +22,13 @@ AIQ.chain("process_feed", {
     .onSuccess().chain((resource: any) => 
         AIQ.ask_llm({
             systemPrompt: "Oled vana punkar.",
-            prompt: `Kas see uudis on seotud hiphopmuusika, hiphopfestivalide või hiphopmuusikutega? 
-            Vasta JSON formaadis: { "isHiphop": boolean, "reason": string, "entities": string[] }
+            prompt: `Nalja saab? 
+            Vasta JSON formaadis: { "nalja saab": boolean, "reason": string, "entities": string[] }
             Uudis: ${resource.title}\n${resource.description}`,
             json: true
         })
         .onSuccess().chain((ai: any) => {
-            if (ai.isHiphop) {
+            if (ai["nalja saab"]) {
                 // If it's Hiphop, upgrade its status and tag it
                 return AIQ.upsert_resource({
                     uri: resource.uri,
