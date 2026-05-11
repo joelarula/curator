@@ -27,12 +27,16 @@ export class AgentScheduler {
                 warn: logger.warn.bind(logger),
                 error: logger.error.bind(logger),
             },
-            // To prevent Bree from auto-loading index.js (which fails in some ESM setups),
-            // we provide a dummy job. It won't actually do anything.
+
+            // Provide a dormant noop job to satisfy Bree's directory check
             jobs: [
-                { name: 'triggerAgent', interval: 'at 12:00 am', worker: { workerData: { dummy: true } } }
+                { name: 'noop', interval: false }
             ]
         });
+
+
+
+
     }
 
     async start() {
@@ -54,6 +58,8 @@ export class AgentScheduler {
             const agents = await this.prisma.agent.findMany({
                 where: { enabled: true, existent: true }
             });
+
+
 
             const currentJobs = this.bree.config.jobs.map(j => typeof j === 'string' ? j : j.name);
             const activeAgentIds = new Set(agents.map(a => `agent-${a.id}`));

@@ -14,15 +14,16 @@
  */
 import { ref } from 'vue'
 
-export const showEstablishSourceDialog = ref(false)
+export const showEstablishResourceDialog = ref(false)
 export const initialParentId = ref<string | null>(null)
 
 /**
- * Opens the "Establish Source" dialog, optionally pre-setting a parent node.
- * Call with a Source ID to create a child wiki page under that parent,
+ * Opens the "Establish Resource" dialog, optionally pre-setting a parent node.
+ * Call with a Resource ID to create a child wiki page under that parent,
  * or with no arguments to create a top-level root page.
  */
-export function openEstablishSource(parentId: string | null = null) {
+export function openEstablishResource(parentId: string | null = null) {
     initialParentId.value = parentId
-    showEstablishSourceDialog.value = true
+    showEstablishResourceDialog.value = true
 }
+

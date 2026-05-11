@@ -40,7 +40,8 @@ export async function fetchHtml(
 
     // 2. Upsert the Resource stub (using atomic pattern)
     const resource = await prisma.resource.upsert({
-        where: { userId_uri: { userId, uri } },
+        where: { uri },
+
         update: { 
             ...(title && { title: title.substring(0, 250) }),
             deletedAt: null 
@@ -54,28 +55,18 @@ export async function fetchHtml(
         },
     });
 
-    // 3. Ensure "HTML" TextRole exists
-    let htmlRole = await prisma.textRole.findUnique({ where: { name: 'HTML' } });
-    if (!htmlRole) htmlRole = await prisma.textRole.create({ data: { name: 'HTML' } });
-
-    // 4. Upsert the HTML Text (Multi-tenant safe)
-    const existingText = await prisma.text.findFirst({ 
-        where: { resourceId: resource.id, roleId: htmlRole.id, userId } 
-    });
-
     const text = await prisma.text.upsert({
-        where: { 
-            id: existingText?.id || '0' // cuid is string
-        },
+        where: { resourceId_role: { resourceId: resource.id, role: 'HTML' } },
         update: { content: html },
         create: {
             content: html,
             resourceId: resource.id,
-            roleId: htmlRole.id,
+            role: 'HTML',
             userId,
             isPublished: false,
         }
     });
+
 
 
     return {

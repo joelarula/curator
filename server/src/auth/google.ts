@@ -23,7 +23,7 @@ export function setupGoogleStrategy(prisma: PrismaClient) {
                     user = await prisma.user.create({
                         data: {
                             email,
-                            name: profile.displayName,
+                            name: profile.displayName || email,
                             googleId: profile.id
                         }
                     });

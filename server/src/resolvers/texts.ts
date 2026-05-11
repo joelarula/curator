@@ -20,7 +20,8 @@ export const textResolvers = {
         texts: async (_parent: any, { resourceId, role, skip, take }: any, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
 
-            const where: any = { userId: context.user.id, deletedAt: null };
+            const where: any = { existent: true };
+
             if (resourceId) where.resourceId = resourceId;
             if (role) where.role = role;
 

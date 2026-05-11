@@ -1,6 +1,6 @@
-# Padagaskar Server - Prisma & Database Guide
+# Curator Server - Prisma & Database Guide
 
-This directory contains the core backend logic and database management for the Padagaskar AI Fact-Checker.
+This directory contains the core backend logic and database management for the Curator AI Fact-Checker.
 
 ## Prerequisites
 - **Docker Desktop** must be running.

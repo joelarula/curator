@@ -29,9 +29,12 @@ export async function upsertText(
             where: { id: request.id },
             include: { resources: true }
         });
-        if (requestWithResources?.resources && requestWithResources.resources.length > 0) {
-            targetUri = requestWithResources.resources[0].uri;
+        const resources = requestWithResources?.resources;
+        if (resources && resources.length > 0) {
+            targetUri = resources[0]!.uri;
         }
+
+
     }
 
     if (!targetUri) {
@@ -44,34 +47,19 @@ export async function upsertText(
         throw new Error(`upsert_text failed: Resource with URI "${targetUri}" not found`);
     }
 
-    // Ensure the role exists
-    let textRole = await prisma.textRole.findUnique({ where: { name: role.toUpperCase() } });
-    if (!textRole) {
-        textRole = await prisma.textRole.create({ data: { name: role.toUpperCase() } });
-    }
-
-    // Upsert the text
-    const existingText = await prisma.text.findFirst({
-        where: { resourceId: resource.id, roleId: textRole.id },
+    // Upsert the text (atomic on resourceId + role)
+    const text = await prisma.text.upsert({
+        where: { resourceId_role: { resourceId: resource.id, role: role.toUpperCase() } },
+        update: { content },
+        create: {
+            content,
+            role: role.toUpperCase(),
+            resourceId: resource.id,
+            userId,
+            isPublished: resource.isPublished ?? false,
+        },
     });
 
-    let text;
-    if (existingText) {
-        text = await prisma.text.update({
-            where: { id: existingText.id },
-            data: { content },
-        });
-    } else {
-        text = await prisma.text.create({
-            data: {
-                content,
-                roleId: textRole.id,
-                resourceId: resource.id,
-                userId,
-                isPublished: resource.isPublished ?? false,
-            },
-        });
-    }
 
     console.log(`[Tools] upsert_text: saved Text(role=${role.toUpperCase()}) id=${text.id} for Resource ${resource.uri}`);
 

@@ -1,13 +1,13 @@
 <template>
-  <v-list-group :value="node.materializedPath || node.path" v-model="isOpen" class="clean-group">
+  <v-list-group :value="node.id" v-model="isOpen" class="clean-group">
     <template v-slot:activator="{ props: groupProps }">
       <v-list-item
         v-bind="groupProps"
         :prepend-icon="isOpen ? 'mdi-folder-open-outline' : (hasChildren ? 'mdi-folder-outline' : 'mdi-file-outline')"
-        :title="node.title || node.path"
+        :title="node.resource.title || node.resource.uri"
         rounded="lg"
         class="mb-1 tree-item"
-        :to="'/wiki/' + node.materializedPath"
+        :to="'/resource/' + node.resource.id"
         :active="isSelected"
         color="primary"
         density="compact"
@@ -31,49 +31,14 @@
         :node="child"
         :active-path-segments="activePathSegments"
       />
-      
-      <!-- Branching Anchor -->
-      <v-list-item
-        prepend-icon="mdi-plus"
-        title="Establish sub-identity..."
-        class="opacity-30 add-btn"
-        density="compact"
-        @click="openEstablishSource(node.id)"
-      ></v-list-item>
     </div>
   </v-list-group>
 </template>
 
 <script setup lang="ts">
-/**
- * WikiTreeItem.vue
- *
- * Recursive tree node component for the wiki sidebar navigation.
- *
- * Each node renders as a `<v-list-group>` that:
- *   - Shows a folder/file icon depending on whether it has children
- *     and whether it is currently open.
- *   - Is a `<router-link>` to `/wiki/<materializedPath>`.
- *   - Lazily fetches its children from the `wikiTree` query the first
- *     time it is opened (rather than loading the entire tree upfront).
- *   - Recursively renders `<WikiTreeItem>` for each child.
- *   - Shows an "Establish sub-identity..." ghost row at the bottom that
- *     calls `openEstablishSource(node.id)` to pre-fill the parent.
- *
- * Auto-expansion:
- *   `activePathSegments` (passed from WikiSidebar from the current route)
- *   is checked against `node.path`. If this node's segment is part of
- *   the active path, `isOpen` is set to true immediately, causing the
- *   correct branch to expand on page load.
- *
- * Props:
- *   node               — The Source object ({ id, path, materializedPath, title, _count })
- *   activePathSegments — Current URL path split into segments (e.g. ['science', 'ai'])
- */
 import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { graphql } from '../composables/useGraphql'
-import { openEstablishSource } from '../composables/useGlobalActions'
 import WikiTreeItem from './WikiTreeItem.vue'
 
 const props = defineProps<{
@@ -87,16 +52,10 @@ const loading = ref(false)
 const isOpen = ref(false)
 
 const isSelected = computed(() => {
-    const nodePath = props.node.materializedPath || props.node.path
-    const currentRoutePath = router.currentRoute.value.params.path
-    const pathString = Array.isArray(currentRoutePath) ? currentRoutePath.join('/') : (currentRoutePath || '')
-    return pathString === nodePath
+    return router.currentRoute.value.params.id === props.node.resource.id.toString()
 })
 
-// Check if this segment is part of the active path for auto-expansion
-const shouldBeOpen = computed(() => {
-    return props.activePathSegments.includes(props.node.path)
-})
+const hasChildren = computed(() => (props.node.treeEnd - props.node.treeStart) > 1)
 
 watch(isOpen, (isNowOpen) => {
     if (isNowOpen && children.value.length === 0 && hasChildren.value) {
@@ -104,41 +63,36 @@ watch(isOpen, (isNowOpen) => {
     }
 })
 
-watch(shouldBeOpen, (val) => {
-    if (val) {
-        isOpen.value = true
-    }
-}, { immediate: true })
-
-const hasChildren = computed(() => props.node._count?.children > 0)
-
 async function fetchChildren() {
   if (loading.value) return
   
   loading.value = true
   try {
     const data = await graphql(`
-      query($parentId: ID) {
-        wikiTree(parentId: $parentId) {
+      query($treeName: String!, $rootResourceId: Int) {
+        resourceTree(treeName: $treeName, rootResourceId: $rootResourceId) {
           id
-          path
-          materializedPath
-          title
-          _count { children }
+          resource { id title uri }
+          depth
+          treeStart
+          treeEnd
         }
       }
-    `, { parentId: props.node.id })
+    `, { treeName: 'MAIN', rootResourceId: props.node.resource.id })
+
     
-    if (data?.wikiTree) {
-      children.value = data.wikiTree
+    if (data?.resourceTree) {
+      // The query returns the subtree INCLUDING the root, so we filter it out
+      children.value = data.resourceTree.filter((c: any) => c.id !== props.node.id)
     }
   } catch (e) {
-    console.error(`Failed to fetch children for ${props.node.path}:`, e)
+    console.error(`Failed to fetch children for ${props.node.id}:`, e)
   } finally {
     loading.value = false
   }
 }
 </script>
+
 
 <style scoped>
 /* Disable Vuetify's automatic nesting padding */

@@ -8,9 +8,9 @@ export async function upsertResource(
     args: UpsertResourceInput,
     prisma: PrismaClient,
     userId: string,
-    _responseId?: number,
     _request?: any
 ): Promise<UpsertResourceOutput> {
+
     const { uri, title, description, status, language, isPublished } = args;
     const type = args.type || args.resourceType;
 
@@ -25,11 +25,12 @@ export async function upsertResource(
     const safeTitle = (title || uri).substring(0, 250);
 
     const resource = await prisma.resource.upsert({
-        where: { userId_uri: { userId, uri } },
+        where: { uri },
         update: {
             ...(title         !== undefined && { title: safeTitle }),
             ...(description   !== undefined && { description }),
             ...(isPublished   !== undefined && { isPublished }),
+            existent: true,
             deletedAt: null, // Restore if soft-deleted
         },
         create: {
@@ -38,9 +39,11 @@ export async function upsertResource(
             description: description ?? null,
             isPublished: isPublished ?? false,
             userId,
+            existent: true,
             deletedAt: null,
         },
     });
+
 
 
     console.log(`[Tools] Upserted Resource Core ID: ${resource.id} (${resource.uri})`);
@@ -59,15 +62,18 @@ export async function upsertResource(
             
             // Ensure the semantic entity exists
             const semanticResource = await prisma.resource.upsert({
-                where: { userId_uri: { userId, uri: semanticUri } },
-                update: { deletedAt: null },
+                where: { uri: semanticUri },
+                update: { existent: true, deletedAt: null },
                 create: {
                     uri: semanticUri,
                     title: value.toString(),
                     userId,
+                    existent: true,
                     deletedAt: null
                 }
             });
+
+
 
             // Create/Update the relation
             await prisma.relation.upsert({
@@ -103,15 +109,17 @@ export async function upsertResource(
  */
 async function getPredicateId(prisma: PrismaClient, uri: string, userId: string): Promise<number> {
     const res = await prisma.resource.upsert({
-        where: { userId_uri: { userId, uri } },
-        update: { deletedAt: null },
+        where: { uri },
+        update: { existent: true, deletedAt: null },
         create: {
             uri,
             title: uri,
             userId,
+            existent: true,
             deletedAt: null
         }
     });
+
     return res.id;
 }
 

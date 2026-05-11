@@ -66,6 +66,7 @@ function getGraphiQLHTML(serverUrl: string): string {
       font-weight: 700; font-size: 14px; color: #a78bfa;
       margin-right: auto;
     }
+
     .auth-bar .user-info {
       color: #94a3b8; font-size: 12px;
     }

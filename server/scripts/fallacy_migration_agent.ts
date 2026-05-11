@@ -4,7 +4,7 @@ import { AIQ } from '../src/services/AIQ.js';
  * Fallacy Migration Agent
  * 
  * Purpose: Methodically migrate the Logically Fallacious database into the 
- * Padagaskar Knowledge Studio backbone using a triple-native architecture.
+ * Curator Knowledge Studio backbone using a triple-native architecture.
  * 
  * Strategy:
  * 1. Fetch the alphabetical index.

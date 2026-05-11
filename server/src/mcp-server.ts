@@ -105,7 +105,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           resources: []
         };
 
-        // Note: In a real MCP scenario, we'd want a dedicated 'MCP' user or pick the first admin
         const user = await prisma.user.findFirst();
         if (!user) throw new Error("No user found in database to execute script");
 
@@ -113,9 +112,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           { scriptName, body, args: scriptArgs },
           prisma,
           user.id,
-          -1, // No response ID for MCP
+          undefined, // No response ID for MCP
           dummyRequest
         );
+
 
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -128,6 +128,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         // Search Resources
         const resources = await prisma.resource.findMany({
           where: {
+            deletedAt: null,
             OR: [
               { title: { contains: query, mode: 'insensitive' } },
               { uri: { contains: query, mode: 'insensitive' } },
@@ -140,12 +141,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         // Search Text content
         const texts = await prisma.text.findMany({
           where: {
+            deletedAt: null,
             content: { contains: query, mode: 'insensitive' },
           },
           take: limit,
           include: { 
-            resource: { select: { title: true } },
-            role: true
+            resource: { select: { title: true } }
           }
         });
 
@@ -157,7 +158,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               foundTextSnippets: texts.map(t => ({
                 id: t.id,
                 resource: t.resource?.title,
-                role: t.role.name,
+                role: t.role,
                 preview: t.content.substring(0, 200) + "..."
               }))
             }, null, 2) 
@@ -169,6 +170,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { id, uri } = args as any;
         const resource = await prisma.resource.findFirst({
           where: {
+            deletedAt: null,
             OR: [
               id ? { id: Number(id) } : undefined,
               uri ? { uri } : undefined
@@ -176,7 +178,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           },
           include: {
             texts: {
-              where: { existent: true },
+              where: { deletedAt: null },
               orderBy: { createdAt: 'desc' }
             }
           }
@@ -192,7 +194,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "list_scripts": {
         const scripts = await prisma.script.findMany({
           select: { id: true, name: true, body: true },
-          where: { existent: true }
+          where: { deletedAt: null }
         });
         return {
           content: [{ type: "text", text: JSON.stringify(scripts, null, 2) }],

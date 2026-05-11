@@ -1,8 +1,9 @@
 {
-  "name": "@padagaskar/server",
+  "name": "@curator/server",
   "version": "1.0.0",
   "type": "module",
-  "description": "Padagaskar AI Fact-Checker Server",
+  "description": "Curator — Advanced Identity-Centric Knowledge Studio",
+
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",

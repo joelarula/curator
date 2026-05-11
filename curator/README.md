@@ -1,7 +1,7 @@
 
 # Curator VS Code Extension
 
-Browse and edit your Padagaskar wiki as a virtual filesystem in VS Code.
+Browse and edit your Curator Knowledge Studio as a virtual filesystem in VS Code.
 
 ## Features
 - Browse wiki pages (WIKI_PAGE sources) as files and folders

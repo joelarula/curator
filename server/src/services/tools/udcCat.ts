@@ -5,9 +5,10 @@ import { PrismaClient } from '@prisma/client';
  * Since we seed UDC categories, this usually just returns the existing record.
  */
 async function ensureUdcResource(code: string, prisma: PrismaClient, userId: string): Promise<any> {
+    const uri = `udc:${code.replace(/[^a-zA-Z0-9]/g, '_')}`;
     // 1. Check if already instantiated
-    let res = await prisma.resource.findFirst({
-        where: { notation: code, userId }
+    let res = await prisma.resource.findUnique({
+        where: { uri }
     });
 
     if (res) return res;
@@ -15,9 +16,8 @@ async function ensureUdcResource(code: string, prisma: PrismaClient, userId: str
     // 2. Fallback: Create a basic resource if not found (unlikely after seed)
     return await prisma.resource.create({
         data: {
-            uri: `udc:${code.replace(/[^a-zA-Z0-9]/g, '_')}`,
+            uri,
             title: `UDC ${code}`,
-            notation: code,
             userId: userId,
             isPublished: true,
             deletedAt: null
@@ -58,7 +58,7 @@ export async function udcCat(
     // 3. Create the Category Relation (dc:subject)
     const predicateUri = 'http://purl.org/dc/terms/subject';
     const subjectPredicate = await prisma.resource.upsert({
-        where: { userId_uri: { userId, uri: predicateUri } },
+        where: { uri: predicateUri },
         update: { deletedAt: null },
         create: {
             uri: predicateUri,
@@ -78,15 +78,16 @@ export async function udcCat(
             }
         },
         update: {
-            responseId: responseId ?? null
+            // responseId removed from schema
         },
         create: {
             subjectId: subjectResource.id,
             predicateId: subjectPredicate.id,
             objectId: udcRes.id,
-            responseId: responseId ?? null
+            // responseId removed from schema
         }
     });
+
 
     return {
         data: {

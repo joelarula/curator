@@ -6,7 +6,6 @@ export async function askLlm(
     args: any,
     prisma: PrismaClient,
     userId: string,
-    responseId?: number,
     request?: any
 ) {
     console.log(`[Tool] Executing ask_llm...`);
@@ -21,7 +20,7 @@ export async function askLlm(
     // 1. Get context resources
     const requestWithResources = await prisma.request.findUnique({
         where: { id: request.id },
-        include: { resources: { include: { texts: { include: { role: true } } } } }
+        include: { resources: { include: { texts: true } } }
     });
 
     const resources = requestWithResources?.resources || [];
@@ -42,7 +41,7 @@ export async function askLlm(
         context = resources.map(r => {
             let str = `Resource: ${r.title} (${r.uri})\n${r.description || ''}`;
             if (r.texts?.length) {
-                str += '\n\nContent:\n' + r.texts.map(t => `[${t.role?.name || 'TEXT'}]: ${t.content}`).join('\n\n---\n\n');
+                str += '\n\nContent:\n' + r.texts.map(t => `[${t.role || 'TEXT'}]: ${t.content}`).join('\n\n---\n\n');
             }
             return str;
         }).join('\n\n=================\n\n');
@@ -80,20 +79,17 @@ export async function askLlm(
         if (saveAsRole && primaryResource) {
             const roleName = saveAsRole.toUpperCase();
             
-            let textRole = await prisma.textRole.findUnique({ where: { name: roleName } });
-            if (!textRole) textRole = await prisma.textRole.create({ data: { name: roleName } });
-
             await prisma.text.upsert({
                 where: { 
-                    resourceId_roleId: { 
+                    resourceId_role: { 
                         resourceId: primaryResource.id, 
-                        roleId: textRole.id 
+                        role: roleName
                     } 
                 },
                 update: { content: result },
                 create: {
                     content: result,
-                    roleId: textRole.id,
+                    role: roleName,
                     resourceId: primaryResource.id,
                     userId,
                     isPublished: primaryResource.isPublished ?? false,

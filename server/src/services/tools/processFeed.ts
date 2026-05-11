@@ -20,7 +20,7 @@ export async function processFeed(
     // 2. Upsert the feed itself as a Resource (Scoped to User)
     const feedUri = `feed:${url}`;
     const feedResource = await prisma.resource.upsert({
-        where: { userId_uri: { userId, uri: feedUri } },
+        where: { uri: feedUri },
         update: {
             title: feed.title || url,
             description: feed.description || null,
@@ -36,13 +36,15 @@ export async function processFeed(
         },
     });
 
+
     // Mark as a FEED type semantically
     const typeUri = 'type:feed';
     const typeResource = await prisma.resource.upsert({
-        where: { userId_uri: { userId, uri: typeUri } },
+        where: { uri: typeUri },
         update: { deletedAt: null },
         create: { uri: typeUri, title: 'FEED', userId, deletedAt: null }
     });
+
 
     await prisma.relation.upsert({
         where: {
@@ -107,7 +109,7 @@ export async function processFeed(
  */
 async function getPredicateId(prisma: PrismaClient, uri: string, userId: string): Promise<number> {
     const res = await prisma.resource.upsert({
-        where: { userId_uri: { userId, uri } },
+        where: { uri },
         update: { deletedAt: null },
         create: {
             uri,
@@ -116,6 +118,7 @@ async function getPredicateId(prisma: PrismaClient, uri: string, userId: string)
             deletedAt: null
         }
     });
+
     return res.id;
 }
 

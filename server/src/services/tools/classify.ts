@@ -28,9 +28,9 @@ export async function classify(
     args: { text: string; labels: string[]; model?: string; minScore?: number },
     prisma: PrismaClient,
     userId: string,
-    responseId?: number,
     request?: any
 ) {
+
     const { text, labels, model = 'distilbert', minScore = 0.10 } = args;
 
     if (!text || !labels || labels.length === 0) {
@@ -58,7 +58,7 @@ export async function classify(
     // 1. Resolve Predicate Resource (e.g. 'property:has_category')
     const predicateUri = 'property:has_category';
     const predicate = await prisma.resource.upsert({
-        where: { userId_uri: { userId, uri: predicateUri } },
+        where: { uri: predicateUri },
         update: { deletedAt: null },
         create: {
             uri: predicateUri,
@@ -69,6 +69,7 @@ export async function classify(
         }
     });
 
+
     const requestWithResources = await prisma.request.findUnique({
         where: { id: request.id },
         include: { resources: true }
@@ -78,7 +79,7 @@ export async function classify(
     for (const { label, score } of matched) {
         const categoryUri = `category:${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
         const categoryResource = await prisma.resource.upsert({
-            where: { userId_uri: { userId, uri: categoryUri } },
+            where: { uri: categoryUri },
             update: { deletedAt: null },
             create: {
                 uri: categoryUri,
@@ -88,6 +89,7 @@ export async function classify(
                 isPublished: true,
             }
         });
+
 
         if (requestWithResources?.resources) {
             for (const resource of requestWithResources.resources) {
@@ -106,9 +108,10 @@ export async function classify(
                         subjectId: resource.id,
                         predicateId: predicate.id,
                         objectId: categoryResource.id,
-                        responseId: responseId ?? null,
+                        aiModelId: request?.aiModelId ?? null,
                         literalValue: score,
                     }
+
                 });
             }
         }

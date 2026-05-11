@@ -26,9 +26,9 @@ export async function extractResourceLinks(
     },
     prisma: PrismaClient,
     userId: string,
-    responseId?: number,
     request?: any
 ) {
+
     const { resourceUri, url, maxLinks = 50, sameDomainOnly = false, selector } = args;
     if (!resourceUri) throw new Error('extract_resource_links requires "resourceUri"');
 
@@ -37,14 +37,16 @@ export async function extractResourceLinks(
 
     // 1. Find the parent Resource (must exist and belong to user)
     const parentResource = await prisma.resource.findUnique({
-        where: { userId_uri: { userId, uri: resourceUri } },
-        include: { texts: { include: { role: true } } },
+        where: { uri: resourceUri },
+
+        include: { texts: true },
     });
     if (!parentResource) throw new Error(`extract_resource_links: Resource not found for URI "${resourceUri}" (userId: ${userId})`);
 
     // 2. Use cached HTML if available, otherwise fetch
     let links: { url: string; title: string }[];
-    const cachedHtml = parentResource.texts?.find(t => t.role?.name === 'HTML');
+    const cachedHtml = parentResource.texts?.find(t => t.role === 'HTML');
+
 
     if (cachedHtml) {
         console.log(`[Tools] extract_resource_links: using cached HTML (Text id=${cachedHtml.id})`);

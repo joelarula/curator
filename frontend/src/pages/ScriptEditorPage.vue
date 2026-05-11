@@ -6,8 +6,9 @@
         <v-toolbar flat color="transparent" class="px-6 border-b border-white border-opacity-5">
           <v-icon color="primary" class="me-3">mdi-code-braces</v-icon>
           <v-toolbar-title class="text-subtitle-1 font-weight-black tracking-widest uppercase">
-            Script Studio
+            Script Editor
           </v-toolbar-title>
+
           <v-spacer></v-spacer>
           
           <v-btn

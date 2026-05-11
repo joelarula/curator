@@ -402,8 +402,9 @@ export const AIQ = new Proxy(() => AIQBuilder.start(), {
     },
     // Ensure it can be called as a function: AIQ()...
     apply(target, thisArg, argArray: any[]) {
-        return target.apply(thisArg, argArray);
+        return (target as Function).apply(thisArg, argArray);
     }
+
 }) as (typeof AIQBuilder & AIQTools & (() => AIQBuilder & AIQPlugins));
 
 

@@ -8,9 +8,9 @@ import { resourceResolvers } from './resources.js';
 import { textResolvers } from './texts.js';
 import { relationResolvers } from './relations.js';
 import { agenticResolvers } from './agentic.js';
-import { lookupResolvers } from './lookup.js';
 import { graphResolvers } from './graph.js';
 import { udcResolvers } from './udc.js';
+
 
 import GraphQLJSON from 'graphql-type-json';
 
@@ -28,7 +28,6 @@ export const resolvers = {
         ...textResolvers.Query,
         ...relationResolvers.Query,
         ...agenticResolvers.Query,
-        ...lookupResolvers.Query,
         ...graphResolvers.Query,
         ...udcResolvers.Query,
     },
@@ -38,6 +37,6 @@ export const resolvers = {
         ...textResolvers.Mutation,
         ...relationResolvers.Mutation,
         ...agenticResolvers.Mutation,
-        ...lookupResolvers.Mutation,
     },
 };
+

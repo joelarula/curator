@@ -152,7 +152,9 @@ export interface QueryResourcesInput {
     // Enum/Type filters (uses string names)
     status?: string | string[];
     type?: string | string[];
+    language?: string | string[];
     isPublished?: boolean;
+
 
     // Date range filters (ISO strings)
     createdAfter?: string;
@@ -185,7 +187,9 @@ export interface QueryResourcesOutput extends ToolResult, Fannable<Resource> {
     data: { 
         count: number;
         total?: number;
+        items?: any[];
     };
+
 }
 
 // fetch_html

@@ -39,10 +39,11 @@ export async function scrapeResource(
     let extractedFields: Record<string, string> = {};
 
     const cachedResource = await prisma.resource.findUnique({
-        where: { userId_uri: { userId, uri } },
-        include: { texts: { include: { role: true } } },
+        where: { uri },
+        include: { texts: true },
     });
-    const cachedHtml = cachedResource?.texts?.find(t => t.role?.name === 'HTML');
+    const cachedHtml = cachedResource?.texts?.find(t => t.role === 'HTML');
+
 
     let html: string;
     if (cachedHtml) {
@@ -73,7 +74,7 @@ export async function scrapeResource(
     // 2. Upsert the Resource (Triple-Native)
     const safeTitle = (title || url).substring(0, 250);
     const resource = await prisma.resource.upsert({
-        where: { userId_uri: { userId, uri } },
+        where: { uri },
         update: { title: safeTitle, deletedAt: null },
         create: {
             uri,
@@ -84,31 +85,21 @@ export async function scrapeResource(
         },
     });
 
+
     console.log(`[Tools] scrape_resource: upserted Resource id=${resource.id} (${uri})`);
 
-    // 3. Ensure TextRole exists
-    const roleName = role.toUpperCase();
-    let textRole = await prisma.textRole.findUnique({ where: { name: roleName } });
-    if (!textRole) {
-        textRole = await prisma.textRole.create({ data: { name: roleName } });
-    }
-
-    // 4. Upsert Text — replace any existing text with same role on this resource
-    const existingText = await prisma.text.findFirst({
-        where: { resourceId: resource.id, roleId: textRole.id, userId },
-    });
-
     const text = await prisma.text.upsert({
-        where: { id: existingText?.id || '0' },
+        where: { resourceId_role: { resourceId: resource.id, role: role.toUpperCase() } },
         update: { content },
         create: {
             content,
-            roleId: textRole.id,
+            role: role.toUpperCase(),
             resourceId: resource.id,
             userId,
             isPublished: false,
         },
     });
+
 
 
     return {

@@ -5,9 +5,10 @@ export const resourceResolvers = {
         resource: async (_parent: any, { id }: { id: number }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             return await context.prisma.resource.findUnique({
-                where: { id, userId: context.user.id }, // Security: enforce ownership
+                where: { id }, 
+
                 include: {
-                    texts: { where: { deletedAt: null }, orderBy: { createdAt: 'desc' } },
+                    texts: { where: { existent: true }, orderBy: { createdAt: 'desc' } },
                     subjectRelations: { include: { predicate: true, object: true } },
                     objectRelations: { include: { subject: true, predicate: true } },
                 }
@@ -17,27 +18,24 @@ export const resourceResolvers = {
         resourceByUri: async (_parent: any, { uri }: { uri: string }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             return await context.prisma.resource.findUnique({
-                where: { userId_uri: { userId: context.user.id, uri } },
+                where: { uri },
                 include: {
-                    texts: { where: { deletedAt: null }, orderBy: { createdAt: 'desc' } },
+                    texts: { where: { existent: true }, orderBy: { createdAt: 'desc' } },
                     subjectRelations: { include: { predicate: true, object: true } },
                     objectRelations: { include: { subject: true, predicate: true } },
                 }
             });
         },
 
-        resources: async (_parent: any, { search, skip, take }: any, context: any) => {
+        resources: async (_parent: any, { skip, take, search }: any, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
 
-            const where: any = { userId: context.user.id, deletedAt: null };
-
+            const where: any = { existent: true };
             if (search) {
                 where.OR = [
                     { title: { contains: search, mode: 'insensitive' } },
-                    { description: { contains: search, mode: 'insensitive' } },
                     { uri: { contains: search, mode: 'insensitive' } },
                 ];
-
             }
 
             const [items, totalCount] = await Promise.all([
@@ -56,15 +54,23 @@ export const resourceResolvers = {
         queryResources: async (_parent: any, { filter, skip, take }: any, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             const prisma = context.prisma;
-            const userId = context.user.id;
 
-            const where: any = { userId, deletedAt: null };
+            const where: any = { existent: true };
 
             if (filter) {
                 if (filter.uriContains) where.uri = { contains: filter.uriContains, mode: 'insensitive' };
                 if (filter.titleContains) where.title = { contains: filter.titleContains, mode: 'insensitive' };
-                if (filter.resourceTypeId) where.resourceTypeId = filter.resourceTypeId;
-                if (filter.statusId) where.statusId = filter.statusId;
+                if (filter.search) {
+                    where.OR = [
+                        { title: { contains: filter.search, mode: 'insensitive' } },
+                        { uri: { contains: filter.search, mode: 'insensitive' } },
+                        { description: { contains: filter.search, mode: 'insensitive' } }
+                    ];
+                }
+                if (filter.isPublished !== undefined) {
+                    where.isPublished = filter.isPublished;
+                }
+
 
                 // Date ranges
                 if (filter.createdAtStart || filter.createdAtEnd) {
@@ -86,13 +92,14 @@ export const resourceResolvers = {
 
                         // Resolve URIs to IDs if needed
                         if (!predicateId && rel.predicateUri) {
-                            const p = await prisma.resource.findFirst({ where: { uri: rel.predicateUri, userId }, select: { id: true } });
+                            const p = await prisma.resource.findFirst({ where: { uri: rel.predicateUri }, select: { id: true } });
                             predicateId = p?.id;
                         }
                         if (!objectId && rel.objectUri) {
-                            const o = await prisma.resource.findFirst({ where: { uri: rel.objectUri, userId }, select: { id: true } });
+                            const o = await prisma.resource.findFirst({ where: { uri: rel.objectUri }, select: { id: true } });
                             objectId = o?.id;
                         }
+
 
                         if (!predicateId && !objectId) return null;
 
@@ -129,34 +136,38 @@ export const resourceResolvers = {
         upsertResource: async (_parent: any, { input }: { input: any }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             const userId = context.user.id;
-            const { uri, title, description, notation, isPublished } = input;
+            const { uri, title, description, isPublished } = input;
+
+            const targetUri = uri || `resource:${Date.now()}`;
 
             return await context.prisma.resource.upsert({
-                where: { userId_uri: { userId, uri: uri || `resource:${Date.now()}` } },
+                where: { uri: targetUri },
                 update: {
                     ...(title !== undefined && { title }),
                     ...(description !== undefined && { description }),
-                    ...(notation !== undefined && { notation }),
                     ...(isPublished !== undefined && { isPublished }),
+                    existent: true,
                     deletedAt: null, // Restore if soft-deleted
                 },
                 create: {
-                    uri: uri || `resource:${Date.now()}`,
+                    uri: targetUri,
                     title: title || null,
                     description: description || null,
-                    notation: notation || null,
                     isPublished: isPublished || false,
                     userId,
+                    existent: true,
                     deletedAt: null,
                 },
             });
         },
 
+
         deleteResource: async (_parent: any, { id }: { id: number }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             await context.prisma.resource.update({
-                where: { id, userId: context.user.id },
-                data: { deletedAt: new Date() },
+                where: { id },
+
+                data: { existent: false, deletedAt: new Date() },
             });
             return true;
         },
@@ -171,10 +182,11 @@ export const resourceResolvers = {
         texts: async (resource: any, _args: any, context: any) => {
             if (resource.texts) return resource.texts;
             return await context.prisma.text.findMany({
-                where: { resourceId: resource.id, deletedAt: null },
+                where: { resourceId: resource.id, existent: true },
                 orderBy: { createdAt: 'desc' },
             });
         },
+
         subjectRelations: async (resource: any, _args: any, context: any) => {
             if (resource.subjectRelations) return resource.subjectRelations;
             return await context.prisma.relation.findMany({

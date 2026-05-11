@@ -175,7 +175,7 @@ export class RequestProcessor {
 
         const uri = `conversation:${conversation.externalId}`;
         return await this.prisma.resource.upsert({
-            where: { userId_uri: { userId, uri } },
+            where: { uri },
             update: { deletedAt: null },
             create: {
                 uri,
@@ -185,6 +185,7 @@ export class RequestProcessor {
                 isPublished: false
             }
         });
+
     }
 
 
@@ -248,9 +249,9 @@ export class RequestProcessor {
                 materializedArgs,
                 this.prisma,
                 req.userId,
-                responseId,
                 req
             );
+
 
             console.log(`[Orchestrator] Tool ${call.name} result: data=${!!result?.data}, createdItem=${!!result?.createdItem}`);
 

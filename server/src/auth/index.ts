@@ -85,9 +85,10 @@ export async function getUserFromToken(token: string, prisma: PrismaClient) {
         try {
             const decoded = jwt.verify(token, JWT_SECRET) as any;
             if (decoded?.sub) {
-                return await prisma.user.findUnique({
+                const user = await prisma.user.findUnique({
                     where: { id: decoded.sub }
                 });
+                if (user) return user;
             }
         } catch (e) {
             // Verification failed (maybe it's a wiki.js RS256 token), continue to fallback
@@ -106,7 +107,7 @@ export async function getUserFromToken(token: string, prisma: PrismaClient) {
             user = await prisma.user.create({
                 data: {
                     email: decoded.email,
-                    name: decoded.name || 'Wiki.js User'
+                    name: decoded.name || decoded.email
                 }
             });
         }

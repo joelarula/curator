@@ -9,7 +9,6 @@ export async function upsertRelation(
     args: UpsertRelationInput,
     prisma: PrismaClient,
     userId: string,
-    responseId?: number,
     request?: any
 ): Promise<UpsertRelationOutput> {
 
@@ -18,6 +17,7 @@ export async function upsertRelation(
         justification, 
         literalValue, literalString, literalDate, literalBoolean, literalDatatype 
     } = args;
+
 
     if (!subjectUri)   throw new Error('upsert_relation requires "subjectUri"');
     if (!predicateUri) throw new Error('upsert_relation requires "predicateUri"');
@@ -29,7 +29,7 @@ export async function upsertRelation(
     const resolveResource = async (uri: string) => {
         const safeTitle = uri.substring(0, 250);
         return await prisma.resource.upsert({
-            where: { userId_uri: { userId, uri } },
+            where: { uri },
             update: { deletedAt: null },
             create: {
                 uri,
@@ -42,11 +42,41 @@ export async function upsertRelation(
     };
 
 
+
     const [subject, predicate, object] = await Promise.all([
         resolveResource(subjectUri),
         resolveResource(predicateUri),
         resolveResource(objectUri)
     ]);
+
+    // Ensure the predicate is tagged as a predicate
+    const rdfTypeUri = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type';
+    const predicateClassUri = 'type:predicate';
+
+    // Get/create the type predicate and the predicate class
+    const [typePredicate, predicateClass] = await Promise.all([
+        resolveResource(rdfTypeUri),
+        resolveResource(predicateClassUri)
+    ]);
+
+    // Link the predicate to its class
+    await prisma.relation.upsert({
+        where: {
+            subjectId_predicateId_objectId: {
+                subjectId: predicate.id,
+                predicateId: typePredicate.id,
+                objectId: predicateClass.id
+            }
+        },
+        update: {},
+        create: {
+            subjectId: predicate.id,
+            predicateId: typePredicate.id,
+            objectId: predicateClass.id,
+            aiModelId: request?.aiModelId ?? null
+        }
+    });
+
 
     // Upsert the Relation triple
     const relation = await prisma.relation.upsert({
@@ -64,7 +94,7 @@ export async function upsertRelation(
             ...(literalDate   !== undefined && { literalDate: literalDate ? new Date(literalDate) : null }),
             ...(literalBoolean !== undefined && { literalBoolean }),
             ...(literalDatatype !== undefined && { literalDatatype }),
-            ...(responseId && { responseId }),
+            ...(request?.aiModelId && { aiModelId: request.aiModelId }),
         },
         create: {
             subjectId:    subject.id,
@@ -76,8 +106,10 @@ export async function upsertRelation(
             literalDate:    literalDate ? new Date(literalDate) : null,
             literalBoolean: literalBoolean ?? null,
             literalDatatype: literalDatatype ?? null,
-            responseId:     responseId    ?? null,
+            aiModelId:      request?.aiModelId ?? null,
         },
+
+
 
     });
 

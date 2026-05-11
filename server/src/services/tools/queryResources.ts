@@ -14,7 +14,7 @@ export async function queryResources(
     const { 
         uri, uriContains, 
         title, titleContains, 
-        status, type, isPublished,
+        status, type, language, isPublished,
         createdAfter, createdBefore,
         updatedAfter, updatedBefore,
         relation,
@@ -23,12 +23,14 @@ export async function queryResources(
         offset = 0
     } = args;
 
+
     console.log(`[Tools] query_resources: criteria=${JSON.stringify(args)}`);
 
     const and: Prisma.ResourceWhereInput[] = [
-        { userId }, // Always scope to user
-        { deletedAt: null }
+        { existent: true }
     ];
+
+
 
     // 1. String Filters
     if (uri)              and.push({ uri });
@@ -132,11 +134,11 @@ export async function queryResources(
     const [resources, total] = await Promise.all([
         prisma.resource.findMany({
             where,
-            include: { status: true, resourceType: true, language: true },
             orderBy: { createdAt: 'desc' },
             take: limit,
             skip: offset
         }),
+
         prisma.resource.count({ where })
     ]);
 
@@ -146,9 +148,11 @@ export async function queryResources(
         success: true,
         data: {
             count: resources.length,
-            total
+            total,
+            items: resources
         },
         items: resources
     };
+
 }
 

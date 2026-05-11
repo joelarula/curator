@@ -58,7 +58,11 @@ export function useAuth() {
     if (queryToken) {
       localStorage.setItem('token', queryToken)
       token.value = queryToken
-      window.history.replaceState({}, document.title, '/')
+      
+      // Clean up the URL: remove ?token= but keep the path
+      const url = new URL(window.location.href)
+      url.searchParams.delete('token')
+      window.history.replaceState({}, document.title, url.pathname + url.search)
     } else {
       token.value = localStorage.getItem('token') || ''
     }

@@ -49,7 +49,7 @@ export class FeedService {
             // Only skip if the URL exists AND is still active.
             // Removed sources (deletedAt is set) won't block re-creation.
             const existing = await prisma.resource.findFirst({
-                where: { userId: feed.userId, uri: item.link, deletedAt: null }
+                where: { userId: feed.userId, uri: item.link, existent: true }
             } as any);
 
 
@@ -60,8 +60,10 @@ export class FeedService {
                     description: item.contentSnippet || item.content || '',
                     userId: feed.userId,
                     isPublished: false,
+                    existent: true,
                     deletedAt: null
                 };
+
 
                 const newResource = await prisma.resource.create({
                     data: sourceData
@@ -128,8 +130,10 @@ export class FeedService {
             where: { 
                 existent: true,
                 enabled: true   // Respect the user's enabled/disabled toggle
-            } as any
+            }
         });
+
+
 
         const results = [];
         for (const feed of feeds) {

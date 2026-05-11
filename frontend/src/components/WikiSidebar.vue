@@ -2,22 +2,10 @@
   <div class="wiki-sidebar h-100 d-flex flex-column">
     <div class="pa-4 d-flex align-center justify-space-between">
       <span class="text-overline font-weight-black opacity-40 uppercase tracking-widest">Graph Index</span>
-      <v-btn icon="mdi-plus" variant="text" size="x-small" color="primary" @click="openEstablishSource()"></v-btn>
+      <v-btn icon="mdi-plus" variant="text" size="x-small" color="primary" @click="openEstablishResource()"></v-btn>
     </div>
 
     <v-list density="compact" nav class="px-2 flex-grow-1 overflow-y-auto custom-scrollbar">
-      <!-- Static Home Link -->
-      <v-list-item
-        prepend-icon="mdi-home-variant-outline"
-        title="Wiki Home"
-        to="/wiki/home"
-        rounded="lg"
-        class="mb-1"
-        active-color="primary"
-      ></v-list-item>
-
-      <v-divider class="my-2 opacity-5 mx-2"></v-divider>
-
       <!-- Dynamic Tree - Direct Children of v-list -->
       <template v-if="rootNodes.length > 0">
         <WikiTreeItem
@@ -37,18 +25,9 @@
       <div v-if="!loading && rootNodes.length === 0" class="pa-4 text-center">
         <v-icon color="grey-darken-3" size="32" class="mb-2">mdi-molecule</v-icon>
         <div class="text-caption opacity-30 font-weight-light mb-4">No root identities established yet.</div>
-        <v-btn
-          variant="tonal"
-          size="small"
-          rounded="pill"
-          prepend-icon="mdi-plus"
-          class="text-caption"
-          @click="openEstablishSource()"
-        >
-          Create First Root
-        </v-btn>
       </div>
     </v-list>
+
   </div>
 </template>
 
@@ -76,7 +55,7 @@
 import { ref, onMounted, provide, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { graphql } from '../composables/useGraphql'
-import { openEstablishSource } from '../composables/useGlobalActions'
+import { openEstablishResource } from '../composables/useGlobalActions'
 import WikiTreeItem from './WikiTreeItem.vue'
 
 const router = useRouter()
@@ -94,22 +73,23 @@ async function fetchRoot() {
   loading.value = true
   try {
     const data = await graphql(`
-      query($parentId: ID) {
-        wikiTree(parentId: $parentId) {
+      query($treeName: String!) {
+        resourceTree(treeName: $treeName) {
           id
-          path
-          materializedPath
-          title
-          _count { children }
+          resource { id title uri }
+          depth
+          treeStart
+          treeEnd
         }
+
       }
-    `, { parentId: null })
+    `, { treeName: 'MAIN' })
     
-    if (data?.wikiTree) {
-      rootNodes.value = data.wikiTree
+    if (data?.resourceTree) {
+      rootNodes.value = data.resourceTree
     }
   } catch (e) {
-    console.error('Failed to fetch Wiki Tree:', e)
+    console.error('Failed to fetch Resource Tree:', e)
   } finally {
     loading.value = false
   }
@@ -118,6 +98,7 @@ async function fetchRoot() {
 provide('refreshWikiTree', fetchRoot)
 onMounted(fetchRoot)
 </script>
+
 
 <style scoped>
 .wiki-sidebar {

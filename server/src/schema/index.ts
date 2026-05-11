@@ -70,19 +70,7 @@ export const typeDefs = gql`
     updatedAt: String!
   }
 
-  # ─── Lookup Tables ──────────────────────────────────────────────────────────
 
-  "Lookup: resource classification — ENTITY, PROPERTY, CLASS, etc."
-  type ResourceType {
-    id: Int!
-    name: String!
-  }
-
-  "Lookup: resource lifecycle status — NEW, ACTIVE, ARCHIVED, etc."
-  type ResourceStatus {
-    id: Int!
-    name: String!
-  }
 
 
   # ─── Core Types ─────────────────────────────────────────────────────────────
@@ -108,10 +96,7 @@ export const typeDefs = gql`
     description: String
     "Whether this resource is publicly visible"
     isPublished: Boolean!
-    "Lifecycle status (NEW, ACTIVE, ARCHIVED, etc.)"
-    status: ResourceStatus
-    "Classification type (ENTITY, PROPERTY, CLASS, etc.)"
-    resourceType: ResourceType
+
     "Owner user"
     user: User!
 
@@ -188,8 +173,7 @@ export const typeDefs = gql`
   type Relation {
     "Auto-incrementing integer primary key"
     id: Int!
-    "Classification type of this relation"
-    resourceType: ResourceType!
+
     "Subject Resource (integer FK for join performance)"
     subject: Resource!
     "Predicate Resource — the property/relationship type"
@@ -204,9 +188,10 @@ export const typeDefs = gql`
     selectionEnd: Int
     "Optional AI-generated justification for this triple"
     justification: String
-    "AI Response that generated this triple (null for manual triples)"
-    response: Response
+    "The AI model that authored this triple (null for manual triples)"
+    aiModel: AIModel
     createdAt: String!
+
   }
 
   "A file attachment linked to a Resource."
@@ -447,14 +432,12 @@ export const typeDefs = gql`
   input ResourceFilterInput {
     "Filter by URI containing string (fuzzy)"
     uriContains: String
-    "Filter by title containing string (fuzzy)"
-    titleContains: String
-    "ResourceType ID"
-    resourceTypeId: Int
-    "ResourceStatus ID"
-    statusId: Int
+    "Global search string (matches title, URI, or description)"
+    search: String
     "Filter by relations (AND intersection)"
+
     relations: [RelationFilterInput!]
+
     "Date range: Created after (ISO string)"
     createdAtStart: String
     "Date range: Created before (ISO string)"
@@ -463,21 +446,21 @@ export const typeDefs = gql`
     updatedAtStart: String
     "Date range: Updated before (ISO string)"
     updatedAtEnd: String
+    "Filter by publication status"
+    isPublished: Boolean
   }
+
 
 
   "Input for creating an RDF triple."
   input RelationInput {
-    "ResourceType lookup ID for the relation"
-    resourceTypeId: Int
-    "ResourceType lookup name (e.g. 'PROPERTY')"
-    resourceTypeName: String
     "Subject Resource integer ID"
     subjectId: Int!
     "Predicate Resource integer ID"
     predicateId: Int!
     "Object Resource integer ID"
     objectId: Int!
+
     "Optional numeric literal value"
     literalValue: Float
     "Optional text selection start offset"
@@ -486,8 +469,9 @@ export const typeDefs = gql`
     selectionEnd: Int
     "Optional justification text"
     justification: String
-    "Optional Response ID that generated this triple"
-    responseId: ID
+    "Optional AI model ID that authored this triple"
+    aiModelId: ID
+
   }
 
 
@@ -620,14 +604,8 @@ export const typeDefs = gql`
     "Fetch a single Relation by CUID."
     relation(id: ID!): Relation
 
-    # Lookup tables
-    "All resource type definitions."
-    resourceTypes: [ResourceType!]!
-    "All resource status definitions."
-    resourceStatuses: [ResourceStatus!]!
-
-
     # Agentic pipeline
+
     "All scripts for the current user."
     scripts: [Script!]!
     "Fetch a specific script by name. User ID defaults to current user."
@@ -675,6 +653,8 @@ export const typeDefs = gql`
     createRelation(input: RelationInput!): Relation!
     "Delete a Relation by CUID."
     deleteRelation(id: ID!): Boolean!
+    "Upsert a Relation by resolving subject, predicate, and object URIs (auto-creates stubs)."
+    upsertRelation(input: JSON!): Relation!
 
     # Agentic pipeline
     "Creates a new Script for reuse."
@@ -704,11 +684,7 @@ export const typeDefs = gql`
     "Upsert an Agent and its Script together in one call. Matches by name."
     upsertAgentWithScript(input: UpsertAgentWithScriptInput!): Agent!
 
-    # Lookup seed mutations (admin)
-    "Create a new ResourceType."
-    createResourceType(name: String!): ResourceType!
-    "Create a new ResourceStatus."
-    createResourceStatus(name: String!): ResourceStatus!
   }
+
 
 `;

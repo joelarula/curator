@@ -11,9 +11,13 @@ model Tool {
   description String?  @db.Text
   version     String? // semver, e.g. "1.0.0"
   enabled     Boolean  @default(true)
+  existent    Boolean? @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([existent])
 }
+
 
 
 
@@ -31,12 +35,15 @@ model Feed {
   userId          String
   user            User      @relation(fields: [userId], references: [id])
   
+  existent        Boolean?  @default(true)
   deletedAt       DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
   @@unique([userId, url])
+  @@index([existent])
 }
+
 
 
 
@@ -53,9 +60,11 @@ model Resource {
   
   metadata           Json?             // Extensible storage for external IDs, AI confidence, etc.
   
+  existent           Boolean?          @default(true)
   deletedAt          DateTime?         // Soft delete timestamp
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
+
 
   requests           Request[]         @relation("RequestResources")
   conversations      Conversation[]    @relation("ConversationResources")
@@ -66,10 +75,12 @@ model Resource {
   treeNodes          ResourceTree[]
   attachments        Attachment[]
 
-  @@unique([userId, uri])              // Multi-tenant URI safety
-  @@index([uri])
+  @@unique([uri])                       // Studio-wide URI identity
+  @@index([uri, existent])
+  @@index([existent])
   @@index([deletedAt])
 }
+
 
 
 
@@ -82,14 +93,17 @@ model Text {
 
   
   isPublished Boolean   @default(false)
+  existent    Boolean?  @default(true)
   deletedAt   DateTime?
   userId      String
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  @@index([resourceId])
+  @@index([resourceId, existent])
+  @@index([existent])
   @@unique([resourceId, role])
+
 
 }
 
@@ -103,8 +117,10 @@ model Relation {
   predicate      Resource     @relation("RelationPredicate", fields: [predicateId], references: [id], onDelete: Cascade)
   object         Resource     @relation("RelationObject", fields: [objectId], references: [id], onDelete: Cascade)
   createdAt      DateTime     @default(now())
-  responseId     Int?
-  response       Response?    @relation(fields: [responseId], references: [id])
+  aiModelId      Int?
+  aiModel        AIModel?     @relation(fields: [aiModelId], references: [id])
+
+
   
   literalValue     Float?
   literalString    String?   @db.Text
@@ -118,11 +134,15 @@ model Relation {
 
   justification String?
 
+  existent      Boolean? @default(true)
+
   @@unique([subjectId, predicateId, objectId])
-  @@index([subjectId])
-  @@index([predicateId])
-  @@index([objectId])
+  @@index([subjectId, existent])
+  @@index([predicateId, existent])
+  @@index([objectId, existent])
+  @@index([existent])
 }
+
 
 
 model Attachment {
@@ -136,7 +156,10 @@ model Attachment {
   size       Int
   existent   Boolean?  @default(true)
   createdAt  DateTime  @default(now())
+
+  @@index([existent])
 }
+
 
 model AIModel {
   id        Int     @id @default(autoincrement())
@@ -149,11 +172,17 @@ model AIModel {
 
   requests  Request[]
   responses Response[]
+  relations Relation[]
+
 
 
   deletedAt DateTime?
+  existent  Boolean? @default(true)
   createdAt DateTime @default(now())
+
+  @@index([existent])
 }
+
 
 
 model Script {
@@ -165,8 +194,12 @@ model Script {
   user      User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
   requests  Request[]
   agents    Agent[]
+  existent  Boolean? @default(true)
   deletedAt DateTime?
   createdAt DateTime  @default(now())
+
+  @@index([existent])
+
 
 
   @@unique([name])
@@ -204,10 +237,16 @@ model Request {
   parentId Int?
   parent   Request?  @relation("Workflow", fields: [parentId], references: [id])
   children Request[] @relation("Workflow")
+
+  existent Boolean? @default(true)
+
+  @@index([status, existent])
+  @@index([existent])
 }
 
+
 model Response {
-  relations      Relation[]
+
   id             Int          @id @default(autoincrement())
   requestId      Int
   request        Request      @relation(fields: [requestId], references: [id], onDelete: Cascade)
@@ -217,8 +256,12 @@ model Response {
   toolCalls      Json?
   aiModelId      Int?
   aiModel        AIModel?     @relation(fields: [aiModelId], references: [id])
+  existent       Boolean?     @default(true)
   createdAt      DateTime     @default(now())
+
+  @@index([existent])
 }
+
 
 model Conversation {
   id         Int        @id @default(autoincrement())
@@ -229,10 +272,14 @@ model Conversation {
   responses  Response[]
   resources  Resource[] @relation("ConversationResources")
   metadata   Json?
-  deletedAt DateTime?
+  existent   Boolean?   @default(true)
+  deletedAt  DateTime?
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
+
+  @@index([existent])
 }
+
 
 
 model ResourceTree {
@@ -250,13 +297,16 @@ model ResourceTree {
   depth      Int      @default(0)
 
   deletedAt  DateTime?
+  existent   Boolean? @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   @@unique([treeName, resourceId])
-  @@index([treeName, treeStart, treeEnd])
+  @@index([treeName, treeStart, treeEnd, existent])
+  @@index([existent])
   @@index([deletedAt])
 }
+
 
 
 
@@ -273,13 +323,16 @@ model Agent {
   user         User      @relation(fields: [userId], references: [id])
 
   enabled   Boolean  @default(true)
+  existent  Boolean? @default(true)
   deletedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
 
   @@unique([name])
+  @@index([existent])
 }
+
 
 model UdcLookup {
   uri       String   @id
@@ -300,6 +353,10 @@ model UdcLookup {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([treeStart, treeEnd])
-  @@index([notation])
+  existent  Boolean? @default(true)
+
+  @@index([treeStart, treeEnd, existent])
+  @@index([notation, existent])
+  @@index([existent])
 }
+

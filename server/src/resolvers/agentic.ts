@@ -50,6 +50,7 @@ export const agenticResolvers = {
                 where: { userId: context.user.id, existent: true },
                 orderBy: { createdAt: 'desc' },
             });
+
         },
 
         script: async (_parent: any, { name, userId }: { name: string, userId?: string }, context: any) => {
@@ -69,6 +70,7 @@ export const agenticResolvers = {
                 orderBy: { updatedAt: 'desc' },
             });
         },
+
 
         conversation: async (_parent: any, { id }: { id: number }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
@@ -99,6 +101,7 @@ export const agenticResolvers = {
         requests: async (_parent: any, { status, skip, take }: any, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             const where: any = { existent: true };
+
             if (status) where.status = status;
 
             return await context.prisma.request.findMany({
@@ -117,6 +120,7 @@ export const agenticResolvers = {
                 orderBy: { updatedAt: 'desc' },
             });
         },
+
 
         agent: async (_parent: any, { name, userId }: { name: string, userId?: string }, context: any) => {
             if (!context.user && !userId) throw new Error('Unauthorized');
@@ -548,12 +552,7 @@ export const agenticResolvers = {
             if (response.conversation) return response.conversation;
             return await context.prisma.conversation.findUnique({ where: { id: response.conversationId } });
         },
-        relations: async (response: any, _args: any, context: any) => {
-            if (response.relations) return response.relations;
-            return await context.prisma.relation.findMany({
-                where: { responseId: response.id },
-            });
-        },
+
         toolCalls: (response: any) => response.toolCalls ? (Array.isArray(response.toolCalls) ? response.toolCalls : []) : [],
         data: (response: any) => {
             if (!response.content) return null;

@@ -18,20 +18,21 @@
       ></div>
       <div class="pa-4 d-flex align-center" :class="{ 'justify-center': rail }">
         <v-icon color="primary" :size="rail ? 32 : 24" class="transition-all">mdi-brain-freeze-outline</v-icon>
-        <span v-if="!rail" class="ms-3 text-h6 font-weight-black tracking-tight">PADA<span class="text-primary text-h6">GASKAR</span></span>
+        <span v-if="!rail" class="ms-3 text-h6 font-weight-black tracking-tight text-uppercase">CURA<span class="text-primary text-h6">TOR</span></span>
       </div>
+
       
       <v-list density="compact" nav class="px-3">
-        <v-list-item prepend-icon="mdi-database-outline" title="Sources" :to="'/'" value="texts" rounded="lg"></v-list-item>
-        <v-list-item prepend-icon="mdi-rss" title="Automated Feeds" :to="'/feeds'" value="feeds" rounded="lg"></v-list-item>
-        <v-list-item prepend-icon="mdi-code-braces" title="Script Studio" :to="'/scripts'" value="scripts" rounded="lg"></v-list-item>
-        <v-list-item prepend-icon="mdi-graph-outline" title="Knowledge Graph" :to="'/graph'" value="graph" rounded="lg"></v-list-item>
+        <v-list-item prepend-icon="mdi-database-outline" title="Resources" :to="'/'" value="resources" rounded="lg"></v-list-item>
+
+        <v-list-item prepend-icon="mdi-robot-outline" title="Agent Management" :to="'/agents'" value="agents" rounded="lg"></v-list-item>
+        <v-list-item prepend-icon="mdi-code-braces" title="Script Editor" :to="'/scripts'" value="scripts" rounded="lg"></v-list-item>
       </v-list>
+
+
 
       <v-divider v-if="!rail" class="mx-5 mb-2 opacity-5"></v-divider>
 
-      <!-- The Hierarchical Wiki Tree -->
-      <WikiSidebar v-if="!rail" />
 
       <template v-slot:append v-if="rail">
         <div class="pa-3 text-center">
@@ -48,7 +49,8 @@
         {{ currentRouteName }}
       </v-app-bar-title>
 
-      <v-btn icon="mdi-plus-circle-outline" variant="text" color="primary" class="me-2" @click="openEstablishSource"></v-btn>
+      <v-btn icon="mdi-plus-circle-outline" variant="text" color="primary" class="me-2" @click="openEstablishResource"></v-btn>
+
 
       <v-spacer></v-spacer>
 
@@ -82,8 +84,9 @@
         <div class="fill-height w-100 d-flex align-center justify-center bg-dots">
           <v-card width="400" class="glass-card pa-8 text-center" rounded="xl" elevation="24">
             <v-icon size="64" color="primary" class="mb-6">mdi-brain-freeze-outline</v-icon>
-            <h2 class="text-h4 font-weight-black mb-2 uppercase tracking-tighter">Padagaskar</h2>
+            <h2 class="text-h4 font-weight-black mb-2 uppercase tracking-tighter">Curator</h2>
             <p class="mb-8 text-grey text-body-2">Advanced Intelligence Studio for <br/> Rhetoric & Text Analysis</p>
+
             <v-btn color="primary" size="large" rounded="pill" block @click="loginWithGoogle" class="py-4">
               <v-icon start>mdi-google</v-icon>
               Continue with Google
@@ -96,8 +99,9 @@
       <router-view v-else class="fade-in" />
 
       <!-- Global Actions -->
-      <EstablishSourceDialog />
+      <EstablishResourceDialog />
     </v-main>
+
 
     <v-snackbar v-model="snackbar" :timeout="3000">
       {{ snackbarText }}
@@ -110,9 +114,10 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuth, user } from './composables/useAuth'
 import { snackbar, snackbarText } from './composables/useGraphql'
-import { openEstablishSource } from './composables/useGlobalActions'
+import { openEstablishResource } from './composables/useGlobalActions'
 import WikiSidebar from './components/WikiSidebar.vue'
-import EstablishSourceDialog from './components/EstablishSourceDialog.vue'
+import EstablishResourceDialog from './components/EstablishResourceDialog.vue'
+
 
 const { fetchUser, loginWithGoogle, logout, initAuth, token } = useAuth()
 const route = useRoute()
