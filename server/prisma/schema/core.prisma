@@ -265,20 +265,8 @@ model ResourceTree {
 }
 
 
-model UdcLookup {
-  id         Int      @id @default(autoincrement())
-  notation   String   @unique @db.VarChar(50)
-  uri        String   @unique
-  title      String   @db.VarChar(255)
-  enLabel    String?  @db.VarChar(255)
-  etLabel    String?  @db.VarChar(255)
-  parentUri  String?  @db.VarChar(255)
-  treeStart  Float
-  treeEnd    Float
-  depth      Int
-  
-  createdAt  DateTime @default(now())
-}
+
+
 
 model Agent {
   id           String    @id @default(cuid())

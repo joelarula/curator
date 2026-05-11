@@ -55,19 +55,16 @@ export async function classify(
 
     console.log(`[Tools] Predictions (minScore=${minScore}): ${matched.map(x => `${x.label} ${(x.score * 100).toFixed(1)}%`).join(', ')}`);
 
-    // Shared lookup — do once outside the per-label loop
-    const classType   = await prisma.resourceType.findUnique({ where: { name: 'CLASS' } });
-    const activeStatus = await prisma.resourceStatus.findUnique({ where: { name: 'ACTIVE' } });
-    const propType    = await prisma.resourceType.findUnique({ where: { name: 'PROPERTY' } });
-
+    // 1. Resolve Predicate Resource (e.g. 'property:has_category')
+    const predicateUri = 'property:has_category';
     const predicate = await prisma.resource.upsert({
-        where: { uri: 'property:has_category' },
-        update: {},
+        where: { userId_uri: { userId, uri: predicateUri } },
+        update: { deletedAt: null },
         create: {
-            uri: 'property:has_category',
+            uri: predicateUri,
             title: 'Has Category',
-            resourceTypeId: propType?.id || null,
             userId,
+            deletedAt: null,
             isPublished: true,
         }
     });
@@ -77,18 +74,17 @@ export async function classify(
         include: { resources: true }
     });
 
-    // Upsert one category resource + one relation per matched label
+    // 2. Upsert one category resource + one relation per matched label
     for (const { label, score } of matched) {
         const categoryUri = `category:${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
         const categoryResource = await prisma.resource.upsert({
-            where: { uri: categoryUri },
-            update: {},
+            where: { userId_uri: { userId, uri: categoryUri } },
+            update: { deletedAt: null },
             create: {
                 uri: categoryUri,
                 title: label,
-                resourceTypeId: classType?.id || null,
-                statusId: activeStatus?.id || null,
                 userId,
+                deletedAt: null,
                 isPublished: true,
             }
         });
@@ -110,7 +106,6 @@ export async function classify(
                         subjectId: resource.id,
                         predicateId: predicate.id,
                         objectId: categoryResource.id,
-                        resourceTypeId: predicate.resourceTypeId!,
                         responseId: responseId ?? null,
                         literalValue: score,
                     }
@@ -118,6 +113,7 @@ export async function classify(
             }
         }
     }
+
 
     const topLabel = matched[0]!.label;
     const topScore = matched[0]!.score;

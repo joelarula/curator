@@ -1,47 +1,15 @@
-/**
- * resolvers/resources.ts
- *
- * GraphQL resolvers for Resource CRUD and field resolution.
- *
- * Queries:
- *   resource(id)     — Fetch by integer ID with full includes.
- *   resourceByUri    — Fetch by unique URI string.
- *   resources        — Paginated, filterable list for the current user.
- *
- * Mutations:
- *   createResource   — Creates a new Resource with the given input.
- *   updateResource   — Updates an existing Resource by integer ID.
- *   deleteResource   — Soft-deletes (sets existent: null).
- *
- * Field Resolvers:
- *   status, resourceType, user, texts, attachments,
- *   subjectRelations, predicateRelations, objectRelations, requests.
- */
 import { PrismaClient } from '@prisma/client';
-
-async function resolveResourceIds(input: any, prisma: PrismaClient) {
-    if (input.resourceTypeName && !input.resourceTypeId) {
-        const rt = await prisma.resourceType.findUnique({ where: { name: input.resourceTypeName } });
-        if (rt) input.resourceTypeId = rt.id;
-    }
-    if (input.statusName && !input.statusId) {
-        const rs = await prisma.resourceStatus.findUnique({ where: { name: input.statusName } });
-        if (rs) input.statusId = rs.id;
-    }
-}
 
 export const resourceResolvers = {
     Query: {
         resource: async (_parent: any, { id }: { id: number }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             return await context.prisma.resource.findUnique({
-                where: { id },
+                where: { id, userId: context.user.id }, // Security: enforce ownership
                 include: {
-                    status: true,
-                    resourceType: true,
-                    user: true,
-                    texts: { orderBy: { createdAt: 'desc' } },
-                    attachments: true,
+                    texts: { where: { deletedAt: null }, orderBy: { createdAt: 'desc' } },
+                    subjectRelations: { include: { predicate: true, object: true } },
+                    objectRelations: { include: { subject: true, predicate: true } },
                 }
             });
         },
@@ -49,30 +17,26 @@ export const resourceResolvers = {
         resourceByUri: async (_parent: any, { uri }: { uri: string }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             return await context.prisma.resource.findUnique({
-                where: { uri },
+                where: { userId_uri: { userId: context.user.id, uri } },
                 include: {
-                    status: true,
-                    resourceType: true,
-                    user: true,
-                    texts: { orderBy: { createdAt: 'desc' } },
-                    attachments: true,
+                    texts: { where: { deletedAt: null }, orderBy: { createdAt: 'desc' } },
+                    subjectRelations: { include: { predicate: true, object: true } },
+                    objectRelations: { include: { subject: true, predicate: true } },
                 }
             });
         },
 
-        resources: async (_parent: any, { typeId, statusId, search, skip, take }: any, context: any) => {
+        resources: async (_parent: any, { search, skip, take }: any, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
 
-            const where: any = { userId: context.user.id, existent: true };
-
-            if (typeId) where.resourceTypeId = typeId;
-            if (statusId) where.statusId = statusId;
+            const where: any = { userId: context.user.id, deletedAt: null };
 
             if (search) {
                 where.OR = [
                     { title: { contains: search, mode: 'insensitive' } },
                     { description: { contains: search, mode: 'insensitive' } },
                     { uri: { contains: search, mode: 'insensitive' } },
+                    { notation: { contains: search, mode: 'insensitive' } },
                 ];
             }
 
@@ -82,142 +46,53 @@ export const resourceResolvers = {
                     skip: skip || 0,
                     take: take || 20,
                     orderBy: { updatedAt: 'desc' },
-                    include: { status: true, resourceType: true },
                 }),
                 context.prisma.resource.count({ where }),
             ]);
 
             return { items, totalCount };
         },
-
-        findResourcesByRelation: async (_parent: any, { predicateUri, objectUri, predicateId, objectId }: any, context: any) => {
-            if (!context.user) throw new Error('Unauthorized');
-
-            const relationFilter: any = {};
-            
-            if (predicateUri) {
-                relationFilter.predicate = { uri: predicateUri };
-            } else if (predicateId) {
-                relationFilter.predicateId = predicateId;
-            }
-
-            if (objectUri) {
-                relationFilter.object = { uri: objectUri };
-            } else if (objectId) {
-                relationFilter.objectId = objectId;
-            }
-
-            return await context.prisma.resource.findMany({
-                where: {
-                    userId: context.user.id,
-                    existent: true,
-                    subjectRelations: {
-                        some: relationFilter
-                    }
-                },
-                include: {
-                    status: true,
-                    resourceType: true,
-                    user: true
-                }
-            });
-        },
     },
 
     Mutation: {
-        createResource: async (_parent: any, { input }: { input: any }, context: any) => {
-            if (!context.user) throw new Error('Unauthorized');
-            if (!input.uri) throw new Error('URI is required');
-
-            await resolveResourceIds(input, context.prisma);
-
-            return await context.prisma.resource.create({
-                data: {
-                    uri: input.uri,
-                    title: input.title || null,
-                    description: input.description || null,
-                    resourceTypeId: input.resourceTypeId || null,
-                    statusId: input.statusId || null,
-                    isPublished: input.isPublished || false,
-                    userId: context.user.id,
-                },
-                include: { status: true, resourceType: true, user: true },
-            });
-        },
-
-        updateResource: async (_parent: any, { id, input }: { id: number; input: any }, context: any) => {
-            if (!context.user) throw new Error('Unauthorized');
-
-            await resolveResourceIds(input, context.prisma);
-
-            const data: any = {};
-            if (input.uri !== undefined) data.uri = input.uri;
-            if (input.title !== undefined) data.title = input.title;
-            if (input.description !== undefined) data.description = input.description;
-            if (input.resourceTypeId !== undefined) data.resourceTypeId = input.resourceTypeId;
-            if (input.statusId !== undefined) data.statusId = input.statusId;
-            if (input.isPublished !== undefined) data.isPublished = input.isPublished;
-
-            return await context.prisma.resource.update({
-                where: { id },
-                data,
-                include: { status: true, resourceType: true, user: true },
-            });
-        },
-        
         upsertResource: async (_parent: any, { input }: { input: any }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
-            
-            await resolveResourceIds(input, context.prisma);
-            
-            const where: any = input.id ? { id: input.id } : { uri: input.uri };
-            if (!where.id && !where.uri) throw new Error('Either id or uri is required for upsert');
+            const userId = context.user.id;
+            const { uri, title, description, notation, isPublished } = input;
 
             return await context.prisma.resource.upsert({
-                where,
+                where: { userId_uri: { userId, uri: uri || `resource:${Date.now()}` } },
                 update: {
-                    uri: input.uri,
-                    title: input.title,
-                    description: input.description,
-                    resourceTypeId: input.resourceTypeId,
-                    statusId: input.statusId,
-                    isPublished: input.isPublished ?? undefined,
+                    ...(title !== undefined && { title }),
+                    ...(description !== undefined && { description }),
+                    ...(notation !== undefined && { notation }),
+                    ...(isPublished !== undefined && { isPublished }),
+                    deletedAt: null, // Restore if soft-deleted
                 },
                 create: {
-                    uri: input.uri || `resource:${Date.now()}`,
-                    title: input.title || null,
-                    description: input.description || null,
-                    resourceTypeId: input.resourceTypeId || null,
-                    statusId: input.statusId || null,
-                    isPublished: input.isPublished || false,
-                    userId: context.user.id,
+                    uri: uri || `resource:${Date.now()}`,
+                    title: title || null,
+                    description: description || null,
+                    notation: notation || null,
+                    isPublished: isPublished || false,
+                    userId,
+                    deletedAt: null,
                 },
-                include: { status: true, resourceType: true, user: true },
             });
         },
 
         deleteResource: async (_parent: any, { id }: { id: number }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             await context.prisma.resource.update({
-                where: { id },
-                data: { existent: null },
+                where: { id, userId: context.user.id },
+                data: { deletedAt: new Date() },
             });
             return true;
         },
     },
 
-    // Field resolvers — lazy-load relations not included in the query
+    // Field resolvers — handles the "Knowledge Space" graph traversal
     Resource: {
-        status: async (resource: any, _args: any, context: any) => {
-            if (resource.status) return resource.status;
-            if (!resource.statusId) return null;
-            return await context.prisma.resourceStatus.findUnique({ where: { id: resource.statusId } });
-        },
-        resourceType: async (resource: any, _args: any, context: any) => {
-            if (resource.resourceType) return resource.resourceType;
-            if (!resource.resourceTypeId) return null;
-            return await context.prisma.resourceType.findUnique({ where: { id: resource.resourceTypeId } });
-        },
         user: async (resource: any, _args: any, context: any) => {
             if (resource.user) return resource.user;
             return await context.prisma.user.findUnique({ where: { id: resource.userId } });
@@ -225,36 +100,30 @@ export const resourceResolvers = {
         texts: async (resource: any, _args: any, context: any) => {
             if (resource.texts) return resource.texts;
             return await context.prisma.text.findMany({
-                where: { resourceId: resource.id },
+                where: { resourceId: resource.id, deletedAt: null },
                 orderBy: { createdAt: 'desc' },
             });
         },
-        attachments: async (resource: any, _args: any, context: any) => {
-            if (resource.attachments) return resource.attachments;
-            return await context.prisma.attachment.findMany({
-                where: { resourceId: resource.id },
-            });
-        },
         subjectRelations: async (resource: any, _args: any, context: any) => {
+            if (resource.subjectRelations) return resource.subjectRelations;
             return await context.prisma.relation.findMany({
                 where: { subjectId: resource.id },
+                include: { predicate: true, object: true }
+            });
+        },
+        objectRelations: async (resource: any, _args: any, context: any) => {
+            if (resource.objectRelations) return resource.objectRelations;
+            return await context.prisma.relation.findMany({
+                where: { objectId: resource.id },
+                include: { subject: true, predicate: true }
             });
         },
         predicateRelations: async (resource: any, _args: any, context: any) => {
             return await context.prisma.relation.findMany({
                 where: { predicateId: resource.id },
-            });
-        },
-        objectRelations: async (resource: any, _args: any, context: any) => {
-            return await context.prisma.relation.findMany({
-                where: { objectId: resource.id },
-            });
-        },
-        requests: async (resource: any, _args: any, context: any) => {
-            if (resource.requests) return resource.requests;
-            return await context.prisma.request.findMany({
-                where: { resources: { some: { id: resource.id } } },
+                include: { subject: true, object: true }
             });
         },
     },
 };
+

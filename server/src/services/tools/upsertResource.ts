@@ -22,25 +22,29 @@ export async function upsertResource(
     console.log(`[Tools] Executing upsert_resource for URI: "${uri}"`);
 
     // 1. Upsert the Core Resource
+    const safeTitle = (title || uri).substring(0, 250);
+    const safeNotation = notation ? notation.substring(0, 45) : null;
+
     const resource = await prisma.resource.upsert({
         where: { userId_uri: { userId, uri } },
         update: {
-            ...(title         !== undefined && { title }),
+            ...(title         !== undefined && { title: safeTitle }),
             ...(description   !== undefined && { description }),
-            ...(notation      !== undefined && { notation }),
+            ...(notation      !== undefined && { notation: safeNotation }),
             ...(isPublished   !== undefined && { isPublished }),
             deletedAt: null, // Restore if soft-deleted
         },
         create: {
             uri,
-            title: title || uri,
+            title: safeTitle,
             description: description ?? null,
-            notation: notation ?? null,
+            notation: safeNotation,
             isPublished: isPublished ?? false,
             userId,
             deletedAt: null,
         },
     });
+
 
     console.log(`[Tools] Upserted Resource Core ID: ${resource.id} (${resource.uri})`);
 

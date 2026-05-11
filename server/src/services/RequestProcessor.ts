@@ -76,8 +76,9 @@ export class RequestProcessor {
             seenIds.add(currentId);
             const reqRecord: any = await this.prisma.request.findUnique({
                 where: { id: currentId },
-                include: { resources: { include: { resourceType: true } } }
+                include: { resources: true }
             });
+
 
             if (!reqRecord) break;
 
@@ -92,13 +93,27 @@ export class RequestProcessor {
     public async processRequest(request: any) {
         console.log(`[RequestProcessor] Processing request ${request.id}`);
         try {
-            // Fetch request details
+            // 1. Ensure the Conversation is anchored as a Semantic Resource in the graph
+            const convResource = await this.ensureConversationResource(request.conversationId, request.userId);
+
+            // 2. Fetch request details
+
             const req = await this.prisma.request.findUnique({
                 where: { id: request.id },
                 include: { user: true, resources: true }
             });
 
             if (!req) throw new Error(`Request ${request.id} not found`);
+
+            // 3. Link Request to the Conversation Resource if not already linked
+            if (!req.resources.some((r: any) => r.id === convResource.id)) {
+                await this.prisma.request.update({
+                    where: { id: req.id },
+                    data: { resources: { connect: { id: convResource.id } } }
+                });
+                req.resources.push(convResource);
+            }
+
 
             // Resolve the complete Resource Stack for this request
             const resourceStack = await this.resolveResourceStack(req.id);
@@ -148,6 +163,30 @@ export class RequestProcessor {
             });
         }
     }
+
+    /**
+     * Ensures a Conversation is represented as a Resource in the graph.
+     */
+    private async ensureConversationResource(conversationId: number, userId: string) {
+        const conversation = await this.prisma.conversation.findUnique({
+            where: { id: conversationId }
+        });
+        if (!conversation) throw new Error(`Conversation ${conversationId} not found`);
+
+        const uri = `conversation:${conversation.externalId}`;
+        return await this.prisma.resource.upsert({
+            where: { userId_uri: { userId, uri } },
+            update: { deletedAt: null },
+            create: {
+                uri,
+                title: `Conversation ${conversation.externalId.substring(0, 8)}`,
+                userId,
+                deletedAt: null,
+                isPublished: false
+            }
+        });
+    }
+
 
     /**
      * Executes a sequence of tool calls. Chained callbacks execute recursively here.

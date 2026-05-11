@@ -7,8 +7,10 @@ import { AIQ } from '../src/services/AIQ.js';
  * 3. Categorizes and tags in the Knowledge Graph.
  */
 AIQ.chain("process_feed", { 
-    url: "https://www.err.ee/rss/kultuur" 
+    url: "https://news.google.com/rss/search?q=hiphop+muusika&hl=et&gl=EE&ceid=EE:et" 
 })
+
+
 .onItem().chain((item: any) => 
     AIQ.upsert_resource({
         uri: item.link,
@@ -17,28 +19,29 @@ AIQ.chain("process_feed", {
         type: 'ARTICLE',
         status: 'NEW'
     })
-    .onSuccess().spawn((resource: any) => 
+    .onSuccess().chain((resource: any) => 
         AIQ.ask_llm({
-            systemPrompt: "Oled Eesti kultuuriajakirjanik ja džässiekspert.",
-            prompt: `Kas see uudis on seotud džässmuusika, džässifestivalide või džässmuusikutega? 
-            Vasta JSON formaadis: { "isJazz": boolean, "reason": string, "entities": string[] }
+            systemPrompt: "Oled vana punkar.",
+            prompt: `Kas see uudis on seotud hiphopmuusika, hiphopfestivalide või hiphopmuusikutega? 
+            Vasta JSON formaadis: { "isHiphop": boolean, "reason": string, "entities": string[] }
             Uudis: ${resource.title}\n${resource.description}`,
             json: true
         })
         .onSuccess().chain((ai: any) => {
-            if (ai.isJazz) {
-                // If it's Jazz, upgrade its status and tag it
+            if (ai.isHiphop) {
+                // If it's Hiphop, upgrade its status and tag it
                 return AIQ.upsert_resource({
                     uri: resource.uri,
                     status: 'APPROVED',
-                    type: 'JAZZ_ARTICLE'
+                    type: 'HIPHOP_ARTICLE'
                 })
-                .onSuccess().chain("debug", { message: `🎷 Jazz detected! ${resource.title}` });
+                .onSuccess().chain("debug", { message: `🎤 Hiphop detected! ${resource.title}` });
             } else {
-                // If not jazz, soft-delete it from the active graph
-                return AIQ.debug({ message: `Skipping non-jazz item: ${resource.title}` });
+                // If not hiphop, skip it
+                return AIQ.debug({ message: `Skipping non-hiphop item: ${resource.title}` });
             }
         })
+
     )
 )
 .run();

@@ -17,35 +17,49 @@ export async function processFeed(
     const parser = new Parser();
     const feed = await parser.parseURL(url);
 
-    // 1. Resolve 'FEED' ResourceType and 'DRAFT' ResourceStatus
-    let feedType = await prisma.resourceType.findUnique({ where: { name: 'FEED' } });
-    if (!feedType) feedType = await prisma.resourceType.create({ data: { name: 'FEED' } });
-
-    let draftStatus = await prisma.resourceStatus.findUnique({ where: { name: 'DRAFT' } });
-    if (!draftStatus) draftStatus = await prisma.resourceStatus.create({ data: { name: 'DRAFT' } });
-
-    // 2. Upsert the feed itself as a Resource
+    // 2. Upsert the feed itself as a Resource (Scoped to User)
     const feedUri = `feed:${url}`;
     const feedResource = await prisma.resource.upsert({
-        where: { uri: feedUri },
+        where: { userId_uri: { userId, uri: feedUri } },
         update: {
             title: feed.title || url,
             description: feed.description || null,
+            deletedAt: null
         },
         create: {
             uri: feedUri,
             title: feed.title || url,
             description: feed.description || null,
-            resourceTypeId: feedType.id,
-            statusId: draftStatus.id,
             userId,
-            isPublished: true,
+            deletedAt: null,
+            isPublished: true
         },
-        include: {
-            resourceType: true,
-            status: true,
+    });
+
+    // Mark as a FEED type semantically
+    const typeUri = 'type:feed';
+    const typeResource = await prisma.resource.upsert({
+        where: { userId_uri: { userId, uri: typeUri } },
+        update: { deletedAt: null },
+        create: { uri: typeUri, title: 'FEED', userId, deletedAt: null }
+    });
+
+    await prisma.relation.upsert({
+        where: {
+            subjectId_predicateId_objectId: {
+                subjectId: feedResource.id,
+                predicateId: await getPredicateId(prisma, 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type', userId),
+                objectId: typeResource.id
+            }
+        },
+        update: {},
+        create: {
+            subjectId: feedResource.id,
+            predicateId: await getPredicateId(prisma, 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type', userId),
+            objectId: typeResource.id
         }
     });
+
 
     // 3. Collect item URIs to check existence in bulk
     const items = feed.items.map((item: any) => ({
@@ -58,10 +72,6 @@ export async function processFeed(
     // 4. Find existing resources
     const existingResources = await prisma.resource.findMany({
         where: { uri: { in: uris } },
-        include: {
-            resourceType: true,
-            status: true,
-        }
     });
 
     const existingUriMap = new Map(existingResources.map((r: any) => [r.uri, r]));
@@ -81,13 +91,31 @@ export async function processFeed(
     return {
         success: true,
         data: {
-            feed: feedResource,
+            feed: feedResource as any,
             stats: {
                 total: enrichedItems.length,
                 new: enrichedItems.filter((i: any) => i.isNew).length,
                 existing: enrichedItems.filter((i: any) => !i.isNew).length
             }
         },
-        items: enrichedItems
+        items: enrichedItems as any[]
     };
 }
+
+/**
+ * Helper to get or create a predicate resource ID.
+ */
+async function getPredicateId(prisma: PrismaClient, uri: string, userId: string): Promise<number> {
+    const res = await prisma.resource.upsert({
+        where: { userId_uri: { userId, uri } },
+        update: { deletedAt: null },
+        create: {
+            uri,
+            title: uri,
+            userId,
+            deletedAt: null
+        }
+    });
+    return res.id;
+}
+

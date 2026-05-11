@@ -1,87 +1,28 @@
 import { PrismaClient } from '@prisma/client';
 
 /**
- * Ensures a UDC resource and its hierarchy exist in the main graph.
+ * Ensures a UDC resource exists in the main graph.
+ * Since we seed UDC categories, this usually just returns the existing record.
  */
 async function ensureUdcResource(code: string, prisma: PrismaClient, userId: string): Promise<any> {
-    const classType = await prisma.resourceType.findUnique({ where: { name: 'CLASS' } });
-    const activeStatus = await prisma.resourceStatus.findUnique({ where: { name: 'ACTIVE' } });
-
     // 1. Check if already instantiated
     let res = await prisma.resource.findFirst({
-        where: { notation: code, resourceTypeId: classType?.id ?? null }
+        where: { notation: code, userId }
     });
 
-    if (res) {
-        // If it exists but is archived/draft, maybe activate it?
-        if (activeStatus && res.statusId !== activeStatus.id) {
-            res = await prisma.resource.update({
-                where: { id: res.id },
-                data: { statusId: activeStatus.id }
-            });
-        }
-        return res;
-    }
+    if (res) return res;
 
-    // 2. Not instantiated, find in UdcLookup
-    const lookup = await prisma.udcLookup.findUnique({ where: { notation: code } });
-    if (!lookup) {
-        // Fallback: Create a basic resource if not in lookup
-        return await prisma.resource.create({
-            data: {
-                uri: `udc:${code.replace(/[^a-zA-Z0-9]/g, '_')}`,
-                title: `UDC ${code}`,
-                notation: code,
-                resourceTypeId: classType?.id ?? null,
-                statusId: activeStatus?.id ?? null,
-                userId: userId
-            }
-        });
-    }
-
-    // 3. Create Resource from lookup
-    res = await prisma.resource.create({
+    // 2. Fallback: Create a basic resource if not found (unlikely after seed)
+    return await prisma.resource.create({
         data: {
-            uri: lookup.uri,
-            title: lookup.etLabel || lookup.title,
-            notation: lookup.notation,
-            resourceTypeId: classType?.id ?? null,
-            statusId: activeStatus?.id ?? null,
-            userId: userId
+            uri: `udc:${code.replace(/[^a-zA-Z0-9]/g, '_')}`,
+            title: `UDC ${code}`,
+            notation: code,
+            userId: userId,
+            isPublished: true,
+            deletedAt: null
         }
     });
-
-    // 4. Create ResourceTree node
-    const treeNode = await prisma.resourceTree.upsert({
-        where: { treeName_resourceId: { treeName: 'UDC', resourceId: res.id } },
-        update: {},
-        create: {
-            treeName: 'UDC',
-            resourceId: res.id,
-            treeStart: lookup.treeStart,
-            treeEnd: lookup.treeEnd,
-            depth: lookup.depth,
-        }
-    });
-
-    // 5. Handle parent hierarchy recursively
-    if (lookup.parentUri) {
-        const parentLookup = await prisma.udcLookup.findUnique({ where: { uri: lookup.parentUri } });
-        if (parentLookup) {
-            const parentRes = await ensureUdcResource(parentLookup.notation, prisma, userId);
-            const parentTreeNode = await prisma.resourceTree.findUnique({
-                where: { treeName_resourceId: { treeName: 'UDC', resourceId: parentRes.id } }
-            });
-            if (parentTreeNode) {
-                await prisma.resourceTree.update({
-                    where: { id: treeNode.id },
-                    data: { parentId: parentTreeNode.id }
-                });
-            }
-        }
-    }
-
-    return res;
 }
 
 /**
@@ -94,12 +35,10 @@ export async function udcCat(
     responseId?: number,
     request?: any
 ) {
-    const { code, category_name, explanation } = args;
+    const { code, explanation } = args;
     if (!code) throw new Error('udc_cat requires a "code" argument');
 
     console.log(`[Tool] Executing udc_cat for: ${code}`);
-
-    const propertyType = await prisma.resourceType.findUnique({ where: { name: 'PROPERTY' } });
 
     // 1. Get context resource
     const fullRequest = await prisma.request.findUnique({
@@ -113,27 +52,38 @@ export async function udcCat(
 
     const subjectResource = fullRequest.resources[0]!;
 
-    // 2. Ensure UDC Resource and Hierarchy
+    // 2. Ensure UDC Resource
     const udcRes = await ensureUdcResource(code, prisma, userId);
 
     // 3. Create the Category Relation (dc:subject)
+    const predicateUri = 'http://purl.org/dc/terms/subject';
     const subjectPredicate = await prisma.resource.upsert({
-        where: { uri: 'http://purl.org/dc/terms/subject' },
-        update: {},
+        where: { userId_uri: { userId, uri: predicateUri } },
+        update: { deletedAt: null },
         create: {
-            uri: 'http://purl.org/dc/terms/subject',
+            uri: predicateUri,
             title: 'subject',
-            userId: userId,
-            resourceTypeId: propertyType?.id ?? null
+            userId,
+            deletedAt: null,
+            isPublished: true
         }
     });
 
-    const relation = await prisma.relation.create({
-        data: {
+    const relation = await prisma.relation.upsert({
+        where: {
+            subjectId_predicateId_objectId: {
+                subjectId: subjectResource.id,
+                predicateId: subjectPredicate.id,
+                objectId: udcRes.id
+            }
+        },
+        update: {
+            responseId: responseId ?? null
+        },
+        create: {
             subjectId: subjectResource.id,
             predicateId: subjectPredicate.id,
             objectId: udcRes.id,
-            resourceTypeId: propertyType?.id || 1,
             responseId: responseId ?? null
         }
     });
@@ -149,3 +99,4 @@ export async function udcCat(
         createdItem: udcRes
     };
 }
+

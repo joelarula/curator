@@ -39,25 +39,51 @@ async function main() {
   const { udcCategories } = await import('./seedData/udcCategories.js');
 
   
-  console.log(`[Seed] Seeding ${udcCategories.length} UDC categories into Lookup table...`);
-  
-  await prisma.udcLookup.createMany({
-    data: udcCategories.map((cat: any) => ({
-      notation: cat.notation,
-      uri: cat.uri,
-      title: cat.title,
-      enLabel: cat.enLabel,
-      etLabel: cat.etLabel,
-      parentUri: cat.parentUri,
-      treeStart: cat.treeStart,
-      treeEnd: cat.treeEnd,
-      depth: cat.depth
-    })),
-    skipDuplicates: true
-  });
+  console.log(`[Seed] Migrating ${udcCategories.length} UDC categories to Unified Resource Graph...`);
 
-  console.log('[Seed] UDC lookup seeding complete.');
+  // We process in chunks to avoid overwhelming the DB
+  const BATCH_SIZE = 500;
+  for (let i = 0; i < udcCategories.length; i += BATCH_SIZE) {
+    const batch = udcCategories.slice(i, i + BATCH_SIZE);
+    
+    // 1. Create Resources
+    await prisma.resource.createMany({
+      data: batch.map((cat: any) => ({
+        uri: cat.uri,
+        title: cat.etLabel || cat.title,
+        notation: cat.notation,
+        description: cat.enLabel || null,
+        userId: curator.id,
+        isPublished: true,
+        deletedAt: null
+      })),
+      skipDuplicates: true
+    });
+
+    // 2. Fetch created IDs to build the Tree
+    const createdResources = await prisma.resource.findMany({
+      where: { uri: { in: batch.map((c: any) => c.uri) } },
+      select: { id: true, uri: true }
+    });
+    const uriToId = new Map(createdResources.map(r => [r.uri, r.id]));
+
+    // 3. Create ResourceTree nodes
+    await prisma.resourceTree.createMany({
+      data: batch.map((cat: any) => ({
+        treeName: 'UDC',
+        resourceId: uriToId.get(cat.uri)!,
+        treeStart: cat.treeStart,
+        treeEnd: cat.treeEnd,
+        depth: cat.depth,
+        deletedAt: null
+      })),
+      skipDuplicates: true
+    });
+  }
+
+  console.log('[Seed] Unified Resource Graph seeding complete.');
 }
+
 
 main()
   .catch((e) => {

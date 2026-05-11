@@ -34,9 +34,16 @@
  */
 
 import { TOOL_NAMES } from './tools/manifest.js';
+import type { ToolName } from './tools/manifest.js';
 
-/** Extend this interface to get type-safe plugin methods on AIQ. */
-export interface AIQPlugins {
+/** Generate fluent method signatures for all tools in the manifest */
+export type AIQTools = {
+    [K in ToolName]: (args?: any) => AIQ;
+};
+
+/** Extend this interface to get type-safe plugin methods on AIQ instances. */
+export interface AIQPlugins extends AIQTools {
+
     ask(promptOrArgs: string | Record<string, any>): AIQ;
     feed(urlOrArgs: string | Record<string, any>): AIQ;
     foreach(chainOrFn: AIQ | ((item: any) => AIQ)): AIQ;
@@ -394,10 +401,11 @@ export const AIQ = new Proxy(() => AIQBuilder.start(), {
         return undefined;
     },
     // Ensure it can be called as a function: AIQ()...
-    apply(target, thisArg, argArray) {
+    apply(target, thisArg, argArray: any[]) {
         return target.apply(thisArg, argArray);
     }
-}) as (typeof AIQBuilder & (() => AIQBuilder & AIQPlugins));
+}) as (typeof AIQBuilder & AIQTools & (() => AIQBuilder & AIQPlugins));
+
 
 
 // Auto-initialize behind the scenes
