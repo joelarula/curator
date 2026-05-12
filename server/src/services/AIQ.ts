@@ -8,6 +8,7 @@
 import { TOOL_NAMES } from './tools/manifest.js';
 import type { ToolName } from './tools/manifest.js';
 import { VOCAB } from '../constants/vocabulary.js';
+import { compileToAST } from './ast/compiler.js';
 
 // ─── Proxies (Must be declared before ToolFlowBuilder uses them) ─────────────
 
@@ -276,11 +277,11 @@ export class AIQBuilder {
         return this.onItem();
     }
 
-    toJSON(): any[] {
-        return JSON.parse(JSON.stringify(this.calls));
+    toJSON(): any {
+        return compileToAST(this.calls);
     }
 
-    run(): any[] {
+    run(): any {
         return this.toJSON();
     }
 
@@ -451,11 +452,11 @@ export class ToolFlowBuilder {
         return this.parent;
     }
 
-    toJSON(): any[] {
+    toJSON(): any {
         return this.parent.toJSON();
     }
 
-    run(): any[] {
+    run(): any {
         return this.toJSON();
     }
 }

@@ -142,10 +142,15 @@ export class RequestProcessor {
                 });
             }
 
+            const ast: any = req.ast;
             const toolCalls: any = req.toolCalls;
-            if (Array.isArray(toolCalls) && toolCalls.length > 0) {
-                // Use the context from the request entry
-                const initialContext = (req.context as any) || {};
+            const initialContext = (req.context as any) || {};
+
+            if (ast) {
+                // Execute the new Formal Execution AST
+                await this.executeAST(ast, req, resourceStack, response.id, initialContext);
+            } else if (Array.isArray(toolCalls) && toolCalls.length > 0) {
+                // Legacy callback-based JSON execution
                 await this.executeToolSequence(toolCalls, req, resourceStack, response.id, initialContext.toolResults || {}, initialContext.toolData || null, initialContext);
             } else {
                 console.log(`[RequestProcessor] Nothing to do for request ${req.id}.`);
@@ -205,7 +210,120 @@ export class RequestProcessor {
     }
 
     /**
-     * Executes a sequence of tool calls. Chained callbacks execute recursively here.
+     * Executes the new Formal Execution AST.
+     * Evaluates control flow nodes (Sequence, ForEach, Spawn) and ToolNodes.
+     */
+    private async executeAST(
+        node: any,
+        req: any,
+        resourceStack: any[],
+        responseId: number,
+        context: Record<string, any>
+    ) {
+        if (!node) return;
+
+        switch (node.type) {
+            case 'Sequence': {
+                for (const step of node.steps || []) {
+                    await this.executeAST(step, req, resourceStack, responseId, context);
+                }
+                break;
+            }
+
+            case 'ToolTask': {
+                const materializedArgs = await this.materializeToolArgs(node.args, {
+                    ...context,
+                    resources: resourceStack,
+                    conversationId: req.conversationId
+                });
+
+                const result: any = await executeTool(
+                    node.tool,
+                    materializedArgs,
+                    this.prisma,
+                    req.userId,
+                    req
+                );
+
+                console.log(`[AST Executor] Tool ${node.tool} result: data=${!!result?.data}`);
+                
+                // Expose tool results in context for downstream nodes
+                if (!context.toolData) context.toolData = {};
+                context.toolData[node.tool] = result?.data ?? result;
+                
+                // Expose full raw tool output for structural iteration (.items)
+                // Normalize legacy .extractedItems to .items for uniform AST iteration
+                if (result && result.extractedItems && !result.items) {
+                    result.items = result.extractedItems;
+                }
+                if (!context.toolOutputs) context.toolOutputs = {};
+                context.toolOutputs[node.tool] = result;
+                
+                // Persistence
+                const responseData = result?.data ?? result;
+                if (responseData) {
+                    let content = typeof responseData === 'string' ? responseData : JSON.stringify(responseData, null, 2);
+                    await this.prisma.response.update({ where: { id: responseId }, data: { content } });
+                }
+                break;
+            }
+
+            case 'ForEach': {
+                // Resolve collection
+                const resolvedCollection = await this.materializeToolArgs({ items: node.collection }, {
+                    ...context,
+                    resources: resourceStack,
+                    conversationId: req.conversationId
+                });
+                
+                let items = resolvedCollection.items;
+                if (typeof items === 'string') {
+                    try { items = JSON.parse(items); } catch(e) {}
+                }
+                if (!Array.isArray(items)) {
+                    console.log(`[AST Executor] ForEach collection ${node.collection} did not resolve to an array.`);
+                    break;
+                }
+
+                console.log(`[AST Executor] ForEach iterating over ${items.length} items`);
+                for (const item of items) {
+                    const iterationContext = { ...context, [node.iterator]: item, item: item };
+                    await this.executeAST(node.body, req, resourceStack, responseId, iterationContext);
+                }
+                break;
+            }
+
+            case 'Spawn': {
+                const childReq = await this.prisma.request.create({
+                    data: {
+                        userId: req.userId,
+                        projectId: req.projectId,
+                        conversationId: req.conversationId,
+                        parentId: req.id,
+                        status: 'NEW',
+                        toolName: 'AST_Spawn',
+                        context: context, // Inherit materialization environment
+                        ast: node.body,
+                        resources: {
+                            connect: resourceStack.map(r => ({ id: r.id }))
+                        }
+                    }
+                });
+                console.log(`[AST Executor] Spawned detached child Request ${childReq.id}`);
+                
+                if (this.isAdHoc) {
+                    await this.processRequest(childReq);
+                }
+                break;
+            }
+
+            default:
+                console.warn(`[AST Executor] Unknown node type: ${node.type}`);
+        }
+    }
+
+    /**
+     * Executes a sequence of tool calls. Chained callbacks execute recursively here. (LEGACY)
      */
     private async executeToolSequence(
         calls: any[], 
@@ -448,6 +566,7 @@ export class RequestProcessor {
                     if (root === 'resource') source = resource;
                     else if (root === 'item') source = item;
                     else if (root === 'toolData') source = toolData;
+                    else if (root === 'toolOutputs') source = (context as any).toolOutputs || {};
                     else if (root === 'conversation') source = conversationView;
                     else if (root === 'VOCAB') source = VOCAB;
                     else if (root && toolResults[root]) source = toolResults[root];
@@ -469,6 +588,7 @@ export class RequestProcessor {
                     if (root === 'resource') source = resource;
                     else if (root === 'item') source = item;
                     else if (root === 'toolData') source = toolData;
+                    else if (root === 'toolOutputs') source = (context as any).toolOutputs || {};
                     else if (root === 'conversation') source = conversationView;
                     else if (root === 'VOCAB') source = VOCAB;
                     else if (root && toolResults[root]) source = toolResults[root];

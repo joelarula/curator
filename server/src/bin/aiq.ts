@@ -73,25 +73,21 @@ async function main() {
             return;
         }
 
-        // Pick the first builder that actually has calls
-        const primaryBuilder = chains.find(c => c.toJSON().length > 0) || chains[chains.length - 1];
-        const toolCalls = primaryBuilder!.toJSON();
+        const primaryBuilder = chains.find(c => c.toJSON() !== null) || chains[chains.length - 1];
+        const ast = primaryBuilder!.toJSON();
         
-        if (toolCalls.length === 0) {
+        if (!ast) {
             return;
         }
 
-        
         // Create the root request to drive the pipeline
         const request = await prisma.request.create({
             data: {
                 userId: user.id,
                 conversationId: conversation.id,
-                toolName: toolCalls[0].name,
-                toolArgs: toolCalls[0].args ?? null,
-                toolCalls: toolCalls, // Full chain for orchestration
-                status: 'NEW',
-                executionScheduled: toolCalls[0].executionScheduled || null
+                toolName: 'AST_Root',
+                ast: ast, // Full AST for orchestration
+                status: 'NEW'
             }
 
         });

@@ -204,7 +204,8 @@ model Script {
   id        Int       @id @default(autoincrement())
   name      String
   body      String?   @db.Text // The dynamic logic (JS)
-  toolCalls Json? // The static/compiled logic
+  toolCalls Json? // Legacy
+  ast       Json? // Formal Execution AST
   userId    String?
   user      User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
   
@@ -241,7 +242,8 @@ model Request {
   projectId String?
   project   Project?   @relation(fields: [projectId], references: [id])
 
-  toolCalls Json?
+  toolCalls Json? // Legacy
+  ast       Json? // Formal Execution AST
   toolArgs  Json?
   callbacks Json?
   context   Json?

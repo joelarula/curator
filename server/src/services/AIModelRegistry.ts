@@ -70,7 +70,7 @@ export const AI_MODELS: AIModelDefinition[] = [
     },
     {
         shortName: 'g31fl',
-        name: 'gemini-3.1-flash-lite-preview',
+        name: 'gemini-3.1-flash-lite',
         provider: 'Google',
         type: 'GENERATIVE',
         version: '3.1'

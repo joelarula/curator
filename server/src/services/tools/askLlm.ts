@@ -10,7 +10,7 @@ export async function askLlm(
 ) {
     console.log(`[Tool] Executing ask_llm...`);
     const { prompt: rawPrompt, saveAsRole, model: modelArg, output = 'TEXT' } = args;
-    const modelName = modelArg ? resolveModelName(modelArg) : 'gemini-3.1-flash-lite-preview';
+    const modelName = modelArg ? resolveModelName(modelArg) : 'gemini-3.1-flash-lite';
     const modelShortName = AI_MODELS.find(m => m.name === modelName)?.shortName ?? modelArg ?? 'g31fl';
     
     if (!rawPrompt) {
