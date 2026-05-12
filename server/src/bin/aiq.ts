@@ -13,6 +13,8 @@ import { AIQ, AIQBuilder } from '../services/AIQ.js';
 
 async function main() {
     const args = process.argv.slice(2);
+
+
     if (args.length === 0) {
         console.error('Usage: aiq <script-file.aiq> [args...]');
         process.exit(1);
@@ -20,16 +22,17 @@ async function main() {
 
     const scriptPath = path.resolve(args[0]!);
     const scriptArgsStr = args.slice(1).join(' ');
-    let scriptArgs: any = {};
+    let scriptArgs: any = args.slice(1); // Default to array of strings
     
-    // Try to parse JSON args if provided
-    if (scriptArgsStr.trim().startsWith('{')) {
+    // Try to parse JSON args if provided and it looks like an object/array
+    if (scriptArgsStr.trim().startsWith('{') || scriptArgsStr.trim().startsWith('[')) {
         try {
             scriptArgs = JSON.parse(scriptArgsStr);
         } catch (e) {
-            console.warn('[AIQ] Failed to parse JSON args, using as raw string.');
+            console.warn('[AIQ] Failed to parse JSON args, using as raw strings.');
         }
     }
+
 
     const connectionString = process.env.DATABASE_URL!;
     const pool = new Pool({ connectionString });
@@ -45,8 +48,15 @@ async function main() {
 
         // 2. Evaluate the script
         // Use pathToFileURL for Windows absolute path compatibility
+        (AIQ as any).setArgs(scriptArgs, scriptArgsStr);
+        console.log(`[AIQ] Global state set:`, JSON.stringify((global as any).__AIQ_STATE__));
+        
         const { pathToFileURL } = await import('node:url');
         await import(pathToFileURL(scriptPath).href);
+        
+        console.log(`[AIQ] Script imported. Root chains:`, (AIQ as any).rootChains.length);
+
+
 
         // 3. Resolve Conversation
         let conversation = await prisma.conversation.findFirst({ where: { userId: user.id } });
@@ -68,11 +78,9 @@ async function main() {
         const toolCalls = primaryBuilder!.toJSON();
         
         if (toolCalls.length === 0) {
-            console.log("[AIQ] No tool calls found in the primary chain.");
             return;
         }
 
-        console.log(`[AIQ] Executing orchestrated pipeline (${toolCalls.length} steps)...`);
         
         // Create the root request to drive the pipeline
         const request = await prisma.request.create({
@@ -82,8 +90,10 @@ async function main() {
                 toolName: toolCalls[0].name,
                 toolArgs: toolCalls[0].args ?? null,
                 toolCalls: toolCalls, // Full chain for orchestration
-                status: 'NEW'
+                status: 'NEW',
+                executionScheduled: toolCalls[0].executionScheduled || null
             }
+
         });
 
         await processor.processRequest(request);

@@ -1,5 +1,6 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import type { QueryResourcesInput, QueryResourcesOutput } from './types.js';
+import { VOCAB } from '../../constants/vocabulary.js';
 
 /**
  * Advanced Resource Query tool.
@@ -19,9 +20,12 @@ export async function queryResources(
         updatedAfter, updatedBefore,
         relation,
         relations,
+        excludeRelation,
+        excludeRelations,
         limit = 50,
         offset = 0
     } = args;
+
 
 
     console.log(`[Tools] query_resources: criteria=${JSON.stringify(args)}`);
@@ -46,6 +50,7 @@ export async function queryResources(
         const filter: Prisma.RelationWhereInput = {};
         if (rel.predicateUri) filter.predicate = { uri: rel.predicateUri };
         if (rel.objectUri)    filter.object = { uri: rel.objectUri };
+        else if (rel.objectUriContains) filter.object = { uri: { contains: rel.objectUriContains, mode: 'insensitive' } };
         if (rel.subjectUri)   filter.subject = { uri: rel.subjectUri };
 
         if (rel.literalValue !== undefined || rel.literalGte !== undefined || rel.literalLte !== undefined) {
@@ -67,8 +72,8 @@ export async function queryResources(
         and.push({
             subjectRelations: {
                 some: {
-                    predicate: { uri: 'https://schema.org/status' },
-                    object: { uri: { in: statusList.map(s => `status:${s.toLowerCase()}`) } }
+                    predicate: { uri: VOCAB.PROP.status },
+                    object: { uri: { in: statusList.flatMap(s => [`status:${s.toLowerCase()}`, `status:status:${s.toLowerCase()}`]) } }
                 }
             }
         });
@@ -79,21 +84,23 @@ export async function queryResources(
         and.push({
             subjectRelations: {
                 some: {
-                    predicate: { uri: 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type' },
-                    object: { uri: { in: typeList.map(t => `type:${t.toLowerCase()}`) } }
+                    predicate: { uri: VOCAB.RDF.type },
+                    object: { uri: { in: typeList.flatMap(t => [`type:${t.toLowerCase()}`, `type:type:${t.toLowerCase()}`]) } }
                 }
             }
         });
     }
+
 
     if (language) {
         const langList = Array.isArray(language) ? language : [language];
         and.push({
             subjectRelations: {
                 some: {
-                    predicate: { uri: 'https://schema.org/inLanguage' },
+                    predicate: { uri: VOCAB.SCHEMA.inLanguage },
                     object: { uri: { in: langList.map(l => `lang:${l.toLowerCase()}`) } }
                 }
+
             }
         });
     }
@@ -120,13 +127,24 @@ export async function queryResources(
     if (args.relation) {
         and.push({ subjectRelations: { some: buildRelationFilter(args.relation) } });
     }
-    if ((args as any).relations && (args as any).relations.length > 0) {
-        for (const rel of (args as any).relations) {
+    if (args.relations && args.relations.length > 0) {
+        for (const rel of args.relations) {
             and.push({ subjectRelations: { some: buildRelationFilter(rel) } });
         }
     }
 
+    // 5. Exclusion Filters (NONE)
+    if (args.excludeRelation) {
+        and.push({ subjectRelations: { none: buildRelationFilter(args.excludeRelation) } });
+    }
+    if (args.excludeRelations && args.excludeRelations.length > 0) {
+        for (const rel of args.excludeRelations) {
+            and.push({ subjectRelations: { none: buildRelationFilter(rel) } });
+        }
+    }
+
     const where: Prisma.ResourceWhereInput = { AND: and };
+
 
     console.log(`[Tools] query_resources: generated where =`, JSON.stringify(where, null, 2));
 

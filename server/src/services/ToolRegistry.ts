@@ -23,6 +23,10 @@ import { setContext, getContext } from './tools/context.js';
 import { getResource }         from './tools/getResource.js';
 import { extractUdcHierarchy } from './tools/udcUtils.js';
 import { format_list }         from './tools/formatList.js';
+import { selectObjects }        from './tools/selectObjects.js';
+import { trigger_agent }      from './tools/trigger_agent.js';
+
+
 
 
 
@@ -189,6 +193,18 @@ const TOOLS: ToolDefinition[] = [
         version: '1.0.0',
         handler: format_list,
     },
+    {
+        name: 'internal:trigger_agent',
+        description: 'Internal tool to trigger an agent and schedule the next run.',
+        version: '1.0.0',
+        handler: trigger_agent,
+    },
+    {
+        name: 'select_objects',
+        description: 'Generic tool to extract object resources from a list of relations based on predicate URI.',
+        version: '1.0.0',
+        handler: selectObjects,
+    },
 
 ];
 
@@ -261,7 +277,11 @@ declare module './AIQ.js' {
         udc_cat(args: T.UdcCatInput): AIQ & AIQPlugins;
         iterate(args: T.IterateInput): AIQ & AIQPlugins;
         debug(args: T.DebugInput): AIQ & AIQPlugins;
+        select_objects(args: { items: any[], predicateUri: string }): AIQ & AIQPlugins;
+        as(name: string): AIQ & AIQPlugins;
     }
+
+
 
 
 }

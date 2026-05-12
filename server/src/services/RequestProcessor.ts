@@ -2,7 +2,6 @@ import { PrismaClient } from '@prisma/client';
 import { executeTool } from './Tools.js';
 import { VOCAB } from '../constants/vocabulary.js';
 
-
 export class RequestProcessor {
     private prisma: PrismaClient;
     private timer: NodeJS.Timeout | null = null;
@@ -42,7 +41,8 @@ export class RequestProcessor {
                     SET status = 'WAITING', "lockedBy" = ${this.workerId}, "lockedAt" = NOW()
                     WHERE id IN (
                         SELECT id FROM "Request"
-                        WHERE status = 'NEW'
+                        WHERE status = 'NEW' 
+                          AND ( "executionScheduled" IS NULL OR "executionScheduled" <= NOW() )
                         ORDER BY "createdAt" ASC
                         LIMIT 10
                         FOR UPDATE SKIP LOCKED
@@ -81,7 +81,6 @@ export class RequestProcessor {
                 include: { resources: true }
             });
 
-
             if (!reqRecord) break;
 
             // Add all resources of this request to the stack (at the end of current stack)
@@ -94,12 +93,21 @@ export class RequestProcessor {
 
     public async processRequest(request: any) {
         console.log(`[RequestProcessor] Processing request ${request.id}`);
+
+        // If scheduled in the future, wait (especially useful for ad-hoc testing)
+        if (request.executionScheduled && new Date(request.executionScheduled) > new Date()) {
+            const delay = new Date(request.executionScheduled).getTime() - Date.now();
+            if (delay > 0) {
+                console.log(`[RequestProcessor] Request ${request.id} is scheduled for ${request.executionScheduled}. Waiting ${Math.round(delay/1000)}s...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+
         try {
             // 1. Ensure the Conversation is anchored as a Semantic Resource in the graph
             const convResource = await this.ensureConversationResource(request.conversationId, request.userId);
 
             // 2. Fetch request details
-
             const req = await this.prisma.request.findUnique({
                 where: { id: request.id },
                 include: { user: true, resources: true }
@@ -115,7 +123,6 @@ export class RequestProcessor {
                 });
                 req.resources.push(convResource);
             }
-
 
             // Resolve the complete Resource Stack for this request
             const resourceStack = await this.resolveResourceStack(req.id);
@@ -137,7 +144,9 @@ export class RequestProcessor {
 
             const toolCalls: any = req.toolCalls;
             if (Array.isArray(toolCalls) && toolCalls.length > 0) {
-                await this.executeToolSequence(toolCalls, req, resourceStack, response.id);
+                // Use the context from the request entry
+                const initialContext = (req.context as any) || {};
+                await this.executeToolSequence(toolCalls, req, resourceStack, response.id, initialContext.toolResults || {}, initialContext.toolData || null, initialContext);
             } else {
                 console.log(`[RequestProcessor] Nothing to do for request ${req.id}.`);
             }
@@ -153,12 +162,18 @@ export class RequestProcessor {
 
         } catch (error: any) {
             console.error(`[RequestProcessor] Failed request ${request.id}:`, error);
+            
+            // Exponential backoff: 5s, 15s, 45s
+            const backoffSeconds = Math.pow(3, request.retryCount) * 5;
+            const nextScheduled = new Date(Date.now() + backoffSeconds * 1000);
+
             // Revert status to NEW for retry, or FAILED if max retries
             await this.prisma.request.update({
                 where: { id: request.id },
                 data: {
                     status: request.retryCount >= 3 ? 'FAILED' : 'NEW',
                     retryCount: { increment: 1 },
+                    executionScheduled: request.retryCount >= 3 ? null : nextScheduled,
                     lockedBy: null,
                     lockedAt: null
                 }
@@ -187,9 +202,7 @@ export class RequestProcessor {
                 isPublished: false
             }
         });
-
     }
-
 
     /**
      * Executes a sequence of tool calls. Chained callbacks execute recursively here.
@@ -209,25 +222,30 @@ export class RequestProcessor {
         for (const call of calls) {
             if (!call.name) continue;
 
-            // Handle legacy spawn boolean or new ToolFlow structure
             const isSpawn = call.spawn === true;
             if (isSpawn) {
+                // SPAWN Detached Request
                 const childReq = await this.prisma.request.create({
                     data: {
-                        status: 'NEW',
-                        toolName: call.name,
-                        toolArgs: call.args ?? null,
-                        callbacks: call.callbacks ?? null,
-                        scriptId: req.scriptId,
                         userId: req.userId,
-                        toolCalls: [{ ...call, spawn: false }] as any,
+                        projectId: req.projectId,
                         conversationId: req.conversationId,
                         parentId: req.id,
-                        // Inherit current resources
-                        ...(req.resources?.length ? { resources: { connect: req.resources.map((r: any) => ({ id: r.id })) } } : {}),
+                        status: 'NEW',
+                        toolName: call.name,
+                        executionScheduled: call.executionScheduled || null,
+                        context: { 
+                            ...initialContext, 
+                            toolResults, 
+                            toolData: currentToolData 
+                        },
+                        toolCalls: [{ ...call, spawn: false }] as any,
+                        resources: {
+                            connect: resourceStack.map(r => ({ id: r.id }))
+                        }
                     }
                 });
-                console.log(`[Orchestrator] Spawned detached child Request for tool: ${call.name}`);
+                console.log(`[Orchestrator] Spawned detached child Request ${childReq.id} for tool: ${call.name}`);
                 
                 if (this.isAdHoc) {
                     await this.processRequest(childReq);
@@ -238,13 +256,12 @@ export class RequestProcessor {
             // Execute INLINE
             const { onItemExtracted: _oie, onSuccess: _os, ...toolArgs } = call.args ?? {};
             const materializedArgs = await this.materializeToolArgs(toolArgs, { 
+                ...initialContext,
                 resources: resourceStack,
                 toolResults,
                 toolData: currentToolData,
-                conversationId: req.conversationId,
-                ...initialContext
+                conversationId: req.conversationId
             });
-
 
             const result: any = await executeTool(
                 call.name,
@@ -254,41 +271,14 @@ export class RequestProcessor {
                 req
             );
 
-
             console.log(`[Orchestrator] Tool ${call.name} result: data=${!!result?.data}, createdItem=${!!result?.createdItem}`);
 
             // Store result for subsequent tools in this chain
             currentToolData = result.data ?? result;
             toolResults[call.name] = currentToolData;
 
-            // Persistence: AI Model
-            if (result?.aiModel) {
-                const aiModel = await this.prisma.aIModel.upsert({
-                    where: { name: result.aiModel.name },
-                    update: { provider: result.aiModel.provider, type: result.aiModel.type || 'GENERATIVE' },
-                    create: {
-                        shortName: result.aiModel.shortName || result.aiModel.name.split('/').pop()?.toLowerCase() || 'unknown',
-                        name: result.aiModel.name,
-                        provider: result.aiModel.provider,
-                        type: result.aiModel.type || 'GENERATIVE'
-                    }
-                });
-                await this.prisma.request.update({ where: { id: req.id }, data: { aiModelId: aiModel.id } });
-            }
-
-            // Persistence: Created Item
-            if (result?.createdItem) {
-                await this.prisma.request.update({
-                    where: { id: req.id },
-                    data: { resources: { connect: { id: result.createdItem.id } } }
-                });
-                // Update local stack for subsequent tools in this chain
-                resourceStack.unshift(result.createdItem);
-                
-                if (!req.resources) req.resources = [];
-                if (!req.resources.some((r: any) => r.id === result.createdItem.id)) {
-                    req.resources.push(result.createdItem);
-                }
+            if (call.as) {
+                (initialContext as any)[call.as] = currentToolData;
             }
 
             // Persistence: Response Data
@@ -306,9 +296,10 @@ export class RequestProcessor {
             const callbacks = call.callbacks || {};
             for (const [hook, flow] of Object.entries(callbacks)) {
                 const items = result?.items || result?.extractedItems;
+
                 const context = {
                     ...initialContext,
-                    toolData: result.data,
+                    toolData: currentToolData,
                     toolResults
                 };
 
@@ -320,26 +311,31 @@ export class RequestProcessor {
                             parentItem: initialContext.item 
                         };
                         
-                        // Apply alias if specified (e.g. .as('article'))
                         const alias = (flow as any).as;
                         if (alias) {
                             (childContext as any)[alias] = item;
                         }
 
-
                         await this.dispatchFlow(flow as any, req, resourceStack, responseId, childContext);
                     }
                 } else if (hook === 'onSuccess' && result) {
+                    const childContext = { 
+                        ...context,
+                        item: initialContext.item,
+                        parentItem: initialContext.parentItem
+                    };
+                    
+                    const alias = (flow as any).as;
+                    if (alias && result.createdItem) {
+                        (childContext as any)[alias] = result.createdItem;
+                    }
 
-                    await this.dispatchFlow(flow as any, req, resourceStack, responseId, context);
+                    await this.dispatchFlow(flow as any, req, resourceStack, responseId, childContext);
                 }
             }
         }
     }
 
-    /**
-     * Dispatches a flow (either 'spawn' or 'chain').
-     */
     private async dispatchFlow(flow: any, req: any, resourceStack: any[], responseId: number, context: any) {
         let childCalls: any[] = [];
         let scriptId = req.scriptId;
@@ -356,40 +352,37 @@ export class RequestProcessor {
 
         if (!childCalls || childCalls.length === 0) return;
 
-        // Materialize templates in the calls using the provided context
-        const materializedCalls = await this.materializeToolArgs(childCalls, {
-            resources: resourceStack,
-            conversationId: req.conversationId,
-            ...context
-        });
-
-
         if (flow.chain) {
-            // IMMEDIATE RECURSION
+            // Materialize templates in the calls using the provided context for IMMEDIATE execution
+            const materializedCalls = await this.materializeToolArgs(childCalls, {
+                resources: resourceStack,
+                conversationId: req.conversationId,
+                ...context
+            });
             console.log(`[Orchestrator] Chaining ${materializedCalls.length} calls immediately.`);
             await this.executeToolSequence(materializedCalls, req, resourceStack, responseId, context.toolResults, context.toolData, context);
-
         } else {
-            // SPAWN NEW REQUEST
-            const primary = materializedCalls[0];
+            // SPAWN NEW REQUEST - Save RAW AST (templates preserved)
+            const primary = childCalls[0];
             const childReq = await this.prisma.request.create({
                 data: {
                     status: 'NEW',
                     toolName: primary.name,
-                    toolArgs: primary.args,
-                    callbacks: primary.callbacks,
+                    toolCalls: childCalls, // Save the RAW tree
                     scriptId: scriptId,
                     userId: req.userId,
-                    toolCalls: materializedCalls,
+                    projectId: req.projectId,
                     conversationId: req.conversationId,
                     parentId: req.id,
-                    // Connect nearest item if provided in context
+                    executionScheduled: primary.executionScheduled || null,
+                    context: context, // Save the materialization environment
                     resources: {
-                        connect: context.item?.id ? [{ id: context.item.id }] : []
+                        connect: resourceStack.map(r => ({ id: r.id }))
                     }
                 }
             });
-            console.log(`[Orchestrator] Spawned child request for ${primary.name}`);
+            console.log(`[Orchestrator] Spawned detached child Request ${childReq.id} for tool: ${primary.name}`);
+
             
             if (this.isAdHoc) {
                 await this.processRequest(childReq);
@@ -404,13 +397,9 @@ export class RequestProcessor {
         };
     }
 
-    /**
-     * Replaces placeholders like {{resource.title}}, {{item.code}}, {{toolData.result}}, {{conversation.topic}}, or {{tool_name.field}} in tool arguments.
-     */
     private async materializeToolArgs(args: any, context: { resources?: any[], toolData?: any, item?: any, toolResults?: Record<string, any>, conversationId?: number }): Promise<any> {
         if (!args) return args;
 
-        // Pre-fetch conversation with related resources
         let conversationView: any = {};
         if (context.conversationId) {
             const conv = await this.prisma.conversation.findUnique({ 
@@ -425,23 +414,19 @@ export class RequestProcessor {
             };
         }
 
-
         const resource = context.resources?.[0];
         const toolData = context.toolData || {};
         const item = context.item || {};
         const toolResults = context.toolResults || {};
-
+        
         const processRecursive = async (obj: any): Promise<any> => {
             if (obj === null || obj === undefined) return obj;
-
             if (Array.isArray(obj)) {
                 return Promise.all(obj.map(item => processRecursive(item)));
             }
-
             if (typeof obj === 'object') {
                 const result: any = {};
                 for (const [k, v] of Object.entries(obj)) {
-                    // Don't materialize callback flows yet
                     if (k === 'spawn' || k === 'chain' || k === 'onSuccess' || k === 'onItemExtracted' || k === 'onFailure') {
                         result[k] = v;
                     } else {
@@ -450,15 +435,12 @@ export class RequestProcessor {
                 }
                 return result;
             }
-
             if (typeof obj === 'string') {
-                // 1. Handle Full Match (Direct object injection)
                 const fullMatch = obj.match(/^\{\{([^}]+)\}\}$/);
                 if (fullMatch) {
                     const path = fullMatch[1];
                     if (!path) return obj;
                     const parts = path.split('.');
-
                     const root = parts[0];
                     const property = parts.slice(1).join('.');
 
@@ -471,15 +453,12 @@ export class RequestProcessor {
                     else if (root && toolResults[root]) source = toolResults[root];
                     else if (root && (context as any)[root]) source = (context as any)[root];
 
-
                     if (source) {
-                        const pathString = path || "";
                         const value = property ? property.split('.').reduce((acc: any, p: string) => acc?.[p], source) : source;
                         if (value !== undefined && value !== null && typeof value !== 'function') return value;
                     }
                 }
 
-                // 2. Handle Interpolation (String replacement)
                 return obj.replace(/\{\{([^}]+)\}\}/g, (match, pathString) => {
                     const path = pathString || "";
                     const parts = path.split('.');
@@ -495,23 +474,14 @@ export class RequestProcessor {
                     else if (root && toolResults[root]) source = toolResults[root];
                     else if (root && (context as any)[root]) source = (context as any)[root];
 
-
                     if (!source) return match;
-
                     const value = property ? property.split('.').reduce((acc: any, p: string) => acc?.[p], source) : source;
-                    
-                    console.log(`[RequestProcessor] Interpolating: match="${match}" path="${path}" -> value="${value}" (Full string: "${obj}")`);
-
-
                     return value !== undefined && value !== null && typeof value !== 'function' ? String(value) : match;
                 });
-
             }
-
             return obj;
         };
 
         return processRecursive(args);
     }
-
 }

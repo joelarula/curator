@@ -13,6 +13,11 @@ export const RDFS = {
     label: 'rdfs:label',
 } as const;
 
+export const DC = {
+    subject: 'dc:subject',
+} as const;
+
+
 
 export const SCHEMA = {
     about: 'schema:about',
@@ -46,7 +51,9 @@ export const TYPE = {
     agent: 'type:agent',
     concept: 'type:concept',
     logicalFallacy: 'type:logical_fallacy',
+    udcCategory: 'udc:category',
 } as const;
+
 
 export const STATUS = {
     draft: 'status:draft',
@@ -72,5 +79,7 @@ export const VOCAB = {
     TYPE,
     STATUS,
     LANGUAGES,
+    DC,
 } as const;
+
 

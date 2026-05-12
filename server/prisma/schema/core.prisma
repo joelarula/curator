@@ -244,12 +244,19 @@ model Request {
   toolCalls Json?
   toolArgs  Json?
   callbacks Json?
+  context   Json?
+
 
   resources Resource[] @relation("RequestResources")
 
   conversationId Int
   conversation   Conversation @relation(fields: [conversationId], references: [id])
+  agentId        String?
+  agent          Agent?       @relation(fields: [agentId], references: [id])
   scheduledAt    DateTime     @default(now())
+
+  executionScheduled DateTime? @default(now())
+
   lockedBy       String?
   lockedAt       DateTime?
   deletedAt DateTime?
@@ -370,6 +377,8 @@ model Agent {
   deletedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  requests  Request[]
+
 
 
   @@unique([name])

@@ -10,46 +10,22 @@ const __dirname = path.dirname(__filename);
 
 export class AgentScheduler {
     private prisma: PrismaClient;
-    private bree: Bree;
     private syncTimer: NodeJS.Timeout | null = null;
 
     constructor(prisma: PrismaClient) {
         this.prisma = prisma;
-
-        // Initialize Bree. We set the root to our current compiled directory 
-        // to find the job files correctly in dist/
-        this.bree = new Bree({
-            root: path.join(__dirname, '..', 'jobs'),
-            defaultExtension: process.env.NODE_ENV === 'production' ? 'js' : 'ts',
-            acceptedExtensions: ['ts', 'js'],
-            logger: {
-                info: logger.info.bind(logger),
-                warn: logger.warn.bind(logger),
-                error: logger.error.bind(logger),
-            },
-
-            // Provide a dormant noop job to satisfy Bree's directory check
-            jobs: [
-                { name: 'noop', interval: false }
-            ]
-        });
-
-
-
-
     }
 
     async start() {
-        logger.info('[AgentScheduler] Starting Bree scheduler...');
-        await this.bree.start();
-        // Sync database agents with Bree jobs initially and then every minute
+        logger.info('[AgentScheduler] Starting Unified Scheduler heartbeat...');
+        // Initial sync
         await this.syncJobs();
+        // Check every minute if any agents need their "Next Run" request seeded
         this.syncTimer = setInterval(() => this.syncJobs(), 60000);
     }
 
     async stop() {
         if (this.syncTimer) clearInterval(this.syncTimer);
-        await this.bree.stop();
     }
 
     private async syncJobs() {
@@ -59,61 +35,49 @@ export class AgentScheduler {
                 where: { enabled: true, existent: true }
             });
 
-
-
-            const currentJobs = this.bree.config.jobs.map(j => typeof j === 'string' ? j : j.name);
-            const activeAgentIds = new Set(agents.map(a => `agent-${a.id}`));
-
-            // Remove jobs for agents that are no longer active/enabled
-            for (const jobName of currentJobs) {
-                if (jobName.startsWith('agent-') && !activeAgentIds.has(jobName)) {
-                    await this.bree.remove(jobName);
-                    logger.info(`[AgentScheduler] Removed inactive job: ${jobName}`);
-                }
-            }
-
-            // Add or update jobs
             for (const agent of agents) {
-                const jobName = `agent-${agent.id}`;
-                const jobDef = {
-                    name: jobName,
-                    path: path.join(__dirname, '..', 'jobs', 'triggerAgent.ts'), // Uses TS in dev
-                    interval: agent.schedule, // Bree handles natural language (e.g., 'every 10 minutes')
-                    worker: {
-                        workerData: {
-                            agentId: agent.id,
-                            userId: agent.userId,
-                            scriptId: agent.scriptId,
-                            name: agent.name
-                        }
+                // Check if there's already a pending trigger request for this agent
+                const pendingTrigger = await this.prisma.request.findFirst({
+                    where: {
+                        agentId: agent.id,
+                        toolName: 'internal:trigger_agent',
+                        status: 'NEW'
                     }
-                };
+                });
 
-                const existingJob = this.bree.config.jobs.find(j => (typeof j !== 'string' && j.name === jobName));
-                if (!currentJobs.includes(jobName)) {
-                    await this.bree.add(jobDef);
-                    this.bree.start(jobName); // Start the specific job schedule
-                    logger.info(`[AgentScheduler] Added new job: ${jobName} running ${agent.schedule}`);
-                    logger.debug(`[AgentScheduler] Job parameters: %s`, JSON.stringify(jobDef, null, 2));
-                } else if (existingJob && typeof existingJob !== 'string' && existingJob.interval !== agent.schedule) {
-                    // Schedule changed: remove and re-add job
-                    await this.bree.remove(jobName);
-                    await this.bree.add(jobDef);
-                    this.bree.start(jobName);
-                    logger.info(`[AgentScheduler] Updated job: ${jobName} to new schedule ${agent.schedule}`);
-                    logger.debug(`[AgentScheduler] Updated job parameters: %s`, JSON.stringify(jobDef, null, 2));
+                if (!pendingTrigger) {
+                    logger.info(`[AgentScheduler] Seeding initial trigger request for agent: ${agent.name}`);
+                    
+                    // Use a placeholder conversation if one doesn't exist
+                    let conversation = await this.prisma.conversation.findFirst({ where: { userId: agent.userId } });
+                    if (!conversation) {
+                        conversation = await this.prisma.conversation.create({ data: { userId: agent.userId } });
+                    }
+
+                    // Create the initial trigger request (run immediately or based on schedule)
+                    await this.prisma.request.create({
+                        data: {
+                            status: 'NEW',
+                            toolName: 'internal:trigger_agent',
+                            toolArgs: { agentId: agent.id },
+                            userId: agent.userId,
+                            conversationId: conversation.id,
+                            agentId: agent.id,
+                            executionScheduled: new Date() // Start NOW
+                        }
+                    });
                 }
             }
         } catch (error) {
-            logger.error({ err: error }, '[AgentScheduler] Error syncing jobs');
+            logger.error({ err: error }, '[AgentScheduler] Error syncing unified jobs');
         }
     }
 
     getState() {
         return {
             isRunning: this.syncTimer !== null,
-            activeJobs: this.bree ? Object.keys(this.bree.workers).length : 0,
-            totalJobs: this.bree ? this.bree.config.jobs.length : 0
+            unifiedMode: true
         };
     }
 }
+

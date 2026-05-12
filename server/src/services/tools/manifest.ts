@@ -25,7 +25,11 @@ export const TOOL_NAMES = [
     'get_context',
     'get_resource',
     'extract_udc_hierarchy',
-    'format_list'
+    'format_list',
+    'select_objects',
+    'internal:trigger_agent'
+
+
 
 
 

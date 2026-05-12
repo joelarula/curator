@@ -166,7 +166,9 @@ export interface QueryResourcesInput {
 
     // Advanced Relation-based search
     relation?: RelationFilter;
-    relations?: RelationFilter[]; // New: Intersection of multiple relation criteria
+    relations?: RelationFilter[];
+    excludeRelation?: RelationFilter;
+    excludeRelations?: RelationFilter[];
 
     limit?: number;
     offset?: number;
@@ -176,6 +178,7 @@ export interface RelationFilter {
     subjectUri?: string;
     predicateUri?: string;
     objectUri?: string;
+    objectUriContains?: string;
     literalValue?: number;
     literalGte?: number;
     literalLte?: number;
@@ -185,8 +188,9 @@ export interface RelationFilter {
     literalDatatype?: string;
 }
 
+
 export interface QueryResourcesOutput extends ToolResult, Fannable<Resource> {
-    data: { 
+    data: {
         count: number;
         total?: number;
         items?: any[];

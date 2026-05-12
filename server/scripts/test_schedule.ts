@@ -1,0 +1,10 @@
+import { AIQ } from '../src/services/AIQ.js';
+
+console.log("Scheduling a task for 10 seconds from now...");
+
+AIQ
+    .wait(10)
+    .ask_llm({ prompt: "What time is it in 10 seconds?" })
+    .onSuccess().upsert_resource({ uri: "scheduled:result", title: "Scheduled Result" });
+
+console.log("Task scheduled. Run 'npx tsx src/bin/aiq.ts scripts/test_schedule.ts' to test.");

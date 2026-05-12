@@ -23,9 +23,10 @@ export async function getResource(
 
     console.log(`[Tools] get_resource: Fetching resource by ${id ? `ID ${id}` : `URI ${uri}`}`);
 
-    const where: any = id 
-        ? { id, userId: _userId, existent: true } 
-        : { userId_uri: { userId: _userId, uri: uri! }, existent: true };
+    const where: any = id
+        ? { id, existent: true }
+        : { uri: uri!, existent: true };
+
 
 
     const resource = await prisma.resource.findFirst({
