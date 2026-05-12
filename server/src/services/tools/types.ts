@@ -87,7 +87,9 @@ export interface UpsertRelationInput {
     literalDate?: string; // ISO string
     literalBoolean?: boolean;
     literalDatatype?: string;
+    registerAsEnumOption?: boolean;
 }
+
 
 export interface UpsertRelationOutput extends ToolResult {
     data: {

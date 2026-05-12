@@ -4,7 +4,7 @@ AIQ.init();
 
 const flow = AIQ.chain("query_resources", {
     relation: {
-        objectUri: "Majandus"
+        objectUri: "err:ilm"
     },
     limit: 10
 }).onItem().chain((item) => {

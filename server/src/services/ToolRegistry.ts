@@ -22,6 +22,8 @@ import { queryResources }      from './tools/queryResources.js';
 import { setContext, getContext } from './tools/context.js';
 import { getResource }         from './tools/getResource.js';
 import { extractUdcHierarchy } from './tools/udcUtils.js';
+import { format_list }         from './tools/formatList.js';
+
 
 
 
@@ -181,6 +183,13 @@ const TOOLS: ToolDefinition[] = [
         version: '1.0.0',
         handler: extractUdcHierarchy,
     },
+    {
+        name: 'format_list',
+        description: 'Aggregates an array of objects into a single formatted string based on a template.',
+        version: '1.0.0',
+        handler: format_list,
+    },
+
 ];
 
 

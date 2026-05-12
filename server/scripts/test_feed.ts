@@ -8,20 +8,19 @@ AIQ.chain("process_feed", { url: "http://uudised.err.ee/uudised_rss.php" })
             uri: item.link,
             title: item.title,
             description: item.content,
-            type: "ARTICLE",
-            status: "DRAFT",
-            language: "et",
+            type: AIQ.VOCAB.TYPE.article,
+            status: AIQ.VOCAB.STATUS.draft,
+            language: AIQ.VOCAB.LANGUAGES.estonian,
             isPublished: false
         }).chain("upsert_relation", {
             subjectUri: context.feed!.uri, // Typed reference to the feed resource URI
-            predicateUri: "https://schema.org/provider",
+            predicateUri: AIQ.VOCAB.PROP.provider,
             objectUri: item.link
         }).foreach(item.categories).chain<string>((category) => {
             return AIQ.chain("upsert_relation", {
                 subjectUri: item.link,
-                predicateUri: "https://schema.org/about",
-                objectUri: category // The category string from the array
+                predicateUri: "err:about",
+                objectUri: `err:${category}` // The category string from the array
             });
         });
-
     });

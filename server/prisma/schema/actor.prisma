@@ -13,7 +13,9 @@ model User {
   requests        Request[]
   conversations   Conversation[]
   agents          Agent[]
-  feeds           Feed[]
+  projects        Project[]
+
+
 
 
   deletedAt DateTime?

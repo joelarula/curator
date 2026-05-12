@@ -65,65 +65,159 @@
       </v-col>
     </v-row>
 
-    <!-- Advanced Filters -->
+    <!-- Advanced Filters Drawer (Timeline & State) -->
     <v-expand-transition>
-      <div v-if="showFilters" class="mb-8">
+      <div v-if="showFilters" class="mb-6">
         <v-card variant="outlined" class="pa-6 glass-card border-dashed rounded-xl">
-          <v-row>
-            <!-- Date Range -->
-            <v-col cols="12" md="4">
-              <div class="text-overline mb-2 opacity-50">Timeline</div>
-              <div class="d-flex ga-2">
-                <v-text-field
-                  v-model="filters.startDate"
-                  label="From"
-                  type="date"
-                  variant="outlined"
-                  density="compact"
-                  hide-details
-                ></v-text-field>
-                <v-text-field
-                  v-model="filters.endDate"
-                  label="To"
-                  type="date"
-                  variant="outlined"
-                  density="compact"
-                  hide-details
-                ></v-text-field>
-              </div>
-            </v-col>
+            <!-- Global Toggles -->
+            <v-row class="d-flex align-center">
+               <v-col cols="12" md="6" class="d-flex align-center ga-4">
+                 <div class="text-overline opacity-50">Timeline</div>
+                 <v-text-field
+                    v-model="filters.startDate"
+                    label="From"
+                    type="date"
+                    variant="outlined"
+                    density="compact"
+                    hide-details
+                    class="glass-input"
+                    @change="fetchResources(true)"
+                  ></v-text-field>
+                  <v-text-field
+                    v-model="filters.endDate"
+                    label="To"
+                    type="date"
+                    variant="outlined"
+                    density="compact"
+                    hide-details
+                    class="glass-input"
+                    @change="fetchResources(true)"
+                  ></v-text-field>
+               </v-col>
 
-            <!-- Relations Filter -->
-            <v-col cols="12" md="5">
-              <div class="text-overline mb-2 opacity-50">Relational Intersection</div>
-              <v-combobox
-                v-model="filters.relationUris"
-                label="Filter by associated URIs (OR)"
-                multiple
-                chips
-                closable-chips
-                variant="outlined"
-                density="compact"
-                hide-details
-                placeholder="e.g. category:ilm"
-              ></v-combobox>
-            </v-col>
+               <v-spacer></v-spacer>
 
-            <!-- State Toggle -->
-            <v-col cols="12" md="3">
-              <div class="text-overline mb-2 opacity-50">State</div>
-              <v-checkbox
-                v-model="filters.isPublished"
-                label="Published Only"
-                density="compact"
-                hide-details
-                color="primary"
-              ></v-checkbox>
-            </v-col>
-          </v-row>
+               <v-col cols="12" md="3" class="text-right">
+                 <v-checkbox
+                    v-model="filters.isPublished"
+                    label="Published Only"
+                    density="compact"
+                    hide-details
+                    color="primary"
+                    inline
+                    @change="fetchResources(true)"
+                  ></v-checkbox>
+               </v-col>
+            </v-row>
         </v-card>
       </div>
     </v-expand-transition>
+
+    <!-- Permanent Relational Criteria (Always Open) -->
+    <div class="mb-8 animate-fade-in">
+      <div class="d-flex align-center mb-4">
+        <div class="text-overline opacity-40 tracking-widest d-flex align-center ga-2">
+          <v-icon size="14">mdi-rhombus-split</v-icon> Relational Logic (AND)
+        </div>
+        <v-spacer></v-spacer>
+        <v-btn 
+          variant="text" 
+          size="x-small" 
+          prepend-icon="mdi-plus" 
+          color="primary" 
+          class="font-weight-black opacity-60 hover-opacity-100"
+          @click="addRelationFilter"
+        >
+          Extend Intersection
+        </v-btn>
+      </div>
+      
+      <div class="d-flex flex-column ga-2">
+        <div v-for="(rel, index) in filters.relations" :key="index" class="d-flex align-center ga-3 animate-fade-in pa-2 rounded-lg border border-white border-opacity-5 bg-black bg-opacity-40 transition-all hover-bg-opacity-50">
+          <v-autocomplete
+            v-model="rel.predicateUri"
+            v-model:search="predicateSearch"
+            :items="predicateResults"
+            item-title="uri"
+            item-value="uri"
+            label="Predicate URI"
+            placeholder="Search..."
+            variant="plain"
+            density="compact"
+            hide-details
+            class="flex-grow-1 px-3"
+            @update:model-value="(val: any) => { fetchPredicateOptions(val); fetchResources(true); }"
+            @update:search="searchPredicates"
+          >
+
+            <template v-slot:item="{ props, item }">
+              <v-list-item v-bind="props" :title="item.raw.title" :subtitle="item.raw.uri"></v-list-item>
+            </template>
+          </v-autocomplete>
+
+          <v-btn
+            icon
+            size="small"
+            variant="text"
+            color="primary"
+            class="mx-1"
+            :title="rel.isInverted ? 'Search for Objects (Inbound)' : 'Search for Subjects (Outbound)'"
+            @click="toggleRelationInversion(index)"
+          >
+            <v-icon>{{ rel.isInverted ? 'mdi-swap-horizontal-bold' : 'mdi-arrow-right-bold' }}</v-icon>
+          </v-btn>
+
+
+          <!-- Dynamic Object Field: Select for Enums, Autocomplete for Graph -->
+          <v-select
+            v-if="predicateOptions[rel.predicateUri] && predicateOptions[rel.predicateUri].length > 0"
+            v-model="rel.objectUri"
+            :items="predicateOptions[rel.predicateUri]"
+            item-title="uri"
+            item-value="uri"
+            label="Value"
+            placeholder="Select option..."
+            variant="plain"
+            density="compact"
+            hide-details
+            class="flex-grow-1 px-3"
+            clearable
+            @update:model-value="fetchResources(true)"
+          >
+            <template v-slot:item="{ props, item }">
+              <v-list-item v-bind="props" :title="item.raw.title" :subtitle="item.raw.uri"></v-list-item>
+            </template>
+          </v-select>
+
+          <v-autocomplete
+            v-else
+            v-model="rel.objectUri"
+            v-model:search="uriSearch"
+            :items="uriResults"
+            item-title="uri"
+            item-value="uri"
+            label="Object URI"
+            placeholder="Search..."
+            variant="plain"
+            density="compact"
+            hide-details
+            class="flex-grow-1 px-3"
+            @update:model-value="fetchResources(true)"
+            @update:search="searchObjects"
+          >
+            <template v-slot:item="{ props, item }">
+              <v-list-item v-bind="props" :title="item.raw.title" :subtitle="item.raw.uri"></v-list-item>
+            </template>
+          </v-autocomplete>
+
+
+
+          <v-btn v-if="filters.relations.length > 2" icon="mdi-close" size="x-small" variant="text" color="error" class="opacity-40" @click="removeRelationFilter(index)"></v-btn>
+          <div v-else style="width: 32px"></div>
+        </div>
+      </div>
+    </div>
+
 
     <!-- Resource Explorer -->
     <div v-if="resources.length > 0">
@@ -261,9 +355,14 @@ watch(viewMode, (val) => {
 const filters = ref({
   startDate: '',
   endDate: '',
-  relationUris: [] as string[],
+  relations: [
+    { predicateUri: '', objectUri: '', subjectUri: '', isInverted: false },
+    { predicateUri: '', objectUri: '', subjectUri: '', isInverted: false }
+  ] as Array<{ predicateUri: string, objectUri: string, subjectUri: string, isInverted: boolean }>,
   isPublished: false
 })
+
+
 
 const tableHeaders = [
   { title: 'URI', key: 'uri', align: 'start', sortable: true },
@@ -273,8 +372,90 @@ const tableHeaders = [
   { title: 'ACTIONS', key: 'actions', align: 'end', sortable: false },
 ] as const
 
-onMounted(() => {
+const uriSearch = ref('')
+const predicateSearch = ref('')
+const uriResults = ref<any[]>([])
+const predicateResults = ref<any[]>([])
+const predicateOptions = ref<Record<string, any[]>>({})
 
+async function fetchPredicateOptions(predicateUri: string) {
+  if (!predicateUri || predicateOptions.value[predicateUri]) return
+  
+  const data = await graphql(`
+    query($predicate: String!) {
+      queryResources(filter: { 
+        relations: [
+          { subjectUri: $predicate, predicateUri: "prop:allows_value" }
+        ] 
+      }, take: 50) {
+        items { uri title }
+      }
+    }
+  `, { predicate: predicateUri })
+  
+  if (data?.queryResources?.items) {
+    predicateOptions.value[predicateUri] = data.queryResources.items
+  }
+}
+
+async function searchObjects(val: string) {
+
+  if (!val || val.length < 2) return
+  const data = await graphql(`
+    query($search: String) {
+      queryResources(filter: { search: $search }, take: 10) {
+        items { uri title }
+      }
+    }
+  `, { search: val })
+  uriResults.value = data?.queryResources?.items || []
+}
+
+async function searchPredicates(val: string) {
+  if (!val || val.length < 2) return
+  const data = await graphql(`
+    query($search: String) {
+      queryResources(filter: { search: $search, isPredicate: true }, take: 10) {
+        items { uri title }
+      }
+    }
+  `, { search: val })
+  predicateResults.value = data?.queryResources?.items || []
+}
+
+watch(uriSearch, (val) => {
+  searchObjects(val)
+})
+
+watch(predicateSearch, (val) => {
+  searchPredicates(val)
+})
+
+function addRelationFilter() {
+  filters.value.relations.push({ predicateUri: '', objectUri: '', subjectUri: '', isInverted: false })
+}
+
+function removeRelationFilter(index: number) {
+  filters.value.relations.splice(index, 1)
+  fetchResources(true)
+}
+
+function toggleRelationInversion(index: number) {
+  const rel = filters.value.relations[index]
+  rel.isInverted = !rel.isInverted
+  // Swap values if needed or just clear to be safe
+  if (rel.isInverted) {
+    rel.subjectUri = rel.objectUri
+    rel.objectUri = ''
+  } else {
+    rel.objectUri = rel.subjectUri
+    rel.subjectUri = ''
+  }
+  fetchResources(true)
+}
+
+
+onMounted(() => {
   fetchResources()
 })
 
@@ -303,10 +484,20 @@ async function fetchResources(reset = false) {
         search: search.value || undefined,
         createdAtStart: filters.value.startDate || undefined,
         createdAtEnd: filters.value.endDate || undefined,
-        relations: filters.value.relationUris.length > 0 ? filters.value.relationUris.map(uri => ({ objectUri: uri })) : undefined,
+        relations: filters.value.relations.length > 0 
+          ? filters.value.relations
+              .filter(r => r.predicateUri || r.objectUri || r.subjectUri)
+              .map(r => ({ 
+                predicateUri: r.predicateUri || undefined, 
+                objectUri: r.objectUri || undefined,
+                subjectUri: r.subjectUri || undefined
+              })) 
+          : undefined,
         isPublished: filters.value.isPublished || undefined
       }
+
     })
+
 
     if (data?.queryResources) {
       if (reset) {

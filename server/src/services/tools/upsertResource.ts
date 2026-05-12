@@ -1,5 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import type { UpsertResourceInput, UpsertResourceOutput } from './types.js';
+import { VOCAB } from '../../constants/vocabulary.js';
+
 
 /**
  * Upserts a Resource by URI.
@@ -50,10 +52,11 @@ export async function upsertResource(
 
     // 2. Virtual Semantic Mapping: Type, Status, Language
     const mappings = [
-        { key: 'type',     predicate: 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type', prefix: 'type:' },
-        { key: 'status',   predicate: 'https://schema.org/status',                      prefix: 'status:' },
-        { key: 'language', predicate: 'https://schema.org/inLanguage',                  prefix: 'lang:' }
+        { key: 'type',     predicate: VOCAB.RDF.type,        prefix: 'type:' },
+        { key: 'status',   predicate: VOCAB.PROP.status,     prefix: 'status:' },
+        { key: 'language', predicate: VOCAB.PROP.inLanguage, prefix: 'lang:' }
     ];
+
 
     for (const mapping of mappings) {
         const value = (args as any)[mapping.key];

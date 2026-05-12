@@ -1,5 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { executeTool } from './Tools.js';
+import { VOCAB } from '../constants/vocabulary.js';
+
 
 export class RequestProcessor {
     private prisma: PrismaClient;
@@ -465,8 +467,10 @@ export class RequestProcessor {
                     else if (root === 'item') source = item;
                     else if (root === 'toolData') source = toolData;
                     else if (root === 'conversation') source = conversationView;
+                    else if (root === 'VOCAB') source = VOCAB;
                     else if (root && toolResults[root]) source = toolResults[root];
                     else if (root && (context as any)[root]) source = (context as any)[root];
+
 
                     if (source) {
                         const pathString = path || "";
@@ -487,16 +491,17 @@ export class RequestProcessor {
                     else if (root === 'item') source = item;
                     else if (root === 'toolData') source = toolData;
                     else if (root === 'conversation') source = conversationView;
+                    else if (root === 'VOCAB') source = VOCAB;
                     else if (root && toolResults[root]) source = toolResults[root];
                     else if (root && (context as any)[root]) source = (context as any)[root];
+
 
                     if (!source) return match;
 
                     const value = property ? property.split('.').reduce((acc: any, p: string) => acc?.[p], source) : source;
                     
-                    if (path.startsWith('item.')) {
-                        console.log(`[RequestProcessor] Template Replace: path="${path}" value=${JSON.stringify(value)}`);
-                    }
+                    console.log(`[RequestProcessor] Interpolating: match="${match}" path="${path}" -> value="${value}" (Full string: "${obj}")`);
+
 
                     return value !== undefined && value !== null && typeof value !== 'function' ? String(value) : match;
                 });

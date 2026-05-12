@@ -16,7 +16,6 @@ import { syncAIModelsToDatabase } from '../src/services/AIModelRegistry.js';
 async function main() {
   // 1. Sync AI Models from Registry
   await syncAIModelsToDatabase(prisma);
-  // Seed application user 'curator'
   const curator = await prisma.user.upsert({
     where: { email: 'curator@arula.dev' },
     update: {},
@@ -25,6 +24,21 @@ async function main() {
       name: 'curator',
     },
   })
+  
+  // 2. Seed 'System' Project for Curator
+  const systemProject = await prisma.project.upsert({
+    where: { id: 'system' }, // Using a fixed ID for the special system project
+    update: {},
+    create: {
+      id: 'system',
+      name: 'System',
+      userId: curator.id
+    }
+  })
+
+  console.log(`[Seed] System Project initialized with ID: ${systemProject.id}`);
+
+
 
 
   const { udcCategories } = await import('./seedData/udcCategories.js');

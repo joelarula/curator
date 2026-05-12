@@ -5,6 +5,33 @@ enum RequestStatus {
   FAILED
 }
 
+model Project {
+  id          String    @id @default(cuid())
+  name        String
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  
+  resources   Resource[]
+  relations   Relation[]
+  scripts     Script[]
+  agents      Agent[]
+  requests    Request[]
+  conversations Conversation[]
+  responses   Response[]
+  resourceTrees ResourceTree[]
+
+
+
+
+  existent    Boolean?  @default(true)
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([userId, existent])
+}
+
+
 model Tool {
   id          Int      @id @default(autoincrement())
   name        String   @unique // e.g. "upsert_resource", "categorize_article"
@@ -21,28 +48,6 @@ model Tool {
 
 
 
-model Feed {
-  id              String    @id @default(cuid())
-  url             String
-  name            String
-  lastPolledAt    DateTime?
-  enabled         Boolean   @default(true)
-  
-  aiPrompt        String?   @db.Text // Optional prompt for the agentic pipeline
-  defaultTagName  String?
-  defaultTagValue String?
-
-  userId          String
-  user            User      @relation(fields: [userId], references: [id])
-  
-  existent        Boolean?  @default(true)
-  deletedAt       DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  @@unique([userId, url])
-  @@index([existent])
-}
 
 
 
@@ -58,6 +63,9 @@ model Resource {
   userId             String
   user               User              @relation(fields: [userId], references: [id])
   
+  projectId          String?
+  project            Project?          @relation(fields: [projectId], references: [id])
+
   metadata           Json?             // Extensible storage for external IDs, AI confidence, etc.
   
   existent           Boolean?          @default(true)
@@ -79,6 +87,8 @@ model Resource {
   @@index([uri, existent])
   @@index([existent])
   @@index([deletedAt])
+  @@index([projectId])
+
 }
 
 
@@ -134,6 +144,9 @@ model Relation {
 
   justification String?
 
+  projectId     String?
+  project       Project? @relation(fields: [projectId], references: [id])
+
   existent      Boolean? @default(true)
 
   @@unique([subjectId, predicateId, objectId])
@@ -141,6 +154,8 @@ model Relation {
   @@index([predicateId, existent])
   @@index([objectId, existent])
   @@index([existent])
+  @@index([projectId])
+
 }
 
 
@@ -192,11 +207,16 @@ model Script {
   toolCalls Json? // The static/compiled logic
   userId    String?
   user      User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  projectId String?
+  project   Project?  @relation(fields: [projectId], references: [id])
+
   requests  Request[]
   agents    Agent[]
   existent  Boolean? @default(true)
   deletedAt DateTime?
   createdAt DateTime  @default(now())
+
 
   @@index([existent])
 
@@ -217,9 +237,14 @@ model Request {
   aiModel   AIModel?   @relation(fields: [aiModelId], references: [id])
   userId    String
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  projectId String?
+  project   Project?   @relation(fields: [projectId], references: [id])
+
   toolCalls Json?
   toolArgs  Json?
   callbacks Json?
+
   resources Resource[] @relation("RequestResources")
 
   conversationId Int
@@ -256,7 +281,12 @@ model Response {
   toolCalls      Json?
   aiModelId      Int?
   aiModel        AIModel?     @relation(fields: [aiModelId], references: [id])
+
+  projectId      String?
+  project        Project?     @relation(fields: [projectId], references: [id])
+
   existent       Boolean?     @default(true)
+
   createdAt      DateTime     @default(now())
 
   @@index([existent])
@@ -268,7 +298,12 @@ model Conversation {
   externalId String     @unique @default(cuid())
   userId     String
   user       User       @relation(fields: [userId], references: [id])
+  
+  projectId  String?
+  project    Project?   @relation(fields: [projectId], references: [id])
+
   requests   Request[]
+
   responses  Response[]
   resources  Resource[] @relation("ConversationResources")
   metadata   Json?
@@ -296,7 +331,11 @@ model ResourceTree {
   treeEnd    Float
   depth      Int      @default(0)
 
+  projectId  String?
+  project    Project?  @relation(fields: [projectId], references: [id])
+
   deletedAt  DateTime?
+
   existent   Boolean? @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -322,7 +361,11 @@ model Agent {
   userId       String
   user         User      @relation(fields: [userId], references: [id])
 
+  projectId    String?
+  project      Project?  @relation(fields: [projectId], references: [id])
+
   enabled   Boolean  @default(true)
+
   existent  Boolean? @default(true)
   deletedAt DateTime?
   createdAt DateTime @default(now())

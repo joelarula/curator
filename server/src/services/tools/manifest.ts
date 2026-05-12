@@ -24,7 +24,9 @@ export const TOOL_NAMES = [
     'set_context',
     'get_context',
     'get_resource',
-    'extract_udc_hierarchy'
+    'extract_udc_hierarchy',
+    'format_list'
+
 
 
 ] as const;

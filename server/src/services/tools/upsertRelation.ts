@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import type { UpsertRelationInput, UpsertRelationOutput } from './types.js';
+import { VOCAB } from '../../constants/vocabulary.js';
 
 /**
  * Upserts an RDF triple (Relation) by resolving subject, predicate, and object URIs.
@@ -50,13 +51,9 @@ export async function upsertRelation(
     ]);
 
     // Ensure the predicate is tagged as a predicate
-    const rdfTypeUri = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type';
-    const predicateClassUri = 'type:predicate';
-
-    // Get/create the type predicate and the predicate class
     const [typePredicate, predicateClass] = await Promise.all([
-        resolveResource(rdfTypeUri),
-        resolveResource(predicateClassUri)
+        resolveResource(VOCAB.RDF.type),
+        resolveResource(VOCAB.TYPE.predicate)
     ]);
 
     // Link the predicate to its class
@@ -100,18 +97,40 @@ export async function upsertRelation(
             subjectId:    subject.id,
             predicateId:  predicate.id,
             objectId:     object.id,
-            justification:  justification ? justification.substring(0, 1000) : null,
-            literalValue:   literalValue  ?? null,
-            literalString:  literalString ? literalString.substring(0, 2000) : null,
-            literalDate:    literalDate ? new Date(literalDate) : null,
-            literalBoolean: literalBoolean ?? null,
-            literalDatatype: literalDatatype ?? null,
-            aiModelId:      request?.aiModelId ?? null,
-        },
-
-
-
+            justification: justification?.substring(0, 1000) || null,
+            literalValue: literalValue || null,
+            literalString: literalString?.substring(0, 2000) || null,
+            literalDate: literalDate ? new Date(literalDate) : null,
+            literalBoolean: literalBoolean || null,
+            literalDatatype: literalDatatype || null,
+            aiModelId: request?.aiModelId ?? null
+        }
     });
+
+    // Handle Enum Option Registration
+    if (args.registerAsEnumOption) {
+        const allowsValueResource = await resolveResource(VOCAB.PROP.allowsValue);
+        
+        await prisma.relation.upsert({
+            where: {
+                subjectId_predicateId_objectId: {
+                    subjectId: predicate.id,
+                    predicateId: allowsValueResource.id,
+                    objectId: object.id
+                }
+            },
+            update: {},
+            create: {
+                subjectId: predicate.id,
+                predicateId: allowsValueResource.id,
+                objectId: object.id,
+                aiModelId: request?.aiModelId ?? null
+            }
+        });
+    }
+
+
+
 
     console.log(`[Tools] Upserted Relation id ${relation.id}`);
 

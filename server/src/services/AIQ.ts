@@ -35,6 +35,8 @@
 
 import { TOOL_NAMES } from './tools/manifest.js';
 import type { ToolName } from './tools/manifest.js';
+import { VOCAB } from '../constants/vocabulary.js';
+
 
 /** Generate fluent method signatures for all tools in the manifest */
 export type AIQTools = {
@@ -50,13 +52,27 @@ export interface AIQPlugins extends AIQTools {
 }
 
 /**
+ * AIQFlow — A union type representing a builder augmented with all registered plugins.
+ */
+export type AIQFlow<T = AIQBuilder> = T & AIQPlugins;
+
+/**
  * AIQBuilder — Internal fluent builder for composing agentic tool call pipelines.
  */
 export class AIQBuilder {
+
+
+
     /**
      * Track all root builder instances created during script execution.
      */
     static rootChains: AIQBuilder[] = [];
+
+    /**
+     * High-fidelity vocabulary access for semantic orchestration.
+     */
+    static readonly VOCAB = VOCAB;
+
 
     /**
      * Track the last created builder instance globally. 
@@ -90,16 +106,22 @@ export class AIQBuilder {
     ): void {
         (AIQBuilder.prototype as any)[toolName] = function (
             args: Record<string, any> = {},
-        ): AIQBuilder {
-            return this.then(toolName, { ...defaults, ...args });
+        ): any {
+            return this.chain(toolName, { ...defaults, ...args });
+        };
+        (ToolFlowBuilder.prototype as any)[toolName] = function (
+            args: Record<string, any> = {},
+        ): any {
+            return this.chain(toolName, { ...defaults, ...args });
         };
         // Also attach to the static class for entry points
         (AIQBuilder as any)[toolName] = function (
             args: Record<string, any> = {},
-        ): AIQBuilder {
+        ): any {
             return new AIQBuilder().chain(toolName, { ...defaults, ...args });
         };
     }
+
 
 
     /**
@@ -111,31 +133,38 @@ export class AIQBuilder {
     ): void {
         (AIQBuilder.prototype as any)[toolName] = function (
             args: Record<string, any> = {},
-        ): AIQBuilder {
+        ): any {
+            return this.spawn(toolName, { ...defaults, ...args });
+        };
+        (ToolFlowBuilder.prototype as any)[toolName] = function (
+            args: Record<string, any> = {},
+        ): any {
             return this.spawn(toolName, { ...defaults, ...args });
         };
         // Also attach to the static class for entry points
         (AIQBuilder as any)[toolName] = function (
             args: Record<string, any> = {},
-        ): AIQBuilder {
+        ): any {
             return new AIQBuilder().spawn(toolName, { ...defaults, ...args });
         };
     }
 
 
+
     // ─── Aliases ──────────────────────────────────────────────────────────────
 
     /** Shorthand for ask_llm. Accepts a string prompt or an args object. */
-    ask(promptOrArgs: string | Record<string, any>): this {
+    ask(promptOrArgs: string | Record<string, any>): any {
         const args = typeof promptOrArgs === 'string' ? { prompt: promptOrArgs } : promptOrArgs;
         return (this as any).ask_llm(args);
     }
 
     /** Shorthand for process_feed. Accepts a string URL or an args object. */
-    feed(urlOrArgs: string | Record<string, any>): this {
+    feed(urlOrArgs: string | Record<string, any>): any {
         const args = typeof urlOrArgs === 'string' ? { url: urlOrArgs } : urlOrArgs;
         return (this as any).process_feed(args);
     }
+
 
     // ─── Entry points ────────────────────────────────────────────────────────
 
@@ -179,73 +208,82 @@ export class AIQBuilder {
     // ─── Factory helpers ──────────────────────────────────────────────────────
 
     /** Appends a tool call to the chain. (In-process execution) */
-    chain(toolName?: string, args?: any): this {
+    chain(toolName?: string, args?: any): AIQFlow<this> {
         if (!toolName) {
             this.pendingSpawn = false;
-            return this;
+            return this as any;
         }
+        console.log(`[AIQ] Builder.chain: tool="${toolName}" args=${JSON.stringify(args)}`);
         this.calls.push({ name: toolName, args: args ?? {}, spawn: false });
-        return this;
+        return this as any;
     }
+
+
+
 
     /** Appends a tool call that should be spawned as a detached request. */
-    spawn(toolName?: string, args?: any): this {
+    spawn(toolName?: string, args?: any): AIQFlow<this> {
         if (!toolName) {
             this.pendingSpawn = true;
-            return this;
+            return this as any;
         }
         this.calls.push({ name: toolName, args: args ?? {}, spawn: true });
-        return this;
+        return this as any;
     }
 
-    /**
-     * Legacy support for functional chaining
-     */
+
+
+
     then(
-        nameOrFn: string | ((res: Record<string, string>) => AIQBuilder), 
+        nameOrFn: string | ((res: Record<string, string>) => AIQFlow), 
         args: Record<string, any> = {}, 
         callbacks?: Record<string, any>
-    ): this {
+    ): AIQFlow<this> {
         if (typeof nameOrFn === 'function') {
             const childChain = nameOrFn(resourceProxy);
-            this.onSuccess().chain(childChain);
-            return this;
+            (this.onSuccess() as any).chain(childChain);
+            return this as any;
         }
         const spawn = this.pendingSpawn;
         this.pendingSpawn = false; // Reset after use
         this.calls.push({ name: nameOrFn, args, spawn, ...(callbacks ? { callbacks } : {}) });
-        return this;
+        return this as any;
     }
+
 
     /**
      * Start a success flow callback.
      * Usage: .onSuccess().spawn(chain) or .onSuccess().chain(chain)
      */
-    onSuccess(): ToolFlowBuilder {
+    onSuccess(): AIQFlow<ToolFlowBuilder> {
         const last = this.calls[this.calls.length - 1];
         if (!last) throw new Error('AIQ.onSuccess() called on empty chain');
-        return new ToolFlowBuilder(last, 'onSuccess', this, resourceProxy);
+        return new ToolFlowBuilder(last, 'onSuccess', this as any, resourceProxy) as any;
     }
 
+
     /** Alias for onSuccess() */
-    onDone(): ToolFlowBuilder {
+    onDone(): AIQFlow<ToolFlowBuilder> {
         return this.onSuccess();
     }
+
 
     /**
      * Start a fan-out flow callback for each item in a multivalued result.
      * Usage: .onItemExtracted().spawn(chain) or .onItemExtracted().chain(chain)
      */
-    onItemExtracted(): ToolFlowBuilder {
+    onItemExtracted(): AIQFlow<ToolFlowBuilder> {
         const last = this.calls[this.calls.length - 1];
         if (!last) throw new Error('AIQ.onItemExtracted() called on empty chain');
-        return new ToolFlowBuilder(last, 'onItemExtracted', this, itemProxy);
+        return new ToolFlowBuilder(last, 'onItemExtracted', this as any, itemProxy) as any;
     }
 
+
     /** Alias for onItemExtracted() */
-    onItem(): ToolFlowBuilder {
+    onItem(): AIQFlow<ToolFlowBuilder> {
         return this.onItemExtracted();
     }
+
 
     /**
      * Start a failure flow callback.
@@ -284,15 +322,30 @@ export class AIQBuilder {
 /**
  * ToolFlowBuilder — handles the spawn/chain decision for callbacks.
  */
-class ToolFlowBuilder {
+export interface ToolFlowBuilder extends AIQPlugins {}
+export class ToolFlowBuilder {
     private alias: string | null = null;
+
+
+    ask(promptOrArgs: string | Record<string, any>): any {
+        const args = typeof promptOrArgs === 'string' ? { prompt: promptOrArgs } : promptOrArgs;
+        return (this as any).ask_llm(args);
+    }
+
+    feed(urlOrArgs: string | Record<string, any>): any {
+        const args = typeof urlOrArgs === 'string' ? { url: urlOrArgs } : urlOrArgs;
+        return (this as any).process_feed(args);
+    }
+
+
 
     constructor(
         private call: any,
         private key: string,
-        private parent: AIQBuilder,
+        private parent: AIQBuilder & AIQPlugins,
         private proxy: any
     ) {
+
         // Automatically assign a unique lexical scope ID to every loop
         // This prevents shadowing and context collision by default.
         if (key === 'onItemExtracted') {
@@ -315,7 +368,7 @@ class ToolFlowBuilder {
     /**
      * Execute the callback as a new detached child Request in the database.
      */
-    spawn<T = any>(toolNameOrFn: string | AIQBuilder | ((item: T, context: any) => AIQBuilder), args?: any): AIQBuilder {
+    spawn<T = any>(toolNameOrFn: string | AIQFlow | ((item: T, context: any) => AIQFlow), args?: any): AIQFlow<AIQBuilder> {
         let childChain: any;
         if (typeof toolNameOrFn === 'string') {
             childChain = new AIQBuilder().spawn(toolNameOrFn, args);
@@ -324,6 +377,8 @@ class ToolFlowBuilder {
         } else {
             childChain = toolNameOrFn;
         }
+
+
 
         if (!childChain || typeof childChain.toJSON !== 'function') {
             console.error(`[AIQ] Callback did not return a valid AIQBuilder. Got:`, childChain);
@@ -336,14 +391,15 @@ class ToolFlowBuilder {
             as: this.alias 
         };
 
-        return this.parent;
+        return this.parent as any;
     }
+
 
 
     /**
      * Execute the callback immediately in the same request loop (inline).
      */
-    chain<T = any>(toolNameOrFn: string | AIQBuilder | ((item: T, context: any) => AIQBuilder), args?: any): AIQBuilder {
+    chain<T = any>(toolNameOrFn: string | AIQFlow | ((item: T, context: any) => AIQFlow), args?: any): AIQFlow<AIQBuilder> {
         let childChain: any;
         if (typeof toolNameOrFn === 'string') {
             childChain = new AIQBuilder().chain(toolNameOrFn, args);
@@ -352,6 +408,8 @@ class ToolFlowBuilder {
         } else {
             childChain = toolNameOrFn;
         }
+
+
         
         if (!childChain || typeof childChain.toJSON !== 'function') {
             console.error(`[AIQ] Callback did not return a valid AIQBuilder. Got:`, childChain);
@@ -365,8 +423,9 @@ class ToolFlowBuilder {
         };
 
 
-        return this.parent;
+        return this.parent as any;
     }
+
 
 
     /**
@@ -413,7 +472,8 @@ export const AIQ = new Proxy(() => AIQBuilder.start(), {
 AIQBuilder.init();
 
 /** Type alias for better clarity in external code */
-export type AIQ = AIQBuilder & AIQPlugins;
+export type AIQ = AIQFlow;
+
 
 
 /**
@@ -441,7 +501,11 @@ let loopCounter = 0;
  */
 function createRecursiveProxy(root: string, path: string[] = []): any {
     return new Proxy({}, {
-        get(_target: any, prop: string) {
+        get(_target: any, prop: string | symbol) {
+            if (prop === Symbol.toPrimitive) {
+                const fullPath = [root, ...path].join('.');
+                return (hint: string) => `{{${fullPath}}}`;
+            }
             if (typeof prop === 'symbol') return undefined;
             if (prop === 'toString' || prop === 'valueOf' || prop === 'toJSON' || prop === 'then') {
                 const fullPath = [root, ...path].join('.');
@@ -449,6 +513,7 @@ function createRecursiveProxy(root: string, path: string[] = []): any {
             }
             return createRecursiveProxy(root, [...path, prop]);
         }
+
     } as any);
 }
 

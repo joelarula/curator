@@ -70,6 +70,29 @@ export const resourceResolvers = {
                 if (filter.isPublished !== undefined) {
                     where.isPublished = filter.isPublished;
                 }
+                if (filter.isPredicate !== undefined) {
+                    const rdfTypeShorthand = 'rdf:type';
+                    const rdfTypeFull = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type';
+                    const predicateClassUri = 'type:predicate';
+                    
+                    const relationCondition = {
+                        some: {
+                            predicate: { 
+                                uri: { in: [rdfTypeShorthand, rdfTypeFull] } 
+                            },
+                            object: { uri: predicateClassUri }
+                        }
+                    };
+
+
+                    if (filter.isPredicate) {
+                        where.subjectRelations = relationCondition;
+                    } else {
+                        where.subjectRelations = { none: relationCondition };
+                    }
+                }
+
+
 
 
                 // Date ranges

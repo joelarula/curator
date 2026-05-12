@@ -435,9 +435,9 @@ export const typeDefs = gql`
     "Global search string (matches title, URI, or description)"
     search: String
     "Filter by relations (AND intersection)"
-
     relations: [RelationFilterInput!]
-
+    "Whether resource is a predicate in any relation"
+    isPredicate: Boolean
     "Date range: Created after (ISO string)"
     createdAtStart: String
     "Date range: Created before (ISO string)"
