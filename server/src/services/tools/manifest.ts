@@ -30,6 +30,8 @@ export const TOOL_NAMES = [
     'select_objects',
     'evaluate_condition',
     'regex_replace',
+    'web_search',
+    'browser_action',
     'internal:trigger_agent'
 
 
@@ -70,5 +72,7 @@ export const TOOLS = {
     SELECT_OBJECTS: 'select_objects',
     EVALUATE_CONDITION: 'evaluate_condition',
     REGEX_REPLACE: 'regex_replace',
+    WEB_SEARCH: 'web_search',
+    BROWSER_ACTION: 'browser_action',
     TRIGGER_AGENT: 'internal:trigger_agent'
 } as const;

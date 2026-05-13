@@ -16,6 +16,7 @@ import { ScraperService } from '../ScraperService.js';
 export async function scrapeResource(
     args: { 
         url: string; 
+        html?: string;                     // ← NEW: pre-fetched HTML (e.g. from browser_action)
         resourceUri?: string; 
         role?: string;
         contentSelector?: string;
@@ -30,7 +31,7 @@ export async function scrapeResource(
     responseId?: number,
     request?: any
 ) {
-    const { url, resourceUri, role = 'MAIN', selectors, contentSelector, excludeLinkPatterns = [], saveText = true } = args;
+    const { url, html: preFetchedHtml, resourceUri, role = 'MAIN', selectors, contentSelector, excludeLinkPatterns = [], saveText = true } = args;
     if (!url) throw new Error('scrape_resource requires a "url" argument');
 
     console.log(`[Tools] scrape_resource: processing "${url}"${selectors ? ' using jQuery selectors' : ''}`);
@@ -65,27 +66,33 @@ export async function scrapeResource(
 
     } else {
         // ── Standard path: HTML scraping ────────────────────────────────────
-        // 1. Check for cached HTML Text on the resource (stored by fetch_html)
-        const cachedResource = await prisma.resource.findUnique({
-            where: { uri },
-            include: { texts: true },
-        });
-        const cachedHtml = cachedResource?.texts?.find(t => t.role === 'HTML');
-
         let html: string;
-        if (cachedHtml) {
-            console.log(`[Tools] scrape_resource: using cached HTML (Text id=${cachedHtml.id})`);
-            html = cachedHtml.content;
+
+        if (preFetchedHtml) {
+            console.log(`[Tools] scrape_resource: using pre-fetched HTML (${preFetchedHtml.length} chars)`);
+            html = preFetchedHtml;
         } else {
-            console.log(`[Tools] scrape_resource: no cache — fetching "${url}"`);
-            const response = await fetch(url, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
-                },
-                signal: AbortSignal.timeout(12000),
+            // 1. Check for cached HTML Text on the resource (stored by fetch_html)
+            const cachedResource = await prisma.resource.findUnique({
+                where: { uri },
+                include: { texts: true },
             });
-            if (!response.ok) throw new Error(`HTTP ${response.status} for "${url}"`);
-            html = await response.text();
+            const cachedHtml = cachedResource?.texts?.find(t => t.role === 'HTML');
+
+            if (cachedHtml) {
+                console.log(`[Tools] scrape_resource: using cached HTML (Text id=${cachedHtml.id})`);
+                html = cachedHtml.content;
+            } else {
+                console.log(`[Tools] scrape_resource: no cache — fetching "${url}"`);
+                const response = await fetch(url, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+                    },
+                    signal: AbortSignal.timeout(12000),
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status} for "${url}"`);
+                html = await response.text();
+            }
         }
 
         // 2. Extract using Selectors or Markdown conversion

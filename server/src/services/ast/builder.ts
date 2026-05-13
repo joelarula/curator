@@ -62,10 +62,13 @@ export class Pipeline {
      * Appends a ToolNode and returns a typed template proxy for its outputs.
      */
     tool<T = any>(name: ToolName, args: Record<string, any> = {}): Proxyfy<T> {
-        const id = nextId(`tool_${name}`);
+        const id = args.id || nextId(`tool_${name}`);
         
-        // Deep clone and stringify functions to preserve them in AST, while allowing Proxies to use toJSON()
-        const argsJson = JSON.stringify(args, (key, value) => {
+        // Remove 'id' from args so it doesn't pollute the tool's runtime arguments
+        const { id: _, ...actualArgs } = args;
+
+        // Deep clone and stringify functions to preserve them in AST
+        const argsJson = JSON.stringify(actualArgs, (key, value) => {
             if (typeof value === 'function') return value.toString();
             return value;
         });

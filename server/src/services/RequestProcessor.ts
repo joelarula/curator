@@ -222,6 +222,10 @@ export class RequestProcessor {
     ) {
         if (!node) return;
 
+        // Ensure shared state containers exist at the current level
+        if (!context.toolData) context.toolData = {};
+        if (!context.toolOutputs) context.toolOutputs = {};
+
         switch (node.type) {
             case 'Sequence': {
                 for (const step of node.steps || []) {
@@ -245,19 +249,17 @@ export class RequestProcessor {
                     req
                 );
 
-                console.log(`[AST Executor] Tool ${node.tool} result: data=${!!result?.data}`);
+                console.log(`[AST Executor] Tool ${node.tool} result: data=${!!result?.data}${node.id ? ` (id=${node.id})` : ''}`);
                 
                 // Expose tool results in context for downstream nodes
-                if (!context.toolData) context.toolData = {};
-                context.toolData[node.tool] = result?.data ?? result;
-                if (node.id) context.toolData[node.id] = result?.data ?? result;
+                const dataValue = result?.data ?? result;
+                context.toolData[node.tool] = dataValue;
+                if (node.id) context.toolData[node.id] = dataValue;
                 
                 // Expose full raw tool output for structural iteration (.items)
-                // Normalize legacy .extractedItems to .items for uniform AST iteration
                 if (result && result.extractedItems && !result.items) {
                     result.items = result.extractedItems;
                 }
-                if (!context.toolOutputs) context.toolOutputs = {};
                 context.toolOutputs[node.tool] = result;
                 if (node.id) context.toolOutputs[node.id] = result;
                 
@@ -641,8 +643,19 @@ export class RequestProcessor {
                     else if (root && (context as any)[root]) source = (context as any)[root];
 
                     if (source) {
-                        const value = property ? property.split('.').reduce((acc: any, p: string) => acc?.[p], source) : source;
-                        if (value !== undefined && value !== null && typeof value !== 'function') return value;
+                        const value = property ? property.split('.').reduce((acc: any, p: string) => {
+                            if (acc && p in acc) return acc[p];
+                            if (acc && acc.data && p in acc.data) return acc.data[p];
+                            return undefined;
+                        }, source) : source;
+                        
+                        if (value !== undefined && value !== null && typeof value !== 'function') {
+                            return value;
+                        } else {
+                            console.warn(`[Template] Failed to resolve property "${property}" in root "${root}". Available keys in source:`, Object.keys(source));
+                        }
+                    } else {
+                        console.warn(`[Template] Root "${root}" not found in context. Available roots:`, Object.keys(context));
                     }
                 }
 
@@ -662,9 +675,23 @@ export class RequestProcessor {
                     else if (root && toolResults[root]) source = toolResults[root];
                     else if (root && (context as any)[root]) source = (context as any)[root];
 
-                    if (!source) return match;
-                    const value = property ? property.split('.').reduce((acc: any, p: string) => acc?.[p], source) : source;
-                    return value !== undefined && value !== null && typeof value !== 'function' ? String(value) : match;
+                    if (!source) {
+                        console.warn(`[Template] Replace: Root "${root}" not found in context.`);
+                        return match;
+                    }
+
+                    const value = property ? property.split('.').reduce((acc: any, p: string) => {
+                        if (acc && p in acc) return acc[p];
+                        if (acc && acc.data && p in acc.data) return acc.data[p];
+                        return undefined;
+                    }, source) : source;
+
+                    if (value !== undefined && value !== null && typeof value !== 'function') {
+                        return String(value);
+                    } else {
+                        console.warn(`[Template] Replace: Failed to resolve "${path}".`);
+                        return match;
+                    }
                 });
             }
             return obj;

@@ -17,49 +17,45 @@ import { ScraperService } from '../ScraperService.js';
  */
 export async function extractResourceLinks(
     args: {
-        resourceUri: string;
-        url?: string;
+        resourceUri: string;    // Used as the base URL for resolving relative links
+        html?: string;          // Option A: pre-fetched HTML
+        markdown?: string;      // Option B: pre-fetched Markdown
         maxLinks?: number;
         sameDomainOnly?: boolean;
-        selector?: string; // New: CSS selector to target specific links
+        selector?: string;      // CSS selector to target specific links (HTML only)
         onItemExtracted?: any;  // consumed by the orchestrator
     },
-    prisma: PrismaClient,
-    userId: string,
-    request?: any
+    _prisma: PrismaClient,
+    _userId: string,
+    _request?: any
 ) {
 
-    const { resourceUri, url, maxLinks = 50, sameDomainOnly = false, selector } = args;
-    if (!resourceUri) throw new Error('extract_resource_links requires "resourceUri"');
+    const { resourceUri, html, markdown, maxLinks = 50, sameDomainOnly = false, selector } = args;
+    if (!resourceUri) throw new Error('extract_resource_links requires "resourceUri" (base URL)');
+    if (!html && !markdown) throw new Error('extract_resource_links requires either "html" or "markdown" input');
 
-    const pageUrl = url || resourceUri;
-    console.log(`[Tools] extract_resource_links: extracting links from "${pageUrl}"${selector ? ` using selector "${selector}"` : ''}`);
+    console.log(`[Tools] extract_resource_links: extracting links from pre-provided content (base: "${resourceUri}")`);
 
-    // 1. Find the parent Resource (must exist and belong to user)
-    const parentResource = await prisma.resource.findUnique({
-        where: { uri: resourceUri },
-
-        include: { texts: true },
-    });
-    if (!parentResource) throw new Error(`extract_resource_links: Resource not found for URI "${resourceUri}" (userId: ${userId})`);
-
-    // 2. Use cached HTML if available, otherwise fetch
     let links: { url: string; title: string }[];
-    const cachedHtml = parentResource.texts?.find(t => t.role === 'HTML');
 
-
-    if (cachedHtml) {
-        console.log(`[Tools] extract_resource_links: using cached HTML (Text id=${cachedHtml.id})`);
-        links = ScraperService.extractLinksFromHtml(cachedHtml.content, pageUrl, selector);
+    if (markdown) {
+        console.log(`[Tools] extract_resource_links: processing Markdown (${markdown.length} chars)`);
+        // Extract standard Markdown links: [Title](URL)
+        const regex = /\[([^\]]+)\]\(([^)]+)\)/g;
+        links = [];
+        let match;
+        while ((match = regex.exec(markdown)) !== null) {
+            links.push({ title: match[1]!, url: match[2]! });
+        }
     } else {
-        console.log(`[Tools] extract_resource_links: no cache — fetching "${pageUrl}"`);
-        links = await ScraperService.extractLinksFromUrl(pageUrl, selector);
+        console.log(`[Tools] extract_resource_links: processing HTML (${html!.length} chars)`);
+        links = ScraperService.extractLinksFromHtml(html!, resourceUri, selector);
     }
 
 
     // 3. Filter and limit
     if (sameDomainOnly) {
-        const baseDomain = new URL(pageUrl).hostname;
+        const baseDomain = new URL(resourceUri).hostname;
         links = links.filter(l => {
             try { return new URL(l.url).hostname === baseDomain; } catch { return false; }
         });

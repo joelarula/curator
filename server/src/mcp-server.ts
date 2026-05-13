@@ -34,13 +34,26 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: "execute_script",
-        description: "Executes a Curator Script (stored or inline) to perform complex tool chains (scraping, RAG, etc.)",
+        description: `Executes a Curator Pipeline script (stored or inline).
+
+Scripts use the Pipeline DSL:
+  import { Pipeline } from '../src/services/ast/builder.js';
+  import { TOOLS } from '../src/services/tools/manifest.js';
+  const pipeline = new Pipeline();
+  pipeline.tool(TOOLS.SCRAPE_RESOURCE, { url, contentSelector: '#content', saveText: false });
+  pipeline.tool(TOOLS.REGEX_REPLACE, { text: scraped.content, patterns: [...] });
+  pipeline.tool(TOOLS.UPSERT_TEXT, { resourceUri: url, role: 'COPY', content: cleaned.text, mimeType: 'text/markdown', extension: 'md' });
+  pipeline.tool(TOOLS.UPSERT_RELATION, { subjectUri: url, predicateUri: VOCAB.PROP.about, objectUri: 'topic:...' });
+  export default pipeline;
+
+Key tools: UPSERT_RESOURCE, UPSERT_TEXT, UPSERT_RELATION, SCRAPE_RESOURCE, PROCESS_FEED, EVALUATE_CONDITION, REGEX_REPLACE, ASK_LLM, QUERY_RESOURCES, DEBUG.
+See SCRIPTING_GUIDE.md for full reference.`,
         inputSchema: {
           type: "object",
           properties: {
-            scriptName: { type: "string", description: "Name of the stored Script to run" },
-            body: { type: "string", description: "Ad-hoc JavaScript Curator code to execute" },
-            args: { type: "object", description: "JSON arguments for the script" },
+            scriptName: { type: "string", description: "Name of a stored Script record to run" },
+            body: { type: "string", description: "Inline Curator Pipeline script source (TypeScript)" },
+            args: { type: "object", description: "JSON arguments passed as process.argv to the script" },
           },
         },
       },

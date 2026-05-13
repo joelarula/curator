@@ -20,6 +20,11 @@ export async function upsertText(
         throw new Error('upsert_text requires a "content" argument');
     }
 
+    if (content.includes('{{toolOutputs.') || content.includes('{{iter_')) {
+        console.error(`[Tools] upsert_text: Refusing to save unresolved template placeholder: ${content.substring(0, 100)}...`);
+        throw new Error(`upsert_text: Content contains unresolved template placeholders. This usually means a previous tool (like scrape_resource) failed or its ID was not correctly referenced.`);
+    }
+
     // Determine the target resource
     let targetUri = args.resourceUri;
     

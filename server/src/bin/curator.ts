@@ -32,6 +32,7 @@ program
           }
       }
 
+      console.log(`[Curator] Connecting to database...`);
       const connectionString = process.env.DATABASE_URL!;
       const pool = new Pool({ connectionString });
       const adapter = new PrismaPg(pool as any);
@@ -40,14 +41,15 @@ program
       processor.isAdHoc = true;
 
       try {
+          console.log(`[Curator] Resolving user...`);
           // 1. Resolve a user (required for requests)
           const user = await prisma.user.findFirst();
           if (!user) throw new Error('No user found in database.');
+          console.log(`[Curator] User resolved: ${user.id}`);
 
           // 2. Evaluate the script
-          // Use pathToFileURL for Windows absolute path compatibility
+          console.log(`[Curator] Importing script: ${scriptPath}`);
           (Curator as any).setArgs(scriptArgs, scriptArgsStr);
-          console.log(`[Curator] Global state set:`, JSON.stringify((global as any).__CURATOR_STATE__));
           
           const { pathToFileURL } = await import('node:url');
           const imported = await import(pathToFileURL(scriptPath).href);

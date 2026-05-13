@@ -27,6 +27,8 @@ import { format_list }         from './tools/formatList.js';
 import { selectObjects }        from './tools/selectObjects.js';
 import { evaluateCondition }    from './tools/evaluateCondition.js';
 import { regexReplace }         from './tools/regexReplace.js';
+import { webSearch }            from './tools/webSearch.js';
+import { browserAction }        from './tools/browserAction.js';
 import { trigger_agent }      from './tools/trigger_agent.js';
 
 
@@ -225,6 +227,18 @@ const TOOLS: ToolDefinition[] = [
         description: 'Applies one or more regex substitutions sequentially to a text string. Returns { text: string }.',
         version: '1.0.0',
         handler: regexReplace,
+    },
+    {
+        name: 'web_search',
+        description: 'Queries Google Custom Search and returns top N organic results as { items: [{ url, title, snippet }] }.',
+        version: '1.0.0',
+        handler: webSearch,
+    },
+    {
+        name: 'browser_action',
+        description: 'Executes a sequence of browser commands (navigate, click, type, wait, screenshot) for complex interactions.',
+        version: '1.0.0',
+        handler: browserAction,
     },
 
 ];
