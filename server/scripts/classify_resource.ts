@@ -1,99 +1,85 @@
-import { AIQ } from '../src/services/AIQ.js';
+import { Pipeline } from '../src/services/ast/builder.js';
+import { VOCAB } from '../src/constants/vocabulary.js';
 
 /**
  * Decomposed Resource Classification Script
- * 
- * Usage: npx tsx src/bin/aiq.ts scripts/classify_resource.ts <RESOURCE_URI>
- * 
- * This script demonstrates a professional, transparent classification pipeline:
- * 1. Fetch resource by URI.
- * 2. Ask LLM for structured UDC categories using a custom prompt.
- * 3. Fan out results to create semantic relations.
+ * Re-written using the new Phase 4 Typed Pipeline DSL.
  */
-AIQ.init();
 
-const uri = "https://sport.err.ee/1610021590/tsehhi-korvpallitaht-astub-kaimasoleva-hooaja-jarel-korvale"
-console.log(`[Script] AIQ.argString: "${uri}"`);
+const pipeline = new Pipeline();
 
+// 1. Fetch target resources
+const resources = pipeline.tool('query_resources', {
+    status: 'DRAFT',
+    type: 'ARTICLE',
+    excludeRelation: {
+        predicateUri: VOCAB.DC.subject,
+        objectUriContains: 'udc:'
+    },
+    limit: 1
+});
 
-if (!uri) {
+// 2. Iterate through found articles
+pipeline.forEach(resources.items, (articleRef, articleFlow) => {
+    
+    // Refresh with full relations
+    const article = articleFlow.tool('get_resource', { id: articleRef.id });
 
-    console.log("USAGE: npx tsx src/bin/aiq.ts scripts/classify_resource.ts <RESOURCE_URI>");
-    process.exit(0);
-}
+    articleFlow.forEach(article.items, (fullArticle, innerFlow) => {
+        
+        // Extract existing ERR tags
+        const cats = innerFlow.tool('select_objects', { items: fullArticle.subjectRelations, predicateUri: 'err:about' });
+        
+        // Format them as a comma-separated string
+        const categoryNames = innerFlow.tool('format_list', {
+            items: cats.data,
+            template: '{{title}}',
+            separator: ', '
+        });
 
-const UDC_PROMPT = `
-Classify the following Estonian text into one or more UDC (Universal Decimal Classification) categories.
+        // 3. Spawn a detached background process for LLM execution
+        innerFlow.spawn((spawnFlow) => {
+            
+            // Define prompt using native JS template literals!
+            const prompt = 
+`Classify the following Estonian text into one or more UDC (Universal Decimal Classification) categories.
 Return ONLY a valid JSON list of objects, each containing:
 - "code": The UDC notation (e.g. "133.52")
 - "title_en": A brief description of the category in English.
 - "title_et": A brief description of the category in Estonian.
 - "justification": A brief explanation (in Estonian) why this category applies to the text.
 
-
 TEXT TO CLASSIFY:
-Title: {{article.title}}
-Description: {{article.description}}
-Source Categories: {{category_names.data}}
-`;
+Title: ${fullArticle.title}
+Description: ${fullArticle.description}
+Source Categories: ${categoryNames.data}`;
 
+            const llmResponse = spawnFlow.tool('ask_llm', {
+                prompt: prompt,
+                output: "LIST",
+                model: "gemini-3.1-flash-lite"
+            });
 
+            // 4. Iterate over LLM structured output
+            spawnFlow.forEach(llmResponse.items, (item, itemFlow) => {
+                
+                // Create Semantic UDC Node
+                itemFlow.tool('upsert_resource', {
+                    uri: `udc:${item.code}`,
+                    title: item.title_et,
+                    type: VOCAB.TYPE.udcCategory
+                });
 
-AIQ.init();
-console.log(`[Script] DEBUG AIQ.args:`, AIQ.args);
-console.log(`[Script] DEBUG AIQ.args type:`, typeof AIQ.args);
-console.log(`[Script] DEBUG AIQ.argString:`, AIQ.argString);
-
-
-
-/**
- * Find resources to classify. 
- * If a URL is passed via CLI, use it. Otherwise query all DRAFT articles.
- */
-const targetUri = AIQ.args[0];
-
-const sourceFlow = targetUri
-    ? AIQ.get_resource({ uri: targetUri })
-    : AIQ.query_resources({
-        status: 'DRAFT',
-        type: 'ARTICLE',
-        excludeRelation: {
-            predicateUri: AIQ.VOCAB.DC.subject,
-            objectUriContains: 'udc:'
-        },
-        limit: 1
+                // Link Article to UDC Node
+                itemFlow.tool('upsert_relation', {
+                    subjectUri: fullArticle.uri,
+                    predicateUri: VOCAB.DC.subject,
+                    objectUri: `udc:${item.code}`,
+                    justification: item.justification
+                });
+            });
+        });
     });
+});
 
-const flow = sourceFlow
-    .onItem().as('article').get_resource({ id: AIQ.item.id }) // Refresh with full relations
-    .onItem()
-
-    .select_objects({ items: AIQ.item.subjectRelations, predicateUri: 'err:about' })
-    .as('cats')
-    .format_list({
-        items: AIQ.ref('cats'),
-        template: '{{title}}',
-        separator: ', '
-    })
-    .as('category_names')
-    .spawn()
-    .ask({
-        prompt: UDC_PROMPT,
-        output: "LIST"
-    })
-
-    .onItem().upsert_resource({
-        uri: "udc:{{item.code}}",
-        title: "{{item.title_et}}",
-        type: AIQ.VOCAB.TYPE.udcCategory
-    })
-    .upsert_relation({
-        subjectUri: "{{article.uri}}",
-        predicateUri: AIQ.VOCAB.DC.subject,
-        objectUri: "udc:{{item.code}}",
-        justification: "{{item.justification}}"
-    });
-
-
-
-export default flow;
+export default pipeline;

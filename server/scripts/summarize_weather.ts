@@ -1,4 +1,5 @@
-import { AIQ } from '../src/services/AIQ.js';
+import { Pipeline } from '../src/services/ast/builder.js';
+import type { QueryResourcesOutput } from '../src/services/tools/types.js';
 
 /**
  * Weather Summary Pipeline (Linear)
@@ -7,25 +8,27 @@ import { AIQ } from '../src/services/AIQ.js';
  * resources using a linear tool chain. Each tool can reference the 
  * results of previous tools in the same chain.
  */
-AIQ.init();
+const pipeline = new Pipeline();
 
-const flow = AIQ.chain("query_resources", {
+const queryData = pipeline.tool<QueryResourcesOutput>('query_resources', {
     relation: {
         objectUri: "err:ilm"
     },
     limit: 10
-})
-.chain("format_list", {
-    items: "{{query_resources.items}}",
+});
+
+const formatData = pipeline.tool('format_list', {
+    items: queryData.items,
     template: "- {{title}}: {{description}}"
-})
-.ask({
+});
+
+pipeline.tool('ask_llm', {
     prompt: `
         You are a high-fidelity weather analyst. 
         Below is a list of recent weather reports from ERR.
         
         REPORTS:
-        {{format_list}}
+        ${formatData}
 
         
         TASK:
@@ -33,4 +36,4 @@ const flow = AIQ.chain("query_resources", {
     `
 });
 
-export default flow;
+export default pipeline;

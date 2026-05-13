@@ -8,7 +8,9 @@ export type ASTNode =
     | ToolNode 
     | ForEachNode 
     | SpawnNode 
-    | IfNode;
+    | IfNode
+    | MatchNode
+    | ParallelNode;
 
 export interface BaseNode {
     id: string; // Unique identifier for the node to allow resumability
@@ -59,4 +61,23 @@ export interface IfNode extends BaseNode {
     condition: string; // Evaluated dynamically based on context
     trueBranch: ASTNode;
     falseBranch?: ASTNode;
+}
+
+/**
+ * Evaluates semantic equality between two values.
+ */
+export interface MatchNode extends BaseNode {
+    type: 'Match';
+    left: string;
+    right: string;
+    trueBranch: ASTNode;
+    falseBranch?: ASTNode;
+}
+
+/**
+ * Executes a list of nodes concurrently and waits for all of them to finish (Promise.all style).
+ */
+export interface ParallelNode extends BaseNode {
+    type: 'Parallel';
+    steps: ASTNode[];
 }

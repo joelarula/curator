@@ -52,7 +52,7 @@ async function main() {
         console.log(`[AIQ] Global state set:`, JSON.stringify((global as any).__AIQ_STATE__));
         
         const { pathToFileURL } = await import('node:url');
-        await import(pathToFileURL(scriptPath).href);
+        const imported = await import(pathToFileURL(scriptPath).href);
         
         console.log(`[AIQ] Script imported. Root chains:`, (AIQ as any).rootChains.length);
 
@@ -66,17 +66,28 @@ async function main() {
             });
         }
 
-        // 4. Execute the primary chain
-        const chains = (AIQ as any).rootChains as AIQBuilder[];
-        if (chains.length === 0) {
-            console.log("[AIQ] No chains were started in the script.");
-            return;
+        // 4. Resolve the AST to execute
+        let ast: any = null;
+
+        // Option A: Check if the script explicitly exported a Pipeline instance
+        for (const val of Object.values(imported)) {
+            if (val && typeof val === 'object' && 'toAST' in val && typeof (val as any).toAST === 'function') {
+                ast = (val as any).toAST();
+                break;
+            }
         }
 
-        const primaryBuilder = chains.find(c => c.toJSON() !== null) || chains[chains.length - 1];
-        const ast = primaryBuilder!.toJSON();
-        
+        // Option B: Fallback to the implicit legacy AIQBuilder chains
         if (!ast) {
+            const chains = (AIQ as any).rootChains as AIQBuilder[];
+            if (chains.length > 0) {
+                const primaryBuilder = chains.find(c => c.toJSON() !== null) || chains[chains.length - 1];
+                ast = primaryBuilder?.toJSON();
+            }
+        }
+
+        if (!ast) {
+            console.log("[AIQ] No valid workflow or chain was found in the script.");
             return;
         }
 

@@ -250,6 +250,7 @@ export class RequestProcessor {
                 // Expose tool results in context for downstream nodes
                 if (!context.toolData) context.toolData = {};
                 context.toolData[node.tool] = result?.data ?? result;
+                if (node.id) context.toolData[node.id] = result?.data ?? result;
                 
                 // Expose full raw tool output for structural iteration (.items)
                 // Normalize legacy .extractedItems to .items for uniform AST iteration
@@ -258,6 +259,7 @@ export class RequestProcessor {
                 }
                 if (!context.toolOutputs) context.toolOutputs = {};
                 context.toolOutputs[node.tool] = result;
+                if (node.id) context.toolOutputs[node.id] = result;
                 
                 // Persistence
                 const responseData = result?.data ?? result;
@@ -313,6 +315,45 @@ export class RequestProcessor {
                 
                 if (this.isAdHoc) {
                     await this.processRequest(childReq);
+                }
+                break;
+            }
+
+            case 'Match': {
+                const resolved = await this.materializeToolArgs({ left: node.left, right: node.right }, {
+                    ...context,
+                    resources: resourceStack,
+                    conversationId: req.conversationId
+                });
+                
+                const isMatch = String(resolved.left) === String(resolved.right);
+                console.log(`[AST Executor] Match evaluated to ${isMatch} ("${resolved.left}" === "${resolved.right}")`);
+                
+                if (isMatch) {
+                    await this.executeAST(node.trueBranch, req, resourceStack, responseId, context);
+                } else if (node.falseBranch) {
+                    await this.executeAST(node.falseBranch, req, resourceStack, responseId, context);
+                }
+                break;
+            }
+
+            case 'IfElse': {
+                const conditionArg = await this.materializeToolArgs({ eval: node.condition }, {
+                    ...context,
+                    resources: resourceStack,
+                    conversationId: req.conversationId
+                });
+                
+                // Loose truthy evaluation (supports JS booleans and explicit "true" string)
+                const isTruthy = conditionArg.eval === true || 
+                                 conditionArg.eval === "true" || 
+                                 (typeof conditionArg.eval === 'string' && conditionArg.eval.length > 0 && conditionArg.eval !== "false");
+                
+                console.log(`[AST Executor] IfElse evaluated to: ${isTruthy}`);
+                if (isTruthy) {
+                    await this.executeAST(node.trueBranch, req, resourceStack, responseId, context);
+                } else if (node.falseBranch) {
+                    await this.executeAST(node.falseBranch, req, resourceStack, responseId, context);
                 }
                 break;
             }
