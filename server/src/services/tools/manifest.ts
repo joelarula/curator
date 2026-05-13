@@ -24,9 +24,11 @@ export const TOOL_NAMES = [
     'set_context',
     'get_context',
     'get_resource',
+    'delete_resource',
     'extract_udc_hierarchy',
     'format_list',
     'select_objects',
+    'evaluate_condition',
     'internal:trigger_agent'
 
 
@@ -61,8 +63,10 @@ export const TOOLS = {
     SET_CONTEXT: 'set_context',
     GET_CONTEXT: 'get_context',
     GET_RESOURCE: 'get_resource',
+    DELETE_RESOURCE: 'delete_resource',
     EXTRACT_UDC_HIERARCHY: 'extract_udc_hierarchy',
     FORMAT_LIST: 'format_list',
     SELECT_OBJECTS: 'select_objects',
+    EVALUATE_CONDITION: 'evaluate_condition',
     TRIGGER_AGENT: 'internal:trigger_agent'
 } as const;

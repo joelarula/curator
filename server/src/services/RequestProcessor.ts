@@ -358,6 +358,33 @@ export class RequestProcessor {
                 break;
             }
 
+            case 'While': {
+                let safetyCounter = 0;
+                const MAX_ITERATIONS = 1000;
+                
+                while (safetyCounter++ < MAX_ITERATIONS) {
+                    const conditionArg = await this.materializeToolArgs({ eval: node.condition }, {
+                        ...context,
+                        resources: resourceStack,
+                        conversationId: req.conversationId
+                    });
+                    
+                    const isTruthy = conditionArg.eval === true || 
+                                     conditionArg.eval === "true" || 
+                                     (typeof conditionArg.eval === 'string' && conditionArg.eval.length > 0 && conditionArg.eval !== "false");
+                    
+                    console.log(`[AST Executor] While evaluated to: ${isTruthy} (iteration ${safetyCounter})`);
+                    if (!isTruthy) break;
+                    
+                    await this.executeAST(node.body, req, resourceStack, responseId, context);
+                }
+                
+                if (safetyCounter >= MAX_ITERATIONS) {
+                    console.warn(`[AST Executor] While loop exceeded MAX_ITERATIONS (${MAX_ITERATIONS}). Breaking to prevent infinite loop.`);
+                }
+                break;
+            }
+
             default:
                 console.warn(`[AST Executor] Unknown node type: ${node.type}`);
         }

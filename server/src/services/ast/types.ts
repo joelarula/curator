@@ -10,7 +10,8 @@ export type ASTNode =
     | SpawnNode 
     | IfNode
     | MatchNode
-    | ParallelNode;
+    | ParallelNode
+    | WhileNode;
 
 export interface BaseNode {
     id: string; // Unique identifier for the node to allow resumability
@@ -80,4 +81,13 @@ export interface MatchNode extends BaseNode {
 export interface ParallelNode extends BaseNode {
     type: 'Parallel';
     steps: ASTNode[];
+}
+
+/**
+ * Loops over a body as long as the condition evaluates to true.
+ */
+export interface WhileNode extends BaseNode {
+    type: 'While';
+    condition: string; // Evaluated dynamically based on context
+    body: ASTNode;
 }

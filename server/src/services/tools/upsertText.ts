@@ -9,13 +9,13 @@ import { PrismaClient } from '@prisma/client';
  *   content: The actual text content to save.
  */
 export async function upsertText(
-    args: { resourceUri?: string; role?: string; content: string },
+    args: { resourceUri?: string; role?: string; content: string; mimeType?: string; extension?: string },
     prisma: PrismaClient,
     userId: string,
     responseId?: number,
     request?: any
 ) {
-    const { role = 'MAIN', content } = args;
+    const { role = 'MAIN', content, mimeType, extension } = args;
     if (!content) {
         throw new Error('upsert_text requires a "content" argument');
     }
@@ -50,13 +50,19 @@ export async function upsertText(
     // Upsert the text (atomic on resourceId + role)
     const text = await prisma.text.upsert({
         where: { resourceId_role: { resourceId: resource.id, role: role.toUpperCase() } },
-        update: { content },
+        update: { 
+            content,
+            ...(mimeType  !== undefined && { mimeType }),
+            ...(extension !== undefined && { extension }),
+        },
         create: {
             content,
             role: role.toUpperCase(),
             resourceId: resource.id,
             userId,
             isPublished: resource.isPublished ?? false,
+            mimeType:  mimeType  ?? 'text/plain',
+            extension: extension ?? 'txt',
         },
     });
 

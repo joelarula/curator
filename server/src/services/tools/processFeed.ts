@@ -9,7 +9,7 @@ export async function processFeed(
     _responseId?: number,
     _request?: any
 ): Promise<ProcessFeedOutput> {
-    const { url } = args;
+    const { url, excludedUrlPatterns = [], excludedCategories = [] } = args;
     if (!url) throw new Error("Missing required argument: url");
 
     console.log(`[Tools] Executing process_feed for URL: "${url}"`);
@@ -66,8 +66,14 @@ export async function processFeed(
     // 3. Collect item URIs to check existence in bulk
     const items = feed.items.map((item: any) => ({
         ...item,
-        uri: item.link ? `url:${item.link}` : null
-    })).filter((i: any) => i.uri);
+        uri: item.link || null
+    })).filter((i: any) => {
+        if (!i.uri) return false;
+        for (const pattern of excludedUrlPatterns) {
+            if (i.uri.includes(pattern)) return false;
+        }
+        return true;
+    });
 
     const uris = items.map((i: any) => i.uri as string);
 
@@ -81,11 +87,22 @@ export async function processFeed(
     // 5. Build enriched items list
     const enrichedItems = items.map((item: any) => {
         const resource = existingUriMap.get(item.uri!);
+        
+        let finalCategories = item.categories || [];
+        if (excludedCategories.length > 0) {
+            finalCategories = finalCategories.filter((cat: string) => !excludedCategories.includes(cat));
+        }
+
         return {
             ...item,
+            categories: finalCategories,
             isNew: !resource,
             resource: resource || null,
         };
+    }).filter((item: any) => {
+        // Ignore soft-deleted items entirely so they aren't resurrected
+        if (item.resource && item.resource.existent === null) return false;
+        return true;
     });
 
     console.log(`[Tools] Feed processed: ${url}. Found ${enrichedItems.length} items (${enrichedItems.filter((i: any) => i.isNew).length} new).`);

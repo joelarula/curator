@@ -84,6 +84,7 @@ model Resource {
   attachments        Attachment[]
 
   @@unique([uri])                       // Studio-wide URI identity
+  @@unique([id, existent])              // ID/Existent compound uniqueness
   @@index([uri, existent])
   @@index([existent])
   @@index([deletedAt])
@@ -100,8 +101,9 @@ model Text {
   id          String    @id @default(cuid())
   content     String    @db.Text
   role        String    @default("MAIN")
+  mimeType    String?   @default("text/plain")
+  extension   String?   @default("txt")
 
-  
   isPublished Boolean   @default(false)
   existent    Boolean?  @default(true)
   deletedAt   DateTime?
@@ -113,8 +115,6 @@ model Text {
   @@index([resourceId, existent])
   @@index([existent])
   @@unique([resourceId, role])
-
-
 }
 
 

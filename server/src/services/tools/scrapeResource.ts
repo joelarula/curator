@@ -17,8 +17,10 @@ export async function scrapeResource(
     args: { 
         url: string; 
         resourceUri?: string; 
-        role?: string; 
-        selectors?: Record<string, string>; // New: jQuery-style selectors for field extraction
+        role?: string;
+        contentSelector?: string;
+        excludeLinkPatterns?: string[];    // URL substrings — matching links are stripped before MD conversion
+        selectors?: Record<string, string>;
         onSuccess?: any 
     },
 
@@ -27,7 +29,7 @@ export async function scrapeResource(
     responseId?: number,
     request?: any
 ) {
-    const { url, resourceUri, role = 'MAIN', selectors } = args;
+    const { url, resourceUri, role = 'MAIN', selectors, contentSelector, excludeLinkPatterns = [] } = args;
     if (!url) throw new Error('scrape_resource requires a "url" argument');
 
     console.log(`[Tools] scrape_resource: processing "${url}"${selectors ? ' using jQuery selectors' : ''}`);
@@ -44,7 +46,6 @@ export async function scrapeResource(
     });
     const cachedHtml = cachedResource?.texts?.find(t => t.role === 'HTML');
 
-
     let html: string;
     if (cachedHtml) {
         console.log(`[Tools] scrape_resource: using cached HTML (Text id=${cachedHtml.id})`);
@@ -53,21 +54,23 @@ export async function scrapeResource(
         console.log(`[Tools] scrape_resource: no cache — fetching "${url}"`);
         const response = await fetch(url, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
             },
-            signal: AbortSignal.timeout(10000),
+            signal: AbortSignal.timeout(12000),
         });
         if (!response.ok) throw new Error(`HTTP ${response.status} for "${url}"`);
         html = await response.text();
     }
 
-    // 2. Extract using Selectors or AI fallback
+    // 2. Extract using Selectors or Markdown conversion
     if (selectors) {
         // Deterministic jQuery-style extraction
         ({ title, content, extractedFields } = ScraperService.extractBySelectors(html, url, selectors));
     } else {
-        // Heuristic/AI fallback extraction
-        ({ title, content } = ScraperService.extractFromHtml(html, url));
+        // Rich Markdown extraction: YAML front matter + preserved links + GFM tables
+        const result = ScraperService.extractFromHtml(html, url, contentSelector, excludeLinkPatterns);
+        title   = result.title;
+        content = result.content;
     }
 
 
@@ -97,6 +100,8 @@ export async function scrapeResource(
             resourceId: resource.id,
             userId,
             isPublished: false,
+            mimeType:  'text/markdown',
+            extension: 'md',
         },
     });
 

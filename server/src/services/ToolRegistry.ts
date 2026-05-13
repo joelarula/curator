@@ -19,11 +19,13 @@ import { udcCat }             from './tools/udcCat.js';
 import { iterate }            from './tools/iterate.js';
 import { debug }              from './tools/debug.js';
 import { queryResources }      from './tools/queryResources.js';
-import { setContext, getContext } from './tools/context.js';
+import { getContext, setContext } from './tools/context.js';
 import { getResource }         from './tools/getResource.js';
+import { deleteResource }      from './tools/deleteResource.js';
 import { extractUdcHierarchy } from './tools/udcUtils.js';
 import { format_list }         from './tools/formatList.js';
 import { selectObjects }        from './tools/selectObjects.js';
+import { evaluateCondition }    from './tools/evaluateCondition.js';
 import { trigger_agent }      from './tools/trigger_agent.js';
 
 
@@ -182,6 +184,12 @@ const TOOLS: ToolDefinition[] = [
         handler: getResource,
     },
     {
+        name: 'delete_resource',
+        description: 'Deletes a single resource by ID or URI. Can perform a hard delete (cascading to relations) or soft delete (setting deletedAt and existent).',
+        version: '1.0.0',
+        handler: deleteResource,
+    },
+    {
         name: 'extract_udc_hierarchy',
         description: 'Calculates the parent UDC notation from a URI.',
         version: '1.0.0',
@@ -204,6 +212,12 @@ const TOOLS: ToolDefinition[] = [
         description: 'Generic tool to extract object resources from a list of relations based on predicate URI.',
         version: '1.0.0',
         handler: selectObjects,
+    },
+    {
+        name: 'evaluate_condition',
+        description: 'Evaluates a raw JS expression synchronously to return a boolean result. Useful for AST if/else nodes.',
+        version: '1.0.0',
+        handler: evaluateCondition,
     },
 
 ];
@@ -277,7 +291,9 @@ declare module './AIQ.js' {
         udc_cat(args: T.UdcCatInput): AIQ & AIQPlugins;
         iterate(args: T.IterateInput): AIQ & AIQPlugins;
         debug(args: T.DebugInput): AIQ & AIQPlugins;
+        delete_resource(args: T.DeleteResourceInput): AIQ & AIQPlugins;
         select_objects(args: { items: any[], predicateUri: string }): AIQ & AIQPlugins;
+        evaluate_condition(args: T.EvaluateConditionInput): AIQ & AIQPlugins;
         as(name: string): AIQ & AIQPlugins;
     }
 

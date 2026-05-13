@@ -41,9 +41,18 @@ export interface AIQContext {
 // process_feed
 export interface ProcessFeedInput {
     url: string;
+    excludedUrlPatterns?: string[];
+    excludedCategories?: string[];
 }
+export interface EvaluateConditionInput<T = any> {
+    expression?: string;
+    evalFn?: (data: T) => boolean;
+    data?: T;
+}
+
 export interface FeedItem {
     title: string;
+    uri: string;
     link: string;
     content: string;
     categories: string[];
@@ -295,5 +304,15 @@ export interface GetContextInput {
 export interface GetResourceInput {
     id?: number;
     uri?: string;
+}
+
+// delete_resource
+export interface DeleteResourceInput {
+    uri?: string;
+    id?: number;
+    hardDelete?: boolean;
+}
+export interface DeleteResourceOutput extends ToolResult {
+    data: { action: string, id: number, uri: string | null };
 }
 

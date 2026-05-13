@@ -1,4 +1,4 @@
-import type { ASTNode, SequenceNode, ToolNode, ForEachNode, SpawnNode } from './types.js';
+import type { ASTNode, SequenceNode, ToolNode, ForEachNode, SpawnNode, WhileNode } from './types.js';
 import type { ToolName } from '../tools/manifest.js';
 
 let _idCounter = 0;
@@ -63,11 +63,19 @@ export class Pipeline {
      */
     tool<T = any>(name: ToolName, args: Record<string, any> = {}): Proxyfy<T> {
         const id = nextId(`tool_${name}`);
+        
+        // Deep clone and stringify functions to preserve them in AST, while allowing Proxies to use toJSON()
+        const argsJson = JSON.stringify(args, (key, value) => {
+            if (typeof value === 'function') return value.toString();
+            return value;
+        });
+        const sanitizedArgs = argsJson ? JSON.parse(argsJson) : {};
+
         const node: ToolNode = {
             id,
             type: 'ToolTask',
             tool: name,
-            args
+            args: sanitizedArgs
         };
         this.steps.push(node);
         return createTemplateProxy<T>(`toolOutputs.${id}`);
@@ -163,6 +171,23 @@ export class Pipeline {
         };
         this.steps.push(node);
         return new BranchBuilder(node);
+    }
+
+    /**
+     * Evaluates a condition and repeats the body while the condition is true.
+     */
+    while(condition: any, bodyFn: (flow: Pipeline) => void): WhileNode {
+        const bodyFlow = new Pipeline();
+        bodyFn(bodyFlow);
+        
+        const node: WhileNode = {
+            id: nextId('while'),
+            type: 'While',
+            condition: condition && condition.toString ? condition.toString() : String(condition),
+            body: bodyFlow.toAST()
+        };
+        this.steps.push(node);
+        return node;
     }
 
     /**
