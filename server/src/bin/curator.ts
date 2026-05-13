@@ -8,15 +8,15 @@ const { Pool } = pkg;
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Command } from 'commander';
 
-import { AIQ, AIQBuilder } from '../services/AIQ.js';
+import { Curator, CuratorBuilder } from '../services/Curator.js';
 
 const program = new Command();
 
 program
-  .name('aiq')
-  .description('Curator AIQ Script Executor')
+  .name('Curator')
+  .description('Curator Curator Script Executor')
   .version('1.0.0')
-  .argument('<script>', 'Path to the AIQ script file (.ts or .js)')
+  .argument('<script>', 'Path to the Curator script file (.ts or .js)')
   .argument('[args...]', 'Arguments passed to the script')
   .action(async (scriptArg, argsArg) => {
       const scriptPath = path.resolve(scriptArg);
@@ -28,7 +28,7 @@ program
           try {
               scriptArgs = JSON.parse(scriptArgsStr);
           } catch (e) {
-              console.warn('[AIQ] Failed to parse JSON args, using as raw strings.');
+              console.warn('[Curator] Failed to parse JSON args, using as raw strings.');
           }
       }
 
@@ -46,13 +46,13 @@ program
 
           // 2. Evaluate the script
           // Use pathToFileURL for Windows absolute path compatibility
-          (AIQ as any).setArgs(scriptArgs, scriptArgsStr);
-          console.log(`[AIQ] Global state set:`, JSON.stringify((global as any).__AIQ_STATE__));
+          (Curator as any).setArgs(scriptArgs, scriptArgsStr);
+          console.log(`[Curator] Global state set:`, JSON.stringify((global as any).__CURATOR_STATE__));
           
           const { pathToFileURL } = await import('node:url');
           const imported = await import(pathToFileURL(scriptPath).href);
           
-          console.log(`[AIQ] Script imported. Root chains:`, (AIQ as any).rootChains.length);
+          console.log(`[Curator] Script imported. Root chains:`, (Curator as any).rootChains.length);
 
           // 3. Resolve Conversation
           let conversation = await prisma.conversation.findFirst({ where: { userId: user.id } });
@@ -73,9 +73,9 @@ program
               }
           }
 
-          // Option B: Fallback to the implicit legacy AIQBuilder chains
+          // Option B: Fallback to the implicit legacy CuratorBuilder chains
           if (!ast) {
-              const chains = (AIQ as any).rootChains as AIQBuilder[];
+              const chains = (Curator as any).rootChains as CuratorBuilder[];
               if (chains.length > 0) {
                   const primaryBuilder = chains.find(c => c.toJSON() !== null) || chains[chains.length - 1];
                   ast = primaryBuilder?.toJSON();
@@ -83,7 +83,7 @@ program
           }
 
           if (!ast) {
-              console.log("[AIQ] No valid workflow or chain was found in the script.");
+              console.log("[Curator] No valid workflow or chain was found in the script.");
               return;
           }
 
@@ -110,14 +110,14 @@ program
           console.log(`--- SCRIPT RETURN ---`);
           console.log(JSON.stringify(lastResult, null, 2));
           console.log(`----------------------`);
-          console.log(`[AIQ] Script execution finished.`);
+          console.log(`[Curator] Script execution finished.`);
       } catch (error: any) {
-          console.error(`[AIQ] Error: ${error.message}`);
+          console.error(`[Curator] Error: ${error.message}`);
           process.exitCode = 1;
       } finally {
           await prisma.$disconnect();
           await pool.end();
-          console.log(`[AIQ] Cleanup complete. Exiting.`);
+          console.log(`[Curator] Cleanup complete. Exiting.`);
           process.exit();
       }
   });

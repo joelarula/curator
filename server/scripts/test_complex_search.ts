@@ -1,4 +1,4 @@
-import { AIQ } from '../src/services/AIQ.js';
+import { Curator } from '../src/services/Curator.js';
 
 /**
  * scripts/test_complex_search.ts
@@ -11,7 +11,7 @@ import { AIQ } from '../src/services/AIQ.js';
  *   2. Related to "Film" via https://schema.org/about
  */
 
-AIQ.chain("query_resources", {
+Curator.chain("query_resources", {
     status: "DRAFT",
     relation: {
         predicateUri: "https://schema.org/about",

@@ -1,6 +1,6 @@
-import { AIQ } from '../src/services/AIQ.js';
+import { Curator } from '../src/services/Curator.js';
 
-const flow = AIQ
+const flow = Curator
     // 1. Store a value in the conversation metadata
     .chain("set_context", { key: "research_focus", value: "Digital Governance" })
     // 2. Immediately use it in a template

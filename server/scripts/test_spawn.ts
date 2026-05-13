@@ -1,5 +1,5 @@
-import { AIQ } from '../src/services/AIQ.js';
+import { Curator } from '../src/services/Curator.js';
 
-AIQ.init();
+Curator.init();
 
-AIQ.spawn("upsert_resource", { uri: "https://example.com" });
+Curator.spawn("upsert_resource", { uri: "https://example.com" });

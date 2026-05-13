@@ -1,6 +1,6 @@
 /**
  * manifest.ts — Central list of all registered tool names.
- * Used by AIQ to initialize fluent methods without loading full tool handlers.
+ * Used by Curator to initialize fluent methods without loading full tool handlers.
  */
 export const TOOL_NAMES = [
     'ask_llm',
@@ -29,6 +29,7 @@ export const TOOL_NAMES = [
     'format_list',
     'select_objects',
     'evaluate_condition',
+    'regex_replace',
     'internal:trigger_agent'
 
 
@@ -68,5 +69,6 @@ export const TOOLS = {
     FORMAT_LIST: 'format_list',
     SELECT_OBJECTS: 'select_objects',
     EVALUATE_CONDITION: 'evaluate_condition',
+    REGEX_REPLACE: 'regex_replace',
     TRIGGER_AGENT: 'internal:trigger_agent'
 } as const;

@@ -1,4 +1,4 @@
-import { AIQ } from '../src/services/AIQ.js';
+import { Curator } from '../src/services/Curator.js';
 
 /**
  * Example Script: Advanced Resource Query
@@ -10,10 +10,10 @@ import { AIQ } from '../src/services/AIQ.js';
  */
 
 // 0. Initialize plugins (adds fluent methods like .upsert_relation)
-AIQ.init();
+Curator.init();
 
 // 1. Build the orchestration flow
-const flow = AIQ.spawn("query_resources", {
+const flow = Curator.spawn("query_resources", {
     titleContains: "Eesti",
     status: ["DRAFT", "ACTIVE"],
     type: "ARTICLE",
@@ -22,7 +22,7 @@ const flow = AIQ.spawn("query_resources", {
     // This callback is executed during the orchestration phase.
 
     // Using the new debug tool to inspect resolved templates
-    return AIQ.chain().debug({
+    return Curator.chain().debug({
         message: `Found resource: {{item.title}} (URI: {{item.uri}})`,
         data: {
             id: "{{item.id}}",

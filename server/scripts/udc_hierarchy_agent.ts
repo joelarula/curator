@@ -1,4 +1,4 @@
-import { AIQ } from '../src/services/AIQ.js';
+import { Curator } from '../src/services/Curator.js';
 
 /**
  * UDC Hierarchy Builder Agent (Version 2)
@@ -9,7 +9,7 @@ import { AIQ } from '../src/services/AIQ.js';
  * 3. The tool returns [data] if a parent exists, or [] if top-level.
  * 4. Chain correctly maps the hierarchy.
  */
-const udcHierarchyAgent = AIQ
+const udcHierarchyAgent = Curator
     // 1. Find resources that look like UDC Concepts
     .chain("query_resources", { 
         type: "CONCEPT"
@@ -20,7 +20,7 @@ const udcHierarchyAgent = AIQ
     })
     // 3. The tool's fannable output (items: [data]) handles the logic
     .onItem().chain((udc: any) => {
-        return AIQ.chain("upsert_resource", {
+        return Curator.chain("upsert_resource", {
             uri: udc.parentUri,
             title: `UDC ${udc.parentNotation} (Parent)`,
             type: "CONCEPT",

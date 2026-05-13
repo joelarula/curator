@@ -1,5 +1,5 @@
 /**
- * AIQ — fluent builder for composing agentic tool call pipelines.
+ * Curator — fluent builder for composing agentic tool call pipelines.
  *
  * Produces the exact toolCalls[] JSON structure that RequestProcessor understands.
  * This builder has no side-effects — call .toJSON() to get the serializable result.
@@ -45,7 +45,7 @@ export const contextProxy = createRecursiveProxy('context');
 /** toolProxy — generates templates for tool results (e.g. {{toolData.myTool}}). */
 export const toolProxy = createRecursiveProxy('toolData');
 
-/** Shorthand for referencing tool output in templates: AIQ.ref('myTool') -> {{toolData.myTool}} */
+/** Shorthand for referencing tool output in templates: Curator.ref('myTool') -> {{toolData.myTool}} */
 export function ref(alias: string) {
     return `{{toolData.${alias}}}`;
 }
@@ -54,27 +54,27 @@ export function ref(alias: string) {
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 /** Generate fluent method signatures for all tools in the manifest */
-export type AIQTools = {
-    [K in ToolName]: (args?: any) => AIQ;
+export type CuratorTools = {
+    [K in ToolName]: (args?: any) => Curator;
 };
 
-/** Extend this interface to get type-safe plugin methods on AIQ instances. */
-export interface AIQPlugins extends AIQTools {
-    ask(promptOrArgs: string | Record<string, any>): AIQ;
-    feed(urlOrArgs: string | Record<string, any>): AIQ;
-    foreach(chainOrFn: AIQ | ((item: any) => AIQ)): AIQ;
-    wait(seconds: number): AIQ;
-    schedule(date: Date): AIQ;
+/** Extend this interface to get type-safe plugin methods on Curator instances. */
+export interface CuratorPlugins extends CuratorTools {
+    ask(promptOrArgs: string | Record<string, any>): Curator;
+    feed(urlOrArgs: string | Record<string, any>): Curator;
+    foreach(chainOrFn: Curator | ((item: any) => Curator)): Curator;
+    wait(seconds: number): Curator;
+    schedule(date: Date): Curator;
 }
 
 /**
- * AIQFlow — A union type representing a builder augmented with all registered plugins.
+ * CuratorFlow — A union type representing a builder augmented with all registered plugins.
  */
-export type AIQFlow<T = AIQBuilder> = T & AIQPlugins;
+export type CuratorFlow<T = CuratorBuilder> = T & CuratorPlugins;
 
-// ─── AIQBuilder ─────────────────────────────────────────────────────────────
+// ─── CuratorBuilder ─────────────────────────────────────────────────────────────
 
-export class AIQBuilder {
+export class CuratorBuilder {
     private static _state = {
         args: {} as any,
         argString: "" as string
@@ -94,21 +94,21 @@ export class AIQBuilder {
 
     static setArgs(args: any, argString: string = '') {
         this._state = { args, argString };
-        (global as any).__AIQ_STATE__ = { args, argString };
+        (global as any).__CURATOR_STATE__ = { args, argString };
     }
 
     static syncState() {
-        const globalState = (global as any).__AIQ_STATE__;
+        const globalState = (global as any).__CURATOR_STATE__;
         if (globalState) {
             this._state = globalState;
         }
     }
 
-    static rootChains: AIQBuilder[] = [];
+    static rootChains: CuratorBuilder[] = [];
     static readonly VOCAB = VOCAB;
-    static lastCreated: AIQBuilder | null = null;
+    static lastCreated: CuratorBuilder | null = null;
     static readonly fn: Record<string, (...args: any[]) => any> =
-        AIQBuilder.prototype as unknown as Record<string, (...args: any[]) => any>;
+        CuratorBuilder.prototype as unknown as Record<string, (...args: any[]) => any>;
 
     private calls: any[] = [];
     private pendingSpawn = false;
@@ -126,40 +126,40 @@ export class AIQBuilder {
 
     constructor(calls: any[] = []) {
         this.calls = calls;
-        AIQBuilder.lastCreated = this;
-        AIQBuilder.rootChains.push(this);
+        CuratorBuilder.lastCreated = this;
+        CuratorBuilder.rootChains.push(this);
     }
 
     static register(toolName: string, defaults: Record<string, any> = {}): void {
-        (AIQBuilder.prototype as any)[toolName] = function (args: any = {}) {
+        (CuratorBuilder.prototype as any)[toolName] = function (args: any = {}) {
             return this.chain(toolName, { ...defaults, ...args });
         };
         (ToolFlowBuilder.prototype as any)[toolName] = function (args: any = {}) {
             return this.chain(toolName, { ...defaults, ...args });
         };
-        (AIQBuilder as any)[toolName] = function (args: any = {}) {
-            return new AIQBuilder().chain(toolName, { ...defaults, ...args });
+        (CuratorBuilder as any)[toolName] = function (args: any = {}) {
+            return new CuratorBuilder().chain(toolName, { ...defaults, ...args });
         };
     }
 
     static registerSpawn(toolName: string, defaults: Record<string, any> = {}): void {
-        (AIQBuilder.prototype as any)[toolName] = function (args: any = {}) {
+        (CuratorBuilder.prototype as any)[toolName] = function (args: any = {}) {
             return this.spawn(toolName, { ...defaults, ...args });
         };
         (ToolFlowBuilder.prototype as any)[toolName] = function (args: any = {}) {
             return this.spawn(toolName, { ...defaults, ...args });
         };
-        (AIQBuilder as any)[toolName] = function (args: any = {}) {
-            return new AIQBuilder().spawn(toolName, { ...defaults, ...args });
+        (CuratorBuilder as any)[toolName] = function (args: any = {}) {
+            return new CuratorBuilder().spawn(toolName, { ...defaults, ...args });
         };
     }
 
-    static wait(seconds: number): AIQFlow<AIQBuilder> {
-        return new AIQBuilder().wait(seconds) as any;
+    static wait(seconds: number): CuratorFlow<CuratorBuilder> {
+        return new CuratorBuilder().wait(seconds) as any;
     }
 
-    static schedule(date: Date): AIQFlow<AIQBuilder> {
-        return new AIQBuilder().schedule(date) as any;
+    static schedule(date: Date): CuratorFlow<CuratorBuilder> {
+        return new CuratorBuilder().schedule(date) as any;
     }
 
     ask(promptOrArgs: string | Record<string, any>): any {
@@ -172,23 +172,23 @@ export class AIQBuilder {
         return (this as any).process_feed(args);
     }
 
-    static chain(toolName?: string, args?: any): AIQBuilder & AIQPlugins {
-        return new AIQBuilder().chain(toolName, args) as any;
+    static chain(toolName?: string, args?: any): CuratorBuilder & CuratorPlugins {
+        return new CuratorBuilder().chain(toolName, args) as any;
     }
 
-    static spawn(toolName?: string, args?: any): AIQBuilder & AIQPlugins {
-        return new AIQBuilder().spawn(toolName, args) as any;
+    static spawn(toolName?: string, args?: any): CuratorBuilder & CuratorPlugins {
+        return new CuratorBuilder().spawn(toolName, args) as any;
     }
 
-    static empty(): AIQBuilder & AIQPlugins {
-        return new AIQBuilder() as any;
+    static empty(): CuratorBuilder & CuratorPlugins {
+        return new CuratorBuilder() as any;
     }
 
-    static start(): AIQBuilder & AIQPlugins {
-        return new AIQBuilder() as any;
+    static start(): CuratorBuilder & CuratorPlugins {
+        return new CuratorBuilder() as any;
     }
 
-    chain(toolName?: string, args?: any): AIQFlow<this> {
+    chain(toolName?: string, args?: any): CuratorFlow<this> {
         if (!toolName) {
             this.pendingSpawn = false;
             return this as any;
@@ -203,7 +203,7 @@ export class AIQBuilder {
         return this as any;
     }
 
-    spawn(toolName?: string, args?: any): AIQFlow<this> {
+    spawn(toolName?: string, args?: any): CuratorFlow<this> {
         if (!toolName) {
             this.pendingSpawn = true;
             return this as any;
@@ -225,10 +225,10 @@ export class AIQBuilder {
     }
 
     then(
-        nameOrFn: string | ((res: Record<string, string>) => AIQFlow), 
+        nameOrFn: string | ((res: Record<string, string>) => CuratorFlow), 
         args: Record<string, any> = {}, 
         callbacks?: Record<string, any>
-    ): AIQFlow<this> {
+    ): CuratorFlow<this> {
         if (typeof nameOrFn === 'function') {
             const childChain = nameOrFn(resourceProxy);
             (this.onSuccess() as any).chain(childChain);
@@ -240,33 +240,33 @@ export class AIQBuilder {
         return this as any;
     }
 
-    onSuccess(callback?: (item: any, context: any) => AIQFlow): AIQFlow<ToolFlowBuilder> {
+    onSuccess(callback?: (item: any, context: any) => CuratorFlow): CuratorFlow<ToolFlowBuilder> {
         const last = this.calls[this.calls.length - 1];
-        if (!last) throw new Error('AIQ.onSuccess() called on empty chain');
+        if (!last) throw new Error('Curator.onSuccess() called on empty chain');
         const builder = new ToolFlowBuilder(last, 'onSuccess', this as any, resourceProxy) as any;
         if (callback) return builder.chain(callback);
         return builder;
     }
 
-    onDone(): AIQFlow<ToolFlowBuilder> {
+    onDone(): CuratorFlow<ToolFlowBuilder> {
         return this.onSuccess();
     }
 
-    onItemExtracted(callback?: (item: any, context: any) => AIQFlow): AIQFlow<ToolFlowBuilder> {
+    onItemExtracted(callback?: (item: any, context: any) => CuratorFlow): CuratorFlow<ToolFlowBuilder> {
         const last = this.calls[this.calls.length - 1];
-        if (!last) throw new Error('AIQ.onItemExtracted() called on empty chain');
+        if (!last) throw new Error('Curator.onItemExtracted() called on empty chain');
         const builder = new ToolFlowBuilder(last, 'onItemExtracted', this as any, itemProxy) as any;
         if (callback) return builder.chain(callback);
         return builder;
     }
 
-    onItem(callback?: (item: any, context: any) => AIQFlow): AIQFlow<ToolFlowBuilder> {
+    onItem(callback?: (item: any, context: any) => CuratorFlow): CuratorFlow<ToolFlowBuilder> {
         return this.onItemExtracted(callback);
     }
 
-    onFailure(callback?: (item: any, context: any) => AIQFlow): ToolFlowBuilder {
+    onFailure(callback?: (item: any, context: any) => CuratorFlow): ToolFlowBuilder {
         const last = this.calls[this.calls.length - 1];
-        if (!last) throw new Error('AIQ.onFailure() called on empty chain');
+        if (!last) throw new Error('Curator.onFailure() called on empty chain');
         const builder = new ToolFlowBuilder(last, 'onFailure', this, resourceProxy);
         if (callback) return builder.chain(callback) as any;
         return builder;
@@ -292,7 +292,7 @@ export class AIQBuilder {
 
 // ─── ToolFlowBuilder ────────────────────────────────────────────────────────
 
-export interface ToolFlowBuilder extends AIQPlugins {}
+export interface ToolFlowBuilder extends CuratorPlugins {}
 export class ToolFlowBuilder {
     private alias?: string;
     private hook: string;
@@ -313,7 +313,7 @@ export class ToolFlowBuilder {
     constructor(
         private call: any,
         private key: string,
-        private parent: AIQBuilder & AIQPlugins,
+        private parent: CuratorBuilder & CuratorPlugins,
         private proxy: any
     ) {
         this.hook = key;
@@ -338,7 +338,7 @@ export class ToolFlowBuilder {
         return this;
     }
 
-    spawn<T = any>(toolNameOrFn?: string | AIQFlow | ((item: T, context: any) => AIQFlow), args?: any): AIQFlow<this> {
+    spawn<T = any>(toolNameOrFn?: string | CuratorFlow | ((item: T, context: any) => CuratorFlow), args?: any): CuratorFlow<this> {
         if (!toolNameOrFn) {
             this.pendingSpawn = true;
             return this as any;
@@ -353,7 +353,7 @@ export class ToolFlowBuilder {
 
         if (childChain) {
             if (typeof childChain.toJSON !== 'function') {
-                throw new Error(`The callback for ${this.hook} must return an AIQ.chain(...) or another builder instance.`);
+                throw new Error(`The callback for ${this.hook} must return an Curator.chain(...) or another builder instance.`);
             }
             this.call.callbacks = this.call.callbacks ?? {};
             this.call.callbacks[this.hook] = { spawn: childChain.toJSON(), as: this.alias };
@@ -363,7 +363,7 @@ export class ToolFlowBuilder {
         return this.addToolCall(toolNameOrFn as string, args, true);
     }
 
-    chain<T = any>(toolNameOrFn?: string | AIQFlow | ((item: T, context: any) => AIQFlow), args?: any): AIQFlow<this> {
+    chain<T = any>(toolNameOrFn?: string | CuratorFlow | ((item: T, context: any) => CuratorFlow), args?: any): CuratorFlow<this> {
         if (!toolNameOrFn) {
             this.pendingChain = true;
             return this as any;
@@ -382,7 +382,7 @@ export class ToolFlowBuilder {
             : toolNameOrFn as any;
 
         if (!childChain || typeof childChain.toJSON !== 'function') {
-            throw new Error(`The callback for ${this.hook} must return an AIQ.chain(...) or another builder instance.`);
+            throw new Error(`The callback for ${this.hook} must return an Curator.chain(...) or another builder instance.`);
         }
 
         this.call.callbacks = this.call.callbacks ?? {};
@@ -406,11 +406,11 @@ export class ToolFlowBuilder {
         return this as any;
     }
 
-    onItem(callback?: (item: any, context: any) => AIQFlow): AIQFlow<ToolFlowBuilder> {
+    onItem(callback?: (item: any, context: any) => CuratorFlow): CuratorFlow<ToolFlowBuilder> {
         return this.onItemExtracted(callback);
     }
 
-    onItemExtracted(callback?: (item: any, context: any) => AIQFlow): AIQFlow<ToolFlowBuilder> {
+    onItemExtracted(callback?: (item: any, context: any) => CuratorFlow): CuratorFlow<ToolFlowBuilder> {
         const flow = this.call.callbacks?.[this.hook];
         const chain = flow?.chain || flow?.spawn;
         const last = chain && Array.isArray(chain) ? chain[chain.length - 1] : null;
@@ -422,7 +422,7 @@ export class ToolFlowBuilder {
         return builder;
     }
 
-    onSuccess(callback?: (item: any, context: any) => AIQFlow): AIQFlow<ToolFlowBuilder> {
+    onSuccess(callback?: (item: any, context: any) => CuratorFlow): CuratorFlow<ToolFlowBuilder> {
         const flow = this.call.callbacks?.[this.hook];
         const chain = flow?.chain || flow?.spawn;
         const last = chain && Array.isArray(chain) ? chain[chain.length - 1] : null;
@@ -434,7 +434,7 @@ export class ToolFlowBuilder {
         return builder;
     }
 
-    onFailure(callback?: (item: any, context: any) => AIQFlow): ToolFlowBuilder {
+    onFailure(callback?: (item: any, context: any) => CuratorFlow): ToolFlowBuilder {
         const flow = this.call.callbacks?.[this.hook];
         const chain = flow?.chain || flow?.spawn;
         const last = chain && Array.isArray(chain) ? chain[chain.length - 1] : null;
@@ -446,7 +446,7 @@ export class ToolFlowBuilder {
         return builder;
     }
 
-    yieldScript(scriptName: string): AIQBuilder {
+    yieldScript(scriptName: string): CuratorBuilder {
         this.call.callbacks = this.call.callbacks ?? {};
         this.call.callbacks[this.hook] = { yieldTemplateName: scriptName };
         return this.parent;
@@ -462,9 +462,9 @@ export class ToolFlowBuilder {
 }
 
 
-// ─── AIQ Factory ────────────────────────────────────────────────────────────
+// ─── Curator Factory ────────────────────────────────────────────────────────────
 
-export type AIQExport = typeof AIQBuilder & AIQPlugins & {
+export type AIQExport = typeof CuratorBuilder & CuratorPlugins & {
     VOCAB: typeof VOCAB;
     item: any;
     resource: any;
@@ -475,19 +475,19 @@ export type AIQExport = typeof AIQBuilder & AIQPlugins & {
     argString: string;
 };
 
-export const AIQ = new Proxy(() => AIQBuilder.start(), {
+export const Curator = new Proxy(() => CuratorBuilder.start(), {
     get(target, prop) {
         if (typeof prop === 'symbol') return undefined;
-        if (prop in AIQBuilder) return (AIQBuilder as any)[prop];
+        if (prop in CuratorBuilder) return (CuratorBuilder as any)[prop];
         if (prop in target) return (target as any)[prop];
 
         if (prop === 'args') {
-            AIQBuilder.syncState();
-            return (AIQBuilder as any)._state.args;
+            CuratorBuilder.syncState();
+            return (CuratorBuilder as any)._state.args;
         }
         if (prop === 'argString') {
-            AIQBuilder.syncState();
-            return (AIQBuilder as any)._state.argString;
+            CuratorBuilder.syncState();
+            return (CuratorBuilder as any)._state.argString;
         }
 
         if (prop === 'VOCAB') return VOCAB;
@@ -497,7 +497,7 @@ export const AIQ = new Proxy(() => AIQBuilder.start(), {
         if (prop === 'tool') return toolProxy;
         if (prop === 'ref') return ref;
         
-        if (prop === 'ask') return (args: any) => new AIQBuilder().ask(args);
+        if (prop === 'ask') return (args: any) => new CuratorBuilder().ask(args);
 
         return undefined;
     },

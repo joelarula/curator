@@ -1,8 +1,8 @@
-import { AIQ } from '../src/services/AIQ.js';
+import { Curator } from '../src/services/Curator.js';
 
-AIQ.init();
+Curator.init();
 
-const simple = AIQ.spawn("upsert_resource", {
+const simple = Curator.spawn("upsert_resource", {
     uri: "https://example2.com",
     title: "Example",
     description: "Example description",

@@ -1,4 +1,4 @@
-import { AIQ } from '../src/services/AIQ.js';
+import { Curator } from '../src/services/Curator.js';
 
 /**
  * Fallacy Migration Agent
@@ -14,17 +14,17 @@ import { AIQ } from '../src/services/AIQ.js';
  */
 
 // Start the crawl at the alphabetical index
-AIQ.chain("fetch_html", {
+Curator.chain("fetch_html", {
     url: "https://www.logicallyfallacious.com/fallacies"
 })
     .onSuccess().chain((html: any) =>
-        AIQ.extract_resource_links({
+        Curator.extract_resource_links({
             resourceUri: html.uri,
             selector: "h3 a", // Deterministic jQuery-style match for the list
             baseUrl: "https://www.logicallyfallacious.com"
         })
             .onItemExtracted().spawn((link: any) =>
-                AIQ.scrape_resource({
+                Curator.scrape_resource({
                     url: link.url,
                     resourceUri: link.url,
                     // Original jQuery style DOM match for precision extraction

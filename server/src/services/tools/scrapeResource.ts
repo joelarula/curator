@@ -19,8 +19,9 @@ export async function scrapeResource(
         resourceUri?: string; 
         role?: string;
         contentSelector?: string;
-        excludeLinkPatterns?: string[];    // URL substrings — matching links are stripped before MD conversion
+        excludeLinkPatterns?: string[];
         selectors?: Record<string, string>;
+        saveText?: boolean;                // default true — set false to skip DB text write
         onSuccess?: any 
     },
 
@@ -29,48 +30,72 @@ export async function scrapeResource(
     responseId?: number,
     request?: any
 ) {
-    const { url, resourceUri, role = 'MAIN', selectors, contentSelector, excludeLinkPatterns = [] } = args;
+    const { url, resourceUri, role = 'MAIN', selectors, contentSelector, excludeLinkPatterns = [], saveText = true } = args;
     if (!url) throw new Error('scrape_resource requires a "url" argument');
 
     console.log(`[Tools] scrape_resource: processing "${url}"${selectors ? ' using jQuery selectors' : ''}`);
 
-    // 1. Check for cached HTML Text on the resource (stored by fetch_html)
-    const uri = resourceUri || `url:${url}`;
+    const uri = resourceUri || url;
     let title: string = '';
     let content: string = '';
     let extractedFields: Record<string, string> = {};
 
-    const cachedResource = await prisma.resource.findUnique({
-        where: { uri },
-        include: { texts: true },
-    });
-    const cachedHtml = cachedResource?.texts?.find(t => t.role === 'HTML');
+    // ── Fast path: raw text/markdown content (GitHub raw, pastebin, etc.) ───
+    // Detect by URL pattern OR explicit Content-Type header from server.
+    const RAW_URL_PATTERNS = [
+        'raw.githubusercontent.com',
+        'gist.githubusercontent.com',
+        'raw.gitlab.com',
+        'pastebin.com/raw',
+    ];
+    const isRawUrl = RAW_URL_PATTERNS.some(p => url.includes(p));
 
-    let html: string;
-    if (cachedHtml) {
-        console.log(`[Tools] scrape_resource: using cached HTML (Text id=${cachedHtml.id})`);
-        html = cachedHtml.content;
-    } else {
-        console.log(`[Tools] scrape_resource: no cache — fetching "${url}"`);
+    if (isRawUrl) {
+        console.log(`[Tools] scrape_resource: raw content URL detected — fetching as plain text`);
         const response = await fetch(url, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
-            },
+            headers: { 'User-Agent': 'Curator/1.0' },
             signal: AbortSignal.timeout(12000),
         });
         if (!response.ok) throw new Error(`HTTP ${response.status} for "${url}"`);
-        html = await response.text();
-    }
+        content = await response.text();
 
-    // 2. Extract using Selectors or Markdown conversion
-    if (selectors) {
-        // Deterministic jQuery-style extraction
-        ({ title, content, extractedFields } = ScraperService.extractBySelectors(html, url, selectors));
+        // Extract title from YAML front matter if present, else use filename from URL
+        const yamlMatch = content.match(/^---\s*\ntitle:\s*["']?(.+?)["']?\s*\n/m);
+        title = yamlMatch?.[1] || url.split('/').pop()?.replace(/\.[^.]+$/, '') || url;
+
     } else {
-        // Rich Markdown extraction: YAML front matter + preserved links + GFM tables
-        const result = ScraperService.extractFromHtml(html, url, contentSelector, excludeLinkPatterns);
-        title   = result.title;
-        content = result.content;
+        // ── Standard path: HTML scraping ────────────────────────────────────
+        // 1. Check for cached HTML Text on the resource (stored by fetch_html)
+        const cachedResource = await prisma.resource.findUnique({
+            where: { uri },
+            include: { texts: true },
+        });
+        const cachedHtml = cachedResource?.texts?.find(t => t.role === 'HTML');
+
+        let html: string;
+        if (cachedHtml) {
+            console.log(`[Tools] scrape_resource: using cached HTML (Text id=${cachedHtml.id})`);
+            html = cachedHtml.content;
+        } else {
+            console.log(`[Tools] scrape_resource: no cache — fetching "${url}"`);
+            const response = await fetch(url, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+                },
+                signal: AbortSignal.timeout(12000),
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status} for "${url}"`);
+            html = await response.text();
+        }
+
+        // 2. Extract using Selectors or Markdown conversion
+        if (selectors) {
+            ({ title, content, extractedFields } = ScraperService.extractBySelectors(html, url, selectors));
+        } else {
+            const result = ScraperService.extractFromHtml(html, url, contentSelector, excludeLinkPatterns);
+            title   = result.title;
+            content = result.content;
+        }
     }
 
 
@@ -90,6 +115,20 @@ export async function scrapeResource(
 
 
     console.log(`[Tools] scrape_resource: upserted Resource id=${resource.id} (${uri})`);
+
+    // Optionally skip text saving — caller will handle it with upsert_text + regex_replace
+    if (!saveText) {
+        return {
+            data: {
+                resourceId:    resource.id,
+                resourceUri:   resource.uri,
+                title:         resource.title,
+                content,          // raw extracted text returned to pipeline
+                contentLength: content.length,
+            },
+            createdItem: resource,
+        };
+    }
 
     const text = await prisma.text.upsert({
         where: { resourceId_role: { resourceId: resource.id, role: role.toUpperCase() } },

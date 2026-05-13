@@ -1,4 +1,4 @@
-import { AIQ } from '../src/services/AIQ.js';
+import { Curator } from '../src/services/Curator.js';
 
 /**
  * UDC Classification Agent
@@ -11,7 +11,7 @@ import { AIQ } from '../src/services/AIQ.js';
  */
 const udcAgent = (uri: string) => {
     // 1. Ensure the article exists and has content
-    return AIQ.chain("upsert_resource", {
+    return Curator.chain("upsert_resource", {
         uri,
         title: "Eesti Energia ja turu-uuringute prognoos",
         description: "Eesti Energia ja turu-uuringute prognoosi kohaselt jääb elektrihind lähiajal stabiilseks.",
@@ -21,7 +21,7 @@ const udcAgent = (uri: string) => {
     // 2. Fetch it back with relations (to demonstrate deep fetch)
     .chain("get_resource", { uri })
     .onItem().chain((article: any) => {
-        return AIQ.chain("ask_llm", {
+        return Curator.chain("ask_llm", {
 
                 prompt: `
                     Analyze the following article content and suggest the most relevant Universal Decimal Classification (UDC) categories.
@@ -39,12 +39,12 @@ const udcAgent = (uri: string) => {
                 model: "gemini-1.5-flash" // Example model
             }).onSuccess().chain((llmResult: any[]) => {
                 // Fan out the results from the LLM
-                return AIQ.chain("iterate", { items: llmResult })
+                return Curator.chain("iterate", { items: llmResult })
 
                     .onItem().chain((category: any) => {
                         const udcUri = `https://udcsummary.info/items/?id=${category.code}`;
                         
-                        return AIQ.chain("upsert_resource", {
+                        return Curator.chain("upsert_resource", {
                             uri: udcUri,
                             title: category.title,
                             type: "CONCEPT",

@@ -1,12 +1,12 @@
-import { AIQ } from '../src/services/AIQ.js';
+import { Curator } from '../src/services/Curator.js';
 
-AIQ.init();
+Curator.init();
 
 // Script to list ALL resources to see what's in the DB
-const flow = AIQ.spawn("query_resources", {
+const flow = Curator.spawn("query_resources", {
     limit: 50
 }).onItem().chain((item) => {
-    return AIQ.chain().debug({
+    return Curator.chain().debug({
         message: "DB Resource: [{{item.id}}] {{item.uri}}",
         data: {
             title: "{{item.title}}",

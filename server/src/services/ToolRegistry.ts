@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 
-import { AIQ } from './AIQ.js';
+import { Curator } from './Curator.js';
 
 import { processFeed }     from './tools/processFeed.js';
 import { classify }          from './tools/classify.js';
@@ -26,6 +26,7 @@ import { extractUdcHierarchy } from './tools/udcUtils.js';
 import { format_list }         from './tools/formatList.js';
 import { selectObjects }        from './tools/selectObjects.js';
 import { evaluateCondition }    from './tools/evaluateCondition.js';
+import { regexReplace }         from './tools/regexReplace.js';
 import { trigger_agent }      from './tools/trigger_agent.js';
 
 
@@ -219,17 +220,23 @@ const TOOLS: ToolDefinition[] = [
         version: '1.0.0',
         handler: evaluateCondition,
     },
+    {
+        name: 'regex_replace',
+        description: 'Applies one or more regex substitutions sequentially to a text string. Returns { text: string }.',
+        version: '1.0.0',
+        handler: regexReplace,
+    },
 
 ];
 
 
 
 
-// ─── Register all tools as AIQ plugins ─────────────────────────────────
+// ─── Register all tools as Curator plugins ─────────────────────────────────
 // Runs once on module load. After this every tool is a fluent method:
-//   AIQ.start().process_feed({ url }).upsert_resource({ uri }).toJSON()
+//   Curator.start().process_feed({ url }).upsert_resource({ uri }).toJSON()
 for (const name of TOOL_NAMES) {
-    AIQ.register(name);
+    Curator.register(name);
 }
 
 // ─── Internal Dispatch Map ────────────────────────────────────────────────────
@@ -271,30 +278,30 @@ export function getRegisteredTools(): Omit<ToolDefinition, 'handler'>[] {
  * Called once on server startup (or seed).
  */
 // ─── TypeScript plugin type augmentation ─────────────────────────────────────
-declare module './AIQ.js' {
-    interface AIQPlugins {
-        ask_llm(args: T.AskLlmInput): AIQ & AIQPlugins;
+declare module './Curator.js' {
+    interface CuratorPlugins {
+        ask_llm(args: T.AskLlmInput): Curator & CuratorPlugins;
 
-        process_feed(args: T.ProcessFeedInput): AIQ & AIQPlugins;
-        classify(args: T.ClassifyInput): AIQ & AIQPlugins;
-        upsert_resource(args: T.UpsertResourceInput): AIQ & AIQPlugins;
-        upsert_text(args: any): AIQ & AIQPlugins;
-        upsert_relation(args: T.UpsertRelationInput): AIQ & AIQPlugins;
-        query_resources(args: T.QueryResourcesInput): AIQ & AIQPlugins;
-        fetch_html(args: T.FetchHtmlInput): AIQ & AIQPlugins;
-        scrape_resource(args: T.ScrapeResourceInput): AIQ & AIQPlugins;
-        extract_resource_links(args: T.ExtractResourceLinksInput): AIQ & AIQPlugins;
-        execute_script(args: T.ExecuteScriptInput): AIQ & AIQPlugins;
-        classify_et(args: T.ClassifyEtInput): AIQ & AIQPlugins;
-        feature_extraction(args: T.FeatureExtractionInput): AIQ & AIQPlugins;
-        classify_udc(args: T.ClassifyUdcInput): AIQ & AIQPlugins;
-        udc_cat(args: T.UdcCatInput): AIQ & AIQPlugins;
-        iterate(args: T.IterateInput): AIQ & AIQPlugins;
-        debug(args: T.DebugInput): AIQ & AIQPlugins;
-        delete_resource(args: T.DeleteResourceInput): AIQ & AIQPlugins;
-        select_objects(args: { items: any[], predicateUri: string }): AIQ & AIQPlugins;
-        evaluate_condition(args: T.EvaluateConditionInput): AIQ & AIQPlugins;
-        as(name: string): AIQ & AIQPlugins;
+        process_feed(args: T.ProcessFeedInput): Curator & CuratorPlugins;
+        classify(args: T.ClassifyInput): Curator & CuratorPlugins;
+        upsert_resource(args: T.UpsertResourceInput): Curator & CuratorPlugins;
+        upsert_text(args: any): Curator & CuratorPlugins;
+        upsert_relation(args: T.UpsertRelationInput): Curator & CuratorPlugins;
+        query_resources(args: T.QueryResourcesInput): Curator & CuratorPlugins;
+        fetch_html(args: T.FetchHtmlInput): Curator & CuratorPlugins;
+        scrape_resource(args: T.ScrapeResourceInput): Curator & CuratorPlugins;
+        extract_resource_links(args: T.ExtractResourceLinksInput): Curator & CuratorPlugins;
+        execute_script(args: T.ExecuteScriptInput): Curator & CuratorPlugins;
+        classify_et(args: T.ClassifyEtInput): Curator & CuratorPlugins;
+        feature_extraction(args: T.FeatureExtractionInput): Curator & CuratorPlugins;
+        classify_udc(args: T.ClassifyUdcInput): Curator & CuratorPlugins;
+        udc_cat(args: T.UdcCatInput): Curator & CuratorPlugins;
+        iterate(args: T.IterateInput): Curator & CuratorPlugins;
+        debug(args: T.DebugInput): Curator & CuratorPlugins;
+        delete_resource(args: T.DeleteResourceInput): Curator & CuratorPlugins;
+        select_objects(args: { items: any[], predicateUri: string }): Curator & CuratorPlugins;
+        evaluate_condition(args: T.EvaluateConditionInput): Curator & CuratorPlugins;
+        as(name: string): Curator & CuratorPlugins;
     }
 
 

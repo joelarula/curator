@@ -1,4 +1,4 @@
-import { AIQ } from '../src/services/AIQ.js';
+import { Curator } from '../src/services/Curator.js';
 
 /**
  * ERR Jazz Intelligence Agent
@@ -6,13 +6,13 @@ import { AIQ } from '../src/services/AIQ.js';
  * 2. Filters for Jazz-relevant keywords.
  * 3. Categorizes and tags in the Knowledge Graph.
  */
-AIQ.chain("process_feed", { 
+Curator.chain("process_feed", { 
     url: "http://uudised.err.ee/uudised_rss.php" 
 })
 
 
 .onItem().chain((item: any) => 
-    AIQ.upsert_resource({
+    Curator.upsert_resource({
         uri: item.link,
         title: item.title,
         description: item.contentSnippet,
@@ -20,7 +20,7 @@ AIQ.chain("process_feed", {
         status: 'NEW'
     })
     .onSuccess().chain((resource: any) => 
-        AIQ.ask_llm({
+        Curator.ask_llm({
             systemPrompt: "Oled vana punkar.",
             prompt: `Nalja saab? 
             Vasta JSON formaadis: { "nalja saab": boolean, "reason": string, "entities": string[] }
@@ -30,7 +30,7 @@ AIQ.chain("process_feed", {
         .onSuccess().chain((ai: any) => {
             if (ai["nalja saab"]) {
                 // If it's Hiphop, upgrade its status and tag it
-                return AIQ.upsert_resource({
+                return Curator.upsert_resource({
                     uri: resource.uri,
                     status: 'APPROVED',
                     type: 'HIPHOP_ARTICLE'
@@ -38,7 +38,7 @@ AIQ.chain("process_feed", {
                 .onSuccess().chain("debug", { message: `🎤 Hiphop detected! ${resource.title}` });
             } else {
                 // If not hiphop, skip it
-                return AIQ.debug({ message: `Skipping non-hiphop item: ${resource.title}` });
+                return Curator.debug({ message: `Skipping non-hiphop item: ${resource.title}` });
             }
         })
 

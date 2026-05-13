@@ -1,6 +1,6 @@
-import { AIQ } from '../src/services/AIQ.js';
+import { Curator } from '../src/services/Curator.js';
 
-AIQ.ask({
+Curator.ask({
     prompt: "Hello! This is a simple API availability test. Please respond with a brief confirmation that you are online and operational.",
     model: "gemini-3.1-flash-lite"
 })

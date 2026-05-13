@@ -39,7 +39,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           type: "object",
           properties: {
             scriptName: { type: "string", description: "Name of the stored Script to run" },
-            body: { type: "string", description: "Ad-hoc JavaScript AIQ code to execute" },
+            body: { type: "string", description: "Ad-hoc JavaScript Curator code to execute" },
             args: { type: "object", description: "JSON arguments for the script" },
           },
         },

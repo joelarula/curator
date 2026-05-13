@@ -1,27 +1,27 @@
 import vm from 'node:vm';
 import { PrismaClient } from '@prisma/client';
-import { AIQ, itemProxy, toolProxy, ref } from './AIQ.js';
+import { Curator, itemProxy, toolProxy, ref } from './Curator.js';
 import { getRegisteredTools } from './ToolRegistry.js';
 
 /**
  * ScriptRunner — evaluates a user-authored or LLM-generated script in a sandboxed vm context.
  *
- * The script must return a AIQ instance. `toJSON()` is called automatically by the runner.
+ * The script must return a Curator instance. `toJSON()` is called automatically by the runner.
  * Scripts run inside a function body, so `return` works on any line.
  *
  * Examples:
  *   // Single expression (implicit return)
- *   AIQ.start().upsert_resource({ uri: args.url })
+ *   Curator.start().upsert_resource({ uri: args.url })
  *
  *   // Multi-line with return
  *   const x = "https://example.com";
- *   return AIQ.start().upsert_resource({ uri: x }).fetch_html({ url: x });
- *   return AIQ().upsert_resource({ uri: x }).fetch_html({ url: x });
+ *   return Curator.start().upsert_resource({ uri: x }).fetch_html({ url: x });
+ *   return Curator().upsert_resource({ uri: x }).fetch_html({ url: x });
  *
  *   // Named helper
  *   return run("upsert_resource", { uri: args.url }).then("fetch_html", { url: args.url });
  *
- * Available globals: run(name, args), start(), AIQ, args, tools, console
+ * Available globals: run(name, args), start(), Curator, args, tools, console
  */
 export class ScriptRunner {
     static async evaluate(
@@ -33,16 +33,16 @@ export class ScriptRunner {
         const sandbox: Record<string, any> = {
             args: scriptArgs,
             tools: getRegisteredTools(),
-            chain: (name: string, toolArgs: Record<string, any> = {}) => AIQ.chain(name, toolArgs),
-            spawn: (name: string, toolArgs: Record<string, any> = {}) => AIQ.spawn(name, toolArgs),
-            start: () => AIQ(),
+            chain: (name: string, toolArgs: Record<string, any> = {}) => Curator.chain(name, toolArgs),
+            spawn: (name: string, toolArgs: Record<string, any> = {}) => Curator.spawn(name, toolArgs),
+            start: () => Curator(),
             // Compatibility aliases
-            run:   (name: string, toolArgs: Record<string, any> = {}) => AIQ.chain(name, toolArgs),
-            step:  (name: string, toolArgs: Record<string, any> = {}) => AIQ.chain(name, toolArgs),
-            AIQ,
+            run:   (name: string, toolArgs: Record<string, any> = {}) => Curator.chain(name, toolArgs),
+            step:  (name: string, toolArgs: Record<string, any> = {}) => Curator.chain(name, toolArgs),
+            Curator,
             // Aliases for jQuery-style flavor
-            aiq: AIQ,
-            $: AIQ,
+            Curator: Curator,
+            $: Curator,
             // Item proxy for onItemExtracted callbacks: item.uri → "{{item.uri}}"
             item: itemProxy,
             // toolProxy('process_feed').title → "{{process_feed.title}}"
@@ -83,12 +83,12 @@ export class ScriptRunner {
 
         if (chain == null) {
             throw new Error(
-                'Script returned nothing. Use `return AIQ()...` or write a single expression.'
+                'Script returned nothing. Use `return Curator()...` or write a single expression.'
             );
         }
         if (typeof chain.toJSON !== 'function') {
             throw new Error(
-                `Script must return an AIQ instance, got: ${typeof chain}. Did you accidentally call .toJSON() before returning?`
+                `Script must return an Curator instance, got: ${typeof chain}. Did you accidentally call .toJSON() before returning?`
             );
         }
 

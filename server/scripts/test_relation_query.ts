@@ -1,14 +1,14 @@
-import { AIQ } from '../src/services/AIQ.js';
+import { Curator } from '../src/services/Curator.js';
 
-AIQ.init();
+Curator.init();
 
-const flow = AIQ.chain("query_resources", {
+const flow = Curator.chain("query_resources", {
     relation: {
         objectUri: "err:ilm"
     },
     limit: 10
 }).onItem().chain((item) => {
-    return AIQ.chain().debug({
+    return Curator.chain().debug({
         message: "Resource #{{item.id}} has type {{item.resourceType.name}}",
         data: {
             actual_db_id: "{{item.id}}",

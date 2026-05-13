@@ -53,7 +53,7 @@ export class BranchBuilder {
 
 /**
  * The Phase 4 Typed Pipeline Builder.
- * Replaces the legacy AIQ fluent builder with a structured, strongly-typed approach.
+ * Replaces the legacy Curator fluent builder with a structured, strongly-typed approach.
  */
 export class Pipeline {
     public steps: ASTNode[] = [];

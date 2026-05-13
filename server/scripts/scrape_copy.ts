@@ -3,8 +3,8 @@ import { TOOLS } from '../src/services/tools/manifest.js';
 
 // argv[3] = URL, argv[4] = optional CSS selector
 // Usage:
-//   npx tsx src/bin/aiq.ts scripts/scrape_copy.ts "https://example.com"
-//   npx tsx src/bin/aiq.ts scripts/scrape_copy.ts "https://example.com" "#main > .article-body"
+//   npx tsx src/bin/Curator.ts scripts/scrape_copy.ts "https://example.com"
+//   npx tsx src/bin/Curator.ts scripts/scrape_copy.ts "https://example.com" "#main > .article-body"
 const targetUrl = process.argv[3];
 
 // ── CSS selector ─────────────────────────────────────────────────────────────
@@ -21,7 +21,7 @@ const excludeLinkPatterns = [
 
 if (!targetUrl) {
     console.error("❌ Please provide a URL to scrape.");
-    console.error("Usage: npx tsx src/bin/aiq.ts scripts/scrape_copy.ts <URL> [CSS_SELECTOR]");
+    console.error("Usage: npx tsx src/bin/Curator.ts scripts/scrape_copy.ts <URL> [CSS_SELECTOR]");
     process.exit(1);
 }
 

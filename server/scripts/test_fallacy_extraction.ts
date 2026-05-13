@@ -1,10 +1,10 @@
-import { AIQ } from '../src/services/AIQ.js';
+import { Curator } from '../src/services/Curator.js';
 
-AIQ.chain("fetch_html", { 
+Curator.chain("fetch_html", { 
     url: "https://www.logicallyfallacious.com/fallacies" 
 })
 .onSuccess().chain((html: any) => 
-    AIQ.extract_resource_links({ 
+    Curator.extract_resource_links({ 
         resourceUri: html.uri,
         selector: "h3 a",
         baseUrl: "https://www.logicallyfallacious.com"

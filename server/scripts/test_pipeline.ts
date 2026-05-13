@@ -1,4 +1,4 @@
-import { AIQ } from '../src/services/AIQ.js';
+import { Curator } from '../src/services/Curator.js';
 import { PrismaClient } from '@prisma/client';
 import { RequestProcessor } from '../src/services/RequestProcessor.js';
 import dotenv from 'dotenv';
@@ -40,7 +40,7 @@ async function main() {
     // 2. Define a complex pipeline using chain() and spawn()
     // Workflow: fetch_html -> scrape_resource (chain) -> classify_udc (spawn)
     console.log('\n--- Defining Pipeline ---');
-    const pipeline = AIQ.start()
+    const pipeline = Curator.start()
         .fetch_html({ url: 'https://example.com' })
         .scrape_resource({ url: '{{resource.uri}}' }) // Use placeholder
         .spawn('classify_udc', { model: 'gemini-1.5-flash-lite' })
