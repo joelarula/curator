@@ -51,11 +51,6 @@ program
           console.log(`[Curator] Importing script: ${scriptPath}`);
           (Curator as any).setArgs(scriptArgs, scriptArgsStr);
           
-          const { pathToFileURL } = await import('node:url');
-          const imported = await import(pathToFileURL(scriptPath).href);
-          
-          console.log(`[Curator] Script imported. Root chains:`, (Curator as any).rootChains.length);
-
           // 3. Resolve Conversation
           let conversation = await prisma.conversation.findFirst({ where: { userId: user.id } });
           if (!conversation) {
@@ -67,20 +62,33 @@ program
           // 4. Resolve the AST to execute
           let ast: any = null;
 
-          // Option A: Check if the script explicitly exported a Pipeline instance
-          for (const val of Object.values(imported)) {
-              if (val && typeof val === 'object' && 'toAST' in val && typeof (val as any).toAST === 'function') {
-                  ast = (val as any).toAST();
-                  break;
-              }
-          }
+          const isCffe = scriptPath.endsWith('.coffee') || scriptPath.endsWith('.yaml') || scriptPath.endsWith('.yml');
+          if (isCffe) {
+              const fs = await import('node:fs');
+              const { ScriptRunner } = await import('../services/ScriptRunner.js');
+              const fileContent = fs.readFileSync(scriptPath, 'utf-8');
+              ast = await ScriptRunner.evaluate(fileContent, scriptArgs, prisma, user.id);
+          } else {
+              const { pathToFileURL } = await import('node:url');
+              const imported = await import(pathToFileURL(scriptPath).href);
+              
+              console.log(`[Curator] Script imported. Root chains:`, (Curator as any).rootChains.length);
 
-          // Option B: Fallback to the implicit legacy CuratorBuilder chains
-          if (!ast) {
-              const chains = (Curator as any).rootChains as CuratorBuilder[];
-              if (chains.length > 0) {
-                  const primaryBuilder = chains.find(c => c.toJSON() !== null) || chains[chains.length - 1];
-                  ast = primaryBuilder?.toJSON();
+              // Option A: Check if the script explicitly exported a Pipeline instance
+              for (const val of Object.values(imported)) {
+                  if (val && typeof val === 'object' && 'toAST' in val && typeof (val as any).toAST === 'function') {
+                      ast = (val as any).toAST();
+                      break;
+                  }
+              }
+
+              // Option B: Fallback to the implicit legacy CuratorBuilder chains
+              if (!ast) {
+                  const chains = (Curator as any).rootChains as CuratorBuilder[];
+                  if (chains.length > 0) {
+                      const primaryBuilder = chains.find(c => c.toJSON() !== null) || chains[chains.length - 1];
+                      ast = primaryBuilder?.toJSON();
+                  }
               }
           }
 

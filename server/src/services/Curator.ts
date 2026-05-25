@@ -21,14 +21,11 @@ function createRecursiveProxy(root: string, path: string = ''): any {
     return new Proxy({}, {
         get(target, prop) {
             if (typeof prop === 'symbol') return undefined;
-            if (prop === 'toJSON' || prop === 'then') return () => `{{${root}.${path}}}`;
+            if (prop === 'toJSON' || prop === 'then' || prop === 'toString' || prop === 'valueOf') {
+                return () => `{{${root}${path ? `.${path}` : ''}}}`;
+            }
             const fullPath = path ? `${path}.${String(prop)}` : String(prop);
-
-            const proxy = createRecursiveProxy(root, fullPath);
-            // Allow template string conversion
-            (proxy as any).toString = () => `{{${root}.${fullPath}}}`;
-            (proxy as any).valueOf = () => `{{${root}.${fullPath}}}`;
-            return proxy;
+            return createRecursiveProxy(root, fullPath);
         }
     });
 }
@@ -498,6 +495,15 @@ export const Curator = new Proxy(() => CuratorBuilder.start(), {
         if (prop === 'ref') return ref;
         
         if (prop === 'ask') return (args: any) => new CuratorBuilder().ask(args);
+        if (prop === 'run') {
+            return () => {
+                const chains = CuratorBuilder.rootChains;
+                if (chains.length > 0) {
+                    return chains.find(c => c.primaryToolName !== null) || chains[chains.length - 1];
+                }
+                return CuratorBuilder.lastCreated;
+            };
+        }
 
         return undefined;
     },

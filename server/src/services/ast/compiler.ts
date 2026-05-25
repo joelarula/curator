@@ -14,6 +14,24 @@ export function compileToAST(legacyCalls: any[]): SequenceNode {
     };
 }
 
+function resolveCallbackSteps(chainOrSteps: any): ASTNode[] {
+    if (!chainOrSteps) return [];
+    if (typeof chainOrSteps === 'object' && !Array.isArray(chainOrSteps)) {
+        if (chainOrSteps.type === 'Sequence') {
+            return chainOrSteps.steps || [];
+        }
+        return [chainOrSteps as ASTNode];
+    }
+    if (Array.isArray(chainOrSteps)) {
+        const first = chainOrSteps[0];
+        if (first && typeof first === 'object' && 'type' in first) {
+            return chainOrSteps as ASTNode[];
+        }
+        return chainOrSteps.flatMap((c: any) => compileCall(c));
+    }
+    return [];
+}
+
 function compileCall(call: any): ASTNode[] {
     if (call.name === 'iterate') {
         // Special internal marker for .foreach()
@@ -21,9 +39,9 @@ function compileCall(call: any): ASTNode[] {
         if (call.callbacks && call.callbacks.onItemExtracted) {
             const hook = call.callbacks.onItemExtracted;
             if (hook.chain) {
-                bodySteps.push(...hook.chain.flatMap((c: any) => compileCall(c)));
+                bodySteps.push(...resolveCallbackSteps(hook.chain));
             } else if (hook.spawn) {
-                const spawnSteps = hook.spawn.flatMap((c: any) => compileCall(c));
+                const spawnSteps = resolveCallbackSteps(hook.spawn);
                 bodySteps.push({
                     id: nextId('spawn'),
                     type: 'Spawn',
@@ -53,15 +71,13 @@ function compileCall(call: any): ASTNode[] {
         args: call.args || {}
     };
 
-    let resultNode: ASTNode = toolNode;
-
     // Handle callbacks (onSuccess, onItemExtracted)
     const callbackNodes: ASTNode[] = [];
     if (call.callbacks) {
         if (call.callbacks.onSuccess) {
             const hook = call.callbacks.onSuccess;
             if (hook.chain) {
-                callbackNodes.push(...hook.chain.flatMap((c: any) => compileCall(c)));
+                callbackNodes.push(...resolveCallbackSteps(hook.chain));
             }
         }
 
@@ -69,10 +85,10 @@ function compileCall(call: any): ASTNode[] {
             const hook = call.callbacks.onItemExtracted;
             const bodySteps = [];
             if (hook.chain) {
-                bodySteps.push(...hook.chain.flatMap((c: any) => compileCall(c)));
+                bodySteps.push(...resolveCallbackSteps(hook.chain));
             }
             if (hook.spawn) {
-                const spawnSteps = hook.spawn.flatMap((c: any) => compileCall(c));
+                const spawnSteps = resolveCallbackSteps(hook.spawn);
                 bodySteps.push({
                     id: nextId('spawn'),
                     type: 'Spawn',

@@ -142,7 +142,14 @@ export class RequestProcessor {
                 });
             }
 
-            const ast: any = req.ast;
+            const ast: any = req.ast || (
+                req.toolCalls && 
+                typeof req.toolCalls === 'object' && 
+                !Array.isArray(req.toolCalls) && 
+                (req.toolCalls as any).type === 'Sequence' 
+                    ? req.toolCalls 
+                    : null
+            );
             const toolCalls: any = req.toolCalls;
             const initialContext = (req.context as any) || {};
 

@@ -30,6 +30,33 @@ export class ScriptRunner {
         prisma: PrismaClient,
         userId: string
     ): Promise<any[]> {
+        // Reset static state to prevent leakage between executions
+        if ((Curator as any).rootChains) {
+            (Curator as any).rootChains.length = 0;
+        }
+        (Curator as any).lastCreated = null;
+
+        const trimmedBody = scriptBody.trim();
+        const isHybrid = trimmedBody.startsWith('meta:') || 
+                         trimmedBody.startsWith('pipeline:') || 
+                         trimmedBody.includes('\nrun:') || 
+                         trimmedBody.startsWith('run:');
+
+        let pipeline: any = {};
+        let meta: any = {};
+        
+        if (isHybrid) {
+            const { CffeCompiler } = await import('./ast/cffeCompiler.js');
+            try {
+                const compiled = CffeCompiler.compile(scriptBody);
+                scriptBody = compiled.jsCode;
+                pipeline = compiled.pipeline;
+                meta = compiled.meta;
+            } catch (e: any) {
+                throw new Error(`CffeScript compilation failed: ${e.message}`);
+            }
+        }
+
         const sandbox: Record<string, any> = {
             args: scriptArgs,
             tools: getRegisteredTools(),
@@ -54,6 +81,8 @@ export class ScriptRunner {
                 warn:  (...a: any[]) => console.warn('[Script]', ...a),
                 error: (...a: any[]) => console.error('[Script]', ...a),
             },
+            pipeline,
+            meta,
         };
 
         vm.createContext(sandbox);
@@ -92,6 +121,16 @@ export class ScriptRunner {
             );
         }
 
-        return chain.toJSON();
+        const rawAst = chain.toJSON();
+        
+        // Deeply serialize to plain JSON to natively resolve all Proxies and stringify function objects
+        const serialized = JSON.stringify(rawAst, (key, value) => {
+            if (typeof value === 'function') {
+                return value.toString();
+            }
+            return value;
+        });
+
+        return JSON.parse(serialized);
     }
 }

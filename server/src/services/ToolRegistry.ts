@@ -276,7 +276,7 @@ export async function executeTool(
     if (!handler) {
         throw new Error(`Unknown tool: "${toolName}". Registered tools: ${[...HANDLER_MAP.keys()].join(', ')}`);
     }
-    return await handler(args, prisma, userId, request);
+    return await handler(args, prisma, userId, undefined, request);
 }
 
 
