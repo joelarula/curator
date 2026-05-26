@@ -16,7 +16,7 @@ function createFeedQuestionPipeline(): Pipeline {
         context: {
             feedUrl: "http://uudised.err.ee/uudised_rss.php",
             feedLimit: 10,
-            prompt: "Find me news stories which are about nature, technology or science. Provide their titles and summarize each of them in one sentence."
+            prompt: "Find me news stories which are about nature, technology or science. Provide their titles and  summarize each of them in one sentence."
         }
     });
 

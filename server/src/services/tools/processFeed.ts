@@ -85,7 +85,7 @@ export async function processFeed(
     const existingUriMap = new Map(existingResources.map((r: any) => [r.uri, r]));
 
     // 5. Build enriched items list
-    const enrichedItems = items.map((item: any) => {
+    let enrichedItems = items.map((item: any) => {
         const resource = existingUriMap.get(item.uri!);
         
         let finalCategories = item.categories || [];
@@ -104,6 +104,12 @@ export async function processFeed(
         if (item.resource && item.resource.existent === null) return false;
         return true;
     });
+
+    // Apply the limit argument if provided
+    const limit = args.limit ? Number(args.limit) : undefined;
+    if (limit !== undefined && limit > 0) {
+        enrichedItems = enrichedItems.slice(0, limit);
+    }
 
     console.log(`[Tools] Feed processed: ${url}. Found ${enrichedItems.length} items (${enrichedItems.filter((i: any) => i.isNew).length} new).`);
 

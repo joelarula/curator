@@ -31,8 +31,15 @@ export async function executeScript(
 
     if (inlineBody) {
         // 1. DYNAMIC INLINE
-        console.log(`[Tools] execute_script: running inline script (${inlineBody.length} chars)`);
-        toolCalls = await ScriptRunner.evaluate(inlineBody, scriptArgs, prisma, userId);
+        let cleanBody = inlineBody.trim();
+        if (cleanBody.includes('```')) {
+            const match = cleanBody.match(/```(?:typescript|javascript)?\s*([\s\S]*?)\s*```/);
+            if (match) {
+                cleanBody = match[1];
+            }
+        }
+        console.log(`[Tools] execute_script: running inline script (${cleanBody.length} chars)`);
+        toolCalls = await ScriptRunner.evaluate(cleanBody, scriptArgs, prisma, userId);
     } else {
         // 2. STORED SCRIPT
         const orConditions: any[] = [];
@@ -63,19 +70,37 @@ export async function executeScript(
         }
     }
 
-    if (!toolCalls || !toolCalls.length) {
-        throw new Error(`execute_script: produced an empty toolCalls chain`);
+    const isAst = toolCalls && typeof toolCalls === 'object' && !Array.isArray(toolCalls) && (toolCalls as any).type === 'Sequence';
+    
+    if (!toolCalls || (!Array.isArray(toolCalls) && !isAst)) {
+        throw new Error(`execute_script: produced an empty or invalid toolCalls chain`);
     }
 
-    const primaryToolName = toolCalls[0]?.name ?? null;
+    let primaryToolName: string | null = null;
+    let toolArgs: any = null;
+    let callbacks: any = null;
+
+    if (Array.isArray(toolCalls)) {
+        primaryToolName = toolCalls[0]?.name ?? null;
+        toolArgs = toolCalls[0]?.args ?? null;
+        callbacks = toolCalls[0]?.callbacks ?? null;
+    } else if (isAst) {
+        const firstStep = (toolCalls as any).steps?.[0];
+        if (firstStep && firstStep.type === 'ToolTask') {
+            primaryToolName = firstStep.tool;
+            toolArgs = firstStep.args;
+        } else {
+            primaryToolName = 'AST_Sequence';
+        }
+    }
 
     // 3. Spawn the child Request
     const childRequest = await prisma.request.create({
         data: {
             status: 'NEW',
             toolName: primaryToolName,
-            toolArgs: toolCalls[0]?.args ?? null,
-            callbacks: toolCalls[0]?.callbacks ?? null,
+            toolArgs: toolArgs ?? null,
+            callbacks: callbacks ?? null,
             toolCalls: toolCalls as any,
             scriptId: resolvedScriptId,
             userId,

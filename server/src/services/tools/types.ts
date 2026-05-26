@@ -91,6 +91,7 @@ export interface UpsertRelationInput {
     predicateUri: string;
     objectUri: string;
     justification?: string;
+    aiModel?: string;
     literalValue?: number;
     literalString?: string;
     literalDate?: string; // ISO string

@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import type { UpsertRelationInput, UpsertRelationOutput } from './types.js';
 import { VOCAB } from '../../constants/vocabulary.js';
+import { resolveModelName } from '../AIModelRegistry.js';
 
 /**
  * Upserts an RDF triple (Relation) by resolving subject, predicate, and object URIs.
@@ -15,7 +16,7 @@ export async function upsertRelation(
 
     const { 
         subjectUri, predicateUri, objectUri, 
-        justification, 
+        justification, aiModel,
         literalValue, literalString, literalDate, literalBoolean, literalDatatype 
     } = args;
 
@@ -56,6 +57,24 @@ export async function upsertRelation(
         resolveResource(VOCAB.TYPE.predicate)
     ]);
 
+    // Resolve model name if string provided
+    let resolvedAiModelId: number | null = request?.aiModelId ?? null;
+
+    if (aiModel) {
+        const resolvedName = resolveModelName(aiModel);
+        const modelRecord = await prisma.aIModel.upsert({
+            where: { name: resolvedName },
+            update: {},
+            create: {
+                name: resolvedName,
+                shortName: aiModel.substring(0, 10),
+                provider: 'Google',
+                type: 'GENERATIVE'
+            }
+        });
+        resolvedAiModelId = modelRecord.id;
+    }
+
     // Link the predicate to its class
     await prisma.relation.upsert({
         where: {
@@ -65,14 +84,15 @@ export async function upsertRelation(
                 objectId: predicateClass.id
             }
         },
+        where__fallback: {}, // typescript support
         update: {},
         create: {
             subjectId: predicate.id,
             predicateId: typePredicate.id,
             objectId: predicateClass.id,
-            aiModelId: request?.aiModelId ?? null
+            aiModelId: resolvedAiModelId
         }
-    });
+    } as any);
 
 
     // Upsert the Relation triple
@@ -91,7 +111,7 @@ export async function upsertRelation(
             ...(literalDate   !== undefined && { literalDate: literalDate ? new Date(literalDate) : null }),
             ...(literalBoolean !== undefined && { literalBoolean }),
             ...(literalDatatype !== undefined && { literalDatatype }),
-            ...(request?.aiModelId && { aiModelId: request.aiModelId }),
+            ...(resolvedAiModelId && { aiModelId: resolvedAiModelId }),
         },
         create: {
             subjectId:    subject.id,
@@ -103,7 +123,7 @@ export async function upsertRelation(
             literalDate: literalDate ? new Date(literalDate) : null,
             literalBoolean: literalBoolean || null,
             literalDatatype: literalDatatype || null,
-            aiModelId: request?.aiModelId ?? null
+            aiModelId: resolvedAiModelId
         }
     });
 
