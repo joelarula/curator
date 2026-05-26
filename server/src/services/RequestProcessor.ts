@@ -253,7 +253,8 @@ export class RequestProcessor {
                     materializedArgs,
                     this.prisma,
                     req.userId,
-                    req
+                    req,
+                    responseId
                 );
 
                 console.log(`[AST Executor] Tool ${node.tool} result: data=${!!result?.data}${node.id ? ` (id=${node.id})` : ''}`);
@@ -262,6 +263,7 @@ export class RequestProcessor {
                 const dataValue = result?.data ?? result;
                 context.toolData[node.tool] = dataValue;
                 if (node.id) context.toolData[node.id] = dataValue;
+                if (node.as) context.toolData[node.as] = dataValue;
                 
                 // Expose full raw tool output for structural iteration (.items)
                 if (result && result.extractedItems && !result.items) {
@@ -269,6 +271,7 @@ export class RequestProcessor {
                 }
                 context.toolOutputs[node.tool] = result;
                 if (node.id) context.toolOutputs[node.id] = result;
+                if (node.as) context.toolOutputs[node.as] = result;
                 
                 // Persistence
                 const responseData = result?.data ?? result;
@@ -463,7 +466,8 @@ export class RequestProcessor {
                 materializedArgs,
                 this.prisma,
                 req.userId,
-                req
+                req,
+                responseId
             );
 
             console.log(`[Orchestrator] Tool ${call.name} result: data=${!!result?.data}, createdItem=${!!result?.createdItem}`);

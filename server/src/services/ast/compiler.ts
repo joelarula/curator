@@ -68,7 +68,8 @@ function compileCall(call: any): ASTNode[] {
         id: nextId(`tool_${call.name}`),
         type: 'ToolTask',
         tool: call.name,
-        args: call.args || {}
+        args: call.args || {},
+        ...(call.as ? { as: call.as } : {})
     };
 
     // Handle callbacks (onSuccess, onItemExtracted)

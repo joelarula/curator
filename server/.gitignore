@@ -34,6 +34,12 @@ yarn-error.log*
 /server/prisma/dev.db
 /server/prisma/dev.db-journal
 
+# Curator — named SQLite databases
+data/
+
+# Curator — generated SQLite Prisma client (rebuilt via npm run prisma:sqlite:generate)
+src/generated/prisma-sqlite/
+
 # Python
 __pycache__/
 *.py[cod]

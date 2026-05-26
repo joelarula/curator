@@ -34,6 +34,7 @@ export interface ToolNode extends BaseNode {
     type: 'ToolTask';
     tool: string;
     args: Record<string, any>;
+    as?: string;  // Optional developer-friendly alias registered in toolData at runtime
 }
 
 /**

@@ -1,11 +1,20 @@
 import { Pipeline } from '../src/services/ast/builder.js';
 
-const pipeline = new Pipeline();
+const pipeline = new Pipeline({
+    meta: {
+        agent: "JanitorBot",
+        purpose: "Remove all redundant sports news from the corpus"
+    },
+    context: {
+        domainMatch: 'sport.err.ee',
+        batchLimit: 50
+    }
+});
 
 // 1. Query for resources that match the prefix
 const queryResult = pipeline.tool('query_resources', {
-    uriContains: 'sport.err.ee', // Matches the ERR sports domain
-    limit: 50 // process in batches
+    uriContains: pipeline.context.domainMatch, // Matches the ERR sports domain dynamically from context
+    limit: pipeline.context.batchLimit // process in batches
 });
 
 // 2. Iterate over the returned items and soft-delete them (archive)

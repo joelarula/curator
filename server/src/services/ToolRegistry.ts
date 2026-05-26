@@ -270,13 +270,18 @@ export async function executeTool(
     args: any,
     prisma: PrismaClient,
     userId: string,
-    request?: any
+    request?: any,
+    responseId?: number
 ) {
     const handler = HANDLER_MAP.get(toolName);
     if (!handler) {
         throw new Error(`Unknown tool: "${toolName}". Registered tools: ${[...HANDLER_MAP.keys()].join(', ')}`);
     }
-    return await handler(args, prisma, userId, undefined, request);
+    if (handler.length === 4) {
+        return await handler(args, prisma, userId, request);
+    } else {
+        return await handler(args, prisma, userId, responseId, request);
+    }
 }
 
 

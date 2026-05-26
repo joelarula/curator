@@ -2,6 +2,7 @@ import vm from 'node:vm';
 import { PrismaClient } from '@prisma/client';
 import { Curator, itemProxy, toolProxy, ref } from './Curator.js';
 import { getRegisteredTools } from './ToolRegistry.js';
+import { CoffeeFlow } from './ast/builder.js';
 
 /**
  * ScriptRunner — evaluates a user-authored or LLM-generated script in a sandboxed vm context.
@@ -37,25 +38,23 @@ export class ScriptRunner {
         (Curator as any).lastCreated = null;
 
         const trimmedBody = scriptBody.trim();
-        const isHybrid = trimmedBody.startsWith('meta:') || 
-                         trimmedBody.startsWith('pipeline:') || 
-                         trimmedBody.includes('\nrun:') || 
-                         trimmedBody.startsWith('run:');
+        const isHybrid = trimmedBody.startsWith('meta:') ||
+            trimmedBody.startsWith('pipeline:') ||
+            trimmedBody.includes('\nrun:') ||
+            trimmedBody.startsWith('run:');
 
         let pipeline: any = {};
         let meta: any = {};
-        
+        let finalBody = scriptBody;
+
         if (isHybrid) {
             const { CffeCompiler } = await import('./ast/cffeCompiler.js');
-            try {
-                const compiled = CffeCompiler.compile(scriptBody);
-                scriptBody = compiled.jsCode;
-                pipeline = compiled.pipeline;
-                meta = compiled.meta;
-            } catch (e: any) {
-                throw new Error(`CffeScript compilation failed: ${e.message}`);
-            }
+            const compiled = CffeCompiler.compile(scriptBody);
+            pipeline = compiled.pipeline;
+            meta = compiled.meta;
+            finalBody = compiled.jsCode;
         }
+
 
         const sandbox: Record<string, any> = {
             args: scriptArgs,
@@ -64,8 +63,8 @@ export class ScriptRunner {
             spawn: (name: string, toolArgs: Record<string, any> = {}) => Curator.spawn(name, toolArgs),
             start: () => Curator(),
             // Compatibility aliases
-            run:   (name: string, toolArgs: Record<string, any> = {}) => Curator.chain(name, toolArgs),
-            step:  (name: string, toolArgs: Record<string, any> = {}) => Curator.chain(name, toolArgs),
+            run: (name: string, toolArgs: Record<string, any> = {}) => Curator.chain(name, toolArgs),
+            step: (name: string, toolArgs: Record<string, any> = {}) => Curator.chain(name, toolArgs),
             Curator,
             // Aliases for jQuery-style flavor
             Curator: Curator,
@@ -77,10 +76,14 @@ export class ScriptRunner {
             // ref('process_feed', 'title') → "{{process_feed.title}}"
             ref,
             console: {
-                log:   (...a: any[]) => console.log('[Script]', ...a),
-                warn:  (...a: any[]) => console.warn('[Script]', ...a),
+                log: (...a: any[]) => console.log('[Script]', ...a),
+                warn: (...a: any[]) => console.warn('[Script]', ...a),
                 error: (...a: any[]) => console.error('[Script]', ...a),
             },
+            // Flow — typed pipeline builder for CoffeeScript.
+            // Variables returned by flow.tool() coerce directly in #{...} interpolation.
+            // Example: formatData = flow.tool("format_list", {...}) → #{formatData} → {{toolData.format_list}}
+            Flow: CoffeeFlow,
             pipeline,
             meta,
         };
@@ -93,7 +96,7 @@ export class ScriptRunner {
         // We try explicit-return first, then fall back to expression mode.
         let chain: any = null;
 
-        const wrappedFn = `(function() { ${scriptBody} })()`;
+        const wrappedFn = `(function() { ${finalBody} })()`;
         try {
             chain = vm.runInContext(wrappedFn, sandbox, { timeout: 5000, filename: 'curator-script' });
         } catch (e: any) {
@@ -102,7 +105,7 @@ export class ScriptRunner {
 
         // Fallback: body is a bare expression with no return / no assignment
         if (chain == null) {
-            const expr = scriptBody.trim().replace(/;+$/, '');
+            const expr = finalBody.trim().replace(/;+$/, '');
             try {
                 chain = vm.runInContext(`(${expr})`, sandbox, { timeout: 5000, filename: 'curator-script-expr' });
             } catch {
@@ -110,19 +113,17 @@ export class ScriptRunner {
             }
         }
 
+        if (chain == null && sandbox.Curator) {
+            chain = sandbox.Curator.run();
+        }
+
         if (chain == null) {
             throw new Error(
                 'Script returned nothing. Use `return Curator()...` or write a single expression.'
             );
         }
-        if (typeof chain.toJSON !== 'function') {
-            throw new Error(
-                `Script must return an Curator instance, got: ${typeof chain}. Did you accidentally call .toJSON() before returning?`
-            );
-        }
+        const rawAst = typeof chain.toJSON === 'function' ? chain.toJSON() : chain;
 
-        const rawAst = chain.toJSON();
-        
         // Deeply serialize to plain JSON to natively resolve all Proxies and stringify function objects
         const serialized = JSON.stringify(rawAst, (key, value) => {
             if (typeof value === 'function') {

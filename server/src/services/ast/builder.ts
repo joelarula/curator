@@ -57,6 +57,13 @@ export class BranchBuilder {
  */
 export class Pipeline {
     public steps: ASTNode[] = [];
+    public meta: Record<string, any> = {};
+    public context: Record<string, any> = {};
+
+    constructor(options: { meta?: Record<string, any>, context?: Record<string, any> } = {}) {
+        this.meta = options.meta || {};
+        this.context = options.context || {};
+    }
 
     /**
      * Appends a ToolNode and returns a typed template proxy for its outputs.
@@ -202,5 +209,67 @@ export class Pipeline {
             type: 'Sequence',
             steps: this.steps
         };
+    }
+}
+
+/**
+ * CoffeeFlow — a Pipeline variant designed for CoffeeScript/CffeScript.
+ *
+ * Unlike Pipeline (which uses auto-generated IDs like `toolOutputs.tool_format_list_2`),
+ * CoffeeFlow returns proxies rooted at `toolData.<tool_name>`, which resolve to the
+ * already-unwrapped `result.data` value stored by the executor.
+ *
+ * This means CoffeeScript variables can be used directly in #{...} interpolation:
+ *
+ *   formatData = flow.tool "format_list", { items: queryData.items, ... }
+ *   "REPORTS: #{formatData}"  →  "REPORTS: {{toolData.format_list}}"
+ *
+ * which resolves at runtime to the formatted string — just like TypeScript's Pipeline.
+ */
+export class CoffeeFlow {
+    public steps: ASTNode[] = [];
+
+    /**
+     * Appends a ToolNode and returns a typed template proxy at toolData.<name>.
+     * Sub-properties (e.g. queryData.items) resolve to {{toolData.query_resources.items}}.
+     */
+    tool<T = any>(name: ToolName, args: Record<string, any> = {}): Proxyfy<T> {
+        const id = nextId(`tool_${name}`);
+        const { id: _, ...actualArgs } = args as any;
+        const argsJson = JSON.stringify(actualArgs, (key, value) => {
+            if (typeof value === 'function') return value.toString();
+            return value;
+        });
+        const sanitizedArgs = argsJson ? JSON.parse(argsJson) : {};
+
+        const node: ToolNode = {
+            id,
+            type: 'ToolTask',
+            tool: name,
+            args: sanitizedArgs
+        };
+        this.steps.push(node);
+
+        // Proxy rooted at toolData.<name> so #{variable} → {{toolData.<name>}}
+        return createTemplateProxy<T>(`toolData.${name}`);
+    }
+
+    /**
+     * Compiles the flow to a strict SequenceNode AST.
+     */
+    toAST(): SequenceNode {
+        return {
+            id: nextId('seq'),
+            type: 'Sequence',
+            steps: this.steps
+        };
+    }
+
+    /**
+     * Alias for toAST() — allows ScriptRunner to evaluate CoffeeFlow scripts
+     * the same way it evaluates CuratorBuilder scripts.
+     */
+    toJSON(): SequenceNode {
+        return this.toAST();
     }
 }

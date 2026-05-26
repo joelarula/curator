@@ -461,7 +461,7 @@ export class ToolFlowBuilder {
 
 // ─── Curator Factory ────────────────────────────────────────────────────────────
 
-export type AIQExport = typeof CuratorBuilder & CuratorPlugins & {
+export type CuratorExport = typeof CuratorBuilder & CuratorPlugins & {
     VOCAB: typeof VOCAB;
     item: any;
     resource: any;
@@ -510,4 +510,4 @@ export const Curator = new Proxy(() => CuratorBuilder.start(), {
     apply(target, thisArg, argArray: any[]) {
         return (target as Function).apply(thisArg, argArray);
     }
-}) as any as AIQExport;
+}) as any as CuratorExport;

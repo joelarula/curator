@@ -1,92 +1,36 @@
+import CoffeeScript from 'coffeescript';
 import YAML from 'yaml';
-import coffee from 'coffeescript';
-
-export interface CompiledCffe {
-    jsCode: string;
-    pipeline: any;
-    meta: any;
-}
 
 export class CffeCompiler {
-    /**
-     * Compiles a .cffe hybrid source text into JavaScript code and static configuration metadata.
-     */
-    static compile(content: string): CompiledCffe {
-        const trimmed = content.trim();
-        const isHybrid = trimmed.startsWith('meta:') || 
-                         trimmed.startsWith('pipeline:') || 
-                         trimmed.includes('\nrun:') || 
-                         trimmed.startsWith('run:');
+    static compile(source: string): { meta: any; pipeline: any; jsCode: string } {
+        // Parse the YAML front matter/content
+        const parsed = YAML.parse(source);
+        const meta = parsed.meta || {};
+        const pipeline = parsed.pipeline || {};
+        let runCode = parsed.run || '';
 
-        let meta: any = {};
-        let pipeline: any = {};
-        let runCode = '';
+        // Pre-process markup blocks like `- [log-status]` in the CoffeeScript code
+        // and replace with Curator.debug calls
+        runCode = runCode.replace(/-\s*\[log-status\]/g, 'Curator.debug');
 
-        if (isHybrid) {
-            // 1. Parse the YAML outer shell structure
-            let parsed: any;
-            try {
-                parsed = YAML.parse(content);
-            } catch (e: any) {
-                throw new Error(`CffeScript YAML Parse Error: ${e.message}`);
-            }
+        // Wrap the CoffeeScript run block in a function to let CoffeeScript compiler
+        // automatically insert implicit returns for the last expression, and explicitly
+        // return the result of the function call at the top-level of the VM evaluation.
+        const indentedCode = runCode.split('\n').map(line => '  ' + line).join('\n');
+        const wrappedCode = `__cffe_run__ = ->\n${indentedCode}\nreturn __cffe_run__()`;
 
-            if (!parsed || typeof parsed !== 'object') {
-                throw new Error('Invalid CffeScript: Failed to parse YAML structure.');
-            }
-
-            meta = parsed.meta || {};
-            pipeline = parsed.pipeline || {};
-            runCode = parsed.run || '';
-        } else {
-            // 2. Fallback: treat the entire file as pure CoffeeScript
-            runCode = content;
-        }
-
-        if (!runCode) {
-            throw new Error('Invalid CffeScript: Missing "run" logic block.');
-        }
-
-        // 2. Pre-process the CoffeeScript run block to map hybrid layout blocks
-        const processedLines = runCode.split('\n').map((line: string) => {
-            // Match custom hybrid layout block markup: - [log-status]
-            const match = line.match(/^(\s*)-\s*\[([a-zA-Z0-9_-]+)\]\s*$/);
-            if (match) {
-                const indent = match[1];
-                const componentName = match[2];
-                
-                // Map layout component to corresponding tool call
-                let toolName = componentName;
-                if (componentName === 'log-status' || componentName === 'log') {
-                    toolName = 'debug';
-                } else {
-                    toolName = componentName.replace(/-/g, '_');
-                }
-                
-                return `${indent}Curator.${toolName}`;
-            }
-            return line;
-        });
-
-        const preprocessedRun = processedLines.join('\n');
-
-        // 3. Compile the standard CoffeeScript syntax into clean JavaScript
+        // Compile the wrapped CoffeeScript run block to JavaScript
         let jsCode = '';
         try {
-            jsCode = coffee.compile(preprocessedRun, { bare: true });
-            
-            // Append explicit return of Curator.run() to ensure VM evaluation returns the root chain
-            if (!jsCode.includes('\nreturn ') && !jsCode.startsWith('return ')) {
-                jsCode += '\nreturn Curator.run();';
-            }
+            jsCode = CoffeeScript.compile(wrappedCode, { bare: true });
         } catch (e: any) {
-            throw new Error(`CoffeeScript Transpilation Error: ${e.message}`);
+            throw new Error(`CoffeeScript compilation failed: ${e.message}`);
         }
 
         return {
-            jsCode,
+            meta,
             pipeline,
-            meta
+            jsCode
         };
     }
 }
