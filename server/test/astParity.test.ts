@@ -24,6 +24,7 @@ describe('AST Functional Parity', () => {
             str = str.replace(/seq_[\w\d]+_\d+/g, 'seq_norm');
             
             // Normalize toolOutputs vs toolData references so they match structurally
+            str = str.replace(/\{\{toolData\.([a-zA-Z0-9_]+)\}\}/g, '{{toolOutputs.tool_$1.data}}');
             str = str.replace(/\{\{toolData\./g, '{{toolOutputs.tool_');
             
             return JSON.parse(str);

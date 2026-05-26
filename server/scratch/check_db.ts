@@ -1,11 +1,19 @@
-import { PrismaClient } from '@prisma/client'
-const prisma = new PrismaClient()
+import { PrismaClient } from '@prisma/client';
+import { provisionSqliteDb } from '../src/bin/sqliteProvisioner.js';
 
 async function main() {
-  const count = await prisma.source.count()
-  console.log('Total Sources:', count)
-  const sample = await prisma.source.findMany({ take: 5 })
-  console.log('Sample Sources:', JSON.stringify(sample, null, 2))
+    // Connect to mydb SQLite database
+    const prisma = await provisionSqliteDb('mydb', false);
+    const requests = await prisma.request.findMany({
+        orderBy: { id: 'desc' },
+        take: 5
+    });
+    for (const req of requests) {
+        console.log(`Request ID: ${req.id}`);
+        console.log(`ToolName: ${req.toolName}`);
+        console.log(`Status: ${req.status}`);
+        console.log(`AST:`, JSON.stringify(req.ast, null, 2));
+        console.log('====================================');
+    }
 }
-
-main().catch(err => console.error(err)).finally(() => prisma.$disconnect())
+main();

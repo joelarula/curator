@@ -37,7 +37,8 @@ program
   .argument('<script>', 'Path to the Curator script file')
   .argument('[args...]', 'Optional arguments passed to the script')
   .option('--db <name>', 'Use a named local SQLite database (auto-provisioned if new)')
-  .action(async (scriptArg: string, argsArg: string[], opts: { db?: string }) => {
+  .option('--reset', 'Force reset (delete) the SQLite database before running the script')
+  .action(async (scriptArg: string, argsArg: string[], opts: { db?: string; reset?: boolean }) => {
     const scriptPath = path.resolve(scriptArg);
     const scriptArgsStr = argsArg.join(' ');
     let scriptArgs: any = argsArg;
@@ -59,7 +60,7 @@ program
 
     if (opts.db) {
       const { provisionSqliteDb } = await import('./sqliteProvisioner.js');
-      prisma = await provisionSqliteDb(opts.db);
+      prisma = await provisionSqliteDb(opts.db, opts.reset);
     } else {
       console.log(`[Curator] Connecting to PostgreSQL...`);
       const connectionString = process.env.DATABASE_URL!;

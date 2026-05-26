@@ -17,7 +17,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '../../');
 const DATA_DIR = path.join(PROJECT_ROOT, 'data');
 
-export async function provisionSqliteDb(name: string) {
+export async function provisionSqliteDb(name: string, forceReset: boolean = false) {
   // Validate name (alphanumeric, hyphens, underscores only)
   if (!/^[\w-]+$/.test(name)) {
     throw new Error(`[Curator] Invalid database name "${name}". Use letters, numbers, hyphens or underscores only.`);
@@ -30,6 +30,16 @@ export async function provisionSqliteDb(name: string) {
   }
 
   const dbPath = path.join(DATA_DIR, `${name}.db`);
+
+  if (forceReset && fs.existsSync(dbPath)) {
+    console.log(`[Curator] 🗄️  Force resetting database: ${name}`);
+    try {
+      fs.unlinkSync(dbPath);
+    } catch (err: any) {
+      console.warn(`[Curator] Warning: Failed to delete database file: ${err.message}`);
+    }
+  }
+
   const dbUrl  = `file:${dbPath}`;
   const isNew  = !fs.existsSync(dbPath);
 

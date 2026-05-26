@@ -1,5 +1,4 @@
 import { Pipeline } from '../src/services/ast/builder.js';
-import type { QueryResourcesOutput } from '../src/services/tools/types.js';
 
 /**
  * Weather Summary Pipeline (Linear)
@@ -10,16 +9,14 @@ import type { QueryResourcesOutput } from '../src/services/tools/types.js';
  */
 const pipeline = new Pipeline();
 
-const queryData = pipeline.tool<QueryResourcesOutput>('query_resources', {
-    relation: {
-        objectUri: "err:ilm"
-    },
+const feedData = pipeline.tool('process_feed', {
+    url: "http://uudised.err.ee/uudised_rss.php",
     limit: 10
 });
 
 const formatData = pipeline.tool('format_list', {
-    items: queryData.items,
-    template: "- {{title}}: {{description}}"
+    items: feedData.items,
+    template: "- {{title}}: {{contentSnippet}}"
 });
 
 pipeline.tool('ask_llm', {
@@ -28,7 +25,7 @@ pipeline.tool('ask_llm', {
         Below is a list of recent weather reports from ERR.
         
         REPORTS:
-        ${formatData}
+        ${formatData.data}
 
         
         TASK:
