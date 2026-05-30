@@ -52,5 +52,19 @@ services:
     environment:
       VITE_API_URL: ${VITE_API_URL}
 
+  curator-llm:
+    build:
+      context: ./curator
+      dockerfile: Dockerfile
+    container_name: curator-llm
+    restart: unless-stopped
+    ports:
+      - "8090:8080"
+    volumes:
+      - curator_models:/models
+    environment:
+      MODEL_PATH: /models/google_gemma-3-1b-it-Q4_K_M.gguf
+
 volumes:
   pgdata:
+  curator_models:

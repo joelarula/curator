@@ -65,9 +65,8 @@ export class ScriptRunner {
             // Compatibility aliases
             run: (name: string, toolArgs: Record<string, any> = {}) => Curator.chain(name, toolArgs),
             step: (name: string, toolArgs: Record<string, any> = {}) => Curator.chain(name, toolArgs),
-            Curator,
             // Aliases for jQuery-style flavor
-            Curator: Curator,
+            Curator,
             $: Curator,
             // Item proxy for onItemExtracted callbacks: item.uri → "{{item.uri}}"
             item: itemProxy,

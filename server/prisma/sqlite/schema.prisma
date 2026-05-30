@@ -9,8 +9,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 generator sqliteClient {
-  provider = "prisma-client-js"
-  output   = "../../src/generated/prisma-sqlite"
+  provider        = "prisma-client-js"
+  output          = "../../src/generated/prisma-sqlite"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {

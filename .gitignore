@@ -1,5 +1,6 @@
 # Dependency directories
 /node_modules
+**/node_modules/
 
 # Environment files
 .env
@@ -8,6 +9,7 @@
 
 # Build outputs
 dist/
+**/dist/
 build/
 .next/
 out/
@@ -40,3 +42,15 @@ __pycache__/
 
 # Local tests
 coverage/
+
+# Local model files
+/models/
+/curator/assets/models/
+*.gguf
+
+
+# Added by cargo
+
+/target
+/curator/target/
+**/target/

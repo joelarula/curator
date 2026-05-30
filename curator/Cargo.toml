@@ -1,0 +1,33 @@
+[package]
+name = "curator"
+version = "0.1.0"
+edition = "2021"
+default-run = "curator"
+
+[[bin]]
+name = "curator"
+path = "src/main.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "curator-server"
+path = "src/bin/curator-server.rs"
+test = false
+bench = false
+
+[dependencies]
+tokio = { version = "1.38", features = ["full"] }
+axum = { version = "0.7", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+llama-cpp-v3 = "0.1.7" # Dynamic loader crate for prebuilt llama.dll
+clap = { version = "4.5", features = ["derive", "env"] } # CLI argument parser
+uuid = { version = "1.8", features = ["v4"] } # For unique request IDs
+tracing = "0.1"
+tracing-subscriber = "0.3"
+tower-http = { version = "0.5", features = ["cors"] }
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+tokio = { version = "1.38", features = ["full"] }

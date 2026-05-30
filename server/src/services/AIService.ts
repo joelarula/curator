@@ -103,6 +103,46 @@ export class AIService {
      * Returns freeform text (markdown) — the user controls the output format via their prompt.
      */
     static async runPromptWithModel(prompt: string, modelName: string): Promise<string> {
+        if (modelName.startsWith('local-')) {
+            const llmBaseUrl = process.env.CURATOR_LLM_URL || 'http://127.0.0.1:8080';
+            const endpoint = `${llmBaseUrl.replace(/\/$/, '')}/v1/chat/completions`;
+            try {
+                console.log(`[AIService] Routing prompt to local LLM service: ${modelName} @ ${endpoint}`);
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model: modelName,
+                        messages: [{ role: 'user', content: prompt }],
+                        temperature: 0.3,
+                        max_tokens: 2048,
+                    }),
+                });
+
+                const raw = await response.text();
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status} ${response.statusText}: ${raw}`);
+                }
+
+                let json: any;
+                try {
+                    json = JSON.parse(raw);
+                } catch {
+                    throw new Error(`Expected JSON response from local LLM, got: ${raw}`);
+                }
+
+                const content = json?.choices?.[0]?.message?.content;
+                if (typeof content !== 'string') {
+                    throw new Error(`Unexpected response shape from local LLM: ${raw}`);
+                }
+
+                return json.choices[0].message.content.trim();
+            } catch (error: any) {
+                console.error(`[AIService] Local LLM Inference failed at ${endpoint}: ${error.message}`);
+                throw new Error(`Local LLM Inference failed at ${endpoint}: ${error.message}`);
+            }
+        }
+
         const model = AIService.genAI.getGenerativeModel({
             model: modelName,
             generationConfig: { temperature: 0.3, maxOutputTokens: 4096 },
