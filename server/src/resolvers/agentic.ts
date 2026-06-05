@@ -590,5 +590,12 @@ export const agenticResolvers = {
             if (agent.user) return agent.user;
             return await context.prisma.user.findUnique({ where: { id: agent.userId } });
         },
+        requests: async (agent: any, _args: any, context: any) => {
+            if (agent.requests) return agent.requests;
+            return await context.prisma.request.findMany({ 
+                where: { agentId: agent.id },
+                orderBy: { createdAt: 'desc' }
+            });
+        },
     },
 };

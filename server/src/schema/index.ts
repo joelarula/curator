@@ -135,7 +135,7 @@ export const typeDefs = gql`
   """
   type Text {
     "Unique identifier"
-    id: Int!
+    id: ID!
     "Full text content"
     content: String!
     "Content role (MAIN, SUMMARY, TRANSCRIPT)"
@@ -383,6 +383,8 @@ export const typeDefs = gql`
     lastPolledAt: String
     "Owner user"
     user: User!
+    "Agent execution requests"
+    requests: [Request!]!
     "Whether polling is active"
     enabled: Boolean!
     createdAt: String!
@@ -597,6 +599,8 @@ export const typeDefs = gql`
 
     "Fetch a single Text by CUID."
     text(id: ID!): Text
+    "Fetch all distinct text roles stored in the database."
+    textRoles: [String!]!
 
     # Relation queries (RDF graph traversal with integer resource IDs)
     "Query RDF triples by subject, predicate, and/or object Resource IDs."
@@ -647,6 +651,12 @@ export const typeDefs = gql`
 
     "Update an existing Text's content."
     updateText(id: ID!, content: String!): Text!
+
+    "Delete an existing Text section (soft delete)."
+    deleteText(id: ID!): Boolean!
+
+    "Scrapes content from a URL using the scrape tool and upserts it as a Resource."
+    scrapeResource(url: String!, resourceUri: String): Resource!
 
     # RDF Relations
     "Create a new RDF triple (Relation)."

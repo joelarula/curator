@@ -1,4 +1,6 @@
 import { PrismaClient } from '@prisma/client';
+import { executeTool } from '../services/ToolRegistry.js';
+
 
 export const resourceResolvers = {
     Query: {
@@ -182,6 +184,17 @@ export const resourceResolvers = {
                     deletedAt: null,
                 },
             });
+        },
+
+        scrapeResource: async (_parent: any, { url, resourceUri }: { url: string; resourceUri?: string }, context: any) => {
+            if (!context.user) throw new Error('Unauthorized');
+            const result = await executeTool(
+                'scrape_resource',
+                { url, resourceUri, saveText: true },
+                context.prisma,
+                context.user.id
+            );
+            return result.createdItem;
         },
 
 

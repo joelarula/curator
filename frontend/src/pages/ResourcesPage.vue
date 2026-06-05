@@ -334,6 +334,7 @@ import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { graphql } from '../composables/useGraphql'
 import { openEstablishResource } from '../composables/useGlobalActions'
+import { isExtensionContext } from '../composables/useEnv'
 
 const router = useRouter()
 
@@ -457,6 +458,15 @@ function toggleRelationInversion(index: number) {
 
 onMounted(() => {
   fetchResources()
+
+  if (isExtensionContext()) {
+    // Listen for background events (e.g. context menu adds a resource)
+    chrome.runtime.onMessage.addListener((msg) => {
+      if (msg.type === 'RESOURCE_ADDED') {
+        fetchResources(true)
+      }
+    })
+  }
 })
 
 async function fetchResources(reset = false) {

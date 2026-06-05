@@ -18,13 +18,18 @@
  */
 import { ref } from 'vue'
 import { graphql } from './useGraphql'
+import { isExtensionContext } from './useEnv'
 
-export const user = ref<any>(null)
-export const token = ref<string>('')
+export const user = ref<any>(isExtensionContext() ? { id: 'curator-extension-user', email: 'curator@arula.dev', name: 'curator' } : null)
+export const token = ref<string>(isExtensionContext() ? 'extension-token' : '')
 
 export function useAuth() {
   /** Fetches the current user from the server and populates `user`. Logs out on failure. */
   async function fetchUser() {
+    if (isExtensionContext()) {
+      user.value = { id: 'curator-extension-user', email: 'curator@arula.dev', name: 'curator' };
+      return;
+    }
     const data = await graphql('{ me { id email name } }')
     if (data?.me) {
       user.value = data.me
@@ -52,6 +57,11 @@ export function useAuth() {
    * stores it in localStorage, and removes it from the URL bar.
    */
   function initAuth() {
+    if (isExtensionContext()) {
+      token.value = 'extension-token'; // Dummy token
+      return;
+    }
+
     const urlParams = new URLSearchParams(window.location.search)
     const queryToken = urlParams.get('token')
 

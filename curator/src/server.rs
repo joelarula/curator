@@ -5,12 +5,22 @@ use llama_cpp_v3::{LlamaBatch, LlamaSampler};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
+/// Incoming chat message in an OpenAI-compatible shape.
+///
+/// Supported roles are forwarded as-is except `assistant`, which is mapped to
+/// Gemma's `model` role during prompt templating.
 #[derive(Debug, Deserialize)]
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
 }
 
+/// Request payload accepted by `POST /v1/chat/completions`.
+///
+/// Notes for UI integrators:
+/// - `model` is currently informational (echoed back in the response).
+/// - This server hosts one loaded GGUF model per process.
+/// - Sampling values are optional; omitted fields use runtime defaults.
 #[derive(Debug, Deserialize)]
 pub struct ChatCompletionRequest {
     pub model: String,
@@ -22,6 +32,66 @@ pub struct ChatCompletionRequest {
     pub repeat_penalty: Option<f32>,
 }
 
+/// Request payload accepted by `POST /v1/completions`.
+///
+/// This server supports the common text prompt shape and maps it to the same
+/// generation core used by chat completions.
+#[derive(Debug, Deserialize)]
+pub struct CompletionRequest {
+    pub model: String,
+    pub prompt: String,
+    pub temperature: Option<f32>,
+    pub max_tokens: Option<usize>,
+    pub top_k: Option<i32>,
+    pub top_p: Option<f32>,
+    pub repeat_penalty: Option<f32>,
+}
+
+/// Response payload for `POST /v1/completions` in OpenAI-style shape.
+#[derive(Debug, Serialize)]
+pub struct CompletionResponse {
+    pub id: String,
+    pub object: String,
+    pub created: u64,
+    pub model: String,
+    pub choices: Vec<CompletionChoice>,
+    pub usage: ChatUsage,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CompletionChoice {
+    pub index: usize,
+    pub text: String,
+    pub finish_reason: String,
+}
+
+/// Minimal request payload accepted by `POST /v1/responses`.
+///
+/// The upstream llama.cpp implementation internally converts this endpoint to
+/// chat completions. This server mirrors that approach for reference usage.
+#[derive(Debug, Deserialize)]
+pub struct ResponsesRequest {
+    pub model: String,
+    pub input: serde_json::Value,
+    pub temperature: Option<f32>,
+    pub max_output_tokens: Option<usize>,
+    pub top_k: Option<i32>,
+    pub top_p: Option<f32>,
+    pub repeat_penalty: Option<f32>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ResponsesResponse {
+    pub id: String,
+    pub object: String,
+    pub created: u64,
+    pub model: String,
+    pub output_text: String,
+    pub output: Vec<serde_json::Value>,
+    pub usage: ChatUsage,
+}
+
+/// OpenAI-style chat completion response produced by the local model.
 #[derive(Debug, Serialize)]
 pub struct ChatCompletionResponse {
     pub id: String,
@@ -32,6 +102,9 @@ pub struct ChatCompletionResponse {
     pub usage: ChatUsage,
 }
 
+/// Single completion choice.
+///
+/// The server currently returns exactly one choice (`index = 0`).
 #[derive(Debug, Serialize)]
 pub struct ChatChoice {
     pub index: usize,
@@ -39,12 +112,17 @@ pub struct ChatChoice {
     pub finish_reason: String,
 }
 
+/// Assistant message content returned to clients.
 #[derive(Debug, Serialize)]
 pub struct ChatMessageOut {
     pub role: String,
     pub content: String,
 }
 
+/// Basic usage counters included in the response.
+///
+/// `prompt_tokens` comes from actual tokenization length.
+/// `completion_tokens` is currently an approximate character-based estimate.
 #[derive(Debug, Serialize)]
 pub struct ChatUsage {
     pub prompt_tokens: usize,
@@ -52,6 +130,10 @@ pub struct ChatUsage {
     pub total_tokens: usize,
 }
 
+/// Partial update payload for mutable runtime sampling defaults.
+///
+/// Fields are optional so clients can patch only the values they want to
+/// change without resending the entire settings object.
 #[derive(Debug, Deserialize)]
 pub struct UpdateSamplingSettingsRequest {
     pub temperature: Option<f32>,
@@ -61,6 +143,10 @@ pub struct UpdateSamplingSettingsRequest {
     pub repeat_penalty: Option<f32>,
 }
 
+/// Returns current mutable sampling settings.
+///
+/// This endpoint is useful for UIs to initialize controls with the server's
+/// active defaults before sending generation requests.
 pub async fn get_settings(
     Extension(state): Extension<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, String> {
@@ -81,6 +167,9 @@ pub async fn get_settings(
     })))
 }
 
+/// Updates mutable runtime sampling defaults used for future requests.
+///
+/// Validation failures return an error string and do not apply partial updates.
 pub async fn update_settings(
     Extension(state): Extension<Arc<AppState>>,
     Json(payload): Json<UpdateSamplingSettingsRequest>,
@@ -137,6 +226,9 @@ pub async fn update_settings(
     })))
 }
 
+/// Returns service metadata and effective runtime configuration.
+///
+/// Intended for discovery/debug views in UI clients.
 pub async fn metadata(
     Extension(state): Extension<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, String> {
@@ -172,12 +264,182 @@ pub async fn metadata(
     })))
 }
 
+/// HTTP handler wrapper around the core generation function.
+///
+/// Keeping the core logic in `run_chat_completion` makes the same path reusable
+/// by non-HTTP callers and easier to unit test.
 pub async fn chat_completions(
     Extension(state): Extension<Arc<AppState>>,
     Json(payload): Json<ChatCompletionRequest>,
 ) -> Result<Json<ChatCompletionResponse>, String> {
     let response = run_chat_completion(state, payload).await?;
     Ok(Json(response))
+}
+
+/// OpenAI-compatible text completion endpoint.
+///
+/// Internally this is routed through chat completion generation so both APIs
+/// share one inference implementation.
+pub async fn completions(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(payload): Json<CompletionRequest>,
+) -> Result<Json<CompletionResponse>, String> {
+    let chat_req = ChatCompletionRequest {
+        model: payload.model.clone(),
+        messages: vec![ChatMessage {
+            role: "user".to_string(),
+            content: payload.prompt,
+        }],
+        temperature: payload.temperature,
+        max_tokens: payload.max_tokens,
+        top_k: payload.top_k,
+        top_p: payload.top_p,
+        repeat_penalty: payload.repeat_penalty,
+    };
+
+    let chat = run_chat_completion(state, chat_req).await?;
+    let text = chat
+        .choices
+        .first()
+        .map(|c| c.message.content.clone())
+        .unwrap_or_default();
+
+    let response = CompletionResponse {
+        id: chat.id,
+        object: "text_completion".to_string(),
+        created: chat.created,
+        model: chat.model,
+        choices: vec![CompletionChoice {
+            index: 0,
+            text,
+            finish_reason: "stop".to_string(),
+        }],
+        usage: chat.usage,
+    };
+
+    Ok(Json(response))
+}
+
+/// OpenAI-compatible responses endpoint.
+///
+/// This accepts a small subset of Responses API input and converts it into
+/// chat messages before running generation.
+pub async fn responses(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(payload): Json<ResponsesRequest>,
+) -> Result<Json<ResponsesResponse>, String> {
+    let messages = responses_input_to_messages(&payload.input)?;
+    let chat_req = ChatCompletionRequest {
+        model: payload.model.clone(),
+        messages,
+        temperature: payload.temperature,
+        max_tokens: payload.max_output_tokens,
+        top_k: payload.top_k,
+        top_p: payload.top_p,
+        repeat_penalty: payload.repeat_penalty,
+    };
+
+    let chat = run_chat_completion(state, chat_req).await?;
+    let text = chat
+        .choices
+        .first()
+        .map(|c| c.message.content.clone())
+        .unwrap_or_default();
+
+    let output_item = serde_json::json!({
+        "type": "message",
+        "role": "assistant",
+        "content": [{
+            "type": "output_text",
+            "text": text
+        }]
+    });
+
+    let response = ResponsesResponse {
+        id: format!("resp_{}", uuid::Uuid::new_v4().simple()),
+        object: "response".to_string(),
+        created: chat.created,
+        model: chat.model,
+        output_text: output_item["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string(),
+        output: vec![output_item],
+        usage: chat.usage,
+    };
+
+    Ok(Json(response))
+}
+
+/// OpenAI-compatible models list endpoint.
+pub async fn list_models(
+    Extension(state): Extension<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, String> {
+    let created = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    Ok(Json(serde_json::json!({
+        "object": "list",
+        "data": [{
+            "id": state.args.model,
+            "object": "model",
+            "created": created,
+            "owned_by": "curator"
+        }]
+    })))
+}
+
+fn responses_input_to_messages(input: &serde_json::Value) -> Result<Vec<ChatMessage>, String> {
+    if let Some(text) = input.as_str() {
+        return Ok(vec![ChatMessage {
+            role: "user".to_string(),
+            content: text.to_string(),
+        }]);
+    }
+
+    if let Some(items) = input.as_array() {
+        let mut messages = Vec::new();
+        for item in items {
+            let role = item
+                .get("role")
+                .and_then(|v| v.as_str())
+                .unwrap_or("user")
+                .to_string();
+
+            // Supports Responses-style string content and simple content arrays.
+            let content = match item.get("content") {
+                Some(c) if c.is_string() => c.as_str().unwrap_or_default().to_string(),
+                Some(c) if c.is_array() => c
+                    .as_array()
+                    .unwrap_or(&Vec::new())
+                    .iter()
+                    .filter_map(|part| {
+                        if part.get("type").and_then(|v| v.as_str()) == Some("input_text") {
+                            part.get("text").and_then(|v| v.as_str())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                _ => String::new(),
+            };
+
+            if !content.is_empty() {
+                messages.push(ChatMessage { role, content });
+            }
+        }
+
+        if messages.is_empty() {
+            return Err("responses input array did not contain usable text content".to_string());
+        }
+
+        return Ok(messages);
+    }
+
+    Err("responses input must be a string or an array of message objects".to_string())
 }
 
 pub async fn run_chat_completion(
@@ -203,6 +465,8 @@ pub async fn run_chat_completion(
     let top_p = payload.top_p.unwrap_or(default_top_p);
     let repeat_penalty = payload.repeat_penalty.unwrap_or(default_repeat_penalty);
 
+    // These values are logged so UI or API operators can confirm the exact
+    // parameters used for this request after precedence is resolved.
     info!(
         "Sampling params => temperature: {}, max_tokens: {}, top_k: {}, top_p: {}, repeat_penalty: {}",
         temperature, max_gen_tokens, top_k, top_p, repeat_penalty
@@ -233,7 +497,8 @@ pub async fn run_chat_completion(
     // 3. Acquire exclusive access to the mutable llama.cpp context.
     let mut ctx = state.context.lock().map_err(|e| format!("Mutex lock failed: {}", e))?;
 
-    // Each HTTP request is independent; clear KV cache so token positions can restart at 0.
+    // Each request is treated as a standalone conversation turn. Clearing the
+    // KV cache prevents prompt/history leakage across independent HTTP requests.
     ctx.kv_cache_clear();
 
     // 4. Prefill the full prompt so llama.cpp can build attention state for generation.
@@ -251,6 +516,9 @@ pub async fn run_chat_completion(
     let mut generated_tokens = Vec::new();
     // NOTE: Some llama.cpp builds with Gemma + sampler-chain can hit a hard assert
     // (cur_p.selected) and terminate the process. Use greedy sampler for stability.
+    // UI sliders for temperature/top-k/top-p/repetition are still accepted and
+    // surfaced by metadata/settings endpoints, but generation currently falls
+    // back to greedy token selection until sampler-chain stability is improved.
     if temperature > 0.0 || repeat_penalty > 1.0 || top_k != 40 || (top_p - 0.95).abs() > f32::EPSILON {
         warn!(
             "Sampler-chain requested (temp/top_k/top_p/repeat_penalty), but using greedy fallback for process stability"
@@ -268,6 +536,7 @@ pub async fn run_chat_completion(
             break;
         }
 
+        // Buffer token IDs first; detokenization happens once after generation.
         generated_tokens.push(next_token);
 
     // Feed the sampled token back into the context so the next sampling step sees it.
@@ -293,6 +562,7 @@ pub async fn run_chat_completion(
             role: "assistant".to_string(),
             content: generated_text,
         },
+        // This implementation only stops on EOS or max token limit.
         finish_reason: "stop".to_string(),
     };
 

@@ -235,4 +235,12 @@ CREATE TABLE "_ConversationResources" (
     CONSTRAINT "_ConversationResources_A_fkey" FOREIGN KEY ("A") REFERENCES "Conversation" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "_ConversationResources_B_fkey" FOREIGN KEY ("B") REFERENCES "Resource" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
+
+CREATE UNIQUE INDEX "Tool_name_key" ON "Tool"("name");
+CREATE UNIQUE INDEX "Resource_uri_key" ON "Resource"("uri");
+CREATE UNIQUE INDEX "Resource_id_existent_key" ON "Resource"("id", "existent");
+CREATE UNIQUE INDEX "_RequestResources_AB_unique" ON "_RequestResources"("A", "B");
+CREATE INDEX "_RequestResources_B_index" ON "_RequestResources"("B");
+CREATE UNIQUE INDEX "_ConversationResources_AB_unique" ON "_ConversationResources"("A", "B");
+CREATE INDEX "_ConversationResources_B_index" ON "_ConversationResources"("B");
 `;

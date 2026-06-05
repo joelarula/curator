@@ -50,8 +50,10 @@ try {
     }
 
     if ($null -ne $chat.choices -and $chat.choices.Count -gt 0) {
+        $modelText = [string]$chat.choices[0].message.content
         Write-Host "\n=== MODEL OUTPUT (chat/completions) ==="
-        Write-Host $chat.choices[0].message.content
+        Write-Host $modelText
+
         exit 0
     }
 
@@ -83,8 +85,10 @@ try {
     }
 
     if ($null -ne $completion.content) {
+        $modelText = [string]$completion.content
         Write-Host "\n=== MODEL OUTPUT (/completion) ==="
-        Write-Host $completion.content
+        Write-Host $modelText
+
         exit 0
     }
 

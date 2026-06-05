@@ -317,3 +317,121 @@ export interface DeleteResourceOutput extends ToolResult {
     data: { action: string, id: number, uri: string | null };
 }
 
+// llama.cpp API tools
+export interface LlamaCommonInput {
+    baseUrl?: string;
+    apiKey?: string;
+    timeoutMs?: number;
+    queryParams?: Record<string, unknown>;
+}
+
+export interface LlamaHealthInput extends LlamaCommonInput {}
+
+export interface LlamaRequestInput extends LlamaCommonInput {
+    method: 'GET' | 'POST' | string;
+    path: string;
+    body?: unknown;
+}
+
+export interface LlamaModelsInput extends LlamaCommonInput {
+    api?: 'oai' | 'router';
+    reload?: boolean;
+    model?: string;
+}
+
+export interface LlamaChatCompletionInput extends LlamaCommonInput {
+    model: string;
+    messages: unknown[];
+    [key: string]: unknown;
+}
+
+export interface LlamaCompletionInput extends LlamaCommonInput {
+    prompt: unknown;
+    [key: string]: unknown;
+}
+
+export interface LlamaTokenizeInput extends LlamaCommonInput {
+    content: string;
+    add_special?: boolean;
+    parse_special?: boolean;
+    with_pieces?: boolean;
+}
+
+export interface LlamaDetokenizeInput extends LlamaCommonInput {
+    tokens: number[];
+}
+
+export interface LlamaApplyTemplateInput extends LlamaCommonInput {
+    messages: unknown[];
+    [key: string]: unknown;
+}
+
+export interface LlamaEmbeddingInput extends LlamaCommonInput {
+    content: string;
+    embd_normalize?: number;
+    [key: string]: unknown;
+}
+
+export interface LlamaV1EmbeddingsInput extends LlamaCommonInput {
+    input: string | string[];
+    model?: string;
+    encoding_format?: 'float' | 'base64';
+    [key: string]: unknown;
+}
+
+export interface LlamaRerankInput extends LlamaCommonInput {
+    query: string;
+    documents: string[];
+    model?: string;
+    top_n?: number;
+    [key: string]: unknown;
+}
+
+export interface LlamaPropsGetInput extends LlamaCommonInput {
+    model?: string;
+    autoload?: boolean;
+}
+
+export interface LlamaPropsSetInput extends LlamaCommonInput {
+    body?: Record<string, unknown>;
+}
+
+export interface LlamaSlotsInput extends LlamaCommonInput {
+    failOnNoSlot?: boolean;
+    model?: string;
+}
+
+export interface LlamaSlotActionInput extends LlamaCommonInput {
+    id_slot: number;
+    action: 'save' | 'restore' | 'erase';
+    filename?: string;
+}
+
+export interface LlamaMetricsInput extends LlamaCommonInput {
+    model?: string;
+}
+
+export interface LlamaLoraListInput extends LlamaCommonInput {}
+
+export interface LlamaLoraSetInput extends LlamaCommonInput {
+    adapters: Array<{ id: number; scale: number }>;
+}
+
+export interface LlamaResponsesInput extends LlamaCommonInput {
+    model: string;
+    input: unknown;
+    [key: string]: unknown;
+}
+
+export interface LlamaMessagesInput extends LlamaCommonInput {
+    model: string;
+    messages: unknown[];
+    [key: string]: unknown;
+}
+
+export interface LlamaMessagesCountTokensInput extends LlamaCommonInput {
+    model: string;
+    messages: unknown[];
+    [key: string]: unknown;
+}
+

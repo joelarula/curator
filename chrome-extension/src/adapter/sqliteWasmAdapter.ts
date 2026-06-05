@@ -1,5 +1,37 @@
 import { DriverAdapter, ResultSet, Query } from '@prisma/client/wasm';
 
+/**
+ * Numeric ColumnType constants matching Prisma's internal enum
+ * (from @prisma/client/wasm — must match the `f` object in client.js).
+ */
+const ColumnType = {
+    Int32:   0,
+    Int64:   1,
+    Float:   2,
+    Double:  3,
+    Numeric: 4,
+    Boolean: 5,
+    Text:    7,
+    Date:    8,
+    DateTime: 10,
+    UnknownNumber: 128,
+} as const;
+
+/**
+ * SQLite WASM driver adapter for Prisma.
+ *
+ * Transactions run in AUTOCOMMIT mode — each statement is atomic at the
+ * SQLite level by default. We deliberately do NOT issue BEGIN/COMMIT/ROLLBACK
+ * because Prisma's WASM query engine (Rust) tracks transaction IDs internally.
+ * When SQLite auto-aborts a transaction on a constraint error, the engine's
+ * internal state becomes inconsistent with our adapter, throwing:
+ *   "Active transaction found in closed transactions list"
+ *
+ * Running in autocommit avoids that entirely: commit/rollback are no-ops so
+ * Prisma's engine always sees a clean success path for transaction lifecycle.
+ * For a single-user local SQLite database this is safe — each Prisma operation
+ * is a single statement and is already atomic.
+ */
 export class SQLiteWasmAdapter implements DriverAdapter {
     flavour = 'sqlite' as const;
     provider = 'sqlite';
@@ -10,14 +42,17 @@ export class SQLiteWasmAdapter implements DriverAdapter {
         return this;
     }
 
-    async queryRaw(query: Query): Promise<ResultSet> {
-        const { sql, args } = query;
-        // In sqlite, prisma might pass booleans which sql.js handles best as 1 or 0
-        const mappedArgs = args.map(arg => {
+    private mapArgs(args: any[]): any[] {
+        return args.map(arg => {
             if (typeof arg === 'boolean') return arg ? 1 : 0;
             if (arg instanceof Date) return arg.toISOString();
             return arg;
         });
+    }
+
+    async queryRaw(query: Query): Promise<ResultSet> {
+        const { sql, args } = query;
+        const mappedArgs = this.mapArgs(args);
 
         try {
             const stmt = this.db.prepare(sql);
@@ -28,38 +63,25 @@ export class SQLiteWasmAdapter implements DriverAdapter {
 
             while (stmt.step()) {
                 const row = stmt.get();
-                // Map numeric types or timestamps if needed
-                const mappedRow = row.map(val => {
-                    if (typeof val === 'bigint') {
-                        return Number(val);
-                    }
-                    return val;
-                });
-                rows.push(mappedRow);
+                rows.push(row.map((val: any) =>
+                    typeof val === 'bigint' ? Number(val) : val
+                ));
             }
-
             stmt.free();
 
-            // Infer column types based on the first returned row or default to 'Text'
-            const columnTypes = columnNames.map((name, index) => {
+            const columnTypes = columnNames.map((_name: string, index: number) => {
                 for (const row of rows) {
                     const val = row[index];
                     if (val !== null && val !== undefined) {
-                        if (typeof val === 'number') {
-                            return Number.isInteger(val) ? 'Int32' : 'Double';
-                        }
-                        if (typeof val === 'boolean') return 'Boolean';
-                        if (typeof val === 'bigint') return 'Int64';
+                        if (typeof val === 'number') return Number.isInteger(val) ? ColumnType.Int32 : ColumnType.Double;
+                        if (typeof val === 'boolean') return ColumnType.Boolean;
+                        if (typeof val === 'bigint') return ColumnType.Int64;
                     }
                 }
-                return 'Text'; // Fallback
+                return ColumnType.Text; // Prisma's numeric Text type (7)
             });
 
-            return {
-                columnNames,
-                columnTypes: columnTypes as any[],
-                rows
-            };
+            return { columnNames, columnTypes: columnTypes as any[], rows };
         } catch (err: any) {
             console.error('[SQLiteWasmAdapter] queryRaw error:', err, 'SQL:', sql, 'Args:', mappedArgs);
             throw err;
@@ -68,17 +90,11 @@ export class SQLiteWasmAdapter implements DriverAdapter {
 
     async executeRaw(query: Query): Promise<number> {
         const { sql, args } = query;
-        const mappedArgs = args.map(arg => {
-            if (typeof arg === 'boolean') return arg ? 1 : 0;
-            if (arg instanceof Date) return arg.toISOString();
-            return arg;
-        });
+        const mappedArgs = this.mapArgs(args);
 
         try {
-            const before = this.db.getRowsModified();
             this.db.run(sql, mappedArgs);
-            const after = this.db.getRowsModified();
-            return after;
+            return this.db.getRowsModified();
         } catch (err: any) {
             console.error('[SQLiteWasmAdapter] executeRaw error:', err, 'SQL:', sql, 'Args:', mappedArgs);
             throw err;
@@ -94,24 +110,20 @@ export class SQLiteWasmAdapter implements DriverAdapter {
         }
     }
 
-    async startTransaction(isolationLevel?: string): Promise<any> {
-        try {
-            this.db.run('BEGIN TRANSACTION;');
-            return {
-                queryRaw: this.queryRaw.bind(this),
-                executeRaw: this.executeRaw.bind(this),
-                executeScript: this.executeScript.bind(this),
-                commit: async () => {
-                    this.db.run('COMMIT;');
-                },
-                rollback: async () => {
-                    this.db.run('ROLLBACK;');
-                }
-            };
-        } catch (err: any) {
-            console.error('[SQLiteWasmAdapter] startTransaction error:', err);
-            throw err;
-        }
+    /**
+     * Returns a fake transaction that runs in SQLite autocommit mode.
+     * commit() and rollback() are intentional no-ops — Prisma's WASM engine
+     * always sees them succeed, preventing internal state corruption.
+     */
+    async startTransaction(_isolationLevel?: string): Promise<any> {
+        const adapterRef = this;
+        return {
+            queryRaw:      (q: Query)   => adapterRef.queryRaw(q),
+            executeRaw:    (q: Query)   => adapterRef.executeRaw(q),
+            executeScript: (s: string)  => adapterRef.executeScript(s),
+            commit:        async () => {},
+            rollback:      async () => {},
+        };
     }
 
     async close(): Promise<void> {

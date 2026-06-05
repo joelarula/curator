@@ -15,6 +15,7 @@
 import { ref } from 'vue'
 
 export const showEstablishResourceDialog = ref(false)
+export const isDeployAgentOpen = ref(false)
 export const initialParentId = ref<string | null>(null)
 
 /**
@@ -25,5 +26,9 @@ export const initialParentId = ref<string | null>(null)
 export function openEstablishResource(parentId: string | null = null) {
     initialParentId.value = parentId
     showEstablishResourceDialog.value = true
+}
+
+export function openDeployAgent() {
+    isDeployAgentOpen.value = true
 }
 

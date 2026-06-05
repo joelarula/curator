@@ -1,0 +1,36 @@
+{
+    "choices":  [
+                    {
+                        "finish_reason":  "length",
+                        "index":  0,
+                        "message":  {
+                                        "role":  "assistant",
+                                        "content":  "60/(v-3) + 60/(v+3) = 11/3\nMultiply both sides by 3(v-3)(v+3):\n3 * (60/(v-3) + 60/(v+3)) * (v-3)(v+3) = 3 * (11/3) * (v-3)(v+3)\n3 * (60(v-3)(v+3)) = 11 * (v-3)(v+3)\n3 * (60(v^2 - 9)) = 11 * (v^2 - 9)\n1800(v^2 - 9) = 11(v^2 - 9)\n1800v^2 - 16200 = 11v^2 - 99\n1800v^2 - 11v^2 - 16200 + 9"
+                                    }
+                    }
+                ],
+    "created":  1780168450,
+    "model":  "google_gemma-3-1b-it-Q4_K_M.gguf",
+    "system_fingerprint":  "b9426-1738129be",
+    "object":  "chat.completion",
+    "usage":  {
+                  "completion_tokens":  220,
+                  "prompt_tokens":  242,
+                  "total_tokens":  462,
+                  "prompt_tokens_details":  {
+                                                "cached_tokens":  1
+                                            }
+              },
+    "id":  "chatcmpl-8gPnBP6PPPKjusm9WxMDrR3fF1Oup8qh",
+    "timings":  {
+                    "cache_n":  1,
+                    "prompt_n":  241,
+                    "prompt_ms":  1879.397,
+                    "prompt_per_token_ms":  7.798327800829875,
+                    "prompt_per_second":  128.2326192922517,
+                    "predicted_n":  220,
+                    "predicted_ms":  10539.489,
+                    "predicted_per_token_ms":  47.90676818181818,
+                    "predicted_per_second":  20.87387728190617
+                }
+}

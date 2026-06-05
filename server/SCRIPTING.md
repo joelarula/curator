@@ -83,6 +83,75 @@ ToolChain.start()
 
 ---
 
+## llama.cpp API tools
+
+Curator now includes first-class tools for llama.cpp server endpoints (matching
+the upstream server API surface).
+
+Base URL and auth:
+
+- Default base URL: `CURATOR_LLM_URL` (fallback `LLAMA_CPP_BASE_URL`, then `http://127.0.0.1:8080`)
+- Optional API key: `LLAMA_API_KEY` (or pass `apiKey` in tool args)
+
+Primary tools:
+
+- `llama_health`
+- `llama_models`
+- `llama_chat_completion`
+- `llama_completion`
+- `llama_tokenize`
+- `llama_detokenize`
+- `llama_apply_template`
+- `llama_embedding`
+- `llama_v1_embeddings`
+- `llama_rerank`
+- `llama_props_get`
+- `llama_props_set`
+- `llama_slots`
+- `llama_slot_action`
+- `llama_metrics`
+- `llama_lora_list`
+- `llama_lora_set`
+- `llama_responses`
+- `llama_messages`
+- `llama_messages_count_tokens`
+
+For endpoints not explicitly wrapped, use:
+
+- `llama_request` (generic GET/POST path caller)
+
+Example: health + OpenAI chat completion
+
+```js
+return ToolChain.start()
+  .llama_health({})
+  .llama_chat_completion({
+    model: "local-gemma-3-1b-it",
+    messages: [
+      { role: "system", content: "You are concise." },
+      { role: "user", content: "Summarize the article in 3 bullets." }
+    ],
+    temperature: 0.3,
+    max_tokens: 200
+  });
+```
+
+Example: generic call for unsupported endpoint
+
+```js
+return ToolChain.start().llama_request({
+  method: "POST",
+  path: "/infill",
+  body: {
+    input_prefix: "function add(a, b) {",
+    input_suffix: "}",
+    n_predict: 128
+  }
+});
+```
+
+---
+
 ## Runtime template references (`{{tool.field}}`)
 
 Previous tool results are available via `{{toolName.field}}` placeholders, resolved at execution time by `RequestProcessor`. Build them with the `ref()` helper (import not needed inside scripts — use the string directly, or call `ref` if exposed):

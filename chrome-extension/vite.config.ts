@@ -4,7 +4,7 @@ import vuetify from 'vite-plugin-vuetify'
 import { resolve } from 'path'
 
 export default defineConfig({
-  root: resolve(__dirname, 'src/popup-app'),
+  root: resolve(__dirname, '../frontend'),
   base: './',
   plugins: [
     vue(),
@@ -14,12 +14,12 @@ export default defineConfig({
     outDir: resolve(__dirname, 'dist/popup'),
     emptyOutDir: true,
     rollupOptions: {
-      input: resolve(__dirname, 'src/popup-app/index.html'),
+      input: resolve(__dirname, '../frontend/index.html'),
     },
   },
   resolve: {
     alias: {
-      '@': resolve(__dirname, 'src/popup-app'),
+      '@': resolve(__dirname, '../frontend/src'),
     },
   },
 })

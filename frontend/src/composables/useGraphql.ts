@@ -15,6 +15,7 @@
  */
 import { ref } from 'vue'
 import { token } from './useAuth'
+import { isExtensionContext } from './useEnv'
 
 export const snackbar = ref(false)
 export const snackbarText = ref('')
@@ -38,15 +39,29 @@ export function showError(msg: string) {
  */
 export async function graphql(query: string, variables: any = {}) {
   try {
-    const response = await fetch('/graphql', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token.value}`,
-      },
-      body: JSON.stringify({ query, variables }),
-    })
-    const result = await response.json()
+    let result: any;
+    if (isExtensionContext()) {
+      result = await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage(
+          { type: 'GRAPHQL_REQUEST', payload: { query, variables } },
+          (resp) => {
+            if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+            resolve(resp);
+          }
+        );
+      });
+    } else {
+      const response = await fetch('/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token.value}`,
+        },
+        body: JSON.stringify({ query, variables }),
+      });
+      result = await response.json();
+    }
+
     if (result.errors) {
       console.error('GraphQL Errors:', result.errors)
       showError(result.errors[0].message)

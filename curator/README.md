@@ -213,6 +213,145 @@ That is useful for:
 
 This endpoint exists so other parts of Curator can discover the server's effective configuration without inspecting process flags.
 
+## UI integration guide: what happens on each API call
+
+This section is intended for UI developers wiring controls and chat views to the
+local llama.cpp bridge.
+
+### Endpoints you should call
+
+- `GET /health`
+  - liveness check for startup and reconnect loops
+- `GET /v1/metadata`
+  - fetches model path, context size, defaults, current settings, and endpoint list
+- `GET /v1/settings`
+  - fetches mutable runtime settings used when request fields are omitted
+- `POST /v1/settings`
+  - updates runtime defaults without restarting the process
+- `POST /v1/chat/completions`
+  - runs a full prompt -> tokenize -> prefill -> generate -> detokenize cycle
+
+### Recommended UI startup sequence
+
+1. call `GET /health`
+2. call `GET /v1/metadata`
+3. call `GET /v1/settings`
+4. initialize UI controls from `settings`
+
+This prevents mismatches between client-side defaults and active server values.
+
+### Request and response contract for chat
+
+Request shape:
+
+```json
+{
+  "model": "local-gemma-3-1b-it",
+  "messages": [
+    { "role": "system", "content": "You are concise." },
+    { "role": "user", "content": "Summarize Rust ownership." }
+  ],
+  "temperature": 0.7,
+  "max_tokens": 200,
+  "top_k": 40,
+  "top_p": 0.95,
+  "repeat_penalty": 1.0
+}
+```
+
+Response shape:
+
+```json
+{
+  "id": "chatcmpl-...",
+  "object": "chat.completion",
+  "created": 1710000000,
+  "model": "local-gemma-3-1b-it",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "..."
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 123,
+    "completion_tokens": 45,
+    "total_tokens": 168
+  }
+}
+```
+
+### How the server translates messages for Gemma
+
+Your `messages[]` array is transformed into a Gemma turn template before tokenization:
+
+```text
+<start_of_turn>system
+You are concise.<end_of_turn>
+<start_of_turn>user
+Summarize Rust ownership.<end_of_turn>
+<start_of_turn>model
+```
+
+Role note:
+- incoming `assistant` role is mapped to `model`
+- other role strings are passed through as provided
+
+### Sampling behavior and current stability caveat
+
+The API accepts `temperature`, `top_k`, `top_p`, and `repeat_penalty` fields and
+stores/returns them normally. However, generation currently uses greedy sampling
+as a safety fallback due to a native sampler-chain assert observed in this
+llama.cpp + Gemma setup.
+
+Practical implication for UI:
+- controls should still be shown and editable
+- metadata/settings should still reflect selected values
+- output variation may be lower than expected until sampler-chain is re-enabled
+
+### Concurrency and latency expectations
+
+`LlamaContext` is shared behind a mutex, so token generation is serialized within
+one process. Multiple simultaneous HTTP requests will queue while one request is
+generating tokens.
+
+Practical implication for UI:
+- show request-in-flight state clearly
+- set realistic request timeout/retry behavior
+- avoid firing parallel completion requests unless queueing is intentional
+
+### Settings precedence (important for sliders)
+
+For each sampling field, effective value is selected in this order:
+
+1. request override in `POST /v1/chat/completions`
+2. runtime mutable value from `POST /v1/settings`
+3. startup default from CLI args
+
+If your UI supports per-message overrides, send them in chat requests.
+If your UI supports "global defaults", write them through `POST /v1/settings`.
+
+### Error behavior
+
+- validation errors from `POST /v1/settings` return a plain string error
+- generation/tokenization/decode errors from chat return a plain string error
+- successful responses are JSON payloads as shown above
+
+For robust clients, always branch on HTTP status and handle non-JSON error text.
+
+### Example UI-safe sequence for changing defaults
+
+1. user edits slider value
+2. send `POST /v1/settings` with only changed field(s)
+3. refresh local state from response `settings`
+4. use those values as defaults for future chat requests
+
+This keeps client state aligned with server state even across page reloads.
+
 ## Practical limitations in the current implementation
 
 - sampling fields are accepted and surfaced, but generation currently falls back to greedy sampling for stability

@@ -1,0 +1,36 @@
+{
+    "choices":  [
+                    {
+                        "finish_reason":  "length",
+                        "index":  0,
+                        "message":  {
+                                        "role":  "assistant",
+                                        "content":  "Let $v$ be the speed of the boat in still water, and let $c$ be the speed of the current.\nThe distance between the two ports along the river is 60 km.\nThe time taken for the round trip is 3 hours and 40 minutes, which is $3 + \\frac{40}{60} = 3 + \\frac{2}{3} = \\frac{9+2}{3} = \\frac{11}{3}$ hours.\nThe distance for the round trip is $2 \\times 60 = 120$ km.\nWhen the boat travels against the current, the distance covered is $60$ km. The time taken is $\\frac{60}{v}$.\nWhen the boat travels with the current, the distance covered is $60$ km. The time taken is $\\frac{60}{v+3}$.\nThe total time for the round trip is $\\frac{11}{3}$ hours.\nSo we have\n$$ \\frac{60}{v} + \\frac{60}{v+3} = \\frac{11}{3} $$\nMultiplying by $3v(v+3)$ gives\n$$ 3(60)(v+3) + 3(60)v = \\frac{11}{3} \\cdot 3v(v+3) $$\n$$ 180(v+3) + 180v = 1"
+                                    }
+                    }
+                ],
+    "created":  1780168109,
+    "model":  "google_gemma-3-1b-it-Q4_K_M.gguf",
+    "system_fingerprint":  "b9426-1738129be",
+    "object":  "chat.completion",
+    "usage":  {
+                  "completion_tokens":  320,
+                  "prompt_tokens":  66,
+                  "total_tokens":  386,
+                  "prompt_tokens_details":  {
+                                                "cached_tokens":  1
+                                            }
+              },
+    "id":  "chatcmpl-ndQJw4CUD950UzJhxtsh0yoV0e2bSzY5",
+    "timings":  {
+                    "cache_n":  1,
+                    "prompt_n":  65,
+                    "prompt_ms":  533.428,
+                    "prompt_per_token_ms":  8.206584615384616,
+                    "prompt_per_second":  121.85337102664276,
+                    "predicted_n":  320,
+                    "predicted_ms":  15298.721,
+                    "predicted_per_token_ms":  47.808503125,
+                    "predicted_per_second":  20.9167812132792
+                }
+}

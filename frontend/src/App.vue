@@ -8,7 +8,6 @@
       :width="rail ? 64 : sidebarWidth" 
       color="grey-darken-4" 
       class="border-e-0 sidebar-blur"
-      @click="rail = false"
     >
       <!-- Resize Handle -->
       <div 
@@ -24,9 +23,7 @@
       
       <v-list density="compact" nav class="px-3">
         <v-list-item prepend-icon="mdi-database-outline" title="Resources" :to="'/'" value="resources" rounded="lg"></v-list-item>
-
-        <v-list-item prepend-icon="mdi-robot-outline" title="Agent Management" :to="'/agents'" value="agents" rounded="lg"></v-list-item>
-        <v-list-item prepend-icon="mdi-code-braces" title="Script Editor" :to="'/scripts'" value="scripts" rounded="lg"></v-list-item>
+        <v-list-item prepend-icon="mdi-robot-outline" title="Agents" :to="'/agents'" value="agents" rounded="lg"></v-list-item>
       </v-list>
 
 
@@ -34,9 +31,9 @@
       <v-divider v-if="!rail" class="mx-5 mb-2 opacity-5"></v-divider>
 
 
-      <template v-slot:append v-if="rail">
-        <div class="pa-3 text-center">
-          <v-btn icon="mdi-chevron-right" variant="text" size="small" @click.stop="rail = false"></v-btn>
+      <template v-slot:append>
+        <div class="pa-3" :class="rail ? 'text-center' : 'text-right'">
+          <v-btn :icon="rail ? 'mdi-chevron-right' : 'mdi-chevron-left'" variant="text" size="small" @click.stop="rail = !rail"></v-btn>
         </div>
       </template>
     </v-navigation-drawer>
@@ -49,13 +46,15 @@
         {{ currentRouteName }}
       </v-app-bar-title>
 
-      <v-btn icon="mdi-plus-circle-outline" variant="text" color="primary" class="me-2" @click="openEstablishResource"></v-btn>
-
+      <v-btn icon="mdi-plus-circle-outline" variant="text" color="primary" class="me-2" @click="openEstablishResource" title="New Resource"></v-btn>
+      <v-btn icon="mdi-robot-outline" variant="text" color="primary" class="me-2" @click="openDeployAgent" title="Deploy Agent"></v-btn>
 
       <v-spacer></v-spacer>
 
+      <DatabaseSelector v-if="isExtension" @database-changed="onDatabaseChanged" />
+
       <!-- User Menu in Top Bar -->
-      <v-menu v-if="user" offset-y transition="scale-transition">
+      <v-menu v-if="user && !isExtension" offset-y transition="scale-transition">
         <template v-slot:activator="{ props }">
           <v-btn v-bind="props" variant="text" class="text-none">
             <v-avatar size="32" color="primary" class="me-2" variant="tonal">
@@ -73,7 +72,7 @@
         </v-list>
       </v-menu>
 
-      <v-btn v-else color="primary" variant="flat" rounded="pill" size="small" class="px-6" @click="loginWithGoogle">
+      <v-btn v-if="!user && !isExtension" color="primary" variant="flat" rounded="pill" size="small" class="px-6" @click="loginWithGoogle">
         Sign In
       </v-btn>
     </v-app-bar>
@@ -100,6 +99,7 @@
 
       <!-- Global Actions -->
       <EstablishResourceDialog />
+      <DeployAgentDialog />
     </v-main>
 
 
@@ -114,15 +114,18 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuth, user } from './composables/useAuth'
 import { snackbar, snackbarText } from './composables/useGraphql'
-import { openEstablishResource } from './composables/useGlobalActions'
+import { openEstablishResource, openDeployAgent } from './composables/useGlobalActions'
+import { isExtensionContext } from './composables/useEnv'
 import WikiSidebar from './components/WikiSidebar.vue'
 import EstablishResourceDialog from './components/EstablishResourceDialog.vue'
-
+import DeployAgentDialog from './components/DeployAgentDialog.vue'
+import DatabaseSelector from './components/DatabaseSelector.vue'
 
 const { fetchUser, loginWithGoogle, logout, initAuth, token } = useAuth()
 const route = useRoute()
+const isExtension = isExtensionContext()
 
-const rail = ref(false)
+const rail = ref(isExtension)
 const drawer = ref(true)
 const sidebarWidth = ref(parseInt(localStorage.getItem('sidebarWidth') || '280'))
 const isResizing = ref(false)
@@ -149,6 +152,10 @@ function stopResize() {
   document.body.style.cursor = ''
   document.body.style.userSelect = ''
   localStorage.setItem('sidebarWidth', sidebarWidth.value.toString())
+}
+
+function onDatabaseChanged() {
+  window.location.reload()
 }
 
 const currentRouteName = computed(() => {

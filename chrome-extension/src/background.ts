@@ -61,6 +61,31 @@ let db: any;
 let prisma: PrismaClient;
 let schema: any;
 
+interface DbRegistry {
+    activeId: string;
+    databases: { id: string; name: string }[];
+}
+
+let currentDbId = 'default';
+let dbReadyPromise: Promise<void>;
+
+async function getDbRegistry(): Promise<DbRegistry> {
+    const storage = await chrome.storage.local.get('curator_db_registry');
+    if (storage['curator_db_registry']) {
+        return storage['curator_db_registry'] as DbRegistry;
+    }
+    const defaultRegistry: DbRegistry = {
+        activeId: 'default',
+        databases: [{ id: 'default', name: 'Default Database' }]
+    };
+    await chrome.storage.local.set({ 'curator_db_registry': defaultRegistry });
+    return defaultRegistry;
+}
+
+async function setDbRegistry(registry: DbRegistry): Promise<void> {
+    await chrome.storage.local.set({ 'curator_db_registry': registry });
+}
+
 // Helper to convert Uint8Array to Base64 (safe for chrome storage)
 function uint8ArrayToBase64(bytes: Uint8Array): string {
     let binary = '';
@@ -88,8 +113,9 @@ async function persistDatabase() {
     try {
         const binaryArray = db.export();
         const base64 = uint8ArrayToBase64(binaryArray);
-        await chrome.storage.local.set({ 'curator_sqlite_db': base64 });
-        console.log('[Curator Extension] Database state persisted successfully.');
+        const storageKey = currentDbId === 'default' ? 'curator_sqlite_db' : `curator_sqlite_db_${currentDbId}`;
+        await chrome.storage.local.set({ [storageKey]: base64 });
+        console.log(`[Curator Extension] Database state persisted successfully to ${storageKey}.`);
     } catch (err) {
         console.error('[Curator Extension] Database persistence failed:', err);
     }
@@ -125,6 +151,10 @@ async function initDatabase() {
     console.log('[Curator Extension] Initializing SQLite WASM...');
     await logEvent('INFO', 'SYSTEM', 'Initializing SQLite WASM database...');
 
+    const registry = await getDbRegistry();
+    currentDbId = registry.activeId;
+    const storageKey = currentDbId === 'default' ? 'curator_sqlite_db' : `curator_sqlite_db_${currentDbId}`;
+
     // Pre-fetch sql-wasm.wasm to prevent internal XMLHttpRequest loading in background service worker
     const wasmUrl = chrome.runtime.getURL('dist/sql-wasm.wasm');
     const wasmResponse = await fetch(wasmUrl);
@@ -136,15 +166,15 @@ async function initDatabase() {
     });
 
     // Check if there is an existing database state in storage
-    const storage = await chrome.storage.local.get('curator_sqlite_db');
-    if (storage['curator_sqlite_db']) {
-        console.log('[Curator Extension] Restoring existing database state...');
-        await logEvent('INFO', 'SYSTEM', 'Restoring existing SQLite database state from storage...');
-        const bytes = base64ToUint8Array(storage['curator_sqlite_db']);
+    const storage = await chrome.storage.local.get(storageKey);
+    if (storage[storageKey]) {
+        console.log(`[Curator Extension] Restoring existing database state from ${storageKey}...`);
+        await logEvent('INFO', 'SYSTEM', `Restoring existing SQLite database state from ${storageKey}...`);
+        const bytes = base64ToUint8Array(storage[storageKey]);
         db = new SQL.Database(bytes);
     } else {
-        console.log('[Curator Extension] Creating a new SQLite database in-memory...');
-        await logEvent('INFO', 'SYSTEM', 'Creating a new in-memory SQLite database instance...');
+        console.log(`[Curator Extension] Creating a new SQLite database in-memory for ${storageKey}...`);
+        await logEvent('INFO', 'SYSTEM', `Creating a new in-memory SQLite database instance for ${storageKey}...`);
         db = new SQL.Database();
 
         // Execute DDL to create tables
@@ -176,32 +206,154 @@ async function initDatabase() {
     prisma = new PrismaClient({ adapter });
 
     // Build the executable GraphQL schema
-    schema = makeExecutableSchema({ typeDefs, resolvers });
+    const extensionTypeDefs = `
+      type DatabaseInfo {
+        id: ID!
+        name: String!
+      }
+
+      type DbRegistry {
+        activeId: ID!
+        databases: [DatabaseInfo!]!
+      }
+
+      extend type Query {
+        dbRegistry: DbRegistry!
+      }
+
+      extend type Mutation {
+        switchDatabase(id: ID!): Boolean!
+        createDatabase(name: String!): Boolean!
+        deleteDatabase(id: ID!): Boolean!
+      }
+    `;
+
+    const extensionResolvers = {
+        Query: {
+            dbRegistry: async () => await getDbRegistry()
+        },
+        Mutation: {
+            switchDatabase: async (_parent: any, { id }: { id: string }) => {
+                await switchDatabase(id);
+                return true;
+            },
+            createDatabase: async (_parent: any, { name }: { name: string }) => {
+                await createDatabase(name);
+                return true;
+            },
+            deleteDatabase: async (_parent: any, { id }: { id: string }) => {
+                await deleteDatabase(id);
+                return true;
+            }
+        }
+    };
+
+    schema = makeExecutableSchema({ 
+        typeDefs: [typeDefs, extensionTypeDefs], 
+        resolvers: [resolvers, extensionResolvers] 
+    });
 
     console.log('[Curator Extension] In-memory GraphQL and SQLite WASM database initialized successfully!');
     await logEvent('INFO', 'SYSTEM', 'In-memory GraphQL & SQLite WASM database fully ready.');
 }
 
 // Start database — store promise so any handler can await full initialisation
-const dbReadyPromise = initDatabase().catch(err => {
+dbReadyPromise = initDatabase().catch(err => {
     console.error('[Curator Extension] Boot failed:', err);
 });
+
+async function switchDatabase(newId: string) {
+    const registry = await getDbRegistry();
+    if (!registry.databases.find(db => db.id === newId)) {
+        throw new Error(`Database ${newId} not found`);
+    }
+    registry.activeId = newId;
+    await setDbRegistry(registry);
+    dbReadyPromise = initDatabase().catch(err => {
+        console.error('[Curator Extension] Switch DB boot failed:', err);
+    });
+    return dbReadyPromise;
+}
+
+async function createDatabase(name: string) {
+    const registry = await getDbRegistry();
+    const newId = `db_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    registry.databases.push({ id: newId, name });
+    registry.activeId = newId;
+    await setDbRegistry(registry);
+    dbReadyPromise = initDatabase().catch(err => {
+        console.error('[Curator Extension] Create DB boot failed:', err);
+    });
+    return dbReadyPromise;
+}
+
+async function deleteDatabase(id: string) {
+    if (id === 'default') {
+        throw new Error('Cannot delete default database');
+    }
+    const registry = await getDbRegistry();
+    registry.databases = registry.databases.filter(db => db.id !== id);
+    if (registry.activeId === id) {
+        registry.activeId = 'default';
+    }
+    await setDbRegistry(registry);
+    await chrome.storage.local.remove(`curator_sqlite_db_${id}`);
+    
+    dbReadyPromise = initDatabase().catch(err => {
+        console.error('[Curator Extension] Delete DB boot failed:', err);
+    });
+    return dbReadyPromise;
+}
 
 // Open Curator Studio as a full browser tab when the toolbar icon is clicked.
 // If a Curator tab is already open, focus it instead of creating a duplicate.
 const CURATOR_PAGE = chrome.runtime.getURL('dist/popup/index.html');
 
-chrome.action.onClicked.addListener(async () => {
-    const existing = await chrome.tabs.query({ url: CURATOR_PAGE });
-    if (existing.length > 0 && existing[0].id != null) {
-        await chrome.tabs.update(existing[0].id, { active: true });
-        if (existing[0].windowId != null) {
-            await chrome.windows.update(existing[0].windowId, { focused: true });
+async function openCuratorTab(resourceId?: number) {
+    const targetUrl = resourceId ? `${CURATOR_PAGE}#/resource/${resourceId}` : CURATOR_PAGE;
+    const tabs = await chrome.tabs.query({});
+    const existing = tabs.find(t => t.url && t.url.startsWith(CURATOR_PAGE));
+    if (existing && existing.id != null) {
+        await chrome.tabs.update(existing.id, { url: targetUrl, active: true });
+        if (existing.windowId != null) {
+            await chrome.windows.update(existing.windowId, { focused: true });
         }
     } else {
-        await chrome.tabs.create({ url: CURATOR_PAGE });
+        await chrome.tabs.create({ url: targetUrl });
     }
+}
+
+chrome.action.onClicked.addListener(async () => {
+    await openCuratorTab();
 });
+
+let graphqlQueuePromise: Promise<void> = Promise.resolve();
+
+async function enqueueGraphQL(query: string, variables: any, userId: string): Promise<any> {
+    return new Promise((resolve) => {
+        // Always chain with .catch(() => {}) so a prior rejection never breaks the queue
+        graphqlQueuePromise = graphqlQueuePromise
+            .catch(() => {}) // Ensure the chain continues even if the previous item rejected
+            .then(async () => {
+                try {
+                    const res = await graphql({
+                        schema,
+                        source: query,
+                        variableValues: variables,
+                        contextValue: {
+                            prisma,
+                            user: { id: userId },
+                            agentScheduler:    { getState: () => ({ isRunning: false, activeJobs: 0 }) },
+                            requestProcessor:  { getState: () => ({ isRunning: false, requestsProcessed: 0 }) },
+                        },
+                    });
+                    resolve(res);
+                } catch (err: any) {
+                    resolve({ errors: [{ message: err.message }] });
+                }
+            });
+    });
+}
 
 // Setup messaging listener for GraphQL request routing.
 // Returns true immediately so Chrome keeps the sendResponse port open,
@@ -227,17 +379,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             }
 
             try {
-                const result = await graphql({
-                    schema,
-                    source: query,
-                    variableValues: variables,
-                    contextValue: {
-                        prisma,
-                        user: { id: userId },
-                        agentScheduler:    { getState: () => ({ isRunning: false, activeJobs: 0 }) },
-                        requestProcessor:  { getState: () => ({ isRunning: false, requestsProcessed: 0 }) },
-                    },
-                });
+                const result = await enqueueGraphQL(query, variables, userId);
 
                 if (result.errors?.length) {
                     await logEvent('ERROR', 'GRAPHQL_RESPONSE', `GraphQL returned ${result.errors.length} errors`, result.errors);
@@ -267,16 +409,33 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 chrome.runtime.onInstalled.addListener(() => {
     // Remove existing menus to prevent duplication errors on reloads
     chrome.contextMenus.removeAll(() => {
+        // Parent menu item
         chrome.contextMenus.create({
-            id: 'add-resource-link',
-            title: 'Add Link as Resource',
-            contexts: ['link']
+            id: 'curator-parent',
+            title: 'Curator',
+            contexts: ['link', 'page']
+        });
+
+        // Sub-items
+        chrome.contextMenus.create({
+            id: 'add-resource',
+            parentId: 'curator-parent',
+            title: 'Add Resource',
+            contexts: ['link', 'page']
         });
         chrome.contextMenus.create({
-            id: 'add-resource-page',
-            title: 'Add Page as Resource',
-            contexts: ['page']
+            id: 'scrape-resource',
+            parentId: 'curator-parent',
+            title: 'Scrape Resource',
+            contexts: ['link', 'page']
         });
+        chrome.contextMenus.create({
+            id: 'open-resource',
+            parentId: 'curator-parent',
+            title: 'Open Resource',
+            contexts: ['link', 'page']
+        });
+
         console.log('[Curator Extension] Context menus registered successfully.');
     });
 });
@@ -286,21 +445,19 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     // Wait for full DB + Prisma + schema initialisation
     await dbReadyPromise;
-    let uri = '';
+    
+    const url = info.linkUrl || info.pageUrl || '';
     let title = '';
-
-    if (info.menuItemId === 'add-resource-link') {
-        uri = info.linkUrl || '';
-        title = info.selectionText || 'Linked Resource';
-    } else if (info.menuItemId === 'add-resource-page') {
-        uri = info.pageUrl || '';
-        title = tab?.title || 'Page Resource';
+    if (info.linkUrl) {
+        title = info.selectionText || info.linkUrl;
+    } else {
+        title = tab?.title || info.pageUrl || '';
     }
 
-    if (!uri) return;
+    if (!url) return;
 
-    console.log(`[Curator Extension] Context Menu add resource triggered: ${uri} (${title})`);
-    logEvent('INFO', 'CONTEXT_MENU', `Context menu triggered adding resource: ${uri} (${title})`);
+    console.log(`[Curator Extension] Context Menu action triggered: ${info.menuItemId} for ${url}`);
+    logEvent('INFO', 'CONTEXT_MENU', `Context menu action ${info.menuItemId} triggered for: ${url}`);
 
     if (!schema || !prisma) {
         console.error('[Curator Extension] DB init failed — schema/prisma unavailable.');
@@ -313,55 +470,78 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         return;
     }
 
-    const mutation = `
-        mutation UpsertResourceFromContextMenu($input: ResourceInput!) {
-            upsertResource(input: $input) {
-                id
-                uri
-                title
+    let query = '';
+    let variables: any = {};
+
+    if (info.menuItemId === 'add-resource') {
+        query = `
+            mutation AddResourceFromContextMenu($input: ResourceInput!) {
+                upsertResource(input: $input) {
+                    id
+                    uri
+                    title
+                }
             }
-        }
-    `;
+        `;
+        variables = {
+            input: {
+                uri: url,
+                title: title,
+                description: `Added via Curator context menu on ${new Date().toLocaleDateString()}`
+            }
+        };
+    } else if (info.menuItemId === 'scrape-resource' || info.menuItemId === 'open-resource') {
+        query = `
+            mutation ScrapeResourceFromContextMenu($url: String!, $resourceUri: String) {
+                scrapeResource(url: $url, resourceUri: $resourceUri) {
+                    id
+                    uri
+                    title
+                }
+            }
+        `;
+        variables = {
+            url,
+            resourceUri: url
+        };
+    } else {
+        return;
+    }
 
     try {
-        const result = await graphql({
-            schema,
-            source: mutation,
-            variableValues: {
-                input: {
-                    uri,
-                    title,
-                    description: `Added via Curator context menu on ${new Date().toLocaleDateString()}`
-                }
-            },
-            contextValue: {
-                prisma,
-                user: { id: 'curator-extension-user' },
-                agentScheduler: { getState: () => ({ isRunning: false, activeJobs: 0 }) },
-                requestProcessor: { getState: () => ({ isRunning: false, requestsProcessed: 0 }) }
-            }
-        });
+        const result = await enqueueGraphQL(query, variables, 'curator-extension-user');
 
         if (result.errors && result.errors.length > 0) {
             const errMsg = result.errors[0].message;
             console.error('[Curator Extension] Context menu mutation failed:', result.errors);
-            await logEvent('ERROR', 'CONTEXT_MENU', `upsertResource failed: ${errMsg}`, result.errors);
+            await logEvent('ERROR', 'CONTEXT_MENU', `Action failed: ${errMsg}`, result.errors);
             chrome.notifications.create({
                 type: 'basic',
                 iconUrl: 'src/popup/icon128.png',
-                title: 'Curator: Add Resource Failed',
+                title: 'Curator Action Failed',
                 message: errMsg
             });
         } else {
-            console.log('[Curator Extension] upsertResource succeeded:', result.data);
-            await logEvent('INFO', 'CONTEXT_MENU', `Resource saved: ${uri}`, result.data);
+            console.log('[Curator Extension] Action succeeded:', result.data);
+            const resObj = result.data?.upsertResource || result.data?.scrapeResource;
+            await logEvent('INFO', 'CONTEXT_MENU', `Action succeeded: ${url}`, result.data);
             await persistDatabase();
+            
+            // Notify frontend
+            chrome.runtime.sendMessage({ type: 'RESOURCE_ADDED', payload: resObj }).catch(() => {
+               // Ignore error if popup is closed
+            });
+            
             chrome.notifications.create({
                 type: 'basic',
                 iconUrl: 'src/popup/icon128.png',
-                title: 'Curator: Resource Saved ✓',
-                message: `"${title}" has been added to your knowledge graph.`
+                title: 'Curator: Action Completed ✓',
+                message: `"${resObj?.title || title || url}" has been processed.`
             });
+
+            if (info.menuItemId === 'open-resource' && resObj?.id) {
+                await openCuratorTab(resObj.id);
+            }
         }
     } catch (err: any) {
         console.error('[Curator Extension] GraphQL exception in context menu handler:', err);

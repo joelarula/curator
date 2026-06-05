@@ -24,7 +24,16 @@
               ></v-btn>
             </div>
             
-            <h1 class="text-h5 font-weight-black mb-2 animate-slide-in">{{ resource?.title || 'Untitled Resource' }}</h1>
+            <v-text-field
+              v-model="resourceForm.title"
+              placeholder="Untitled Resource"
+              variant="plain"
+              density="compact"
+              class="title-editor text-h5 font-weight-black mb-2 animate-slide-in"
+              hide-details
+              @blur="saveResource"
+              @keydown.enter="saveResource"
+            ></v-text-field>
 
             
             <v-textarea
@@ -64,6 +73,17 @@
               <v-btn value="read" size="small" class="px-4">Read</v-btn>
               <v-btn value="edit" size="small" class="px-4">Edit</v-btn>
             </v-btn-toggle>
+
+            <v-btn
+              v-if="resource?.texts?.length"
+              variant="tonal"
+              icon="mdi-delete-outline"
+              color="error"
+              size="small"
+              class="me-4"
+              @click="deleteCurrentText"
+              title="Delete text section"
+            ></v-btn>
             
             <v-btn
               color="primary"
@@ -268,13 +288,55 @@
       </v-card>
     </v-dialog>
 
+    <!-- Add Text Dialog -->
+    <v-dialog v-model="showAddTextDialog" max-width="500">
+      <v-card rounded="xl" class="pa-8 glass-card border-primary">
+        <div class="d-flex align-center mb-6">
+           <v-icon color="primary" class="me-2">mdi-text-box-plus-outline</v-icon>
+           <h3 class="text-h6 font-weight-black">Establish Text Section</h3>
+        </div>
+        
+        <v-row>
+          <v-col cols="12">
+            <v-combobox 
+              v-model="newTextRole" 
+              :items="textRolesList"
+              label="Select or Type Role Name" 
+              variant="outlined" 
+              rounded="lg" 
+              hide-details
+              class="glass-input"
+              auto-select-first
+            ></v-combobox>
+          </v-col>
+        </v-row>
+
+        <v-card-actions class="px-0 pt-8">
+          <v-spacer></v-spacer>
+          <v-btn variant="text" rounded="pill" class="px-6" @click="showAddTextDialog = false">Cancel</v-btn>
+          <v-btn 
+            color="primary" 
+            variant="flat" 
+            rounded="pill" 
+            class="px-8 font-weight-black" 
+            @click="submitNewText"
+            :disabled="!newTextRole"
+          >
+            Create Section
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
   </v-container>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { graphql, showSuccess } from '../composables/useGraphql'
+import { graphql, showSuccess, showError } from '../composables/useGraphql'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 
 const route = useRoute()
 const router = useRouter()
@@ -289,6 +351,9 @@ const relationForm = ref({
 })
 
 const showAddRelation = ref(false)
+const showAddTextDialog = ref(false)
+const newTextRole = ref('MAIN')
+const textRolesList = ref<string[]>(['MAIN', 'SUMMARY', 'TRANSCRIPT', 'HTML'])
 const showSubjectRel = ref(true)
 const showObjectRel = ref(false)
 const textTab = ref<any>(null)
@@ -344,7 +409,19 @@ async function createRelation() {
 
 onMounted(() => {
   fetchResource()
+  fetchTextRoles()
 })
+
+async function fetchTextRoles() {
+  const data = await graphql(`
+    query {
+      textRoles
+    }
+  `)
+  if (data?.textRoles) {
+    textRolesList.value = data.textRoles
+  }
+}
 
 async function fetchResource() {
   const data = await graphql(`
@@ -364,7 +441,11 @@ async function fetchResource() {
     resourceForm.value.title = data.resource.title || ''
     resourceForm.value.description = data.resource.description || ''
     if (resource.value.texts?.length) {
-      textTab.value = resource.value.texts[0].id
+      if (!resource.value.texts.some((t: any) => t.id === textTab.value)) {
+        textTab.value = resource.value.texts[0].id
+      }
+    } else {
+      textTab.value = null
     }
   }
 }
@@ -373,18 +454,13 @@ async function fetchResource() {
 
 function renderMarkdown(content: string) {
   if (!content) return ''
-  // Use Globals from CDN
-  const windowObj = (window as any)
-  if (windowObj.marked && windowObj.DOMPurify) {
-    const rawHtml = windowObj.marked.parse(content)
-    const cleanHtml = windowObj.DOMPurify.sanitize(rawHtml)
-    // Custom post-processing for Wiki [[Links]]
-    return cleanHtml.replace(/\[\[(.*?)\]\]/g, (match: string, link: string) => {
-       const [path, label] = link.split('|').map((s: string) => s.trim())
-       return `<a href="/wiki/${path}" class="wiki-link" data-path="/wiki/${path}">${label || path}</a>`
-    })
-  }
-  return content.replace(/\n/g, '<br>')
+  const rawHtml = marked.parse(content) as string
+  const cleanHtml = DOMPurify.sanitize(rawHtml)
+  // Custom post-processing for Wiki [[Links]]
+  return cleanHtml.replace(/\[\[(.*?)\]\]/g, (match: string, link: string) => {
+     const [path, label] = link.split('|').map((s: string) => s.trim())
+     return `<a href="/wiki/${path}" class="wiki-link" data-path="/wiki/${path}">${label || path}</a>`
+  })
 }
 
 async function saveResource() {
@@ -396,6 +472,7 @@ async function saveResource() {
     input: {
       id: parseInt(resource.value.id),
       uri: resource.value.uri,
+      title: resourceForm.value.title,
       description: resourceForm.value.description
     }
   })
@@ -412,15 +489,80 @@ async function saveText(text: any) {
 }
 
 function addNewText() {
-  // TODO: Implement
+  newTextRole.value = 'MAIN';
+  showAddTextDialog.value = true;
+}
+
+async function submitNewText() {
+  if (!newTextRole.value) return;
+  const cleanRole = newTextRole.value.trim().toUpperCase();
+  if (!cleanRole) return;
+  
+  // Check if role already exists
+  if (resource.value.texts?.some((t: any) => t.role === cleanRole)) {
+    showError(`Text with role ${cleanRole} already exists`);
+    return;
+  }
+
+  const data = await graphql(`
+    mutation($resourceId: Int!, $content: String!, $role: String!) {
+      createText(resourceId: $resourceId, content: $content, role: $role) {
+        id content role
+      }
+    }
+  `, {
+    resourceId: parseInt(resource.value.id),
+    content: "",
+    role: cleanRole
+  });
+
+  if (data?.createText) {
+    showSuccess(`Created text section ${cleanRole}`);
+    await fetchResource();
+    await fetchTextRoles();
+    textTab.value = data.createText.id;
+    viewMode.value = 'edit';
+    showAddTextDialog.value = false;
+  }
+}
+
+async function deleteCurrentText() {
+  const activeText = resource.value.texts?.find((t: any) => t.id === textTab.value);
+  if (!activeText) return;
+  
+  if (!window.confirm(`Are you sure you want to delete the text section "${activeText.role}"?`)) {
+    return;
+  }
+
+  const data = await graphql(`
+    mutation($id: ID!) {
+      deleteText(id: $id)
+    }
+  `, { id: activeText.id });
+
+  if (data) {
+    showSuccess(`Deleted text section ${activeText.role}`);
+    await fetchResource();
+  }
 }
 
 function runAgent() {
   // TODO: Implement
 }
 
-function confirmDelete() {
-  // TODO: Implement
+async function confirmDelete() {
+  if (!window.confirm("Are you sure you want to delete this resource and all its relationships?")) {
+    return;
+  }
+  const data = await graphql(`
+    mutation($id: Int!) {
+      deleteResource(id: $id)
+    }
+  `, { id: parseInt(resource.value.id) });
+  if (data) {
+    showSuccess("Resource deleted");
+    router.push('/');
+  }
 }
 
 function formatDate(val: string) {
@@ -517,6 +659,11 @@ function formatDate(val: string) {
   text-decoration: none;
   font-weight: 600;
   border-bottom: 1px dashed rgba(var(--v-theme-primary), 0.4);
+}
+
+.title-editor :deep(input) {
+  color: #fff !important;
+  font-weight: 900 !important;
 }
 </style>
 
