@@ -231,10 +231,12 @@ async function startServer() {
           || req.cookies?.jwt
           || (req.query?.token as string)
           || '';
+        const activeProjectId = (req.headers['x-project-id'] as string | undefined)?.trim() || null;
         const user = await getUserFromToken(token, prisma);
         return {
           user,
           prisma,
+          activeProjectId,
           agentScheduler,
           requestProcessor
         };

@@ -19,6 +19,7 @@ export async function upsertRelation(
         justification, aiModel,
         literalValue, literalString, literalDate, literalBoolean, literalDatatype 
     } = args;
+    const projectId = request?.projectId ?? null;
 
 
     if (!subjectUri)   throw new Error('upsert_relation requires "subjectUri"');
@@ -37,6 +38,7 @@ export async function upsertRelation(
                 uri,
                 title: safeTitle,
                 userId,
+                projectId,
                 isPublished: false,
                 deletedAt: null
             },
@@ -90,6 +92,7 @@ export async function upsertRelation(
             subjectId: predicate.id,
             predicateId: typePredicate.id,
             objectId: predicateClass.id,
+            projectId,
             aiModelId: resolvedAiModelId
         }
     } as any);
@@ -111,12 +114,14 @@ export async function upsertRelation(
             ...(literalDate   !== undefined && { literalDate: literalDate ? new Date(literalDate) : null }),
             ...(literalBoolean !== undefined && { literalBoolean }),
             ...(literalDatatype !== undefined && { literalDatatype }),
+            ...(projectId !== undefined && { projectId }),
             ...(resolvedAiModelId && { aiModelId: resolvedAiModelId }),
         },
         create: {
             subjectId:    subject.id,
             predicateId:  predicate.id,
             objectId:     object.id,
+            projectId,
             justification: justification?.substring(0, 1000) || null,
             literalValue: literalValue || null,
             literalString: literalString?.substring(0, 2000) || null,
@@ -144,6 +149,7 @@ export async function upsertRelation(
                 subjectId: predicate.id,
                 predicateId: allowsValueResource.id,
                 objectId: object.id,
+                projectId,
                 aiModelId: request?.aiModelId ?? null
             }
         });

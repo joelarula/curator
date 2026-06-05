@@ -10,6 +10,7 @@ import { relationResolvers } from './relations.js';
 import { agenticResolvers } from './agentic.js';
 import { graphResolvers } from './graph.js';
 import { udcResolvers } from './udc.js';
+import { projectResolvers } from './projects.js';
 
 
 import GraphQLJSON from 'graphql-type-json';
@@ -30,6 +31,7 @@ export const resolvers = {
         ...agenticResolvers.Query,
         ...graphResolvers.Query,
         ...udcResolvers.Query,
+        ...projectResolvers.Query,
     },
     Mutation: {
         ...authResolvers.Mutation,
@@ -37,6 +39,7 @@ export const resolvers = {
         ...textResolvers.Mutation,
         ...relationResolvers.Mutation,
         ...agenticResolvers.Mutation,
+        ...projectResolvers.Mutation,
     },
 };
 

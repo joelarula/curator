@@ -4,6 +4,8 @@ import jwt from 'jsonwebtoken';
 import type { Express } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { setupGoogleStrategy } from './google.js';
+import { ensureDefaultProject } from '../services/DefaultProjectService.js';
+import { ensureSystemProject } from '../services/ProjectScopeService.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'padagaskar-secret-key-change-me';
 
@@ -88,7 +90,11 @@ export async function getUserFromToken(token: string, prisma: PrismaClient) {
                 const user = await prisma.user.findUnique({
                     where: { id: decoded.sub }
                 });
-                if (user) return user;
+                if (user) {
+                    await ensureSystemProject(prisma);
+                    await ensureDefaultProject(prisma, user.id);
+                    return user;
+                }
             }
         } catch (e) {
             // Verification failed (maybe it's a wiki.js RS256 token), continue to fallback
@@ -111,6 +117,8 @@ export async function getUserFromToken(token: string, prisma: PrismaClient) {
                 }
             });
         }
+        await ensureSystemProject(prisma);
+        await ensureDefaultProject(prisma, user.id);
         return user;
     } catch (error) {
         console.error('JWT parsing failed:', error);

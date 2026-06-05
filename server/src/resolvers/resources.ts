@@ -1,13 +1,29 @@
 import { PrismaClient } from '@prisma/client';
 import { executeTool } from '../services/ToolRegistry.js';
+import { SYSTEM_PROJECT_ID, getReadableProjectIds, getReadableRelationProjectWhere } from '../services/ProjectScopeService.js';
+
+function buildReadableResourceScope(context: any) {
+    if (context.activeProjectId) {
+        return { projectId: { in: getReadableProjectIds(context.activeProjectId) } };
+    }
+
+    return {
+        OR: [
+            { userId: context.user.id },
+            { projectId: SYSTEM_PROJECT_ID },
+        ],
+    };
+}
 
 
 export const resourceResolvers = {
     Query: {
         resource: async (_parent: any, { id }: { id: number }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
-            return await context.prisma.resource.findUnique({
-                where: { id }, 
+            const where: any = { id, ...buildReadableResourceScope(context) };
+
+            return await context.prisma.resource.findFirst({
+                where,
 
                 include: {
                     texts: { where: { existent: true }, orderBy: { createdAt: 'desc' } },
@@ -19,8 +35,10 @@ export const resourceResolvers = {
 
         resourceByUri: async (_parent: any, { uri }: { uri: string }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
-            return await context.prisma.resource.findUnique({
-                where: { uri },
+            const where: any = { uri, ...buildReadableResourceScope(context) };
+
+            return await context.prisma.resource.findFirst({
+                where,
                 include: {
                     texts: { where: { existent: true }, orderBy: { createdAt: 'desc' } },
                     subjectRelations: { include: { predicate: true, object: true } },
@@ -32,11 +50,16 @@ export const resourceResolvers = {
         resources: async (_parent: any, { skip, take, search }: any, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
 
-            const where: any = { existent: true };
+            const where: any = { existent: true, ...buildReadableResourceScope(context) };
             if (search) {
-                where.OR = [
-                    { title: { contains: search, mode: 'insensitive' } },
-                    { uri: { contains: search, mode: 'insensitive' } },
+                where.AND = [
+                    ...(where.AND || []),
+                    {
+                        OR: [
+                            { title: { contains: search, mode: 'insensitive' } },
+                            { uri: { contains: search, mode: 'insensitive' } },
+                        ],
+                    },
                 ];
             }
 
@@ -56,17 +79,24 @@ export const resourceResolvers = {
         queryResources: async (_parent: any, { filter, skip, take }: any, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             const prisma = context.prisma;
+            const readableProjectIds = getReadableProjectIds(context.activeProjectId);
+            const relationProjectWhere = getReadableRelationProjectWhere(context.activeProjectId);
 
-            const where: any = { existent: true };
+            const where: any = { existent: true, ...buildReadableResourceScope(context) };
 
             if (filter) {
                 if (filter.uriContains) where.uri = { contains: filter.uriContains, mode: 'insensitive' };
                 if (filter.titleContains) where.title = { contains: filter.titleContains, mode: 'insensitive' };
                 if (filter.search) {
-                    where.OR = [
-                        { title: { contains: filter.search, mode: 'insensitive' } },
-                        { uri: { contains: filter.search, mode: 'insensitive' } },
-                        { description: { contains: filter.search, mode: 'insensitive' } }
+                    where.AND = [
+                        ...(where.AND || []),
+                        {
+                            OR: [
+                                { title: { contains: filter.search, mode: 'insensitive' } },
+                                { uri: { contains: filter.search, mode: 'insensitive' } },
+                                { description: { contains: filter.search, mode: 'insensitive' } }
+                            ],
+                        },
                     ];
                 }
                 if (filter.isPublished !== undefined) {
@@ -79,6 +109,7 @@ export const resourceResolvers = {
                     
                     const relationCondition = {
                         some: {
+                            ...(relationProjectWhere || {}),
                             predicate: { 
                                 uri: { in: [rdfTypeShorthand, rdfTypeFull] } 
                             },
@@ -112,10 +143,16 @@ export const resourceResolvers = {
                 // Relational intersections (AND logic)
                 if (filter.relations && filter.relations.length > 0) {
                     const relationConditions = await Promise.all(filter.relations.map(async (rel: any) => {
+                        let subjectId = rel.subjectId;
                         let predicateId = rel.predicateId;
                         let objectId = rel.objectId;
+                        const targetUri = rel.isInverted ? (rel.subjectUri || '') : (rel.objectUri || '');
 
                         // Resolve URIs to IDs if needed
+                        if (!subjectId && rel.subjectUri) {
+                            const s = await prisma.resource.findFirst({ where: { uri: rel.subjectUri }, select: { id: true } });
+                            subjectId = s?.id;
+                        }
                         if (!predicateId && rel.predicateUri) {
                             const p = await prisma.resource.findFirst({ where: { uri: rel.predicateUri }, select: { id: true } });
                             predicateId = p?.id;
@@ -125,14 +162,32 @@ export const resourceResolvers = {
                             objectId = o?.id;
                         }
 
+                        if (rel.predicateUri === 'prop:status') {
+                            if (targetUri === 'status:draft') {
+                                return { isPublished: false };
+                            }
+                            if (targetUri === 'status:published') {
+                                return { isPublished: true };
+                            }
+                        }
 
-                        if (!predicateId && !objectId) return null;
 
-                        const condition: any = {};
-                        if (predicateId) condition.predicateId = predicateId;
-                        if (objectId) condition.objectId = objectId;
+                        if (!subjectId && !predicateId && !objectId) return null;
 
-                        return { subjectRelations: { some: condition } };
+                        // Inbound case: filter by relation subject (current resource becomes object).
+                        if (subjectId && !objectId) {
+                            const inboundCondition: any = { subjectId, ...(relationProjectWhere || {}) };
+                            if (predicateId) inboundCondition.predicateId = predicateId;
+                            return { objectRelations: { some: inboundCondition } };
+                        }
+
+                        // Default outbound case: current resource is the subject.
+                        const outboundCondition: any = { ...(relationProjectWhere || {}) };
+                        if (predicateId) outboundCondition.predicateId = predicateId;
+                        if (objectId) outboundCondition.objectId = objectId;
+                        if (subjectId) outboundCondition.subjectId = subjectId;
+
+                        return { subjectRelations: { some: outboundCondition } };
                     }));
 
                     const validConditions = relationConditions.filter(Boolean);
@@ -158,6 +213,33 @@ export const resourceResolvers = {
     },
 
     Mutation: {
+        updateResource: async (_parent: any, { id, input }: { id: number; input: any }, context: any) => {
+            if (!context.user) throw new Error('Unauthorized');
+
+            const where: any = { id };
+            if (context.activeProjectId) where.projectId = context.activeProjectId;
+
+            const existing = await context.prisma.resource.findFirst({ where });
+            if (!existing) {
+                throw new Error('Resource not found');
+            }
+
+            const data: any = {};
+            if (input.uri !== undefined) data.uri = input.uri;
+            if (input.title !== undefined) data.title = input.title;
+            if (input.description !== undefined) data.description = input.description;
+            if (input.isPublished !== undefined) data.isPublished = input.isPublished;
+
+            if (Object.keys(data).length === 0) {
+                return existing;
+            }
+
+            return await context.prisma.resource.update({
+                where: { id },
+                data,
+            });
+        },
+
         upsertResource: async (_parent: any, { input }: { input: any }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             const userId = context.user.id;
@@ -171,6 +253,7 @@ export const resourceResolvers = {
                     ...(title !== undefined && { title }),
                     ...(description !== undefined && { description }),
                     ...(isPublished !== undefined && { isPublished }),
+                    ...(context.activeProjectId && { projectId: context.activeProjectId }),
                     existent: true,
                     deletedAt: null, // Restore if soft-deleted
                 },
@@ -180,6 +263,7 @@ export const resourceResolvers = {
                     description: description || null,
                     isPublished: isPublished || false,
                     userId,
+                    projectId: context.activeProjectId || null,
                     existent: true,
                     deletedAt: null,
                 },
@@ -200,9 +284,11 @@ export const resourceResolvers = {
 
         deleteResource: async (_parent: any, { id }: { id: number }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
-            await context.prisma.resource.update({
-                where: { id },
+            const where: any = { id };
+            if (context.activeProjectId) where.projectId = context.activeProjectId;
 
+            await context.prisma.resource.updateMany({
+                where,
                 data: { existent: false, deletedAt: new Date() },
             });
             return true;
@@ -225,21 +311,36 @@ export const resourceResolvers = {
 
         subjectRelations: async (resource: any, _args: any, context: any) => {
             if (resource.subjectRelations) return resource.subjectRelations;
+            const where: any = { subjectId: resource.id };
+            const relationProjectWhere = getReadableRelationProjectWhere(context.activeProjectId);
+            if (relationProjectWhere) {
+                Object.assign(where, relationProjectWhere);
+            }
             return await context.prisma.relation.findMany({
-                where: { subjectId: resource.id },
+                where,
                 include: { predicate: true, object: true }
             });
         },
         objectRelations: async (resource: any, _args: any, context: any) => {
             if (resource.objectRelations) return resource.objectRelations;
+            const where: any = { objectId: resource.id };
+            const relationProjectWhere = getReadableRelationProjectWhere(context.activeProjectId);
+            if (relationProjectWhere) {
+                Object.assign(where, relationProjectWhere);
+            }
             return await context.prisma.relation.findMany({
-                where: { objectId: resource.id },
+                where,
                 include: { subject: true, predicate: true }
             });
         },
         predicateRelations: async (resource: any, _args: any, context: any) => {
+            const where: any = { predicateId: resource.id };
+            const relationProjectWhere = getReadableRelationProjectWhere(context.activeProjectId);
+            if (relationProjectWhere) {
+                Object.assign(where, relationProjectWhere);
+            }
             return await context.prisma.relation.findMany({
-                where: { predicateId: resource.id },
+                where,
                 include: { subject: true, object: true }
             });
         },

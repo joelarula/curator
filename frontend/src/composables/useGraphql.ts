@@ -19,17 +19,24 @@ import { isExtensionContext } from './useEnv'
 
 export const snackbar = ref(false)
 export const snackbarText = ref('')
+export const snackbarTimeout = ref(3000)
+export const snackbarIsError = ref(false)
+
+function pushSnackbar(message: string, isError: boolean) {
+  snackbarText.value = message
+  snackbarIsError.value = isError
+  snackbarTimeout.value = isError ? -1 : 3000
+  snackbar.value = true
+}
 
 /** Displays a success message in the global snackbar. */
 export function showSuccess(msg: string) {
-  snackbarText.value = msg
-  snackbar.value = true
+  pushSnackbar(msg, false)
 }
 
 /** Displays an error message in the global snackbar (prefixed with "Error:"). */
 export function showError(msg: string) {
-  snackbarText.value = `Error: ${msg}`
-  snackbar.value = true
+  pushSnackbar(`Error: ${msg}`, true)
 }
 
 /**
@@ -51,11 +58,13 @@ export async function graphql(query: string, variables: any = {}) {
         );
       });
     } else {
+      const activeProjectId = localStorage.getItem('activeProjectId') || ''
       const response = await fetch('/graphql', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token.value}`,
+          ...(activeProjectId && { 'x-project-id': activeProjectId }),
         },
         body: JSON.stringify({ query, variables }),
       });

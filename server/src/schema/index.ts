@@ -420,10 +420,14 @@ export const typeDefs = gql`
 
   "Input for filtering resources by relations (predicate + object intersection)."
   input RelationFilterInput {
+    "Subject Resource URI"
+    subjectUri: String
     "Predicate Resource URI"
     predicateUri: String
     "Object Resource URI"
     objectUri: String
+    "Subject Resource integer ID"
+    subjectId: Int
     "Predicate Resource integer ID"
     predicateId: Int
     "Object Resource integer ID"
@@ -534,6 +538,14 @@ export const typeDefs = gql`
     updatedAt: String!
   }
 
+  "A user-owned project used to scope resources in server mode."
+  type Project {
+    id: ID!
+    name: String!
+    createdAt: String!
+    updatedAt: String!
+  }
+
   "Node in the knowledge graph visualization"
   type GraphNode {
     id: Int!
@@ -570,6 +582,9 @@ export const typeDefs = gql`
 
     "Fetch a specific resource tree."
     resourceTree(treeName: String!, rootResourceId: Int): [ResourceTreeNode!]!
+
+    "All projects for the current user."
+    projects: [Project!]!
 
     # UDC Taxonomy (Isolated Lookup)
     "Fetch a single UDC category by its URI."
@@ -693,6 +708,11 @@ export const typeDefs = gql`
     triggerAgent(id: ID!): Request!
     "Upsert an Agent and its Script together in one call. Matches by name."
     upsertAgentWithScript(input: UpsertAgentWithScriptInput!): Agent!
+
+    "Create a new project for the current user."
+    createProject(name: String!): Project!
+    "Soft-delete a project owned by the current user."
+    deleteProject(id: ID!): Boolean!
 
   }
 

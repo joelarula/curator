@@ -1,7 +1,7 @@
 /* Premium Typography & Design System */
 :root {
   --font-ui: 'Outfit', system-ui, sans-serif;
-  --font-reading: 'IBM Plex Serif', serif;
+  --font-reading: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-editor: 'JetBrains Mono', monospace;
   
   font-family: var(--font-ui);

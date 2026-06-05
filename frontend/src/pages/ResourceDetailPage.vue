@@ -51,71 +51,56 @@
         </v-toolbar>
 
         <!-- Texts Section -->
-        <div class="flex-grow-1 overflow-y-auto pa-10 bg-content">
+        <div class="flex-grow-1 overflow-y-auto py-10 px-0 bg-content d-flex flex-column w-100">
           <v-toolbar flat color="transparent" class="mb-6 rounded-lg glass-card px-4">
-            <v-tabs v-model="textTab" color="secondary" density="compact">
-              <v-tab v-for="text in resource?.texts" :key="text.id" :value="text.id" class="text-caption font-weight-black">
-                {{ text.role }}
-              </v-tab>
-              <v-btn icon="mdi-plus" variant="text" size="x-small" class="ms-2" @click="addNewText"></v-btn>
-            </v-tabs>
-            
-            <v-spacer></v-spacer>
+            <div class="d-flex align-center w-100">
+              <div class="d-flex align-center flex-grow-1 overflow-hidden">
+                <v-tabs v-model="textTab" color="secondary" density="compact" class="flex-grow-0">
+                  <v-tab v-for="text in resource?.texts" :key="text.id" :value="text.id" class="text-caption font-weight-black">
+                    {{ text.role }}
+                  </v-tab>
+                </v-tabs>
+                <v-btn
+                  icon="mdi-plus"
+                  variant="text"
+                  size="small"
+                  class="ms-1"
+                  @click="addNewText"
+                  title="Add text section"
+                ></v-btn>
+              </div>
 
-            <v-btn-toggle
-              v-model="viewMode"
-              mandatory
-              variant="tonal"
-              rounded="pill"
-              density="compact"
-              class="me-4"
-            >
-              <v-btn value="read" size="small" class="px-4">Read</v-btn>
-              <v-btn value="edit" size="small" class="px-4">Edit</v-btn>
-            </v-btn-toggle>
+              <v-spacer></v-spacer>
 
-            <v-btn
-              v-if="resource?.texts?.length"
-              variant="tonal"
-              icon="mdi-delete-outline"
-              color="error"
-              size="small"
-              class="me-4"
-              @click="deleteCurrentText"
-              title="Delete text section"
-            ></v-btn>
-            
-            <v-btn
-              color="primary"
-              variant="flat"
-              rounded="pill"
-              size="small"
-              class="px-6"
-              prepend-icon="mdi-creation"
-              @click="runAgent"
-            >
-              Analyze
-            </v-btn>
+              <v-btn-toggle
+                v-model="viewMode"
+                mandatory
+                variant="tonal"
+                rounded="pill"
+                density="compact"
+                :disabled="!activeText"
+                @update:model-value="onTextModeChanged"
+              >
+                <v-btn value="read" size="small" class="px-4">Read</v-btn>
+                <v-btn value="edit" size="small" class="px-4">Edit</v-btn>
+              </v-btn-toggle>
+            </div>
           </v-toolbar>
 
-          <v-window v-model="textTab">
-            <v-window-item v-for="text in resource?.texts" :key="text.id" :value="text.id">
-              <div v-if="viewMode === 'read'" class="reading-typography animate-fade-in mb-16">
-                <div 
-                  class="content-renderer"
-                  v-html="renderMarkdown(text.content)"
-                ></div>
-              </div>
-              
-              <v-textarea
-                v-else
-                v-model="text.content"
-                variant="plain"
-                auto-grow
-                class="reading-typography text-editor animate-fade-in"
-                placeholder="Compose high-fidelity content..."
-                @blur="saveText(text)"
-              ></v-textarea>
+          <v-window v-model="textTab" class="flex-grow-1 w-100">
+            <v-window-item v-for="text in resource?.texts" :key="text.id" :value="text.id" class="h-100 w-100">
+              <ResourceTextEditor
+                :mode="viewMode"
+                :draft="textDraft"
+                :rendered-html="renderMarkdown(text.content)"
+                :saving="savingText"
+                :can-delete="true"
+                class="h-100 w-100"
+                @update:draft="(val) => textDraft = val"
+                @save="saveCurrentText"
+                @cancel="cancelEditingText"
+                @delete="deleteCurrentText"
+              />
             </v-window-item>
           </v-window>
 
@@ -337,6 +322,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { graphql, showSuccess, showError } from '../composables/useGraphql'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+import ResourceTextEditor from '../components/ResourceTextEditor.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -358,8 +344,14 @@ const showSubjectRel = ref(true)
 const showObjectRel = ref(false)
 const textTab = ref<any>(null)
 const viewMode = ref<'read' | 'edit'>('read')
+const textDraft = ref('')
+const savingText = ref(false)
 const uriSearch = ref('')
 const uriResults = ref<any[]>([])
+
+const activeText = computed(() => {
+  return resource.value?.texts?.find((t: any) => t.id === textTab.value) || null
+})
 
 async function searchUris(val: string) {
   if (!val || val.length < 2) return
@@ -479,13 +471,43 @@ async function saveResource() {
   showSuccess('Metadata updated')
 }
 
-async function saveText(text: any) {
-  await graphql(`
-    mutation($id: ID!, $content: String!) {
-      updateText(id: $id, content: $content) { id }
+function startEditingText() {
+  if (!activeText.value) return
+  textDraft.value = activeText.value.content || ''
+  viewMode.value = 'edit'
+}
+
+function onTextModeChanged(mode: 'read' | 'edit') {
+  if (mode === 'edit') {
+    startEditingText()
+    return
+  }
+  viewMode.value = 'read'
+}
+
+function cancelEditingText() {
+  textDraft.value = activeText.value?.content || ''
+  viewMode.value = 'read'
+}
+
+async function saveCurrentText() {
+  if (!activeText.value) return
+  savingText.value = true
+  try {
+    const data = await graphql(`
+      mutation($id: ID!, $content: String!) {
+        updateText(id: $id, content: $content) { id content }
+      }
+    `, { id: activeText.value.id, content: textDraft.value })
+
+    if (data?.updateText) {
+      activeText.value.content = textDraft.value
+      showSuccess('Text content saved')
+      viewMode.value = 'read'
     }
-  `, { id: text.id, content: text.content })
-  showSuccess('Text content saved')
+  } finally {
+    savingText.value = false
+  }
 }
 
 function addNewText() {
@@ -546,9 +568,17 @@ async function deleteCurrentText() {
   }
 }
 
-function runAgent() {
-  // TODO: Implement
-}
+watch([textTab, viewMode], () => {
+  if (viewMode.value === 'edit' && activeText.value) {
+    textDraft.value = activeText.value.content || ''
+  }
+})
+
+watch(activeText, (text) => {
+  if (!text && viewMode.value !== 'read') {
+    viewMode.value = 'read'
+  }
+})
 
 async function confirmDelete() {
   if (!window.confirm("Are you sure you want to delete this resource and all its relationships?")) {
@@ -664,6 +694,14 @@ function formatDate(val: string) {
 .title-editor :deep(input) {
   color: #fff !important;
   font-weight: 900 !important;
+}
+
+:deep(.v-window__container) {
+  width: 100%;
+}
+
+:deep(.v-window-item) {
+  width: 100%;
 }
 </style>
 

@@ -2,13 +2,6 @@
   <v-container fluid class="pa-8 bg-space">
     <!-- Header -->
     <div class="d-flex align-center mb-6">
-
-      <div>
-        <h2 class="text-h5 font-weight-black tracking-tighter uppercase mb-1">Resources</h2>
-
-
-        <div class="text-caption text-grey font-weight-medium">NAVIGATING {{ totalCount }} RESOURCES</div>
-      </div>
       <v-spacer></v-spacer>
       
       <v-btn-toggle
@@ -18,15 +11,21 @@
         color="primary"
         class="me-4 rounded-pill"
         density="compact"
+        @update:model-value="persistViewMode"
       >
         <v-btn value="cards" icon="mdi-view-grid-outline"></v-btn>
         <v-btn value="table" icon="mdi-table-large"></v-btn>
       </v-btn-toggle>
 
-      <v-btn color="primary" variant="flat" rounded="pill" prepend-icon="mdi-plus" size="large" class="px-6" @click="openEstablishResourceUI">
-
-        New Resource
-      </v-btn>
+      <v-btn
+        icon="mdi-plus"
+        color="primary"
+        variant="flat"
+        size="small"
+        rounded="circle"
+        title="New Resource"
+        @click="openEstablishResourceUI"
+      ></v-btn>
     </div>
 
     <!-- Search & Filter Bar -->
@@ -170,19 +169,19 @@
 
           <!-- Dynamic Object Field: Select for Enums, Autocomplete for Graph -->
           <v-select
-            v-if="predicateOptions[rel.predicateUri] && predicateOptions[rel.predicateUri].length > 0"
-            v-model="rel.objectUri"
-            :items="predicateOptions[rel.predicateUri]"
+            v-if="shouldUsePredicateOptions(rel)"
+            :model-value="getRelationTargetUri(rel)"
+            :items="getRelationTargetItems(rel)"
             item-title="uri"
             item-value="uri"
-            label="Value"
+            :label="rel.isInverted ? 'Subject Value' : 'Object Value'"
             placeholder="Select option..."
             variant="plain"
             density="compact"
             hide-details
             class="flex-grow-1 px-3"
             clearable
-            @update:model-value="fetchResources(true)"
+            @update:model-value="(val: any) => { setRelationTargetUri(rel, val); fetchResources(true); }"
           >
             <template v-slot:item="{ props, item }">
               <v-list-item v-bind="props" :title="item.raw.title" :subtitle="item.raw.uri"></v-list-item>
@@ -191,18 +190,18 @@
 
           <v-autocomplete
             v-else
-            v-model="rel.objectUri"
+            :model-value="getRelationTargetUri(rel)"
             v-model:search="uriSearch"
             :items="uriResults"
             item-title="uri"
             item-value="uri"
-            label="Object URI"
+            :label="rel.isInverted ? 'Subject URI' : 'Object URI'"
             placeholder="Search..."
             variant="plain"
             density="compact"
             hide-details
             class="flex-grow-1 px-3"
-            @update:model-value="fetchResources(true)"
+            @update:model-value="(val: any) => { setRelationTargetUri(rel, val); fetchResources(true); }"
             @update:search="searchObjects"
           >
             <template v-slot:item="{ props, item }">
@@ -212,15 +211,14 @@
 
 
 
-          <v-btn v-if="filters.relations.length > 2" icon="mdi-close" size="x-small" variant="text" color="error" class="opacity-40" @click="removeRelationFilter(index)"></v-btn>
-          <div v-else style="width: 32px"></div>
+          <v-btn icon="mdi-close" size="x-small" variant="text" color="error" class="opacity-40" @click="removeRelationFilter(index)"></v-btn>
         </div>
       </div>
     </div>
 
 
     <!-- Resource Explorer -->
-    <div v-if="resources.length > 0">
+    <div v-if="viewModeReady && resources.length > 0">
       <!-- Card View -->
       <v-row v-if="viewMode === 'cards'">
         <v-col v-for="resource in resources" :key="resource.id" cols="12" md="6" lg="4">
@@ -237,8 +235,27 @@
                   <v-icon size="20">mdi-rhombus-outline</v-icon>
                 </v-avatar>
                 <div class="flex-grow-1 overflow-hidden">
-                  <div class="text-caption font-weight-black opacity-30 tracking-widest truncate">{{ resource.uri }}</div>
-                  <div class="text-h6 font-weight-black truncate">{{ resource.title || 'Untitled Resource' }}</div>
+                  <div v-if="!isEditingResource(resource.id)">
+                    <div class="text-caption font-weight-black opacity-30 tracking-widest truncate">{{ resource.uri }}</div>
+                    <div class="text-h6 font-weight-black truncate">{{ resource.title || 'Untitled Resource' }}</div>
+                  </div>
+                  <div v-else class="d-flex flex-column ga-2" @click.stop>
+                    <v-text-field
+                      v-model="editDraft.uri"
+                      label="URI"
+                      density="compact"
+                      variant="outlined"
+                      hide-details
+                      autofocus
+                    ></v-text-field>
+                    <v-text-field
+                      v-model="editDraft.title"
+                      label="Title"
+                      density="compact"
+                      variant="outlined"
+                      hide-details
+                    ></v-text-field>
+                  </div>
                 </div>
               </div>
 
@@ -259,6 +276,27 @@
 
             <!-- Hover Overlay Actions -->
             <div class="card-actions">
+              <v-btn
+                v-if="!isEditingResource(resource.id)"
+                icon="mdi-pencil-outline"
+                variant="flat"
+                color="secondary"
+                @click.stop="startEditingResource(resource)"
+              ></v-btn>
+              <v-btn
+                v-else
+                icon="mdi-check"
+                variant="flat"
+                color="success"
+                @click.stop="saveInlineResource(resource)"
+              ></v-btn>
+              <v-btn
+                v-if="isEditingResource(resource.id)"
+                icon="mdi-close"
+                variant="flat"
+                color="error"
+                @click.stop="cancelEditingResource"
+              ></v-btn>
               <v-btn icon="mdi-eye-outline" variant="flat" color="white" class="text-black" @click.stop="navigateToDetail(resource.id)"></v-btn>
               <v-btn icon="mdi-creation" variant="flat" color="primary" @click.stop="triggerAgent(resource)"></v-btn>
             </div>
@@ -279,10 +317,28 @@
 
         >
           <template v-slot:item.uri="{ item }">
-             <div class="text-caption font-weight-bold opacity-40 truncate" style="max-width: 200px;">{{ item.uri }}</div>
+             <div v-if="!isEditingResource(item.id)" class="text-caption font-weight-bold opacity-40 truncate" style="max-width: 200px;">{{ item.uri }}</div>
+             <v-text-field
+              v-else
+              v-model="editDraft.uri"
+              density="compact"
+              variant="outlined"
+              hide-details
+              style="min-width: 240px;"
+              @click.stop
+             ></v-text-field>
           </template>
           <template v-slot:item.title="{ item }">
-             <div class="font-weight-black">{{ item.title || 'Untitled Resource' }}</div>
+             <div v-if="!isEditingResource(item.id)" class="font-weight-black">{{ item.title || 'Untitled Resource' }}</div>
+             <v-text-field
+              v-else
+              v-model="editDraft.title"
+              density="compact"
+              variant="outlined"
+              hide-details
+              style="min-width: 220px;"
+              @click.stop
+             ></v-text-field>
           </template>
           <template v-slot:item.isPublished="{ item }">
             <v-chip size="x-small" :color="item.isPublished ? 'success' : 'warning'" variant="tonal" class="font-weight-black">
@@ -293,6 +349,29 @@
              <div class="text-caption opacity-40">{{ formatDate(item.createdAt) }}</div>
           </template>
           <template v-slot:item.actions="{ item }">
+             <v-btn
+               v-if="!isEditingResource(item.id)"
+               icon="mdi-pencil-outline"
+               size="x-small"
+               variant="text"
+               @click.stop="startEditingResource(item)"
+             ></v-btn>
+             <v-btn
+               v-else
+               icon="mdi-check"
+               size="x-small"
+               variant="text"
+               color="success"
+               @click.stop="saveInlineResource(item)"
+             ></v-btn>
+             <v-btn
+               v-if="isEditingResource(item.id)"
+               icon="mdi-close"
+               size="x-small"
+               variant="text"
+               color="error"
+               @click.stop="cancelEditingResource"
+             ></v-btn>
              <v-btn icon="mdi-open-in-new" size="x-small" variant="text" @click.stop="navigateToDetail(item.id)"></v-btn>
           </template>
         </v-data-table>
@@ -306,35 +385,37 @@
       <div class="text-h5 font-weight-light">No resources found matching your trajectory.</div>
     </div>
 
-    <!-- Loading State -->
-    <v-row v-if="loading">
+    <!-- Loading State (initial empty load only) -->
+    <v-row v-if="loading && resources.length === 0">
       <v-col v-for="i in 6" :key="i" cols="12" md="6" lg="4">
         <v-skeleton-loader type="article" class="rounded-xl"></v-skeleton-loader>
       </v-col>
     </v-row>
 
     <!-- Pagination -->
-    <div v-if="resources.length < totalCount" class="d-flex justify-center mt-12">
-      <v-btn
-        variant="outlined"
-        rounded="pill"
-        size="large"
-        class="px-12"
-        :loading="loading"
-        @click="loadMore"
-      >
-        Expand View ({{ resources.length }} / {{ totalCount }})
-      </v-btn>
+    <div v-if="totalCount > itemsPerPage" class="d-flex flex-column align-center mt-12 ga-3">
+      <v-pagination
+        v-model="currentPage"
+        :length="pageCount"
+        :total-visible="7"
+        rounded="circle"
+        density="comfortable"
+      ></v-pagination>
+      <div class="text-caption opacity-60">
+        Page {{ currentPage }} of {{ pageCount }}
+      </div>
     </div>
   </v-container>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { graphql } from '../composables/useGraphql'
+import { graphql, showError, showSuccess } from '../composables/useGraphql'
 import { openEstablishResource } from '../composables/useGlobalActions'
 import { isExtensionContext } from '../composables/useEnv'
+
+declare const chrome: any
 
 const router = useRouter()
 
@@ -343,13 +424,23 @@ const loading = ref(false)
 const totalCount = ref(0)
 const itemsPerPage = 21
 const currentPage = ref(1)
+const pageCount = computed(() => Math.max(1, Math.ceil(totalCount.value / itemsPerPage)))
 const search = ref('')
 const showFilters = ref(false)
-const viewMode = ref<'cards' | 'table'>((localStorage.getItem('resources_view_mode') as any) || 'cards')
+const viewMode = ref<'cards' | 'table'>('cards')
+const viewModeReady = ref(false)
 
-watch(viewMode, (val) => {
-  localStorage.setItem('resources_view_mode', val)
-})
+function hydrateViewMode() {
+  const stored = localStorage.getItem('resources_view_mode')
+  viewMode.value = stored === 'table' ? 'table' : 'cards'
+  viewModeReady.value = true
+}
+
+function persistViewMode(value: string) {
+  const normalized: 'cards' | 'table' = value === 'table' ? 'table' : 'cards'
+  viewMode.value = normalized
+  localStorage.setItem('resources_view_mode', normalized)
+}
 
 
 
@@ -357,7 +448,6 @@ const filters = ref({
   startDate: '',
   endDate: '',
   relations: [
-    { predicateUri: '', objectUri: '', subjectUri: '', isInverted: false },
     { predicateUri: '', objectUri: '', subjectUri: '', isInverted: false }
   ] as Array<{ predicateUri: string, objectUri: string, subjectUri: string, isInverted: boolean }>,
   isPublished: false
@@ -377,31 +467,49 @@ const uriSearch = ref('')
 const predicateSearch = ref('')
 const uriResults = ref<any[]>([])
 const predicateResults = ref<any[]>([])
+const defaultUriResults = ref<any[]>([])
+const defaultPredicateResults = ref<any[]>([])
 const predicateOptions = ref<Record<string, any[]>>({})
+const predicateRelationRows = ref<Record<string, any[]>>({})
+const editingResourceId = ref<number | null>(null)
+const editDraft = ref({ uri: '', title: '' })
 
 async function fetchPredicateOptions(predicateUri: string) {
-  if (!predicateUri || predicateOptions.value[predicateUri]) return
+  if (!predicateUri || predicateRelationRows.value[predicateUri]) return
   
-  const data = await graphql(`
-    query($predicate: String!) {
-      queryResources(filter: { 
-        relations: [
-          { subjectUri: $predicate, predicateUri: "prop:allows_value" }
-        ] 
-      }, take: 50) {
-        items { uri title }
+  const predicateResource = await graphql(`
+    query($uri: String!) {
+      resourceByUri(uri: $uri) {
+        id
       }
     }
-  `, { predicate: predicateUri })
+  `, { uri: predicateUri })
+
+  const predicateId = predicateResource?.resourceByUri?.id
+  if (!predicateId) {
+    predicateRelationRows.value[predicateUri] = []
+    return
+  }
+
+  const data = await graphql(`
+    query($predicateId: Int!) {
+      relations(predicateId: $predicateId, take: 200) {
+        subject { uri title }
+        object { uri title }
+      }
+    }
+  `, { predicateId })
   
-  if (data?.queryResources?.items) {
-    predicateOptions.value[predicateUri] = data.queryResources.items
+  if (data?.relations) {
+    predicateRelationRows.value[predicateUri] = data.relations
   }
 }
 
 async function searchObjects(val: string) {
-
-  if (!val || val.length < 2) return
+  if (!val || val.length < 2) {
+    uriResults.value = defaultUriResults.value
+    return
+  }
   const data = await graphql(`
     query($search: String) {
       queryResources(filter: { search: $search }, take: 10) {
@@ -413,7 +521,10 @@ async function searchObjects(val: string) {
 }
 
 async function searchPredicates(val: string) {
-  if (!val || val.length < 2) return
+  if (!val || val.length < 2) {
+    predicateResults.value = defaultPredicateResults.value
+    return
+  }
   const data = await graphql(`
     query($search: String) {
       queryResources(filter: { search: $search, isPredicate: true }, take: 10) {
@@ -422,6 +533,32 @@ async function searchPredicates(val: string) {
     }
   `, { search: val })
   predicateResults.value = data?.queryResources?.items || []
+}
+
+async function preloadRelationFilterData() {
+  const [defaultUris, defaultPredicates] = await Promise.all([
+    graphql(`
+      query {
+        queryResources(take: 20) {
+          items { uri title }
+        }
+      }
+    `),
+    graphql(`
+      query {
+        queryResources(filter: { isPredicate: true }, take: 20) {
+          items { uri title }
+        }
+      }
+    `),
+  ])
+
+  defaultUriResults.value = defaultUris?.queryResources?.items || []
+  defaultPredicateResults.value = defaultPredicates?.queryResources?.items || []
+
+  // Keep initial relation filters populated before typing.
+  uriResults.value = defaultUriResults.value
+  predicateResults.value = defaultPredicateResults.value
 }
 
 watch(uriSearch, (val) => {
@@ -436,6 +573,10 @@ function addRelationFilter() {
   filters.value.relations.push({ predicateUri: '', objectUri: '', subjectUri: '', isInverted: false })
 }
 
+function isObjectSidePredicate(predicateUri: string) {
+  return ['schema:about', 'rdf:type', 'prop:status', 'prop:allows_value', 'prop:inLanguage'].includes(predicateUri)
+}
+
 function removeRelationFilter(index: number) {
   filters.value.relations.splice(index, 1)
   fetchResources(true)
@@ -443,6 +584,10 @@ function removeRelationFilter(index: number) {
 
 function toggleRelationInversion(index: number) {
   const rel = filters.value.relations[index]
+  if (isObjectSidePredicate(rel.predicateUri)) {
+    rel.isInverted = false
+    return
+  }
   rel.isInverted = !rel.isInverted
   // Swap values if needed or just clear to be safe
   if (rel.isInverted) {
@@ -455,13 +600,53 @@ function toggleRelationInversion(index: number) {
   fetchResources(true)
 }
 
+function getRelationTargetUri(rel: { objectUri: string; subjectUri: string; isInverted: boolean }) {
+  return rel.isInverted ? rel.subjectUri : rel.objectUri
+}
+
+function setRelationTargetUri(rel: { objectUri: string; subjectUri: string; isInverted: boolean }, value: string) {
+  if (rel.isInverted) {
+    rel.subjectUri = value || ''
+  } else {
+    rel.objectUri = value || ''
+  }
+}
+
+function getRelationTargetItems(rel: { predicateUri: string; isInverted: boolean }) {
+  const rows = predicateRelationRows.value[rel.predicateUri] || []
+  const items = rows.map((relation: any) => rel.isInverted ? relation.subject : relation.object).filter(Boolean)
+  const seen = new Set<string>()
+  return items.filter((item: any) => {
+    if (!item?.uri || item.uri === 'type:predicate') return false
+    if (seen.has(item.uri)) return false
+    seen.add(item.uri)
+    return true
+  })
+}
+
+function hasUsefulPredicateOptions(predicateUri: string) {
+  return (predicateRelationRows.value[predicateUri] || []).length > 0
+}
+
+function shouldUsePredicateOptions(rel: { predicateUri: string; isInverted: boolean }) {
+  return hasUsefulPredicateOptions(rel.predicateUri)
+}
+
+function getRelationPayloadTargetUri(rel: { predicateUri: string; subjectUri: string; objectUri: string; isInverted: boolean }) {
+  return rel.isInverted
+    ? (rel.subjectUri || rel.objectUri || undefined)
+    : (rel.objectUri || rel.subjectUri || undefined)
+}
+
 
 onMounted(() => {
+  hydrateViewMode()
+  preloadRelationFilterData()
   fetchResources()
 
   if (isExtensionContext()) {
     // Listen for background events (e.g. context menu adds a resource)
-    chrome.runtime.onMessage.addListener((msg) => {
+    chrome.runtime.onMessage.addListener((msg: any) => {
       if (msg.type === 'RESOURCE_ADDED') {
         fetchResources(true)
       }
@@ -470,9 +655,9 @@ onMounted(() => {
 })
 
 async function fetchResources(reset = false) {
-  if (reset) {
+  if (reset && currentPage.value !== 1) {
     currentPage.value = 1
-    resources.value = []
+    return
   }
   
   loading.value = true
@@ -496,11 +681,16 @@ async function fetchResources(reset = false) {
         createdAtEnd: filters.value.endDate || undefined,
         relations: filters.value.relations.length > 0 
           ? filters.value.relations
-              .filter(r => r.predicateUri || r.objectUri || r.subjectUri)
+              .filter(r => {
+                const targetUri = r.isInverted
+                  ? (r.subjectUri || r.objectUri)
+                  : (r.objectUri || r.subjectUri)
+                return Boolean(r.predicateUri || targetUri)
+              })
               .map(r => ({ 
                 predicateUri: r.predicateUri || undefined, 
-                objectUri: r.objectUri || undefined,
-                subjectUri: r.subjectUri || undefined
+                objectUri: r.isInverted ? undefined : (getRelationPayloadTargetUri(r) || undefined),
+                subjectUri: r.isInverted ? (getRelationPayloadTargetUri(r) || undefined) : undefined,
               })) 
           : undefined,
         isPublished: filters.value.isPublished || undefined
@@ -510,21 +700,12 @@ async function fetchResources(reset = false) {
 
 
     if (data?.queryResources) {
-      if (reset) {
-        resources.value = data.queryResources.items
-      } else {
-        resources.value.push(...data.queryResources.items)
-      }
+      resources.value = data.queryResources.items
       totalCount.value = data.queryResources.totalCount
     }
   } finally {
     loading.value = false
   }
-}
-
-function loadMore() {
-  currentPage.value++
-  fetchResources()
 }
 
 function formatDate(val: string) {
@@ -534,6 +715,7 @@ function formatDate(val: string) {
 }
 
 function navigateToDetail(id: number) {
+  if (isEditingResource(id)) return
   router.push(`/resource/${id}`)
 }
 
@@ -545,8 +727,60 @@ function triggerAgent(resource: any) {
   router.push(`/resource/${resource.id}?analyze=true`)
 }
 
+function isEditingResource(id: number) {
+  return editingResourceId.value === id
+}
+
+function startEditingResource(resource: any) {
+  editingResourceId.value = resource.id
+  editDraft.value = {
+    uri: resource.uri || '',
+    title: resource.title || '',
+  }
+}
+
+function cancelEditingResource() {
+  editingResourceId.value = null
+  editDraft.value = { uri: '', title: '' }
+}
+
+async function saveInlineResource(resource: any) {
+  const uri = editDraft.value.uri.trim()
+  const title = editDraft.value.title.trim()
+
+  if (!uri) {
+    showError('URI is required')
+    return
+  }
+
+  const data = await graphql(`
+    mutation($id: Int!, $input: ResourceInput!) {
+      updateResource(id: $id, input: $input) {
+        id
+        uri
+        title
+      }
+    }
+  `, {
+    id: resource.id,
+    input: {
+      uri,
+      title: title || null,
+    }
+  })
+
+  const updated = data?.updateResource
+  if (!updated) return
+
+  resource.uri = updated.uri
+  resource.title = updated.title
+  showSuccess('Resource updated')
+  cancelEditingResource()
+}
+
 
 watch(filters, () => fetchResources(true), { deep: true })
+watch(currentPage, () => fetchResources(false))
 </script>
 
 <style scoped>

@@ -16,6 +16,7 @@
  *   aiModel.
  */
 import { PrismaClient } from '@prisma/client';
+import { getReadableRelationProjectWhere } from '../services/ProjectScopeService.js';
 
 export const relationResolvers = {
     Query: {
@@ -26,6 +27,10 @@ export const relationResolvers = {
             if (subjectId) where.subjectId = subjectId;
             if (predicateId) where.predicateId = predicateId;
             if (objectId) where.objectId = objectId;
+            const relationProjectWhere = getReadableRelationProjectWhere(context.activeProjectId);
+            if (relationProjectWhere) {
+                Object.assign(where, relationProjectWhere);
+            }
 
             return await context.prisma.relation.findMany({
                 where,
@@ -43,8 +48,14 @@ export const relationResolvers = {
 
         relation: async (_parent: any, { id }: { id: number }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
-            return await context.prisma.relation.findUnique({
-                where: { id },
+            const where: any = { id };
+            const relationProjectWhere = getReadableRelationProjectWhere(context.activeProjectId);
+            if (relationProjectWhere) {
+                Object.assign(where, relationProjectWhere);
+            }
+
+            return await context.prisma.relation.findFirst({
+                where,
                 include: {
                     subject: true,
                     predicate: true,
@@ -78,6 +89,7 @@ export const relationResolvers = {
                     literalValue: input.literalValue ?? null,
                     selectionStart: input.selectionStart ?? null,
                     selectionEnd: input.selectionEnd ?? null,
+                    projectId: context.activeProjectId || null,
                     justification: input.justification ?? null,
                     aiModelId: input.aiModelId ? parseInt(input.aiModelId as string) : null,
                 },
@@ -98,7 +110,9 @@ export const relationResolvers = {
         upsertRelation: async (_parent: any, { input }: { input: any }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             const { upsertRelation } = await import('../services/tools/upsertRelation.js');
-            const result = await upsertRelation(input, context.prisma, context.user.id);
+            const result = await upsertRelation(input, context.prisma, context.user.id, {
+                projectId: context.activeProjectId || null,
+            });
             if (!result.success) throw new Error('upsertRelation failed');
             return result.data;
         },

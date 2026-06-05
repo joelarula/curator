@@ -22,7 +22,7 @@
 
       
       <v-list density="compact" nav class="px-3">
-        <v-list-item prepend-icon="mdi-database-outline" title="Resources" :to="'/'" value="resources" rounded="lg"></v-list-item>
+        <v-list-item prepend-icon="mdi-database-outline" :to="'/'" value="resources" rounded="lg"></v-list-item>
         <v-list-item prepend-icon="mdi-robot-outline" title="Agents" :to="'/agents'" value="agents" rounded="lg"></v-list-item>
       </v-list>
 
@@ -52,6 +52,7 @@
       <v-spacer></v-spacer>
 
       <DatabaseSelector v-if="isExtension" @database-changed="onDatabaseChanged" />
+      <ProjectSelector v-if="!isExtension && user" @project-changed="onProjectChanged" />
 
       <!-- User Menu in Top Bar -->
       <v-menu v-if="user && !isExtension" offset-y transition="scale-transition">
@@ -103,8 +104,13 @@
     </v-main>
 
 
-    <v-snackbar v-model="snackbar" :timeout="3000">
+    <v-snackbar v-model="snackbar" :timeout="snackbarTimeout">
       {{ snackbarText }}
+      <template #actions>
+        <v-btn v-if="snackbarIsError" variant="text" @click="snackbar = false">
+          Close
+        </v-btn>
+      </template>
     </v-snackbar>
   </v-app>
 </template>
@@ -113,13 +119,14 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuth, user } from './composables/useAuth'
-import { snackbar, snackbarText } from './composables/useGraphql'
+import { snackbar, snackbarText, snackbarTimeout, snackbarIsError } from './composables/useGraphql'
 import { openEstablishResource, openDeployAgent } from './composables/useGlobalActions'
 import { isExtensionContext } from './composables/useEnv'
 import WikiSidebar from './components/WikiSidebar.vue'
 import EstablishResourceDialog from './components/EstablishResourceDialog.vue'
 import DeployAgentDialog from './components/DeployAgentDialog.vue'
 import DatabaseSelector from './components/DatabaseSelector.vue'
+import ProjectSelector from './components/ProjectSelector.vue'
 
 const { fetchUser, loginWithGoogle, logout, initAuth, token } = useAuth()
 const route = useRoute()
@@ -155,6 +162,10 @@ function stopResize() {
 }
 
 function onDatabaseChanged() {
+  window.location.reload()
+}
+
+function onProjectChanged() {
   window.location.reload()
 }
 
