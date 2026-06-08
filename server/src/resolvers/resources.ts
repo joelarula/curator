@@ -1,18 +1,18 @@
 import { PrismaClient } from '@prisma/client';
 import { executeTool } from '../services/ToolRegistry.js';
-import { SYSTEM_PROJECT_ID, getReadableProjectIds, getReadableRelationProjectWhere } from '../services/ProjectScopeService.js';
+import { SYSTEM_PROJECT_ID, getReadableProjectIds, buildProjectScopeWhere } from '../services/ProjectScopeService.js';
 
 function buildReadableResourceScope(context: any) {
-    if (context.activeProjectId) {
-        return { projectId: { in: getReadableProjectIds(context.activeProjectId) } };
+    const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+    if (!context.activeProjectId && (!context.activeProjectIds || context.activeProjectIds.length === 0)) {
+        return {
+            OR: [
+                ...scope.OR,
+                { userId: context.user.id }
+            ]
+        };
     }
-
-    return {
-        OR: [
-            { userId: context.user.id },
-            { projectId: SYSTEM_PROJECT_ID },
-        ],
-    };
+    return scope;
 }
 
 
@@ -79,8 +79,7 @@ export const resourceResolvers = {
         queryResources: async (_parent: any, { filter, skip, take }: any, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             const prisma = context.prisma;
-            const readableProjectIds = getReadableProjectIds(context.activeProjectId);
-            const relationProjectWhere = getReadableRelationProjectWhere(context.activeProjectId);
+            const relationProjectWhere = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
 
             const where: any = { existent: true, ...buildReadableResourceScope(context) };
 
@@ -216,8 +215,10 @@ export const resourceResolvers = {
         updateResource: async (_parent: any, { id, input }: { id: number; input: any }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
 
-            const where: any = { id };
-            if (context.activeProjectId) where.projectId = context.activeProjectId;
+            const where: any = {
+                id,
+                ...buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId)
+            };
 
             const existing = await context.prisma.resource.findFirst({ where });
             if (!existing) {
@@ -284,8 +285,10 @@ export const resourceResolvers = {
 
         deleteResource: async (_parent: any, { id }: { id: number }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
-            const where: any = { id };
-            if (context.activeProjectId) where.projectId = context.activeProjectId;
+            const where: any = {
+                id,
+                ...buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId)
+            };
 
             await context.prisma.resource.updateMany({
                 where,
@@ -312,10 +315,8 @@ export const resourceResolvers = {
         subjectRelations: async (resource: any, _args: any, context: any) => {
             if (resource.subjectRelations) return resource.subjectRelations;
             const where: any = { subjectId: resource.id };
-            const relationProjectWhere = getReadableRelationProjectWhere(context.activeProjectId);
-            if (relationProjectWhere) {
-                Object.assign(where, relationProjectWhere);
-            }
+            const relationProjectWhere = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+            Object.assign(where, relationProjectWhere);
             return await context.prisma.relation.findMany({
                 where,
                 include: { predicate: true, object: true }
@@ -324,10 +325,8 @@ export const resourceResolvers = {
         objectRelations: async (resource: any, _args: any, context: any) => {
             if (resource.objectRelations) return resource.objectRelations;
             const where: any = { objectId: resource.id };
-            const relationProjectWhere = getReadableRelationProjectWhere(context.activeProjectId);
-            if (relationProjectWhere) {
-                Object.assign(where, relationProjectWhere);
-            }
+            const relationProjectWhere = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+            Object.assign(where, relationProjectWhere);
             return await context.prisma.relation.findMany({
                 where,
                 include: { subject: true, predicate: true }
@@ -335,10 +334,8 @@ export const resourceResolvers = {
         },
         predicateRelations: async (resource: any, _args: any, context: any) => {
             const where: any = { predicateId: resource.id };
-            const relationProjectWhere = getReadableRelationProjectWhere(context.activeProjectId);
-            if (relationProjectWhere) {
-                Object.assign(where, relationProjectWhere);
-            }
+            const relationProjectWhere = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+            Object.assign(where, relationProjectWhere);
             return await context.prisma.relation.findMany({
                 where,
                 include: { subject: true, object: true }

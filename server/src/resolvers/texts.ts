@@ -15,12 +15,18 @@
  *   resource, user.
  */
 
+import { buildProjectScopeWhere } from '../services/ProjectScopeService.js';
+
 export const textResolvers = {
     Query: {
         texts: async (_parent: any, { resourceId, role, skip, take }: any, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
 
-            const where: any = { existent: true };
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+            const where: any = {
+                existent: true,
+                resource: scope
+            };
 
             if (resourceId) where.resourceId = resourceId;
             if (role) where.role = role;
@@ -40,8 +46,12 @@ export const textResolvers = {
 
         text: async (_parent: any, { id }: { id: string }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
-            return await context.prisma.text.findUnique({
-                where: { id },
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+            return await context.prisma.text.findFirst({
+                where: {
+                    id,
+                    resource: scope
+                },
                 include: { resource: true, user: true },
             });
         },
@@ -50,8 +60,12 @@ export const textResolvers = {
             if (!context.user) throw new Error('Unauthorized');
             // Plain findMany (no distinct) + JS Set dedup avoids both Prisma's
             // multi-query distinct machinery and $queryRawUnsafe's raw serializer.
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
             const texts = await context.prisma.text.findMany({
-                where: { existent: true },
+                where: {
+                    existent: true,
+                    resource: scope
+                },
                 select: { role: true },
             });
             const roles = texts.map((t: any) => t.role as string);
@@ -65,9 +79,16 @@ export const textResolvers = {
             if (!context.user) throw new Error('Unauthorized');
             const targetRole = role || 'MAIN';
             
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+            // Verify resource exists and belongs to project scope
+            const resource = await context.prisma.resource.findFirst({
+                where: { id: resourceId, ...scope }
+            });
+            if (!resource) throw new Error('Resource not found or outside active project scope');
+
             // Check if text with same resourceId and role already exists (active or soft-deleted)
             const existing = await context.prisma.text.findFirst({
-                where: { resourceId, role: targetRole }
+                where: { resourceId, role: targetRole, resource: scope }
             });
 
             if (existing) {
@@ -96,6 +117,11 @@ export const textResolvers = {
 
         updateText: async (_parent: any, { id, content }: { id: string; content: string }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+            const text = await context.prisma.text.findFirst({
+                where: { id, resource: scope }
+            });
+            if (!text) throw new Error('Text not found or outside active project scope');
             return await context.prisma.text.update({
                 where: { id },
                 data: { content },
@@ -105,6 +131,11 @@ export const textResolvers = {
 
         deleteText: async (_parent: any, { id }: { id: string }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+            const text = await context.prisma.text.findFirst({
+                where: { id, resource: scope }
+            });
+            if (!text) throw new Error('Text not found or outside active project scope');
             await context.prisma.text.update({
                 where: { id },
                 data: { existent: false, deletedAt: new Date() },

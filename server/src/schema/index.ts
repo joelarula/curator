@@ -303,8 +303,6 @@ export const typeDefs = gql`
     aiModel: AIModel
     "Owner user"
     user: User!
-    "Tool call definitions or execution instructions"
-    toolCalls: [ToolCall!]!
     "Resources provided as context"
     resources: [Resource!]!
     "Parent conversation"
@@ -343,8 +341,6 @@ export const typeDefs = gql`
     content: String!
     "Parsed response content as structured JSON"
     data: JSON
-    "Tool call results"
-    toolCalls: [ToolCall!]!
     "RDF triples extracted from this response"
     relations: [Relation!]!
     createdAt: String!
@@ -546,6 +542,18 @@ export const typeDefs = gql`
     updatedAt: String!
   }
 
+  "A dynamic, project-scoped SASL DSL schema entity"
+  type DslSchema {
+    id: ID!
+    name: String!
+    type: String!
+    definition: String!
+    projectId: String
+    createdAt: String!
+    updatedAt: String!
+  }
+
+
   "Node in the knowledge graph visualization"
   type GraphNode {
     id: Int!
@@ -566,6 +574,22 @@ export const typeDefs = gql`
   type KnowledgeGraph {
     nodes: [GraphNode!]!
     links: [GraphLink!]!
+  }
+
+  "Metadata and schema definition of a system predicate"
+  type PredicateDefinition {
+    "Stable URI identifier"
+    uri: String!
+    "Human-readable title"
+    title: String!
+    "Description of the predicate purpose"
+    description: String
+    "List of allowed values (enum option Resources)"
+    allowedValues: [Resource!]!
+    "Subject classes/domains this predicate typically applies to"
+    domainTypes: [String!]
+    "Object classes/ranges this predicate typically links to"
+    rangeTypes: [String!]
   }
 
   # ─── Queries ──────────────────────────────────────────────────────────────────
@@ -623,6 +647,12 @@ export const typeDefs = gql`
     "Fetch a single Relation by CUID."
     relation(id: ID!): Relation
 
+    # Predicates
+    "Fetch the static registry of system-wide standard predicates with metadata."
+    predicateRegistry: [PredicateDefinition!]!
+    "Fetch all predicate Resource nodes in the database, with pagination."
+    predicates(skip: Int, take: Int): ResourceConnection!
+
     # Agentic pipeline
 
     "All scripts for the current user."
@@ -645,7 +675,21 @@ export const typeDefs = gql`
     tools: [Tool!]!
     "Fetch a single registered tool by name."
     tool(name: String!): Tool
+
+    "Fetch the parsed metadata and AST for all SASL models"
+    dslModels: JSON!
+
+    "Load and hydrate an entity matching the SASL DSL definition from RDF triples"
+    loadDslEntity(modelName: String!, subjectUri: String!): JSON
+
+    "Fetch all dynamically defined schemas for the active project context"
+    dslSchemas: [DslSchema!]!
+
+    "List all entity instances matching a dynamic SASL model in the project"
+    listDslEntities(modelName: String!): [JSON!]!
   }
+
+
 
   # ─── Mutations ────────────────────────────────────────────────────────────────
 
@@ -680,6 +724,8 @@ export const typeDefs = gql`
     deleteRelation(id: ID!): Boolean!
     "Upsert a Relation by resolving subject, predicate, and object URIs (auto-creates stubs)."
     upsertRelation(input: JSON!): Relation!
+    "Upsert a predicate Resource, ensuring it is linked to type:predicate, and optionally registers allowed values."
+    upsertPredicate(uri: String!, title: String, description: String, allowedValues: [String!]): Resource!
 
     # Agentic pipeline
     "Creates a new Script for reuse."
@@ -714,7 +760,19 @@ export const typeDefs = gql`
     "Soft-delete a project owned by the current user."
     deleteProject(id: ID!): Boolean!
 
+    "Save a nested JSON entity conforming to a SASL model down to RDF triples"
+    saveDslEntity(modelName: String!, data: JSON!): String!
+
+    "Save or update a project-scoped dynamic SASL DSL schema definition"
+    saveDslSchema(name: String!, type: String!, definition: String!): DslSchema!
+
+    "Delete a project-scoped dynamic SASL DSL schema definition"
+    deleteDslSchema(name: String!): Boolean!
+
+    "Soft-delete a schema-derived entity instance and its triple relations"
+    deleteDslEntity(modelName: String!, subjectUri: String!): Boolean!
   }
 
 
 `;
+

@@ -14,102 +14,40 @@ const adapter = new PrismaPg(pool as any);
 const prisma = new PrismaClient({ adapter });
 
 import { syncAIModelsToDatabase } from '../src/services/AIModelRegistry.js';
+import { seedPredicates } from '../src/services/PredicateService.js';
+import { SemanticDslEngine } from '../src/services/SemanticDslEngine.js';
+
 
 async function seedSystemVocabulary(systemUserId: string, systemProjectId: string) {
-  const commonResources = [
-    { uri: VOCAB.RDF.type, title: 'rdf:type' },
-    { uri: VOCAB.PROP.status, title: 'prop:status' },
-    { uri: VOCAB.PROP.inLanguage, title: 'prop:inLanguage' },
-    { uri: VOCAB.PROP.allowsValue, title: 'prop:allows_value' },
-    { uri: VOCAB.TYPE.predicate, title: 'type:predicate' },
-    { uri: VOCAB.STATUS.draft, title: 'status:draft' },
-    { uri: VOCAB.STATUS.published, title: 'status:published' },
-    { uri: VOCAB.STATUS.archived, title: 'status:archived' },
-    { uri: VOCAB.STATUS.flagged, title: 'status:flagged' },
-    { uri: VOCAB.LANGUAGES.english, title: 'lang:en' },
-    { uri: VOCAB.LANGUAGES.estonian, title: 'lang:et' },
-    { uri: VOCAB.LANGUAGES.russian, title: 'lang:ru' },
-  ];
+  // 1. Delegate predicate seeding and mapping to PredicateService
+  await seedPredicates(prisma, systemUserId, systemProjectId);
 
-  const resourceByUri = new Map<string, { id: number; uri: string }>();
-  const commonUris = new Set(commonResources.map((resource) => resource.uri));
-
-  for (const resource of commonResources) {
-    const upserted = await prisma.resource.upsert({
-      where: { uri: resource.uri },
-      update: {
-        title: resource.title,
-        existent: true,
-        deletedAt: null,
-        projectId: systemProjectId,
-      },
-      create: {
-        uri: resource.uri,
-        title: resource.title,
-        userId: systemUserId,
-        projectId: systemProjectId,
-        existent: true,
-        deletedAt: null,
-      },
-      select: { id: true, uri: true },
-    });
-
-    resourceByUri.set(upserted.uri, upserted);
-  }
-
-  const relationTriples = [
-    [VOCAB.RDF.type, VOCAB.RDF.type, VOCAB.TYPE.predicate],
-    [VOCAB.PROP.status, VOCAB.RDF.type, VOCAB.TYPE.predicate],
-    [VOCAB.PROP.inLanguage, VOCAB.RDF.type, VOCAB.TYPE.predicate],
-    [VOCAB.PROP.allowsValue, VOCAB.RDF.type, VOCAB.TYPE.predicate],
-
-    [VOCAB.PROP.status, VOCAB.PROP.allowsValue, VOCAB.STATUS.draft],
-    [VOCAB.PROP.status, VOCAB.PROP.allowsValue, VOCAB.STATUS.published],
-    [VOCAB.PROP.status, VOCAB.PROP.allowsValue, VOCAB.STATUS.archived],
-    [VOCAB.PROP.status, VOCAB.PROP.allowsValue, VOCAB.STATUS.flagged],
-
-    [VOCAB.PROP.inLanguage, VOCAB.PROP.allowsValue, VOCAB.LANGUAGES.english],
-    [VOCAB.PROP.inLanguage, VOCAB.PROP.allowsValue, VOCAB.LANGUAGES.estonian],
-    [VOCAB.PROP.inLanguage, VOCAB.PROP.allowsValue, VOCAB.LANGUAGES.russian],
-  ] as const;
-
-  for (const [subjectUri, predicateUri, objectUri] of relationTriples) {
-    const subject = resourceByUri.get(subjectUri);
-    const predicate = resourceByUri.get(predicateUri);
-    const object = resourceByUri.get(objectUri);
-    if (!subject || !predicate || !object) continue;
-
-    await prisma.relation.upsert({
-      where: {
-        subjectId_predicateId_objectId: {
-          subjectId: subject.id,
-          predicateId: predicate.id,
-          objectId: object.id,
-        },
-      },
-      update: {
-        projectId: systemProjectId,
-        existent: true,
-      },
-      create: {
-        subjectId: subject.id,
-        predicateId: predicate.id,
-        objectId: object.id,
-        projectId: systemProjectId,
-        existent: true,
-      },
-    });
-  }
-
-  const statusPredicate = resourceByUri.get(VOCAB.PROP.status);
-  const draftStatus = resourceByUri.get(VOCAB.STATUS.draft);
-  const publishedStatus = resourceByUri.get(VOCAB.STATUS.published);
+  // 2. Fetch required resources to perform backfilling
+  const [statusPredicate, draftStatus, publishedStatus] = await Promise.all([
+    prisma.resource.findUnique({ where: { uri: VOCAB.PROP.status }, select: { id: true } }),
+    prisma.resource.findUnique({ where: { uri: VOCAB.STATUS.draft }, select: { id: true } }),
+    prisma.resource.findUnique({ where: { uri: VOCAB.STATUS.published }, select: { id: true } }),
+  ]);
 
   if (statusPredicate && draftStatus && publishedStatus) {
+    const excludedUris = [
+      VOCAB.RDF.type,
+      VOCAB.PROP.status,
+      VOCAB.PROP.inLanguage,
+      VOCAB.PROP.allowsValue,
+      VOCAB.STATUS.draft,
+      VOCAB.STATUS.published,
+      VOCAB.STATUS.archived,
+      VOCAB.STATUS.flagged,
+      VOCAB.LANGUAGES.english,
+      VOCAB.LANGUAGES.estonian,
+      VOCAB.LANGUAGES.russian,
+    ];
+
     const existingResources = await prisma.resource.findMany({
       where: {
         existent: true,
-        uri: { notIn: Array.from(commonUris) },
+        uri: { notIn: excludedUris },
       },
       select: {
         id: true,
@@ -148,7 +86,7 @@ async function seedSystemVocabulary(systemUserId: string, systemProjectId: strin
     console.log(`[Seed] Backfilled ${backfilled} resource status relations.`);
   }
 
-  console.log(`[Seed] System vocabulary synced: ${commonResources.length} resources, ${relationTriples.length} relations.`);
+  console.log(`[Seed] System vocabulary synced via PredicateService.`);
 }
 
 async function main() {
@@ -160,6 +98,10 @@ async function main() {
 
   // 2. Seed globally shared vocabulary into the system project.
   await seedSystemVocabulary(systemUser.id, systemProject.id);
+
+  // 3. Sync compiled SASL DSL Models/Ontology to the system project
+  await SemanticDslEngine.getInstance(prisma).syncDslOntology(systemUser.id, systemProject.id);
+
 
 
 

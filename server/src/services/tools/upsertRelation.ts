@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import type { UpsertRelationInput, UpsertRelationOutput } from './types.js';
 import { VOCAB } from '../../constants/vocabulary.js';
 import { resolveModelName } from '../AIModelRegistry.js';
+import { upsertPredicate } from '../PredicateService.js';
 
 /**
  * Upserts an RDF triple (Relation) by resolving subject, predicate, and object URIs.
@@ -47,17 +48,15 @@ export async function upsertRelation(
 
 
 
-    const [subject, predicate, object] = await Promise.all([
+    const [subject, object] = await Promise.all([
         resolveResource(subjectUri),
-        resolveResource(predicateUri),
         resolveResource(objectUri)
     ]);
 
-    // Ensure the predicate is tagged as a predicate
-    const [typePredicate, predicateClass] = await Promise.all([
-        resolveResource(VOCAB.RDF.type),
-        resolveResource(VOCAB.TYPE.predicate)
-    ]);
+    const predicate = await upsertPredicate(prisma, userId, {
+        uri: predicateUri,
+        projectId
+    });
 
     // Resolve model name if string provided
     let resolvedAiModelId: number | null = request?.aiModelId ?? null;
@@ -76,26 +75,6 @@ export async function upsertRelation(
         });
         resolvedAiModelId = modelRecord.id;
     }
-
-    // Link the predicate to its class
-    await prisma.relation.upsert({
-        where: {
-            subjectId_predicateId_objectId: {
-                subjectId: predicate.id,
-                predicateId: typePredicate.id,
-                objectId: predicateClass.id
-            }
-        },
-        where__fallback: {}, // typescript support
-        update: {},
-        create: {
-            subjectId: predicate.id,
-            predicateId: typePredicate.id,
-            objectId: predicateClass.id,
-            projectId,
-            aiModelId: resolvedAiModelId
-        }
-    } as any);
 
 
     // Upsert the Relation triple

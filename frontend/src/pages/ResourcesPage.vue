@@ -113,112 +113,11 @@
     </v-expand-transition>
 
     <!-- Permanent Relational Criteria (Always Open) -->
-    <div class="mb-8 animate-fade-in">
-      <div class="d-flex align-center mb-4">
-        <div class="text-overline opacity-40 tracking-widest d-flex align-center ga-2">
-          <v-icon size="14">mdi-rhombus-split</v-icon> Relational Logic (AND)
-        </div>
-        <v-spacer></v-spacer>
-        <v-btn 
-          variant="text" 
-          size="x-small" 
-          prepend-icon="mdi-plus" 
-          color="primary" 
-          class="font-weight-black opacity-60 hover-opacity-100"
-          @click="addRelationFilter"
-        >
-          Extend Intersection
-        </v-btn>
-      </div>
-      
-      <div class="d-flex flex-column ga-2">
-        <div v-for="(rel, index) in filters.relations" :key="index" class="d-flex align-center ga-3 animate-fade-in pa-2 rounded-lg border border-white border-opacity-5 bg-black bg-opacity-40 transition-all hover-bg-opacity-50">
-          <v-autocomplete
-            v-model="rel.predicateUri"
-            v-model:search="predicateSearch"
-            :items="predicateResults"
-            item-title="uri"
-            item-value="uri"
-            label="Predicate URI"
-            placeholder="Search..."
-            variant="plain"
-            density="compact"
-            hide-details
-            class="flex-grow-1 px-3"
-            @update:model-value="(val: any) => { fetchPredicateOptions(val); fetchResources(true); }"
-            @update:search="searchPredicates"
-          >
-
-            <template v-slot:item="{ props, item }">
-              <v-list-item v-bind="props" :title="item.raw.title" :subtitle="item.raw.uri"></v-list-item>
-            </template>
-          </v-autocomplete>
-
-          <v-btn
-            icon
-            size="small"
-            variant="text"
-            color="primary"
-            class="mx-1"
-            :title="rel.isInverted ? 'Search for Objects (Inbound)' : 'Search for Subjects (Outbound)'"
-            @click="toggleRelationInversion(index)"
-          >
-            <v-icon>{{ rel.isInverted ? 'mdi-swap-horizontal-bold' : 'mdi-arrow-right-bold' }}</v-icon>
-          </v-btn>
-
-
-          <!-- Dynamic Object Field: Select for Enums, Autocomplete for Graph -->
-          <v-select
-            v-if="shouldUsePredicateOptions(rel)"
-            :model-value="getRelationTargetUri(rel)"
-            :items="getRelationTargetItems(rel)"
-            item-title="uri"
-            item-value="uri"
-            :label="rel.isInverted ? 'Subject Value' : 'Object Value'"
-            placeholder="Select option..."
-            variant="plain"
-            density="compact"
-            hide-details
-            class="flex-grow-1 px-3"
-            clearable
-            @update:model-value="(val: any) => { setRelationTargetUri(rel, val); fetchResources(true); }"
-          >
-            <template v-slot:item="{ props, item }">
-              <v-list-item v-bind="props" :title="item.raw.title" :subtitle="item.raw.uri"></v-list-item>
-            </template>
-          </v-select>
-
-          <v-autocomplete
-            v-else
-            :model-value="getRelationTargetUri(rel)"
-            v-model:search="uriSearch"
-            :items="uriResults"
-            item-title="uri"
-            item-value="uri"
-            :label="rel.isInverted ? 'Subject URI' : 'Object URI'"
-            placeholder="Search..."
-            variant="plain"
-            density="compact"
-            hide-details
-            class="flex-grow-1 px-3"
-            @update:model-value="(val: any) => { setRelationTargetUri(rel, val); fetchResources(true); }"
-            @update:search="searchObjects"
-          >
-            <template v-slot:item="{ props, item }">
-              <v-list-item v-bind="props" :title="item.raw.title" :subtitle="item.raw.uri"></v-list-item>
-            </template>
-          </v-autocomplete>
-
-
-
-          <v-btn icon="mdi-close" size="x-small" variant="text" color="error" class="opacity-40" @click="removeRelationFilter(index)"></v-btn>
-        </div>
-      </div>
-    </div>
+    <RelationLogicFilters v-model="filters.relations" @change="fetchResources(true)" />
 
 
     <!-- Resource Explorer -->
-    <div v-if="viewModeReady && resources.length > 0">
+    <div v-if="viewModeReady && initialResourcesReady && resources.length > 0">
       <!-- Card View -->
       <v-row v-if="viewMode === 'cards'">
         <v-col v-for="resource in resources" :key="resource.id" cols="12" md="6" lg="4">
@@ -380,17 +279,24 @@
 
 
     <!-- Empty State -->
-    <div v-else-if="!loading" class="text-center py-16 opacity-30">
+    <div v-else-if="initialResourcesReady && !loading" class="text-center py-16 opacity-30">
       <v-icon size="120" class="mb-4">mdi-database-search-outline</v-icon>
       <div class="text-h5 font-weight-light">No resources found matching your trajectory.</div>
     </div>
 
     <!-- Loading State (initial empty load only) -->
-    <v-row v-if="loading && resources.length === 0">
-      <v-col v-for="i in 6" :key="i" cols="12" md="6" lg="4">
-        <v-skeleton-loader type="article" class="rounded-xl"></v-skeleton-loader>
-      </v-col>
-    </v-row>
+    <div v-if="!initialResourcesReady || (loading && resources.length === 0)" class="resource-loader-shell d-flex align-center justify-center">
+      <v-card rounded="xl" variant="outlined" class="resource-loader-card pa-8 text-center">
+        <v-progress-circular indeterminate color="primary" size="52" width="4" class="mb-4"></v-progress-circular>
+        <div class="text-h6 font-weight-black mb-2">Loading resources</div>
+        <div class="text-body-2 opacity-60">Preparing your current project and shared system rows…</div>
+        <div class="d-flex justify-center mt-6 ga-2">
+          <v-skeleton-loader type="chip" width="90"></v-skeleton-loader>
+          <v-skeleton-loader type="chip" width="120"></v-skeleton-loader>
+          <v-skeleton-loader type="chip" width="84"></v-skeleton-loader>
+        </div>
+      </v-card>
+    </div>
 
     <!-- Pagination -->
     <div v-if="totalCount > itemsPerPage" class="d-flex flex-column align-center mt-12 ga-3">
@@ -414,6 +320,8 @@ import { useRouter } from 'vue-router'
 import { graphql, showError, showSuccess } from '../composables/useGraphql'
 import { openEstablishResource } from '../composables/useGlobalActions'
 import { isExtensionContext } from '../composables/useEnv'
+import { resourcesPageStateVar } from '../composables/useResourcesPageState'
+import RelationLogicFilters from '../components/RelationLogicFilters.vue'
 
 declare const chrome: any
 
@@ -429,17 +337,28 @@ const search = ref('')
 const showFilters = ref(false)
 const viewMode = ref<'cards' | 'table'>('cards')
 const viewModeReady = ref(false)
+const initialResourcesReady = ref(false)
 
 function hydrateViewMode() {
-  const stored = localStorage.getItem('resources_view_mode')
-  viewMode.value = stored === 'table' ? 'table' : 'cards'
+  const state = resourcesPageStateVar()
+  viewMode.value = state.viewMode
+  search.value = state.search
+  showFilters.value = state.showFilters
+  currentPage.value = state.currentPage
+  filters.value = {
+    ...state.filters,
+    relations: state.filters.relations.map((rel) => ({ ...rel })),
+  }
   viewModeReady.value = true
 }
 
 function persistViewMode(value: string) {
   const normalized: 'cards' | 'table' = value === 'table' ? 'table' : 'cards'
   viewMode.value = normalized
-  localStorage.setItem('resources_view_mode', normalized)
+  resourcesPageStateVar({
+    ...resourcesPageStateVar(),
+    viewMode: normalized,
+  })
 }
 
 
@@ -463,174 +382,8 @@ const tableHeaders = [
   { title: 'ACTIONS', key: 'actions', align: 'end', sortable: false },
 ] as const
 
-const uriSearch = ref('')
-const predicateSearch = ref('')
-const uriResults = ref<any[]>([])
-const predicateResults = ref<any[]>([])
-const defaultUriResults = ref<any[]>([])
-const defaultPredicateResults = ref<any[]>([])
-const predicateOptions = ref<Record<string, any[]>>({})
-const predicateRelationRows = ref<Record<string, any[]>>({})
 const editingResourceId = ref<number | null>(null)
 const editDraft = ref({ uri: '', title: '' })
-
-async function fetchPredicateOptions(predicateUri: string) {
-  if (!predicateUri || predicateRelationRows.value[predicateUri]) return
-  
-  const predicateResource = await graphql(`
-    query($uri: String!) {
-      resourceByUri(uri: $uri) {
-        id
-      }
-    }
-  `, { uri: predicateUri })
-
-  const predicateId = predicateResource?.resourceByUri?.id
-  if (!predicateId) {
-    predicateRelationRows.value[predicateUri] = []
-    return
-  }
-
-  const data = await graphql(`
-    query($predicateId: Int!) {
-      relations(predicateId: $predicateId, take: 200) {
-        subject { uri title }
-        object { uri title }
-      }
-    }
-  `, { predicateId })
-  
-  if (data?.relations) {
-    predicateRelationRows.value[predicateUri] = data.relations
-  }
-}
-
-async function searchObjects(val: string) {
-  if (!val || val.length < 2) {
-    uriResults.value = defaultUriResults.value
-    return
-  }
-  const data = await graphql(`
-    query($search: String) {
-      queryResources(filter: { search: $search }, take: 10) {
-        items { uri title }
-      }
-    }
-  `, { search: val })
-  uriResults.value = data?.queryResources?.items || []
-}
-
-async function searchPredicates(val: string) {
-  if (!val || val.length < 2) {
-    predicateResults.value = defaultPredicateResults.value
-    return
-  }
-  const data = await graphql(`
-    query($search: String) {
-      queryResources(filter: { search: $search, isPredicate: true }, take: 10) {
-        items { uri title }
-      }
-    }
-  `, { search: val })
-  predicateResults.value = data?.queryResources?.items || []
-}
-
-async function preloadRelationFilterData() {
-  const [defaultUris, defaultPredicates] = await Promise.all([
-    graphql(`
-      query {
-        queryResources(take: 20) {
-          items { uri title }
-        }
-      }
-    `),
-    graphql(`
-      query {
-        queryResources(filter: { isPredicate: true }, take: 20) {
-          items { uri title }
-        }
-      }
-    `),
-  ])
-
-  defaultUriResults.value = defaultUris?.queryResources?.items || []
-  defaultPredicateResults.value = defaultPredicates?.queryResources?.items || []
-
-  // Keep initial relation filters populated before typing.
-  uriResults.value = defaultUriResults.value
-  predicateResults.value = defaultPredicateResults.value
-}
-
-watch(uriSearch, (val) => {
-  searchObjects(val)
-})
-
-watch(predicateSearch, (val) => {
-  searchPredicates(val)
-})
-
-function addRelationFilter() {
-  filters.value.relations.push({ predicateUri: '', objectUri: '', subjectUri: '', isInverted: false })
-}
-
-function isObjectSidePredicate(predicateUri: string) {
-  return ['schema:about', 'rdf:type', 'prop:status', 'prop:allows_value', 'prop:inLanguage'].includes(predicateUri)
-}
-
-function removeRelationFilter(index: number) {
-  filters.value.relations.splice(index, 1)
-  fetchResources(true)
-}
-
-function toggleRelationInversion(index: number) {
-  const rel = filters.value.relations[index]
-  if (isObjectSidePredicate(rel.predicateUri)) {
-    rel.isInverted = false
-    return
-  }
-  rel.isInverted = !rel.isInverted
-  // Swap values if needed or just clear to be safe
-  if (rel.isInverted) {
-    rel.subjectUri = rel.objectUri
-    rel.objectUri = ''
-  } else {
-    rel.objectUri = rel.subjectUri
-    rel.subjectUri = ''
-  }
-  fetchResources(true)
-}
-
-function getRelationTargetUri(rel: { objectUri: string; subjectUri: string; isInverted: boolean }) {
-  return rel.isInverted ? rel.subjectUri : rel.objectUri
-}
-
-function setRelationTargetUri(rel: { objectUri: string; subjectUri: string; isInverted: boolean }, value: string) {
-  if (rel.isInverted) {
-    rel.subjectUri = value || ''
-  } else {
-    rel.objectUri = value || ''
-  }
-}
-
-function getRelationTargetItems(rel: { predicateUri: string; isInverted: boolean }) {
-  const rows = predicateRelationRows.value[rel.predicateUri] || []
-  const items = rows.map((relation: any) => rel.isInverted ? relation.subject : relation.object).filter(Boolean)
-  const seen = new Set<string>()
-  return items.filter((item: any) => {
-    if (!item?.uri || item.uri === 'type:predicate') return false
-    if (seen.has(item.uri)) return false
-    seen.add(item.uri)
-    return true
-  })
-}
-
-function hasUsefulPredicateOptions(predicateUri: string) {
-  return (predicateRelationRows.value[predicateUri] || []).length > 0
-}
-
-function shouldUsePredicateOptions(rel: { predicateUri: string; isInverted: boolean }) {
-  return hasUsefulPredicateOptions(rel.predicateUri)
-}
 
 function getRelationPayloadTargetUri(rel: { predicateUri: string; subjectUri: string; objectUri: string; isInverted: boolean }) {
   return rel.isInverted
@@ -638,10 +391,8 @@ function getRelationPayloadTargetUri(rel: { predicateUri: string; subjectUri: st
     : (rel.objectUri || rel.subjectUri || undefined)
 }
 
-
 onMounted(() => {
   hydrateViewMode()
-  preloadRelationFilterData()
   fetchResources()
 
   if (isExtensionContext()) {
@@ -653,6 +404,19 @@ onMounted(() => {
     })
   }
 })
+
+watch([search, showFilters, currentPage, viewMode, filters], () => {
+  resourcesPageStateVar({
+    search: search.value,
+    showFilters: showFilters.value,
+    viewMode: viewMode.value,
+    currentPage: currentPage.value,
+    filters: {
+      ...filters.value,
+      relations: filters.value.relations.map((rel) => ({ ...rel })),
+    },
+  })
+}, { deep: true })
 
 async function fetchResources(reset = false) {
   if (reset && currentPage.value !== 1) {
@@ -704,6 +468,7 @@ async function fetchResources(reset = false) {
       totalCount.value = data.queryResources.totalCount
     }
   } finally {
+    initialResourcesReady.value = true
     loading.value = false
   }
 }
@@ -781,12 +546,24 @@ async function saveInlineResource(resource: any) {
 
 watch(filters, () => fetchResources(true), { deep: true })
 watch(currentPage, () => fetchResources(false))
+watch(search, () => fetchResources(true))
 </script>
 
 <style scoped>
 .bg-space {
   background-color: #050505;
   min-height: 100vh;
+}
+
+.resource-loader-shell {
+  min-height: 38vh;
+}
+
+.resource-loader-card {
+  min-width: min(520px, 100%);
+  background: rgba(255, 255, 255, 0.025) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  backdrop-filter: blur(12px);
 }
 
 .search-bar :deep(.v-field) {

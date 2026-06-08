@@ -6,7 +6,9 @@
     "build": "vite build && node esbuild.config.js",
     "build:popup": "vite build",
     "build:bg": "node esbuild.config.js",
-    "watch": "concurrently \"vite build --watch\" \"node esbuild.config.js --watch\""
+    "watch": "concurrently \"vite build --watch\" \"node esbuild.config.js --watch\"",
+    "prisma:generate-wasm": "set PRISMA_CLIENT_ENGINE_TYPE=wasm && prisma generate --schema=../server/prisma/schema/base.prisma",
+    "postinstall": "prisma generate --schema=../server/prisma/schema/base.prisma"
   },
   "dependencies": {
     "@graphql-tools/schema": "^10.0.33",

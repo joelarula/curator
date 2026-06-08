@@ -11,7 +11,8 @@ import { agenticResolvers } from './agentic.js';
 import { graphResolvers } from './graph.js';
 import { udcResolvers } from './udc.js';
 import { projectResolvers } from './projects.js';
-
+import { predicateResolvers } from './predicates.js';
+import { dslResolvers } from './dsl.js';
 
 import GraphQLJSON from 'graphql-type-json';
 
@@ -22,6 +23,7 @@ export const resolvers = {
     ...textResolvers,
     ...relationResolvers,
     ...agenticResolvers,
+    ...predicateResolvers,
 
     Query: {
         ...authResolvers.Query,
@@ -32,6 +34,8 @@ export const resolvers = {
         ...graphResolvers.Query,
         ...udcResolvers.Query,
         ...projectResolvers.Query,
+        ...predicateResolvers.Query,
+        ...dslResolvers.Query,
     },
     Mutation: {
         ...authResolvers.Mutation,
@@ -40,6 +44,9 @@ export const resolvers = {
         ...relationResolvers.Mutation,
         ...agenticResolvers.Mutation,
         ...projectResolvers.Mutation,
+        ...predicateResolvers.Mutation,
+        ...dslResolvers.Mutation,
     },
 };
+
 

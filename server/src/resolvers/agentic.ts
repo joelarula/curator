@@ -27,6 +27,8 @@
  */
 
 import { ScriptRunner } from '../services/ScriptRunner.js';
+import { buildProjectScopeWhere } from '../services/ProjectScopeService.js';
+import { compileToAST } from '../services/ast/compiler.js';
 
 export const agenticResolvers = {
     Query: {
@@ -46,25 +48,27 @@ export const agenticResolvers = {
 
         scripts: async (_parent: any, _args: any, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
             return await context.prisma.script.findMany({
-                where: { userId: context.user.id, existent: true },
+                where: { userId: context.user.id, existent: true, ...scope },
                 orderBy: { createdAt: 'desc' },
             });
-
         },
 
         script: async (_parent: any, { name, userId }: { name: string, userId?: string }, context: any) => {
             if (!context.user && !userId) throw new Error('Unauthorized');
             const targetUserId = userId || context.user.id;
-            return await context.prisma.script.findUnique({
-                where: { name }
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+            return await context.prisma.script.findFirst({
+                where: { name, ...scope }
             });
         },
 
         conversations: async (_parent: any, { skip, take }: any, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
             return await context.prisma.conversation.findMany({
-                where: { existent: true },
+                where: { existent: true, ...scope },
                 skip: skip || 0,
                 take: take || 20,
                 orderBy: { updatedAt: 'desc' },
@@ -74,8 +78,9 @@ export const agenticResolvers = {
 
         conversation: async (_parent: any, { id }: { id: number }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
-            return await context.prisma.conversation.findUnique({
-                where: { id },
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+            return await context.prisma.conversation.findFirst({
+                where: { id, ...scope },
                 include: {
                     requests: { orderBy: { createdAt: 'desc' }, include: { template: true } },
                     responses: { orderBy: { createdAt: 'desc' } },
@@ -85,8 +90,9 @@ export const agenticResolvers = {
 
         conversationByExternalId: async (_parent: any, { externalId }: { externalId: string }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
-            return await context.prisma.conversation.findUnique({
-                where: { externalId },
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+            return await context.prisma.conversation.findFirst({
+                where: { externalId, ...scope },
                 include: {
                     user: true,
                     requests: {
@@ -100,8 +106,8 @@ export const agenticResolvers = {
 
         requests: async (_parent: any, { status, skip, take }: any, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
-            const where: any = { existent: true };
-
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+            const where: any = { existent: true, ...scope };
             if (status) where.status = status;
 
             return await context.prisma.request.findMany({
@@ -115,8 +121,9 @@ export const agenticResolvers = {
 
         agents: async (_parent: any, _args: any, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
             return await context.prisma.agent.findMany({
-                where: { userId: context.user.id, existent: true },
+                where: { userId: context.user.id, existent: true, ...scope },
                 orderBy: { updatedAt: 'desc' },
             });
         },
@@ -125,8 +132,9 @@ export const agenticResolvers = {
         agent: async (_parent: any, { name, userId }: { name: string, userId?: string }, context: any) => {
             if (!context.user && !userId) throw new Error('Unauthorized');
             const targetUserId = userId || context.user.id;
-            return await context.prisma.agent.findUnique({
-                where: { name }
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+            return await context.prisma.agent.findFirst({
+                where: { name, ...scope }
             });
         },
 
@@ -152,6 +160,7 @@ export const agenticResolvers = {
                     body: body || null,
                     toolCalls: toolCalls || null,
                     userId: context.user.id,
+                    projectId: context.activeProjectId || null,
                 },
             });
         },
@@ -159,17 +168,29 @@ export const agenticResolvers = {
         upsertScript: async (_parent: any, { name, body, toolCalls }: any, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             const userId = context.user.id;
-            return await context.prisma.script.upsert({
-                where: { name },
-                update: {
-                    body: body || null,
-                    toolCalls: toolCalls || null,
-                },
-                create: {
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+            
+            const existing = await context.prisma.script.findFirst({
+                where: { name, ...scope }
+            });
+
+            if (existing) {
+                return await context.prisma.script.update({
+                    where: { id: existing.id },
+                    data: {
+                        body: body || null,
+                        toolCalls: toolCalls || null,
+                    }
+                });
+            }
+
+            return await context.prisma.script.create({
+                data: {
                     name,
                     body: body || null,
                     toolCalls: toolCalls || null,
                     userId,
+                    projectId: context.activeProjectId || null,
                 }
             });
         },
@@ -179,33 +200,49 @@ export const agenticResolvers = {
 
             let convId = conversationId;
             if (!convId) {
-                const conv = await context.prisma.conversation.create({ data: { userId: context.user.id } });
+                const conv = await context.prisma.conversation.create({
+                    data: {
+                        userId: context.user.id,
+                        projectId: context.activeProjectId || null,
+                    }
+                });
                 convId = conv.id;
             }
-
-            const finalToolCalls = toolCalls;
-            const primaryToolName = Array.isArray(finalToolCalls) && finalToolCalls.length > 0 ? finalToolCalls[0].name : null;
-            const primaryToolArgs = Array.isArray(finalToolCalls) && finalToolCalls.length > 0 ? finalToolCalls[0].args : null;
-            const primaryCallbacks = Array.isArray(finalToolCalls) && finalToolCalls.length > 0 ? finalToolCalls[0].callbacks : null;
 
             let resolvedScriptId = scriptId || null;
             if (body && !resolvedScriptId) {
                 const inlineScript = await context.prisma.script.create({
-                    data: { name: `inline_${Date.now()}`, body, userId: context.user.id },
+                    data: {
+                        name: `inline_${Date.now()}`,
+                        body,
+                        userId: context.user.id,
+                        projectId: context.activeProjectId || null,
+                    },
                 });
                 resolvedScriptId = inlineScript.id;
             }
+
+            let scriptAst = null;
+            if (resolvedScriptId) {
+                const script = await context.prisma.script.findUnique({ where: { id: resolvedScriptId } });
+                if (script) {
+                    scriptAst = script.ast || (script.toolCalls ? compileToAST(script.toolCalls as any[]) : null);
+                }
+            } else if (toolCalls) {
+                scriptAst = compileToAST(toolCalls);
+            }
+
+            const primaryToolName = scriptAst && (scriptAst as any).steps?.[0]?.tool || 'AST_Root';
 
             return await context.prisma.request.create({
                 data: {
                     status: 'NEW',
                     toolName: primaryToolName,
-                    toolArgs: primaryToolArgs,
-                    callbacks: primaryCallbacks,
                     scriptId: resolvedScriptId,
-                    toolCalls: finalToolCalls || null,
+                    ast: scriptAst as any,
                     conversationId: convId,
                     userId: context.user.id,
+                    projectId: context.activeProjectId || null,
                 },
                 include: { script: true, conversation: true },
             });
@@ -213,7 +250,12 @@ export const agenticResolvers = {
 
         createConversation: async (_parent: any, _args: any, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
-            return await context.prisma.conversation.create({ data: { userId: context.user.id } });
+            return await context.prisma.conversation.create({
+                data: {
+                    userId: context.user.id,
+                    projectId: context.activeProjectId || null,
+                }
+            });
         },
 
         executeRequest: async (_parent: any, { scriptId, body, toolCalls, conversationId, timeoutMs }: any, context: any) => {
@@ -224,33 +266,49 @@ export const agenticResolvers = {
 
             let convId = conversationId;
             if (!convId) {
-                const conv = await context.prisma.conversation.create({ data: { userId: context.user.id } });
+                const conv = await context.prisma.conversation.create({
+                    data: {
+                        userId: context.user.id,
+                        projectId: context.activeProjectId || null,
+                    }
+                });
                 convId = conv.id;
             }
-
-            const finalToolCalls = toolCalls;
-            const primaryToolName = Array.isArray(finalToolCalls) && finalToolCalls.length > 0 ? finalToolCalls[0].name : null;
-            const primaryToolArgs = Array.isArray(finalToolCalls) && finalToolCalls.length > 0 ? finalToolCalls[0].args : null;
-            const primaryCallbacks = Array.isArray(finalToolCalls) && finalToolCalls.length > 0 ? finalToolCalls[0].callbacks : null;
 
             let resolvedScriptId = scriptId || null;
             if (body && !resolvedScriptId) {
                 const inlineScript = await context.prisma.script.create({
-                    data: { name: `inline_${Date.now()}`, body, userId: context.user.id },
+                    data: {
+                        name: `inline_${Date.now()}`,
+                        body,
+                        userId: context.user.id,
+                        projectId: context.activeProjectId || null,
+                    },
                 });
                 resolvedScriptId = inlineScript.id;
             }
+
+            let scriptAst = null;
+            if (resolvedScriptId) {
+                const script = await context.prisma.script.findUnique({ where: { id: resolvedScriptId } });
+                if (script) {
+                    scriptAst = script.ast || (script.toolCalls ? compileToAST(script.toolCalls as any[]) : null);
+                }
+            } else if (toolCalls) {
+                scriptAst = compileToAST(toolCalls);
+            }
+
+            const primaryToolName = scriptAst && (scriptAst as any).steps?.[0]?.tool || 'AST_Root';
 
             const created = await context.prisma.request.create({
                 data: {
                     status: 'NEW',
                     toolName: primaryToolName,
-                    toolArgs: primaryToolArgs,
-                    callbacks: primaryCallbacks,
                     scriptId: resolvedScriptId,
-                    toolCalls: finalToolCalls || null,
+                    ast: scriptAst as any,
                     conversationId: convId,
                     userId: context.user.id,
+                    projectId: context.activeProjectId || null,
                 },
             });
 
@@ -287,7 +345,12 @@ export const agenticResolvers = {
 
             let convId = conversationId;
             if (!convId) {
-                const conv = await context.prisma.conversation.create({ data: { userId: context.user.id } });
+                const conv = await context.prisma.conversation.create({
+                    data: {
+                        userId: context.user.id,
+                        projectId: context.activeProjectId || null,
+                    }
+                });
                 convId = conv.id;
             }
 
@@ -298,28 +361,36 @@ export const agenticResolvers = {
 
             let resolvedScriptId: number | null = null;
             if (name) {
-                const script = await context.prisma.script.upsert({
-                    where: { name },
-                    update: { body: body || null, toolCalls: finalToolCalls || toolCalls || null },
-                    create: { name, body: body || null, toolCalls: finalToolCalls || toolCalls || null, userId: context.user.id },
+                const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+                const existingScript = await context.prisma.script.findFirst({
+                    where: { name, ...scope }
                 });
+                let script;
+                if (existingScript) {
+                    script = await context.prisma.script.update({
+                        where: { id: existingScript.id },
+                        data: { body: body || null, toolCalls: finalToolCalls || toolCalls || null },
+                    });
+                } else {
+                    script = await context.prisma.script.create({
+                        data: { name, body: body || null, toolCalls: finalToolCalls || toolCalls || null, userId: context.user.id, projectId: context.activeProjectId || null },
+                    });
+                }
                 resolvedScriptId = script.id;
             }
 
-            const primaryToolName = Array.isArray(finalToolCalls) && finalToolCalls.length > 0 ? finalToolCalls[0].name : null;
-            const primaryToolArgs = Array.isArray(finalToolCalls) && finalToolCalls.length > 0 ? finalToolCalls[0].args : null;
-            const primaryCallbacks = Array.isArray(finalToolCalls) && finalToolCalls.length > 0 ? finalToolCalls[0].callbacks : null;
+            const scriptAst = finalToolCalls ? compileToAST(finalToolCalls) : null;
+            const primaryToolName = scriptAst && (scriptAst as any).steps?.[0]?.tool || 'AST_Root';
 
             return await context.prisma.request.create({
                 data: {
                     status: 'NEW',
                     scriptId: resolvedScriptId,
                     toolName: primaryToolName,
-                    toolArgs: primaryToolArgs,
-                    callbacks: primaryCallbacks,
-                    toolCalls: finalToolCalls,
+                    ast: scriptAst as any,
                     conversationId: convId,
                     userId: context.user.id,
+                    projectId: context.activeProjectId || null,
                 },
                 include: { script: true, conversation: true },
             });
@@ -333,7 +404,12 @@ export const agenticResolvers = {
 
             let convId = conversationId;
             if (!convId) {
-                const conv = await context.prisma.conversation.create({ data: { userId: context.user.id } });
+                const conv = await context.prisma.conversation.create({
+                    data: {
+                        userId: context.user.id,
+                        projectId: context.activeProjectId || null,
+                    }
+                });
                 convId = conv.id;
             }
 
@@ -344,28 +420,36 @@ export const agenticResolvers = {
 
             let resolvedScriptId: number | null = null;
             if (name) {
-                const script = await context.prisma.script.upsert({
-                    where: { name },
-                    update: { body: body || null, toolCalls: finalToolCalls || toolCalls || null },
-                    create: { name, body: body || null, toolCalls: finalToolCalls || toolCalls || null, userId: context.user.id },
+                const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+                const existingScript = await context.prisma.script.findFirst({
+                    where: { name, ...scope }
                 });
+                let script;
+                if (existingScript) {
+                    script = await context.prisma.script.update({
+                        where: { id: existingScript.id },
+                        data: { body: body || null, toolCalls: finalToolCalls || toolCalls || null },
+                    });
+                } else {
+                    script = await context.prisma.script.create({
+                        data: { name, body: body || null, toolCalls: finalToolCalls || toolCalls || null, userId: context.user.id, projectId: context.activeProjectId || null },
+                    });
+                }
                 resolvedScriptId = script.id;
             }
 
-            const primaryToolName = Array.isArray(finalToolCalls) && finalToolCalls.length > 0 ? finalToolCalls[0].name : null;
-            const primaryToolArgs = Array.isArray(finalToolCalls) && finalToolCalls.length > 0 ? finalToolCalls[0].args : null;
-            const primaryCallbacks = Array.isArray(finalToolCalls) && finalToolCalls.length > 0 ? finalToolCalls[0].callbacks : null;
+            const scriptAst = finalToolCalls ? compileToAST(finalToolCalls) : null;
+            const primaryToolName = scriptAst && (scriptAst as any).steps?.[0]?.tool || 'AST_Root';
 
             const created = await context.prisma.request.create({
                 data: {
                     status: 'NEW',
                     scriptId: resolvedScriptId,
                     toolName: primaryToolName,
-                    toolArgs: primaryToolArgs,
-                    callbacks: primaryCallbacks,
-                    toolCalls: finalToolCalls,
+                    ast: scriptAst as any,
                     conversationId: convId,
                     userId: context.user.id,
+                    projectId: context.activeProjectId || null,
                 },
             });
 
@@ -399,12 +483,19 @@ export const agenticResolvers = {
 
         createAgent: async (_parent: any, { input }: { input: any }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+            const script = await context.prisma.script.findFirst({
+                where: { id: input.scriptId, ...scope }
+            });
+            if (!script) throw new Error('Script not found or outside active project scope');
+
             return await context.prisma.agent.create({
                 data: {
                     name: input.name,
                     scriptId: input.scriptId,
                     schedule: input.schedule || 'every 1 hour',
                     userId: context.user.id,
+                    projectId: context.activeProjectId || null,
                 },
                 include: { user: true, script: true },
             });
@@ -412,9 +503,21 @@ export const agenticResolvers = {
 
         updateAgent: async (_parent: any, { id, input }: { id: string; input: any }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+            const agent = await context.prisma.agent.findFirst({
+                where: { id, ...scope }
+            });
+            if (!agent) throw new Error('Agent not found or outside active project scope');
+
             const data: any = {};
             if (input.name !== undefined) data.name = input.name;
-            if (input.scriptId !== undefined) data.scriptId = input.scriptId;
+            if (input.scriptId !== undefined) {
+                const script = await context.prisma.script.findFirst({
+                    where: { id: input.scriptId, ...scope }
+                });
+                if (!script) throw new Error('Script not found or outside active project scope');
+                data.scriptId = input.scriptId;
+            }
             if (input.schedule !== undefined) data.schedule = input.schedule;
 
             return await context.prisma.agent.update({
@@ -427,32 +530,54 @@ export const agenticResolvers = {
         upsertAgentWithScript: async (_parent: any, { input }: { input: any }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             const userId = context.user.id;
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
 
-            const script = await context.prisma.script.upsert({
-                where: { name: input.scriptName },
-                update: {
-                    body: input.body || null,
-                    toolCalls: input.toolCalls || null,
-                },
-                create: {
-                    name: input.scriptName,
-                    body: input.body || null,
-                    toolCalls: input.toolCalls || null,
-                    userId,
-                }
+            const existingScript = await context.prisma.script.findFirst({
+                where: { name: input.scriptName, ...scope }
+            });
+            let script;
+            if (existingScript) {
+                script = await context.prisma.script.update({
+                    where: { id: existingScript.id },
+                    data: {
+                        body: input.body || null,
+                        toolCalls: input.toolCalls || null,
+                    }
+                });
+            } else {
+                script = await context.prisma.script.create({
+                    data: {
+                        name: input.scriptName,
+                        body: input.body || null,
+                        toolCalls: input.toolCalls || null,
+                        userId,
+                        projectId: context.activeProjectId || null,
+                    }
+                });
+            }
+
+            const existingAgent = await context.prisma.agent.findFirst({
+                where: { name: input.agentName, ...scope }
             });
 
-            return await context.prisma.agent.upsert({
-                where: { name: input.agentName },
-                update: {
-                    scriptId: script.id,
-                    schedule: input.schedule,
-                },
-                create: {
+            if (existingAgent) {
+                return await context.prisma.agent.update({
+                    where: { id: existingAgent.id },
+                    data: {
+                        scriptId: script.id,
+                        schedule: input.schedule,
+                    },
+                    include: { user: true, script: true }
+                });
+            }
+
+            return await context.prisma.agent.create({
+                data: {
                     name: input.agentName,
                     scriptId: script.id,
                     schedule: input.schedule,
                     userId,
+                    projectId: context.activeProjectId || null,
                 },
                 include: { user: true, script: true },
             });
@@ -460,6 +585,12 @@ export const agenticResolvers = {
 
         toggleAgent: async (_parent: any, { id, enabled }: { id: string; enabled: boolean }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+            const agent = await context.prisma.agent.findFirst({
+                where: { id, ...scope }
+            });
+            if (!agent) throw new Error('Agent not found or outside active project scope');
+
             return await context.prisma.agent.update({
                 where: { id },
                 data: { enabled },
@@ -469,15 +600,21 @@ export const agenticResolvers = {
 
         triggerAgent: async (_parent: any, { id }: { id: string }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
-            // Create a request from this agent's context
-            const agent = await context.prisma.agent.findUnique({ where: { id } });
-            if (!agent) throw new Error('Agent not found');
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+            const agent = await context.prisma.agent.findFirst({ where: { id, ...scope } });
+            if (!agent) throw new Error('Agent not found or outside active project scope');
 
-            const conv = await context.prisma.conversation.create({ data: { userId: context.user.id } });
+            const conv = await context.prisma.conversation.create({
+                data: {
+                    userId: context.user.id,
+                    projectId: context.activeProjectId || null,
+                }
+            });
             return await context.prisma.request.create({
                 data: {
                     status: 'NEW',
                     conversationId: conv.id,
+                    projectId: context.activeProjectId || null,
                 },
                 include: { conversation: true },
             });
@@ -529,7 +666,6 @@ export const agenticResolvers = {
             if (request.children) return request.children;
             return await context.prisma.request.findMany({ where: { parentId: request.id } });
         },
-        toolCalls: (request: any) => request.toolCalls ? (Array.isArray(request.toolCalls) ? request.toolCalls : []) : [],
         conversation: async (request: any, _args: any, context: any) => {
             if (request.conversation) return request.conversation;
             return await context.prisma.conversation.findUnique({ where: { id: request.conversationId } });
@@ -553,7 +689,6 @@ export const agenticResolvers = {
             return await context.prisma.conversation.findUnique({ where: { id: response.conversationId } });
         },
 
-        toolCalls: (response: any) => response.toolCalls ? (Array.isArray(response.toolCalls) ? response.toolCalls : []) : [],
         data: (response: any) => {
             if (!response.content) return null;
             try {

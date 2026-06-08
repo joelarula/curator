@@ -1,0 +1,57 @@
+// server/src/schema/declarations.sasl
+// Abstract Entity Model declarations mapping to the lower-level Resource and Relation triples.
+
+// Standalone Predicates (Primitive Schema Blocks)
+predicate schema:headline String
+predicate schema:datePublished DateTime
+predicate schema:author Person
+predicate schema:about Category
+predicate schema:provider Feed
+predicate schema:status ArticleStatus
+
+
+
+model NewsArticle {
+  uri         String         @id
+  headline    String         @predicate("schema:headline")
+  publishedAt DateTime       @predicate("schema:datePublished")
+  author      Person         @relation("schema:author")
+  categories  Category[]     @relation("schema:about")
+  status      ArticleStatus  @relation("schema:status")
+}
+
+enum ArticleStatus {
+  DRAFT      @uri("status:draft")
+  PUBLISHED  @uri("status:published")
+}
+
+
+model Person {
+  uri         String         @id
+  name        String         @predicate("schema:name")
+  email       String         @predicate("schema:email")
+}
+
+model Category {
+  uri         String         @id
+  title       String         @predicate("schema:title")
+  notation    String         @predicate("schema:notation")
+  articles    NewsArticle[]  @relation("schema:about") @inverse
+}
+
+model Feed {
+  uri         String         @id
+  title       String         @predicate("schema:title")
+  url         String         @predicate("schema:url")
+  items       NewsArticle[]  @relation("schema:provider")
+}
+
+model WikiPage {
+  uri         String         @id
+  title       String         @predicate("wiki:title")
+  slug        String         @predicate("wiki:slug")
+  content     String         @predicate("wiki:content")
+  creator     Person         @relation("wiki:creator")
+  tags        Category[]     @relation("wiki:tag")
+}
+

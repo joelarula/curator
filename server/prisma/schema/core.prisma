@@ -19,6 +19,8 @@ model Project {
   conversations Conversation[]
   responses   Response[]
   resourceTrees ResourceTree[]
+  dslSchemas  DslSchema[]
+
 
 
 
@@ -242,10 +244,7 @@ model Request {
   projectId String?
   project   Project?   @relation(fields: [projectId], references: [id])
 
-  toolCalls Json? // Legacy
   ast       Json? // Formal Execution AST
-  toolArgs  Json?
-  callbacks Json?
   context   Json?
 
 
@@ -287,7 +286,6 @@ model Response {
   conversationId Int
   conversation   Conversation @relation(fields: [conversationId], references: [id])
   content        String       @db.Text
-  toolCalls      Json?
   aiModelId      Int?
   aiModel        AIModel?     @relation(fields: [aiModelId], references: [id])
 
@@ -413,4 +411,23 @@ model UdcLookup {
   @@index([notation, existent])
   @@index([existent])
 }
+
+model DslSchema {
+  id          String    @id @default(cuid())
+  name        String    // e.g. "NewsArticle"
+  type        String    // "MODEL" | "ENUM" | "PREDICATE"
+  definition  String    @db.Text // The SASL definition snippet
+
+  projectId   String?
+  project     Project?  @relation(fields: [projectId], references: [id])
+
+  existent    Boolean?  @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([projectId, name])
+  @@index([existent])
+  @@index([projectId])
+}
+
 

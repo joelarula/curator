@@ -37,21 +37,30 @@ export async function ensureSystemProject(prisma: PrismaClient) {
   return { systemUser, systemProject };
 }
 
-export function getReadableProjectIds(activeProjectId?: string | null) {
+export function getReadableProjectIds(activeProjectIds?: string | string[] | null) {
   const ids = new Set<string>([SYSTEM_PROJECT_ID]);
-  if (activeProjectId) ids.add(activeProjectId);
+  if (activeProjectIds) {
+    if (Array.isArray(activeProjectIds)) {
+      activeProjectIds.forEach(id => {
+        if (id) ids.add(id);
+      });
+    } else {
+      ids.add(activeProjectIds);
+    }
+  }
   return Array.from(ids);
 }
 
-export function getReadableRelationProjectWhere(activeProjectId?: string | null) {
-  if (!activeProjectId) {
-    return undefined;
-  }
-
+export function buildProjectScopeWhere(activeProjectIds?: string | string[] | null) {
+  const ids = getReadableProjectIds(activeProjectIds);
   return {
     OR: [
-      { projectId: { in: getReadableProjectIds(activeProjectId) } },
+      { projectId: { in: ids } },
       { projectId: null },
     ],
   };
+}
+
+export function getReadableRelationProjectWhere(activeProjectId?: string | null) {
+  return buildProjectScopeWhere(activeProjectId);
 }

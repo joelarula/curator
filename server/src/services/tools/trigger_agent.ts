@@ -1,4 +1,5 @@
 import { PrismaClient, Prisma } from '@prisma/client';
+import { compileToAST } from '../ast/compiler.js';
 
 /**
  * internal:trigger_agent
@@ -25,13 +26,13 @@ export async function trigger_agent(args: { agentId: string }, prisma: PrismaCli
     // 2. Create the primary Request for the agent's script
     const toolCalls = agent.script.toolCalls as any[];
     const primaryToolName = Array.isArray(toolCalls) && toolCalls.length > 0 ? toolCalls[0].name : null;
+    const scriptAst = agent.script.ast || (agent.script.toolCalls ? compileToAST(agent.script.toolCalls as any[]) : null);
 
     const request = await prisma.request.create({
         data: {
             status: 'NEW',
             toolName: primaryToolName,
-            toolArgs: toolCalls[0]?.args ?? null,
-            toolCalls: agent.script.toolCalls ? (agent.script.toolCalls as Prisma.InputJsonValue) : Prisma.DbNull,
+            ast: scriptAst as any,
             scriptId: agent.scriptId,
             userId,
             conversationId: conversation.id,
@@ -55,7 +56,17 @@ export async function trigger_agent(args: { agentId: string }, prisma: PrismaCli
                 data: {
                     status: 'NEW',
                     toolName: 'internal:trigger_agent',
-                    toolArgs: { agentId: agent.id },
+                    ast: {
+                        type: 'Sequence',
+                        steps: [
+                            {
+                                id: 'trigger_agent',
+                                type: 'ToolTask',
+                                tool: 'internal:trigger_agent',
+                                args: { agentId: agent.id }
+                            }
+                        ]
+                    } as any,
                     userId,
                     conversationId: conversation.id, 
                     executionScheduled: nextDate,

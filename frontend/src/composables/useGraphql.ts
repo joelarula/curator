@@ -48,9 +48,10 @@ export async function graphql(query: string, variables: any = {}) {
   try {
     let result: any;
     if (isExtensionContext()) {
+      const activeProjectId = localStorage.getItem('activeProjectId') || ''
       result = await new Promise((resolve, reject) => {
         chrome.runtime.sendMessage(
-          { type: 'GRAPHQL_REQUEST', payload: { query, variables } },
+          { type: 'GRAPHQL_REQUEST', payload: { query, variables, activeProjectId } },
           (resp) => {
             if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
             resolve(resp);

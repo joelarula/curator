@@ -77,6 +77,20 @@ Prefer this change order for feature work:
 3. Frontend consumption
 4. Extensions and external clients
 
+### 4.4 Unified Project Scoping Rule
+
+- Database entities (Resources, Relations, Texts, Agents, Scripts, Conversations, Requests, Responses) must always be queried and updated within the scope of the **active project IDs** plus the global `'system'` project.
+- Active project IDs are resolved dynamically on the backend (passed as a header list `x-project-id` or loaded from the user's session record `Session.activeProjectId`).
+- In GraphQL resolvers, utilize `buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId)` inside Prisma `where` blocks. Do not expose active project context in query signatures.
+- For local SQLite WASM environments (e.g. Chrome Extension), multiple project databases are abstracted as standard GQL projects. The background worker maps standard GQL queries directly to the correct SQLite database file.
+
+### 4.5 Formal AST-Only Execution Schema
+
+- The `Request` and `Response` database tables execute workflows exclusively via the **Formal Execution AST** (`ast` field) and state mapping environment (`context`).
+- All legacy flat pipeline columns (`toolCalls`, `toolArgs`, `callbacks` on `Request` / `Response`) are deleted from both PostgreSQL and SQLite schemas.
+- Whenever dynamic scripts or sequential commands are submitted/run, they must compile using `compileToAST` into the structured AST JSON format before creating database request tasks.
+- The execution processor (`RequestProcessor`) polls for new requests and recursively executes the compiled nodes (`Sequence`, `ForEach`, `IfElse`, `Spawn`, `While`, `ToolTask`).
+
 ## 5. Module-by-module run and validation commands
 
 ## Root

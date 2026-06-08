@@ -205,43 +205,20 @@ async function initDatabase() {
     const adapter = new SQLiteWasmAdapter(db);
     prisma = new PrismaClient({ adapter });
 
-    // Build the executable GraphQL schema
-    const extensionTypeDefs = `
-      type DatabaseInfo {
-        id: ID!
-        name: String!
-      }
-
-      type DbRegistry {
-        activeId: ID!
-        databases: [DatabaseInfo!]!
-      }
-
-      extend type Query {
-        dbRegistry: DbRegistry!
-      }
-
-      extend type Mutation {
-        switchDatabase(id: ID!): Boolean!
-        createDatabase(name: String!): Boolean!
-        deleteDatabase(id: ID!): Boolean!
-      }
-    `;
-
     const extensionResolvers = {
         Query: {
-            dbRegistry: async () => await getDbRegistry()
+            projects: async () => {
+                const registry = await getDbRegistry();
+                return registry.databases;
+            }
         },
         Mutation: {
-            switchDatabase: async (_parent: any, { id }: { id: string }) => {
-                await switchDatabase(id);
-                return true;
-            },
-            createDatabase: async (_parent: any, { name }: { name: string }) => {
+            createProject: async (_parent: any, { name }: { name: string }) => {
                 await createDatabase(name);
-                return true;
+                const registry = await getDbRegistry();
+                return registry.databases[registry.databases.length - 1];
             },
-            deleteDatabase: async (_parent: any, { id }: { id: string }) => {
+            deleteProject: async (_parent: any, { id }: { id: string }) => {
                 await deleteDatabase(id);
                 return true;
             }
@@ -249,7 +226,7 @@ async function initDatabase() {
     };
 
     schema = makeExecutableSchema({ 
-        typeDefs: [typeDefs, extensionTypeDefs], 
+        typeDefs: [typeDefs], 
         resolvers: [resolvers, extensionResolvers] 
     });
 
@@ -343,6 +320,8 @@ async function enqueueGraphQL(query: string, variables: any, userId: string): Pr
                         contextValue: {
                             prisma,
                             user: { id: userId },
+                            activeProjectId: currentDbId,
+                            activeProjectIds: [currentDbId],
                             agentScheduler:    { getState: () => ({ isRunning: false, activeJobs: 0 }) },
                             requestProcessor:  { getState: () => ({ isRunning: false, requestsProcessed: 0 }) },
                         },
@@ -361,7 +340,7 @@ async function enqueueGraphQL(query: string, variables: any, userId: string): Pr
 // "still initializing" error when the popup opens before the WASM DB boots.
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type === 'GRAPHQL_REQUEST') {
-        const { query, variables, userId = 'curator-extension-user' } = message.payload;
+        const { query, variables, activeProjectId, userId = 'curator-extension-user' } = message.payload;
 
         console.log('[Curator Extension] Intercepted GraphQL Request:', query, variables);
 
@@ -370,6 +349,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         (async () => {
             // Wait for full DB + Prisma + schema initialisation before proceeding.
             await dbReadyPromise;
+
+            // Switch database if client requested a different active project
+            if (activeProjectId && activeProjectId !== currentDbId) {
+                console.log(`[Curator Extension] Auto-switching database to match active project ID: ${activeProjectId}`);
+                await switchDatabase(activeProjectId);
+            }
 
             await logEvent('INFO', 'GRAPHQL_REQUEST', `Query: ${query.trim().split('\n')[0]}...`, { query, variables });
 

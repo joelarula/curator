@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { ScriptRunner } from '../ScriptRunner.js';
+import { compileToAST } from '../ast/compiler.js';
 
 /**
  * execute_script tool — the unified executor for Scripts (formerly PromptTemplates).
@@ -35,7 +36,7 @@ export async function executeScript(
         if (cleanBody.includes('```')) {
             const match = cleanBody.match(/```(?:typescript|javascript)?\s*([\s\S]*?)\s*```/);
             if (match) {
-                cleanBody = match[1];
+                cleanBody = match[1] || '';
             }
         }
         console.log(`[Tools] execute_script: running inline script (${cleanBody.length} chars)`);
@@ -99,9 +100,7 @@ export async function executeScript(
         data: {
             status: 'NEW',
             toolName: primaryToolName,
-            toolArgs: toolArgs ?? null,
-            callbacks: callbacks ?? null,
-            toolCalls: toolCalls as any,
+            ast: isAst ? (toolCalls as any) : compileToAST(toolCalls as any[]),
             scriptId: resolvedScriptId,
             userId,
             conversationId: request.conversationId,

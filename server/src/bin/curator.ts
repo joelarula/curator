@@ -11,6 +11,7 @@ import { Command } from 'commander';
 import { Curator, CuratorBuilder } from '../services/Curator.js';
 import { getRegisteredTools } from '../services/Tools.js';
 import { TOOL_NAMES } from '../services/tools/manifest.js';
+import { ensureDefaultProject } from '../services/DefaultProjectService.js';
 
 const program = new Command();
 const TOOL_NAME_SET = new Set<string>(TOOL_NAMES);
@@ -20,6 +21,8 @@ type CliOptions = {
   reset?: boolean;
   printAst?: boolean;
   dryRun?: boolean;
+  user?: string;
+  project?: string;
 };
 
 type StageMode = 'chain' | 'spawn';
@@ -166,6 +169,26 @@ function parsePipelineTokens(initialTool: string, tokens: string[]): { stages: P
       continue;
     }
 
+    if (token === '--user') {
+      const user = tokens[i + 1];
+      if (!user || user.startsWith('--')) {
+        throw new Error('Expected a user email or ID after --user');
+      }
+      options.user = user;
+      i += 2;
+      continue;
+    }
+
+    if (token === '--project') {
+      const project = tokens[i + 1];
+      if (!project || project.startsWith('--')) {
+        throw new Error('Expected a project ID after --project');
+      }
+      options.project = project;
+      i += 2;
+      continue;
+    }
+
     if (token === '--reset') {
       options.reset = true;
       i += 1;
@@ -246,23 +269,73 @@ async function connectPrisma(opts: CliOptions): Promise<{ prisma: PrismaClient; 
   return { prisma, pool };
 }
 
-async function executeAstRequest(prisma: PrismaClient, ast: any, title: string = 'PIPELINE'): Promise<void> {
+async function resolveUserAndProject(prisma: PrismaClient, opts: CliOptions) {
+  let user = null;
+  if (opts.user) {
+    user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { id: opts.user },
+          { email: opts.user }
+        ]
+      }
+    });
+    if (!user) {
+      if (opts.user.includes('@')) {
+        console.log(`[Curator] User "${opts.user}" not found. Auto-creating user...`);
+        user = await prisma.user.create({
+          data: {
+            email: opts.user,
+            name: opts.user.split('@')[0]
+          }
+        });
+      } else {
+        throw new Error(`User "${opts.user}" not found.`);
+      }
+    }
+  } else {
+    user = await prisma.user.findFirst();
+    if (!user) throw new Error('No user found in database.');
+  }
+
+  let projectId = opts.project || null;
+  if (projectId) {
+    const project = await prisma.project.findFirst({
+      where: {
+        id: projectId,
+        userId: user.id
+      }
+    });
+    if (!project && projectId !== 'system') {
+      console.warn(`[Warning] Project context "${projectId}" not found or not owned by user "${user.id}".`);
+    }
+  } else {
+    const defaultProject = await ensureDefaultProject(prisma as any, user.id);
+    projectId = defaultProject.id;
+  }
+
+  return { userId: user.id, projectId };
+}
+
+async function executeAstRequest(
+  prisma: PrismaClient, 
+  ast: any, 
+  title: string = 'PIPELINE',
+  userId: string,
+  projectId: string | null = null
+): Promise<void> {
   const processor = new RequestProcessor(prisma);
   processor.isAdHoc = true;
 
-  console.log('[Curator] Resolving user...');
-  const user = await prisma.user.findFirst();
-  if (!user) throw new Error('No user found in database.');
-  console.log(`[Curator] User resolved: ${user.id}`);
-
-  let conversation = await prisma.conversation.findFirst({ where: { userId: user.id } });
+  let conversation = await prisma.conversation.findFirst({ where: { userId } });
   if (!conversation) {
-    conversation = await prisma.conversation.create({ data: { userId: user.id } });
+    conversation = await prisma.conversation.create({ data: { userId } });
   }
 
   const request = await prisma.request.create({
     data: {
-      userId: user.id,
+      userId,
+      projectId,
       conversationId: conversation.id,
       toolName: 'AST_Root',
       ast,
@@ -310,6 +383,8 @@ program
   .option('--reset', 'Force reset (delete) the SQLite database before running the script')
   .option('--print-ast', 'Print the resolved AST and continue execution')
   .option('--dry-run', 'Resolve and print AST only, without creating a Request')
+  .option('--user <email_or_id>', 'Run the script as a specific user (email or ID)')
+  .option('--project <id>', 'Run the script under a specific project context')
   .action(async (scriptArg: string, argsArg: string[], opts: CliOptions) => {
     const scriptPath = path.resolve(scriptArg);
     const scriptArgsStr = argsArg.join(' ');
@@ -327,18 +402,16 @@ program
     const { prisma, pool } = await connectPrisma(opts);
 
     try {
-      console.log('[Curator] Resolving user...');
-      const user = await prisma.user.findFirst();
-      if (!user) throw new Error('No user found in database.');
-      console.log(`[Curator] User resolved: ${user.id}`);
+      const { userId, projectId } = await resolveUserAndProject(prisma, opts);
+      console.log(`[Curator] User resolved: ${userId}, Project resolved: ${projectId || 'None'}`);
 
       console.log(`[Curator] Importing script: ${scriptPath}`);
       (Curator as any).setArgs(scriptArgs, scriptArgsStr);
 
       // Resolve or create a conversation
-      let conversation = await prisma.conversation.findFirst({ where: { userId: user.id } });
+      let conversation = await prisma.conversation.findFirst({ where: { userId } });
       if (!conversation) {
-        conversation = await prisma.conversation.create({ data: { userId: user.id } });
+        conversation = await prisma.conversation.create({ data: { userId } });
       }
 
       // Resolve the AST to execute
@@ -349,7 +422,7 @@ program
         const fs = await import('node:fs');
         const { ScriptRunner } = await import('../services/ScriptRunner.js');
         const fileContent = fs.readFileSync(scriptPath, 'utf-8');
-        ast = await ScriptRunner.evaluate(fileContent, scriptArgs, prisma, user.id);
+        ast = await ScriptRunner.evaluate(fileContent, scriptArgs, prisma, userId);
       } else {
         const { pathToFileURL } = await import('node:url');
         const imported = await import(pathToFileURL(scriptPath).href);
@@ -389,7 +462,7 @@ program
         return;
       }
 
-      await executeAstRequest(prisma, ast, 'SCRIPT');
+      await executeAstRequest(prisma, ast, 'SCRIPT', userId, projectId);
       console.log(`[Curator] Script execution finished.`);
     } catch (error: any) {
       console.error(`[Curator] Error: ${error.message}`);
@@ -436,7 +509,9 @@ for (const tool of getRegisteredTools()) {
 
         const { prisma, pool } = await connectPrisma(options);
         try {
-          await executeAstRequest(prisma, ast, 'PIPELINE');
+          const { userId, projectId } = await resolveUserAndProject(prisma, options);
+          console.log(`[Curator] User resolved: ${userId}, Project resolved: ${projectId || 'None'}`);
+          await executeAstRequest(prisma, ast, 'PIPELINE', userId, projectId);
           console.log('[Curator] Pipeline execution finished.');
         } finally {
           await prisma.$disconnect();

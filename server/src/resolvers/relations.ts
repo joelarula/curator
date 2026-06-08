@@ -16,7 +16,7 @@
  *   aiModel.
  */
 import { PrismaClient } from '@prisma/client';
-import { getReadableRelationProjectWhere } from '../services/ProjectScopeService.js';
+import { buildProjectScopeWhere } from '../services/ProjectScopeService.js';
 
 export const relationResolvers = {
     Query: {
@@ -27,10 +27,8 @@ export const relationResolvers = {
             if (subjectId) where.subjectId = subjectId;
             if (predicateId) where.predicateId = predicateId;
             if (objectId) where.objectId = objectId;
-            const relationProjectWhere = getReadableRelationProjectWhere(context.activeProjectId);
-            if (relationProjectWhere) {
-                Object.assign(where, relationProjectWhere);
-            }
+            const relationProjectWhere = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+            Object.assign(where, relationProjectWhere);
 
             return await context.prisma.relation.findMany({
                 where,
@@ -49,10 +47,8 @@ export const relationResolvers = {
         relation: async (_parent: any, { id }: { id: number }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             const where: any = { id };
-            const relationProjectWhere = getReadableRelationProjectWhere(context.activeProjectId);
-            if (relationProjectWhere) {
-                Object.assign(where, relationProjectWhere);
-            }
+            const relationProjectWhere = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+            Object.assign(where, relationProjectWhere);
 
             return await context.prisma.relation.findFirst({
                 where,
@@ -70,11 +66,12 @@ export const relationResolvers = {
         createRelation: async (_parent: any, { input }: { input: any }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
 
-            // Validate all three resource IDs exist
+            // Validate all three resource IDs exist and are in the allowed project scopes
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
             const [subject, predicate, object] = await Promise.all([
-                context.prisma.resource.findUnique({ where: { id: input.subjectId } }),
-                context.prisma.resource.findUnique({ where: { id: input.predicateId } }),
-                context.prisma.resource.findUnique({ where: { id: input.objectId } }),
+                context.prisma.resource.findFirst({ where: { id: input.subjectId, ...scope } }),
+                context.prisma.resource.findFirst({ where: { id: input.predicateId, ...scope } }),
+                context.prisma.resource.findFirst({ where: { id: input.objectId, ...scope } }),
             ]);
 
             if (!subject) throw new Error(`Subject resource ${input.subjectId} not found`);
@@ -102,9 +99,15 @@ export const relationResolvers = {
             });
         },
 
-        deleteRelation: async (_parent: any, { id }: { id: number }, context: any) => {
+        deleteRelation: async (_parent: any, { id }: { id: any }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
-            await context.prisma.relation.delete({ where: { id } });
+            const numericId = typeof id === 'number' ? id : parseInt(id, 10);
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+            const relation = await context.prisma.relation.findFirst({
+                where: { id: numericId, ...scope }
+            });
+            if (!relation) throw new Error('Relation not found or outside active project scope');
+            await context.prisma.relation.delete({ where: { id: numericId } });
             return true;
         },
         upsertRelation: async (_parent: any, { input }: { input: any }, context: any) => {

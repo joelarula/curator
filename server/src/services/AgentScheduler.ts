@@ -59,7 +59,17 @@ export class AgentScheduler {
                         data: {
                             status: 'NEW',
                             toolName: 'internal:trigger_agent',
-                            toolArgs: { agentId: agent.id },
+                            ast: {
+                                type: 'Sequence',
+                                steps: [
+                                    {
+                                        id: 'trigger_agent',
+                                        type: 'ToolTask',
+                                        tool: 'internal:trigger_agent',
+                                        args: { agentId: agent.id }
+                                    }
+                                ]
+                            } as any,
                             userId: agent.userId,
                             conversationId: conversation.id,
                             agentId: agent.id,

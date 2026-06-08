@@ -1,15 +1,19 @@
 import { PrismaClient } from '@prisma/client';
+import { buildProjectScopeWhere } from '../services/ProjectScopeService.js';
 
 export const graphResolvers = {
     Query: {
-        knowledgeGraph: async (_parent: any, { rootResourceId, depth = 1 }: { rootResourceId?: number, depth?: number }, { prisma }: { prisma: PrismaClient }) => {
+        knowledgeGraph: async (_parent: any, { rootResourceId, depth = 1 }: { rootResourceId?: number, depth?: number }, context: any) => {
+            if (!context.user) throw new Error('Unauthorized');
+            const { prisma } = context;
             const nodesMap = new Map<number, any>();
             const links: any[] = [];
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
 
             // If no root, fetch a subset of resources to show a global view
             const startResources = rootResourceId 
-                ? await prisma.resource.findMany({ where: { id: rootResourceId }, include: { resourceType: true } })
-                : await prisma.resource.findMany({ take: 100, include: { resourceType: true } });
+                ? await prisma.resource.findMany({ where: { id: rootResourceId, ...scope }, include: { resourceType: true } })
+                : await prisma.resource.findMany({ where: { existent: true, ...scope }, take: 100, include: { resourceType: true } });
 
             for (const res of startResources) {
                 nodesMap.set(res.id, {
@@ -26,9 +30,14 @@ export const graphResolvers = {
             
             const relations = await prisma.relation.findMany({
                 where: {
-                    OR: [
-                        { subjectId: { in: resourceIds } },
-                        { objectId: { in: resourceIds } }
+                    AND: [
+                        scope,
+                        {
+                            OR: [
+                                { subjectId: { in: resourceIds } },
+                                { objectId: { in: resourceIds } }
+                            ]
+                        }
                     ]
                 },
                 include: {
@@ -82,12 +91,16 @@ export const graphResolvers = {
         resourceTree: async (
             _parent: any,
             { treeName, rootResourceId }: { treeName: string, rootResourceId?: number },
-            { prisma }: { prisma: PrismaClient }
+            context: any
         ) => {
+            if (!context.user) throw new Error('Unauthorized');
+            const { prisma } = context;
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+
             if (rootResourceId) {
                 // Fetch specific branch using nested set logic if available
-                const rootNode = await prisma.resourceTree.findUnique({
-                    where: { treeName_resourceId: { treeName, resourceId: rootResourceId } }
+                const rootNode = await prisma.resourceTree.findFirst({
+                    where: { treeName, resourceId: rootResourceId, ...scope }
                 });
                 
                 if (!rootNode) return [];
@@ -96,7 +109,8 @@ export const graphResolvers = {
                     where: {
                         treeName,
                         treeStart: { gte: rootNode.treeStart },
-                        treeEnd: { lte: rootNode.treeEnd }
+                        treeEnd: { lte: rootNode.treeEnd },
+                        ...scope
                     },
                     include: { resource: true },
                     orderBy: { treeStart: 'asc' }
@@ -104,7 +118,7 @@ export const graphResolvers = {
             } else {
                 // Fetch top-level nodes
                 return prisma.resourceTree.findMany({
-                    where: { treeName, depth: 0 },
+                    where: { treeName, depth: 0, ...scope },
                     include: { resource: true },
                     orderBy: { treeStart: 'asc' }
                 });

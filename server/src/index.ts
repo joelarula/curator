@@ -231,12 +231,47 @@ async function startServer() {
           || req.cookies?.jwt
           || (req.query?.token as string)
           || '';
-        const activeProjectId = (req.headers['x-project-id'] as string | undefined)?.trim() || null;
+        const headerVal = req.headers['x-project-id'] as string | undefined;
+        let activeProjectIds = headerVal
+          ? headerVal.split(',').map(s => s.trim()).filter(Boolean)
+          : [];
+        let activeProjectId = activeProjectIds[0] || null;
         const user = await getUserFromToken(token, prisma);
+
+        if (user && token) {
+          try {
+            // Find or create session database record for the token
+            const session = await prisma.session.upsert({
+              where: { token },
+              update: {},
+              create: {
+                token,
+                userId: user.id,
+                expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days fallback
+              }
+            });
+
+            if (activeProjectId) {
+              // Write users selected project into session data
+              await prisma.session.update({
+                where: { id: session.id },
+                data: { activeProjectId }
+              });
+            } else if (session.activeProjectId) {
+              // Fallback to activeProjectId stored in session if none sent by header
+              activeProjectId = session.activeProjectId;
+              activeProjectIds = [session.activeProjectId];
+            }
+          } catch (err) {
+            console.error('Session project update failed:', err);
+          }
+        }
+
         return {
           user,
           prisma,
           activeProjectId,
+          activeProjectIds,
           agentScheduler,
           requestProcessor
         };

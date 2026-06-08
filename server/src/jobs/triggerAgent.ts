@@ -5,6 +5,7 @@ import pkg from 'pg';
 const { Pool } = pkg;
 import { PrismaPg } from '@prisma/adapter-pg';
 import dotenv from 'dotenv';
+import { compileToAST } from '../services/ast/compiler.js';
 
 dotenv.config();
 
@@ -30,6 +31,7 @@ async function run() {
         // Extract toolName if present
         const toolCallsArray = dbScript.toolCalls as any[];
         const primaryToolName = Array.isArray(toolCallsArray) && toolCallsArray.length > 0 ? toolCallsArray[0].name : null;
+        const scriptAst = dbScript.ast || (dbScript.toolCalls ? compileToAST(dbScript.toolCalls as any[]) : null);
 
         // Create a NEW Request for the RequestProcessor to pick up
         await prisma.request.create({
@@ -38,7 +40,7 @@ async function run() {
                 toolName: primaryToolName,
                 scriptId: dbScript.id,
                 userId,
-                toolCalls: dbScript.toolCalls ? (dbScript.toolCalls as Prisma.InputJsonValue) : Prisma.DbNull,
+                ast: scriptAst as any,
                 conversationId: conversation.id,
             }
         });
