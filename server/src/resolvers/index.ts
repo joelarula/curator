@@ -9,7 +9,6 @@ import { textResolvers } from './texts.js';
 import { relationResolvers } from './relations.js';
 import { agenticResolvers } from './agentic.js';
 import { graphResolvers } from './graph.js';
-import { udcResolvers } from './udc.js';
 import { projectResolvers } from './projects.js';
 import { predicateResolvers } from './predicates.js';
 import { dslResolvers } from './dsl.js';
@@ -32,7 +31,6 @@ export const resolvers = {
         ...relationResolvers.Query,
         ...agenticResolvers.Query,
         ...graphResolvers.Query,
-        ...udcResolvers.Query,
         ...projectResolvers.Query,
         ...predicateResolvers.Query,
         ...dslResolvers.Query,

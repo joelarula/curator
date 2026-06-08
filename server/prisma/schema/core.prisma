@@ -386,32 +386,6 @@ model Agent {
 }
 
 
-model UdcLookup {
-  uri       String   @id
-  notation  String   @unique
-  parentUri String?
-
-
-  title     String
-
-  enLabel   String?
-  etLabel   String?
-  
-  // Nested Set for hierarchical queries
-  treeStart Int
-  treeEnd   Int
-  depth     Int
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  existent  Boolean? @default(true)
-
-  @@index([treeStart, treeEnd, existent])
-  @@index([notation, existent])
-  @@index([existent])
-}
-
 model DslSchema {
   id          String    @id @default(cuid())
   name        String    // e.g. "NewsArticle"

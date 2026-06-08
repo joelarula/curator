@@ -10,15 +10,12 @@ import { upsertText } from './tools/upsertText.js';
 import { executeScript } from './tools/executeScript.js';
 import { classifyEstonian } from './tools/classifyEstonian.js';
 import { featureExtraction } from './tools/featureExtraction.js';
-import { classifyUdc } from './tools/classifyUdc.js';
-import { udcCat } from './tools/udcCat.js';
 import { iterate } from './tools/iterate.js';
 import { debug } from './tools/debug.js';
 import { queryResources } from './tools/queryResources.js';
 import { getContext, setContext } from './tools/context.js';
 import { getResource } from './tools/getResource.js';
 import { deleteResource } from './tools/deleteResource.js';
-import { extractUdcHierarchy } from './tools/udcUtils.js';
 import { format_list } from './tools/formatList.js';
 import { selectObjects } from './tools/selectObjects.js';
 import { evaluateCondition } from './tools/evaluateCondition.js';
@@ -114,18 +111,6 @@ export const CORE_TOOL_DEFINITIONS: RegistryToolDefinition[] = [
         handler: executeScript,
     },
     {
-        name: 'classify_udc',
-        description: 'Uses an LLM to classify a resource into UDC categories (JSON output), activates UDC resources, and creates subject relations.',
-        version: '1.0.0',
-        handler: classifyUdc,
-    },
-    {
-        name: 'udc_cat',
-        description: 'Persists a UDC category classification: activates/creates the UDC resource and creates a dc:subject relation.',
-        version: '1.0.0',
-        handler: udcCat,
-    },
-    {
         name: 'iterate',
         description: 'Utility tool that simply returns the provided items array for fan-out (onItem).',
         version: '1.0.0',
@@ -160,12 +145,6 @@ export const CORE_TOOL_DEFINITIONS: RegistryToolDefinition[] = [
         description: 'Deletes a single resource by ID or URI. Can perform a hard delete (cascading to relations) or soft delete (setting deletedAt and existent).',
         version: '1.0.0',
         handler: deleteResource,
-    },
-    {
-        name: 'extract_udc_hierarchy',
-        description: 'Calculates the parent UDC notation from a URI.',
-        version: '1.0.0',
-        handler: extractUdcHierarchy,
     },
     {
         name: 'format_list',

@@ -486,7 +486,7 @@ for (const tool of getRegisteredTools()) {
     .argument('[tokens...]', 'Tool args plus optional --chain/--spawn segments')
     .addHelpText(
       'after',
-      '\nExamples:\n  curator process_feed https://example.com/rss.xml --db local\n  curator process_feed https://example.com/rss.xml --chain debug --message done\n  curator process_feed https://example.com/rss.xml --spawn classify_udc --resourceUri {{toolData.scrape_resource.uri}}\n'
+      '\nExamples:\n  curator process_feed https://example.com/rss.xml --db local\n  curator process_feed https://example.com/rss.xml --chain debug --message done\n'
     )
     .action(async () => {
       const cmdIndex = process.argv.findIndex((arg) => arg === tool.name);

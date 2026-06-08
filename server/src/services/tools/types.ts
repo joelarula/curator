@@ -245,23 +245,6 @@ export interface ExecuteScriptOutput extends ToolResult {
     data: any;
 }
 
-// classify_udc
-export interface ClassifyUdcInput {
-    resourceUri: string;
-}
-export interface ClassifyUdcOutput extends ToolResult {
-    data: { categories: string[] };
-}
-
-// udc_cat
-export interface UdcCatInput {
-    resourceUri: string;
-    category: string;
-}
-export interface UdcCatOutput extends ToolResult {
-    data: { success: boolean };
-}
-
 // ask_llm
 export interface AskLlmInput {
     prompt: string;

@@ -227,29 +227,6 @@ export const typeDefs = gql`
     updatedAt: String!
   }
 
-  "A category in the isolated UDC taxonomy lookup table."
-  type UdcCategory {
-    "Unique URI identifier"
-    uri: String!
-    "Universal Decimal Classification notation (e.g. '004.8')"
-    notation: String!
-    "URI of the parent category"
-    parentUri: String
-    "Human-readable title"
-    title: String!
-    "English label"
-    enLabel: String
-    "Estonian label"
-    etLabel: String
-    "Nested set: start bound"
-    treeStart: Int!
-    "Nested set: end bound"
-    treeEnd: Int!
-    "Depth in the hierarchy"
-    depth: Int!
-    createdAt: String!
-    updatedAt: String!
-  }
 
 
   # ─── Agentic Pipeline Types ─────────────────────────────────────────────────
@@ -610,13 +587,6 @@ export const typeDefs = gql`
     "All projects for the current user."
     projects: [Project!]!
 
-    # UDC Taxonomy (Isolated Lookup)
-    "Fetch a single UDC category by its URI."
-    udcCategoryByUri(uri: String!): UdcCategory
-    "Paginated lookup of UDC categories."
-    udcCategories(search: String, skip: Int, take: Int): [UdcCategory!]!
-    "Fetch a subtree of UDC categories starting from a specific parent."
-    udcSubtree(parentUri: String!, depth: Int): [UdcCategory!]!
 
 
     # Resource queries (integer IDs)

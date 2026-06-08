@@ -51,7 +51,6 @@ export const TYPE = {
     agent: 'type:agent',
     concept: 'type:concept',
     logicalFallacy: 'type:logical_fallacy',
-    udcCategory: 'udc:category',
 } as const;
 
 

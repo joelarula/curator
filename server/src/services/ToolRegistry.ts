@@ -114,8 +114,6 @@ declare module './Curator.js' {
         execute_script(args: T.ExecuteScriptInput): CuratorFlow;
         classify_et(args: T.ClassifyEtInput): CuratorFlow;
         feature_extraction(args: T.FeatureExtractionInput): CuratorFlow;
-        classify_udc(args: T.ClassifyUdcInput): CuratorFlow;
-        udc_cat(args: T.UdcCatInput): CuratorFlow;
         iterate(args: T.IterateInput): CuratorFlow;
         debug(args: T.DebugInput): CuratorFlow;
         delete_resource(args: T.DeleteResourceInput): CuratorFlow;
