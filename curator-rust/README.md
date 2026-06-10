@@ -65,11 +65,12 @@ The bridge is intentionally small. These are the important types and methods you
   - selects the next token from the current model logits
   - this crate currently uses greedy sampling as a stability fallback
 - `model.get_vocab()` and `vocab.is_eog(...)`
-  - checks whether the sampled token is the model's end-of-generation token
+  - `model.get_vocab()` extracts the vocabulary metadata map directly from the loaded GGUF header.
+  - `vocab.is_eog(token_id)` checks if a given token represents an End-Of-Generation (EOG) signal (which generalizes the standard End-Of-Sentence `EOS` token to also include other stop tokens like `<end_of_turn>` or padding tokens configured in the model's vocabulary metadata).
 - `model.token_to_piece(...)`
-  - detokenizes generated tokens back into response text
+  - detokenizes generated token IDs back into string pieces (Unicode fragments).
 - `ctx.kv_cache_clear()`
-  - resets per-request attention state so separate requests do not corrupt each other
+  - resets the context's key-value (KV) attention cache state to guarantee that separate stateless requests do not leak prompt history into each other.
 
 ## Bridging flow: request to tokens to response
 

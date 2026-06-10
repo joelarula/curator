@@ -279,6 +279,8 @@ model Conversation {
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
 
+  workflowSession WorkflowSession?
+  
   @@index([existent])
 }
 
@@ -326,3 +328,41 @@ model Agent {
   @@unique([name])
   @@index([existent])
 }
+
+model Task {
+  id             String          @id @default(cuid())
+  workflowName   String
+  status         String          @default("PENDING")
+  inputData      Json
+  outputData     Json?
+  
+  sessionId      String?
+  session        WorkflowSession? @relation(fields: [sessionId], references: [id])
+  
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model WorkflowSession {
+  id             String               @id @default(cuid())
+  conversationId Int                  @unique
+  conversation   Conversation         @relation(fields: [conversationId], references: [id])
+  
+  state          Json
+  checkpoints    WorkflowCheckpoint[]
+  tasks          Task[]
+  
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+}
+
+model WorkflowCheckpoint {
+  id           String          @id @default(cuid())
+  sessionId    String
+  session      WorkflowSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  nodeId       String
+  status       String
+  result       Json?
+  createdAt    DateTime        @default(now())
+}
+

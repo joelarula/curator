@@ -447,7 +447,12 @@ pub async fn run_chat_completion(
     payload: ChatCompletionRequest,
 ) -> Result<ChatCompletionResponse, String> {
     info!("Received chat completion request for model: {}", payload.model);
-    // Sampling precedence is: request override -> mutable runtime setting -> CLI default.
+    
+    // =========================================================================
+    // STEP 1: RESOLVE INFERENCE HYPERPARAMETERS (PRECEDENCE RESOLUTION)
+    // =========================================================================
+    // Sampling value precedence is: request override -> mutable runtime setting -> startup/CLI default.
+    // We lock the settings mutex briefly to read the active runtime settings.
     let RuntimeSamplingSettings {
         temperature: default_temperature,
         max_tokens: default_max_tokens,
@@ -465,16 +470,20 @@ pub async fn run_chat_completion(
     let top_p = payload.top_p.unwrap_or(default_top_p);
     let repeat_penalty = payload.repeat_penalty.unwrap_or(default_repeat_penalty);
 
-    // These values are logged so UI or API operators can confirm the exact
-    // parameters used for this request after precedence is resolved.
+    // Logging the resolved values helps operators monitor the actual hyperparameters used.
     info!(
         "Sampling params => temperature: {}, max_tokens: {}, top_k: {}, top_p: {}, repeat_penalty: {}",
         temperature, max_gen_tokens, top_k, top_p, repeat_penalty
     );
 
-    // 1. Build the Gemma chat transcript expected by the instruction-tuned model.
-    // The OpenAI-style JSON request is translated into the text template that the
-    // model was trained on before tokenization happens.
+    // =========================================================================
+    // STEP 2: BUILD CHAT PROMPT (GEMMA CHAT TEMPLATETIZATION)
+    // =========================================================================
+    // Translate the OpenAI-style chat message array into the format that the 
+    // instruction-tuned Gemma model was trained to accept.
+    //
+    // OpenAI role mapping: "assistant" -> "model", "user" -> "user", "system" -> "system".
+    // Gemma turn blocks: <start_of_turn>[role]\n[content]<end_of_turn>\n
     let mut prompt = String::new();
     for msg in &payload.messages {
         let role = match msg.role.as_str() {
@@ -483,28 +492,51 @@ pub async fn run_chat_completion(
         };
         prompt.push_str(&format!("<start_of_turn>{}\n{}<end_of_turn>\n", role, msg.content));
     }
+    
+    // Append the final response trigger to instruct the model to begin generating as the assistant.
     prompt.push_str("<start_of_turn>model\n");
 
-    // 2. Tokenize with the GGUF model's tokenizer metadata.
+    // =========================================================================
+    // STEP 3: TOKENIZE THE PROMPT
+    // =========================================================================
+    // Use the tokenizer built into the GGUF model.
+    // - Param 2 (`add_bos = true`): Automatically prepends the BOS (Beginning of Sequence) token (ID 2).
+    // - Param 3 (`special = true`): Parses control tags like <start_of_turn> as single special token IDs
+    //   instead of decomposing them character-by-character.
     info!("Tokenizing prompt...");
     let prompt_tokens = state.model.tokenize(&prompt, true, true)
         .map_err(|e| format!("Tokenization failed: {:?}", e))?;
     
     let prompt_len = prompt_tokens.len();
     info!("Prompt tokenized successfully ({} tokens).", prompt_len);
+    
+    // get_vocab() retrieves the vocabulary registry mapped to the model's GGUF metadata.
+    // This registry contains special token IDs and methods like `.is_eog(token_id)` 
+    // to check for End-Of-Generation signals (e.g. EOS, EOT).
     let vocab = state.model.get_vocab();
 
-    // 3. Acquire exclusive access to the mutable llama.cpp context.
+    // =========================================================================
+    // STEP 4: ACQUIRE EXCLUSIVE CONTEXT LOCK & CLEAN KV CACHE
+    // =========================================================================
+    // llama.cpp maintains internal state for inference. Since concurrent decode / cache
+    // writes on the same context would corrupt the memory, we lock it exclusively.
     let mut ctx = state.context.lock().map_err(|e| format!("Mutex lock failed: {}", e))?;
 
-    // Each request is treated as a standalone conversation turn. Clearing the
-    // KV cache prevents prompt/history leakage across independent HTTP requests.
+    // Resetting the KV cache clears any attention state leftover from previous requests.
+    // Since our HTTP server is stateless, this ensures absolute session isolation.
     ctx.kv_cache_clear();
 
-    // 4. Prefill the full prompt so llama.cpp can build attention state for generation.
+    // =========================================================================
+    // STEP 5: PREFILL PROMPT TOKENS
+    // =========================================================================
+    // We package the entire prompt token array into a single `LlamaBatch` to run
+    // a parallel prefill pass. Prefill evaluates the prompt and Populates the
+    // key-value (KV) attention cache for the model.
     let mut batch = LlamaBatch::new(state.backend.lib.clone(), 2048, 0, 1);
 
     for (i, &token) in prompt_tokens.iter().enumerate() {
+        // add(token_id, sequence_position, list_of_sequence_ids, is_generation_token)
+        // Only the final token is marked as a generation target (true) to save compute.
         batch.add(token, i as i32, &[0], i == prompt_tokens.len() - 1);
     }
 
@@ -512,43 +544,55 @@ pub async fn run_chat_completion(
     ctx.decode(&batch)
         .map_err(|e| format!("Prefill decoding failed: {:?}", e))?;
 
-    // 5. Generate one token at a time, feeding each sampled token back into the context.
+    // =========================================================================
+    // STEP 6: AUTOREGRESSIVE GENERATION LOOP (TOKEN-BY-TOKEN DECODING)
+    // =========================================================================
     let mut generated_tokens = Vec::new();
-    // NOTE: Some llama.cpp builds with Gemma + sampler-chain can hit a hard assert
-    // (cur_p.selected) and terminate the process. Use greedy sampler for stability.
-    // UI sliders for temperature/top-k/top-p/repetition are still accepted and
-    // surfaced by metadata/settings endpoints, but generation currently falls
-    // back to greedy token selection until sampler-chain stability is improved.
+    
+    // Sampler-chain warning: some upstream llama.cpp sampler chains trigger assertions
+    // with Gemma models. For runtime process safety, we fall back to a stable greedy sampler.
     if temperature > 0.0 || repeat_penalty > 1.0 || top_k != 40 || (top_p - 0.95).abs() > f32::EPSILON {
         warn!(
             "Sampler-chain requested (temp/top_k/top_p/repeat_penalty), but using greedy fallback for process stability"
         );
     }
+    
+    // Initialize the greedy sampler. It will pick the token with the absolute highest logit score.
     let sampler = LlamaSampler::new_greedy(state.backend.lib.clone());
     let mut current_pos = prompt_tokens.len() as i32;
     info!("Starting token generation loop (max {} tokens)...", max_gen_tokens);
 
     for i in 0..max_gen_tokens {
+        // Sample the next token. `-1` queries the logits of the last decoded token slot.
         let next_token = sampler.sample(&ctx, -1);
 
+        // Check if the sampled token is an EOG (End of Generation) token using the GGUF vocabulary metadata.
         if vocab.is_eog(next_token) {
             info!("Reached End-of-Stream token (ID: {}) at step {}.", next_token, i);
             break;
         }
 
-        // Buffer token IDs first; detokenization happens once after generation.
         generated_tokens.push(next_token);
 
-    // Feed the sampled token back into the context so the next sampling step sees it.
+        // Clear the batch and add the single new token to be evaluated.
         batch.clear();
         batch.add(next_token, current_pos, &[0], true);
         current_pos += 1;
 
+        // Run the model's forward pass for the single newly generated token.
+        // This updates the KV cache with the new context step.
         ctx.decode(&batch)
             .map_err(|e| format!("Decoding step {} failed: {:?}", i, e))?;
     }
 
-    // 6. Convert token ids back into model text pieces for the response payload.
+    // =========================================================================
+    // STEP 7: DETOKENIZATION & RESPONSE BUILD
+    // =========================================================================
+    // Save the exact completion token count before the vector is consumed by the loop.
+    let completion_tokens = generated_tokens.len();
+
+    // Convert the generated token IDs back into string pieces (Unicode fragments)
+    // and assemble them into the final text payload.
     let mut generated_text = String::new();
     for token in generated_tokens {
         generated_text.push_str(&state.model.token_to_piece(token));
@@ -562,11 +606,8 @@ pub async fn run_chat_completion(
             role: "assistant".to_string(),
             content: generated_text,
         },
-        // This implementation only stops on EOS or max token limit.
         finish_reason: "stop".to_string(),
     };
-
-    let completion_tokens = choice.message.content.len() / 4; // rough estimate
 
     let response = ChatCompletionResponse {
         id: format!("chatcmpl-{}", uuid::Uuid::new_v4()),

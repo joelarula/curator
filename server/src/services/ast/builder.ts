@@ -1,4 +1,4 @@
-import type { ASTNode, SequenceNode, ToolNode, ForEachNode, SpawnNode, WhileNode } from './types.js';
+import type { ASTNode, SequenceNode, ToolNode, ForEachNode, SpawnNode, WhileNode, StateMachineNode, TransitionNode } from './types.js';
 import type { ToolName } from '../tools/manifest.js';
 
 let _idCounter = 0;
@@ -29,6 +29,10 @@ export function createTemplateProxy<T = any>(path: string): Proxyfy<T> {
             if (typeof prop === 'symbol') return undefined;
             if (prop === 'toJSON') return () => `{{${path}}}`;
             if (prop === 'toString' || prop === 'valueOf') return () => `{{${path}}}`;
+            if (prop === 'id') {
+                const parts = path.split('.');
+                return parts[parts.length - 1];
+            }
             return createTemplateProxy(`${path}.${String(prop)}`);
         }
     });
@@ -42,10 +46,11 @@ export function createTemplateProxy<T = any>(path: string): Proxyfy<T> {
  * Builder class for constructing if/else branches.
  */
 export class BranchBuilder {
-    constructor(private node: any) {}
+    constructor(private node: any, private stateVar?: string) {}
 
     else(bodyFn: (flow: Pipeline) => void) {
         const falseFlow = new Pipeline();
+        falseFlow._activeStateVar = this.stateVar;
         bodyFn(falseFlow);
         this.node.falseBranch = falseFlow.toAST();
     }
@@ -59,6 +64,7 @@ export class Pipeline {
     public steps: ASTNode[] = [];
     public meta: Record<string, any> = {};
     public context: Record<string, any> = {};
+    public _activeStateVar: string | undefined;
 
     constructor(options: { meta?: Record<string, any>, context?: Record<string, any> } = {}) {
         this.meta = options.meta || {};
@@ -68,18 +74,27 @@ export class Pipeline {
     /**
      * Appends a ToolNode and returns a typed template proxy for its outputs.
      */
-    tool<T = any>(name: ToolName, args: Record<string, any> = {}): Proxyfy<T> {
-        const id = args.id || nextId(`tool_${name}`);
+    /**
+     * Appends a ToolNode and returns a typed template proxy for its outputs.
+     */
+    tool<T = any>(name: ToolName, args: any = {}): Proxyfy<T> {
+        const id = args && args.id ? args.id : nextId(`tool_${name}`);
         
-        // Remove 'id' from args so it doesn't pollute the tool's runtime arguments
-        const { id: _, ...actualArgs } = args;
-
-        // Deep clone and stringify functions to preserve them in AST
-        const argsJson = JSON.stringify(actualArgs, (key, value) => {
-            if (typeof value === 'function') return value.toString();
-            return value;
-        });
-        const sanitizedArgs = argsJson ? JSON.parse(argsJson) : {};
+        let sanitizedArgs: any;
+        if (typeof args === 'string') {
+            sanitizedArgs = args;
+        } else if (args && typeof args === 'object') {
+            // Remove 'id' from args so it doesn't pollute the tool's runtime arguments
+            const { id: _, ...actualArgs } = args;
+            // Deep clone and stringify functions to preserve them in AST
+            const argsJson = JSON.stringify(actualArgs, (key, value) => {
+                if (typeof value === 'function') return value.toString();
+                return value;
+            });
+            sanitizedArgs = argsJson ? JSON.parse(argsJson) : {};
+        } else {
+            sanitizedArgs = args;
+        }
 
         const node: ToolNode = {
             id,
@@ -137,6 +152,7 @@ export class Pipeline {
      */
     parallel(bodyFn: (flow: Pipeline) => void): import('./types.js').ParallelNode {
         const childWorkflow = new Pipeline();
+        childWorkflow._activeStateVar = this._activeStateVar;
         bodyFn(childWorkflow);
 
         const node: import('./types.js').ParallelNode = {
@@ -153,6 +169,7 @@ export class Pipeline {
      */
     if(condition: any, bodyFn: (flow: Pipeline) => void): BranchBuilder {
         const trueFlow = new Pipeline();
+        trueFlow._activeStateVar = this._activeStateVar;
         bodyFn(trueFlow);
         
         const node: any = {
@@ -162,7 +179,7 @@ export class Pipeline {
             trueBranch: trueFlow.toAST()
         };
         this.steps.push(node);
-        return new BranchBuilder(node);
+        return new BranchBuilder(node, this._activeStateVar);
     }
 
     /**
@@ -170,6 +187,7 @@ export class Pipeline {
      */
     match(left: any, right: any, bodyFn: (flow: Pipeline) => void): BranchBuilder {
         const trueFlow = new Pipeline();
+        trueFlow._activeStateVar = this._activeStateVar;
         bodyFn(trueFlow);
         
         const node: any = {
@@ -180,7 +198,7 @@ export class Pipeline {
             trueBranch: trueFlow.toAST()
         };
         this.steps.push(node);
-        return new BranchBuilder(node);
+        return new BranchBuilder(node, this._activeStateVar);
     }
 
     /**
@@ -188,6 +206,7 @@ export class Pipeline {
      */
     while(condition: any, bodyFn: (flow: Pipeline) => void): WhileNode {
         const bodyFlow = new Pipeline();
+        bodyFlow._activeStateVar = this._activeStateVar;
         bodyFn(bodyFlow);
         
         const node: WhileNode = {
@@ -201,6 +220,101 @@ export class Pipeline {
     }
 
     /**
+     * Creates an autonomous ReAct (Reasoning + Acting) execution loop.
+     * Generates a dynamic While/IfElse AST chain that asks the LLM, parses tool calls,
+     * executes the mapped tools, appends responses, and repeats until completion.
+     */
+    react(options: {
+        model: string;
+        systemPrompt: string;
+        messages: any; // e.g. '{{conversation.messages}}'
+        tools: ToolName[];
+    }): WhileNode {
+        const loopActiveKey = nextId('loop_active');
+        
+        // 1. Initialize loop state context
+        this.context[loopActiveKey] = "true";
+        this.context.messages = options.messages;
+
+        // 2. Build the while loop
+        return this.while(`{{conversation.${loopActiveKey}}} === "true"`, (loop) => {
+            const toolListStr = options.tools.join(', ');
+
+            // Ask the LLM to decide on the next step
+            const response = loop.tool('ask_llm', {
+                model: options.model,
+                prompt: `${options.systemPrompt}
+
+You have access to the following tools: [${toolListStr}].
+If you need to call a tool, you MUST reply with exactly:
+<tool_call>{"name": "tool_name", "arguments": {"arg1": "val1"}}</tool_call>
+Wait for the tool result. Do not output anything else.
+
+If you have enough information to answer the user's prompt directly, write the response normally.
+
+Current Conversation History:
+{{conversation.messages}}`
+            }) as any;
+
+            // Evaluate if response contains a tool call tag
+            const checkCall = loop.tool('evaluate_condition', {
+                data: { text: response.result },
+                evalFn: (data: { text: string }) => {
+                    return data.text.includes('<tool_call>');
+                }
+            }) as any;
+
+            // Branch on whether a tool call is requested
+            loop.if(checkCall.data.result, (hasCall) => {
+                
+                // Parse the tool name and arguments
+                const parsed = hasCall.tool('evaluate_condition', {
+                    data: { text: response.result },
+                    evalFn: (data: { text: string }) => {
+                        const match = data.text.match(/<tool_call>([\s\S]*?)<\/tool_call>/);
+                        if (!match) return { name: '', args: {} };
+                        try {
+                            const p = JSON.parse(match[1] || '{}');
+                            return { name: p.name, args: p.arguments || p.args || {} };
+                        } catch {
+                            return { name: '', args: {} };
+                        }
+                    }
+                }) as any;
+
+                // Create a dynamic match router for each allowed tool
+                for (const tool of options.tools) {
+                    hasCall.match(parsed.data.rawValue.name, tool, (branch) => {
+                        // Run the actual tool
+                        const toolResult = branch.tool(tool, `{{toolData.${parsed.id}.rawValue.args}}`);
+
+                        // Append the results to the message list
+                        const appendMsg = branch.tool('evaluate_condition', {
+                            data: {
+                                currentMessages: '{{conversation.messages}}',
+                                modelResponse: response.result,
+                                result: toolResult
+                            },
+                            evalFn: (data: any) => {
+                                const msgs = Array.isArray(data.currentMessages) ? data.currentMessages : [];
+                                msgs.push({ role: 'assistant', content: data.modelResponse });
+                                msgs.push({ role: 'user', content: `Tool response: ${JSON.stringify(data.result.data ?? data.result)}` });
+                                return msgs;
+                            }
+                        }) as any;
+
+                        branch.tool('set_context', { key: 'messages', value: `{{toolData.${appendMsg.id}.rawValue}}` });
+                    });
+                }
+                
+            }).else((noCall) => {
+                // Terminate loop
+                noCall.tool('set_context', { key: loopActiveKey, value: "false" });
+            });
+        });
+    }
+
+    /**
      * Compiles the pipeline to a strict SequenceNode AST.
      */
     toAST(): SequenceNode {
@@ -209,6 +323,34 @@ export class Pipeline {
             type: 'Sequence',
             steps: this.steps
         };
+    }
+
+    /**
+     * Declares a state machine with a starting state.
+     */
+    stateMachine(startState: string, buildFn: (sm: StateMachineBuilder) => void): StateMachineNode {
+        const stateVar = nextId('state_var');
+        const builder = new StateMachineBuilder(nextId('sm'), startState, stateVar);
+        buildFn(builder);
+        this.steps.push(builder.node);
+        return builder.node;
+    }
+
+    /**
+     * Declares a transition to a target state in the current StateMachine.
+     */
+    transitionTo(targetState: string): TransitionNode {
+        if (!this._activeStateVar) {
+            throw new Error(`transitionTo('${targetState}') can only be called inside a StateMachine state flow.`);
+        }
+        const node: TransitionNode = {
+            id: nextId('transition'),
+            type: 'Transition',
+            targetState,
+            stateVar: this._activeStateVar
+        };
+        this.steps.push(node);
+        return node;
     }
 }
 
@@ -233,14 +375,22 @@ export class CoffeeFlow {
      * Appends a ToolNode and returns a typed template proxy at toolData.<name>.
      * Sub-properties (e.g. queryData.items) resolve to {{toolData.query_resources.items}}.
      */
-    tool<T = any>(name: ToolName, args: Record<string, any> = {}): Proxyfy<T> {
-        const id = nextId(`tool_${name}`);
-        const { id: _, ...actualArgs } = args as any;
-        const argsJson = JSON.stringify(actualArgs, (key, value) => {
-            if (typeof value === 'function') return value.toString();
-            return value;
-        });
-        const sanitizedArgs = argsJson ? JSON.parse(argsJson) : {};
+    tool<T = any>(name: ToolName, args: any = {}): Proxyfy<T> {
+        const id = args && args.id ? args.id : nextId(`tool_${name}`);
+        
+        let sanitizedArgs: any;
+        if (typeof args === 'string') {
+            sanitizedArgs = args;
+        } else if (args && typeof args === 'object') {
+            const { id: _, ...actualArgs } = args as any;
+            const argsJson = JSON.stringify(actualArgs, (key, value) => {
+                if (typeof value === 'function') return value.toString();
+                return value;
+            });
+            sanitizedArgs = argsJson ? JSON.parse(argsJson) : {};
+        } else {
+            sanitizedArgs = args;
+        }
 
         const node: ToolNode = {
             id,
@@ -271,5 +421,30 @@ export class CoffeeFlow {
      */
     toJSON(): SequenceNode {
         return this.toAST();
+    }
+}
+
+/**
+ * Helper builder class to compile a StateMachine node using fluent API.
+ */
+export class StateMachineBuilder {
+    public node: StateMachineNode;
+
+    constructor(id: string, startState: string, stateVar: string) {
+        this.node = {
+            id,
+            type: 'StateMachine',
+            startState,
+            stateVar,
+            states: {}
+        };
+    }
+
+    state(stateName: string, bodyFn: (flow: Pipeline) => void): this {
+        const flow = new Pipeline();
+        flow._activeStateVar = this.node.stateVar;
+        bodyFn(flow);
+        this.node.states[stateName] = flow.toAST();
+        return this;
     }
 }

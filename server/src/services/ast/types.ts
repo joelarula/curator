@@ -11,7 +11,9 @@ export type ASTNode =
     | IfNode
     | MatchNode
     | ParallelNode
-    | WhileNode;
+    | WhileNode
+    | StateMachineNode
+    | TransitionNode;
 
 export interface BaseNode {
     id: string; // Unique identifier for the node to allow resumability
@@ -91,4 +93,23 @@ export interface WhileNode extends BaseNode {
     type: 'While';
     condition: string; // Evaluated dynamically based on context
     body: ASTNode;
+}
+
+/**
+ * Executes a state machine that transitions between defined states.
+ */
+export interface StateMachineNode extends BaseNode {
+    type: 'StateMachine';
+    startState: string;
+    stateVar: string; // Context variable name storing the state name
+    states: Record<string, ASTNode>; // Mapped state name -> execution node
+}
+
+/**
+ * Transitions the parent state machine to a new state.
+ */
+export interface TransitionNode extends BaseNode {
+    type: 'Transition';
+    targetState: string;
+    stateVar: string;
 }

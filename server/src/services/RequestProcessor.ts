@@ -226,6 +226,7 @@ export class RequestProcessor {
             case 'Sequence': {
                 for (const step of node.steps || []) {
                     await this.executeAST(step, req, resourceStack, responseId, context);
+                    if (context.__transitioned__) break;
                 }
                 break;
             }
@@ -290,8 +291,12 @@ export class RequestProcessor {
 
                 console.log(`[AST Executor] ForEach iterating over ${items.length} items`);
                 for (const item of items) {
-                    const iterationContext = { ...context, [node.iterator]: item, item: item };
+                    const iterationContext: Record<string, any> = { ...context, [node.iterator]: item, item: item };
                     await this.executeAST(node.body, req, resourceStack, responseId, iterationContext);
+                    if (iterationContext.__transitioned__) {
+                        context.__transitioned__ = true; // Bubble state machine transition up
+                        break;
+                    }
                 }
                 break;
             }
@@ -378,11 +383,56 @@ export class RequestProcessor {
                     if (!isTruthy) break;
                     
                     await this.executeAST(node.body, req, resourceStack, responseId, context);
+                    if (context.__transitioned__) break;
                 }
                 
                 if (safetyCounter >= MAX_ITERATIONS) {
                     console.warn(`[AST Executor] While loop exceeded MAX_ITERATIONS (${MAX_ITERATIONS}). Breaking to prevent infinite loop.`);
                 }
+                break;
+            }
+
+            case 'StateMachine': {
+                const stateVar = node.stateVar;
+                context[stateVar] = node.startState;
+                let currentState = node.startState;
+
+                const MAX_STATE_TURNS = 1000;
+                let turnCounter = 0;
+
+                console.log(`[AST Executor] StateMachine ${node.id} starting in state: ${currentState}`);
+
+                while (currentState && currentState !== 'END' && turnCounter++ < MAX_STATE_TURNS) {
+                    const stateNode = node.states[currentState];
+                    if (!stateNode) {
+                        console.warn(`[AST Executor] [StateMachine] State "${currentState}" not found. Terminating.`);
+                        break;
+                    }
+
+                    console.log(`[AST Executor] [StateMachine] Executing state: ${currentState} (turn ${turnCounter})`);
+                    context.__transitioned__ = false;
+                    
+                    await this.executeAST(stateNode, req, resourceStack, responseId, context);
+
+                    const nextState = context[stateVar];
+                    if (nextState === currentState && !context.__transitioned__) {
+                        console.warn(`[AST Executor] [StateMachine] State stayed at "${currentState}" without explicit transition. Terminating.`);
+                        break;
+                    }
+                    
+                    currentState = nextState;
+                }
+
+                if (turnCounter >= MAX_STATE_TURNS) {
+                    console.warn(`[AST Executor] [StateMachine] Exceeded MAX_STATE_TURNS (${MAX_STATE_TURNS}). Terminating.`);
+                }
+                break;
+            }
+
+            case 'Transition': {
+                console.log(`[AST Executor] [Transition] Changing state variable "${node.stateVar}" to "${node.targetState}"`);
+                context[node.stateVar] = node.targetState;
+                context.__transitioned__ = true;
                 break;
             }
 

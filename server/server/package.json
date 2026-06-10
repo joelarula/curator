@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@google/adk": "^1.2.0",
+    "@google/genai": "^2.8.0"
+  }
+}
