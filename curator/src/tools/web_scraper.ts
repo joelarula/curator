@@ -1,6 +1,6 @@
-import { FunctionTool } from '@google/adk';
+import { defineTool } from './CuratorTool.js';
 
-export const web_scraper = new FunctionTool({
+export const web_scraper = defineTool({
   name: 'web_scraper',
   description: 'Fetches the HTML or XML content of any given URL.',
   parameters: {
@@ -12,8 +12,8 @@ export const web_scraper = new FunctionTool({
       }
     },
     required: ['url']
-  } as any,
-  execute: async (args: any) => {
+  },
+  execute: async (args, _ctx) => {
     try {
       console.log('[web_scraper] Fetching URL: ' + args.url);
       const response = await fetch(args.url);

@@ -26,32 +26,51 @@ The overarching goal is to **revamp the legacy cursor server** into an ADK-drive
 
 ## Command Line Tool (`cli.ts`)
 
-The module includes a robust CLI for executing agent scripts and orchestrating local databases.
+The module includes a robust CLI for executing agent scripts, registering plugins, and orchestrating local databases.
 
-### Usage
+> [!WARNING]
+> You **must** be inside the `curator/curator` directory (the Rust/Agent module folder) to run these scripts properly, **not** the workspace root!
+
+### Executing Scripts
+
+You can execute agent/tool scripts (which return an ADK AST) synchronously using the `cli` command. This will spin up a transient worker that blocks until the response is ready:
 
 ```powershell
-npx curator-agent run <script-path> [--db <name>] [--reset]
+cd curator
+npm run cli -- scripts/test_process_feed.ts --db test_db --session my_unique_trial
 ```
 
-### Features
+**Options:**
+- `--db <name>`: Automatically provisions or connects to the `name.db` SQLite database (e.g. `test_db` connects to `data/test_db.db`).
+- `--session <id>`: Specifies the conversational session boundary for the Request (defaults to `cli_session`).
+- `--reset`: Force resets (deletes) the SQLite database before running for a pristine test environment.
 
-- **Dynamic Provisioning**: Passing `--db test_adk` will automatically provision a local `test_adk.db` SQLite database and sync the `schema.prisma`.
-- **Force Resetting**: Passing `--reset` clears out old artifacts to ensure a pristine test run.
-- **Environment Mapping**: It actively pulls environment variables from `.env` and normalizes API keys (e.g., mapping `GOOGLE_API_KEY` directly to `GEMINI_API_KEY` for the ADK).
-- **TypeScript & CoffeeScript**: Automatically transpiles and executes scripts that export a `run()` hook with the injected `PrismaClient`.
+### Starting the Daemon
 
-### Testing the Engine
+If you want to boot up the persistent request workers and the background cron Agent Scheduler, you can start the `serve` daemon. This runs with `tsx watch` enabled, so it will hot-reload on file changes:
 
-To run the standalone integration test script manually:
+```powershell
+cd curator
+npm run serve -- --db default
+```
+
+### Seeding Test Databases
+
+We also provide a standalone script for hydrating a fresh Semantic Graph database with schemas and sample entities without relying on the legacy server:
+
+```powershell
+cd curator
+npm run cli -- scripts/seed_test_db.ts --db test_db
+```
+
+### Raw `tsx` Execution (Alternative)
+
+If you prefer to bypass `npm` entirely or are integrating this into another system, you can invoke the CLI natively using `npx tsx`:
 
 ```powershell
 # Set your API key in your environment or rely on the .env file
 $env:GEMINI_API_KEY="your_api_key"
 
-# Using the raw wrapper
-npx tsx run_test.ts
-
-# OR using the CLI
-npx tsx src/bin/cli.ts run scripts/test_adk_processor.ts --db test_adk --reset
+# Using the CLI natively
+npx tsx src/bin/cli.ts run scripts/test_process_feed.ts --db test_db --session my_unique_trial --reset
 ```

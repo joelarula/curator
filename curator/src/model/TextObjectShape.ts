@@ -21,6 +21,12 @@ export const TextObjectShape: SemanticNodeShape = {
             class: 'schema:Language', 
             minCount: 1, 
             maxCount: 1 
+        },
+        mentions: {
+            path: 'schema:mentions',
+            name: 'Mentions',
+            description: 'Indicates that the text object mentions or links to another resource.',
+            class: 'rdfs:Resource'
         }
     }
 };

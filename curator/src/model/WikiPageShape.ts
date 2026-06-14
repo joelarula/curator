@@ -23,6 +23,26 @@ export const WikiPageShape: SemanticNodeShape = {
         },
         author: { path: 'wiki:author', class: 'schema:Person' },
         lastModified: { path: 'wiki:lastModified', datatype: 'xsd:dateTime', maxCount: 1 },
-        linksTo: { path: 'wiki:linksTo', class: 'wiki:WikiPage' }
+        linksTo: { path: 'wiki:linksTo', class: 'wiki:WikiPage' },
+        keywords: {
+            path: 'schema:keywords',
+            name: 'Keywords',
+            description: 'Keywords or tags used to describe this content.',
+            datatype: 'xsd:string'
+        },
+        parentPage: {
+            path: 'schema:isPartOf',
+            name: 'Parent Page',
+            description: 'The parent wiki page if this page is nested.',
+            class: 'wiki:WikiPage',
+            maxCount: 1
+        },
+        subPages: {
+            path: 'schema:isPartOf',
+            name: 'Sub Pages',
+            description: 'Wiki pages nested under this page.',
+            class: 'wiki:WikiPage',
+            inverse: true
+        }
     }
 };

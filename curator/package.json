@@ -4,30 +4,37 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "tsx watch src/bin/cli.ts",
+    "serve": "node --import tsx --max-old-space-size=4096 --no-warnings --watch src/bin/cli.ts serve",
+    "cli": "node --import tsx --max-old-space-size=4096 --no-warnings src/bin/cli.ts run",
     "build": "tsc",
-    "start": "node dist/bin/cli.js",
+    "start": "node dist/src/bin/cli.js serve",
+    "cli:dist": "node dist/src/bin/cli.js run",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
-    "prisma:studio": "prisma studio",
-    "agent": "tsx src/bin/cli.ts"
+    "prisma:studio": "prisma studio"
   },
   "dependencies": {
-    "@google/adk": "^1.2.0",
+    "@breejs/ts-worker": "^2.0.0",
     "@google/genai": "^2.8.0",
     "@google/generative-ai": "^0.24.1",
     "@prisma/adapter-better-sqlite3": "^7.8.0",
     "better-sqlite3": "^12.10.0",
+    "bree": "^9.2.9",
     "coffeescript": "^2.7.0",
     "commander": "^14.0.2",
-    "dotenv": "^16.6.1"
+    "dotenv": "^16.6.1",
+    "rss-parser": "^3.13.0",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@prisma/client": "^7.6.0",
     "@types/coffeescript": "^2.5.7",
     "@types/node": "^22.19.1",
+    "esbuild": "^0.28.1",
     "prisma": "^7.6.0",
     "tsx": "^4.19.1",
-    "typescript": "^5.6.2"
+    "typescript": "^5.6.2",
+    "vite": "^8.0.16",
+    "vite-node": "^6.0.0"
   }
 }

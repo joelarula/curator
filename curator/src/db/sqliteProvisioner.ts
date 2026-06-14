@@ -66,15 +66,15 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
 
   // Ensure system user and project exist
   await prisma.user.upsert({
-    where: { id: 'system' },
+    where: { id: 1 },
     update: {},
-    create: { id: 'system', name: 'System User', email: 'system@example.com' }
+    create: { id: 1, username: 'system', name: 'System User', email: 'system@example.com' }
   });
 
   await prisma.project.upsert({
-    where: { id: 'system' },
+    where: { id: 1 },
     update: {},
-    create: { id: 'system', name: 'System Project', userId: 'system' }
+    create: { id: 1, name: 'System Project', userId: 1 }
   });
 
   return prisma;

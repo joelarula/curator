@@ -7,59 +7,25 @@ generator client {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Official ADK Storage/Session Models
+// Conversation — groups Requests and Responses for a single user interaction
+// Replaces the old ADK session/event tables
 // ─────────────────────────────────────────────────────────────────────────────
 
-model AdkMetadata {
-  key   String @id
-  value String
-}
+model Conversation {
+  id          String     @id @default(uuid())
+  userId      Int
+  user        User       @relation(fields: [userId], references: [id])
+  state       Json?
+  requests    Request[]
+  responses   Response[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 
-model AdkAppState {
-  appName    String   @id
-  state      Json
-  updateTime DateTime @updatedAt
-}
-
-model AdkUserState {
-  appName    String
-  userId     String
-  state      Json
-  updateTime DateTime @updatedAt
-
-  @@id([appName, userId])
-}
-
-model AdkSession {
-  id         String
-  appName    String
-  userId     String
-  state      Json
-  createTime DateTime @default(now())
-  updateTime DateTime @updatedAt
-  events     AdkEvent[]
-  requests   Request[]
-  responses  Response[]
-
-  @@id([id, appName, userId])
   @@index([userId])
 }
 
-model AdkEvent {
-  id           String
-  appName      String
-  userId       String
-  sessionId    String
-  session      AdkSession @relation(fields: [sessionId, appName, userId], references: [id, appName, userId], onDelete: Cascade)
-  invocationId String
-  timestamp    DateTime
-  eventData    Json
-
-  @@id([id, appName, userId, sessionId])
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
-// Minimal ADK Workflow Models
+// Minimal Curator Workflow Models
 // ─────────────────────────────────────────────────────────────────────────────
 
 model Tool {
@@ -70,52 +36,54 @@ model Tool {
   sourceCode       String
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+  agents           Agent[]
 }
 
 model User {
-  id            String         @id
+  id            Int            @id @default(autoincrement())
+  username      String         @unique
   name          String?
   email         String?        @unique
   requests      Request[]
   resources     Resource[]
   projects      Project[]
+  agents        Agent[]
+  conversations Conversation[]
   createdAt     DateTime       @default(now())
 }
 
 model Request {
-  id             Int          @id @default(autoincrement())
-  status         String       @default("NEW")
-  toolName       String?
-  userId         String
-  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  projectId      String?
-  project        Project?     @relation(fields: [projectId], references: [id])
-  sessionId      String
-  appName        String
-  session        AdkSession   @relation(fields: [sessionId, appName, userId], references: [id, appName, userId])
-  ast            Json?
-  context        Json?
+  id                  Int           @id @default(autoincrement())
+  status              String        @default("NEW")
+  toolName            String?
+  userId              Int
+  user                User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId           Int?
+  project             Project?      @relation(fields: [projectId], references: [id])
+  conversationId      String
+  conversation        Conversation  @relation(fields: [conversationId], references: [id])
+  ast                 Json?
+  context             Json?
   lockedBy            String?
   lockedAt            DateTime?
   scheduledAt         DateTime?
-  retryCount          Int          @default(0)
-  notifyId            Int?         // The ID of the parent/join Request to wake up when this finishes
-  pendingDependencies Int          @default(0) // If >0, this Request is blocked from executing
+  retryCount          Int           @default(0)
+  notifyId            Int?          // ID of the parent/join Request to wake up on completion
+  pendingDependencies Int           @default(0) // If >0 this Request is blocked
   responses           Response[]
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
 }
 
 model Response {
   id             Int          @id @default(autoincrement())
   requestId      Int
   request        Request      @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  projectId      String?
+  projectId      Int?
   project        Project?     @relation(fields: [projectId], references: [id])
-  sessionId      String
-  appName        String
-  userId         String
-  session        AdkSession   @relation(fields: [sessionId, appName, userId], references: [id, appName, userId])
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  userId         Int
   content        String
   createdAt      DateTime     @default(now())
 }
@@ -131,14 +99,15 @@ model Resource {
   description        String?
   content            String?
   
-  userId             String
+  userId             Int
   user               User              @relation(fields: [userId], references: [id])
-  projectId          String?
+  projectId          Int?
   project            Project?          @relation(fields: [projectId], references: [id])
   
   subjectRelations   Relation[]        @relation("RelationSubject")
   predicateRelations Relation[]        @relation("RelationPredicate")
   objectRelations    Relation[]        @relation("RelationObject")
+  attachments        Attachment[]
   
   existent           Boolean?          @default(true)
   deletedAt          DateTime?
@@ -158,12 +127,12 @@ model Relation {
   object         Resource     @relation("RelationObject", fields: [objectId], references: [id], onDelete: Cascade)
   
   literalValue     Float?
-  literalString    String?
   literalDate      DateTime?
   literalBoolean   Boolean?
-  literalDatatype  String?
+  literalDatatypeId Int?
+  literalDatatype   Datatype? @relation(fields: [literalDatatypeId], references: [id])
 
-  projectId        String?
+  projectId        Int?
   project          Project? @relation(fields: [projectId], references: [id])
   existent         Boolean? @default(true)
   createdAt        DateTime @default(now())
@@ -174,16 +143,38 @@ model Relation {
   @@index([objectId, existent])
 }
 
+model Datatype {
+  id        Int        @id @default(autoincrement())
+  name      String     @unique
+  relations Relation[]
+}
+
+model Attachment {
+  id         String    @id @default(cuid())
+  resourceId Int?
+  resource   Resource? @relation(fields: [resourceId], references: [id])
+  uri        String    @unique
+  filename   String
+  mimetype   String
+  url        String
+  size       Int
+  existent   Boolean?  @default(true)
+  createdAt  DateTime  @default(now())
+
+  @@index([existent])
+}
+
 model Project {
-  id          String    @id @default(cuid())
+  id          Int       @id @default(autoincrement())
   name        String
-  userId      String
+  userId      Int
   user        User      @relation(fields: [userId], references: [id])
   
   resources   Resource[]
   relations   Relation[]
   requests    Request[]
   responses   Response[]
+  agents      Agent[]
 
   existent    Boolean?  @default(true)
   deletedAt   DateTime?
@@ -191,4 +182,30 @@ model Project {
   updatedAt   DateTime  @updatedAt
 
   @@index([userId, existent])
+}
+
+model Agent {
+  id          Int      @id @default(autoincrement())
+  // 'system' is a reserved name and should be blocked at the application level
+  name        String   
+  description String?
+  
+  // Execution type (mutually exclusive)
+  scriptPath  String?  // Relative path to filesystem built-in script
+  toolName    String?  // Name of the tool in the database
+  tool        Tool?    @relation(fields: [toolName], references: [name])
+  toolParams  Json?    // Serialized parameters for the tool execution
+  
+  schedule    String   // Bree syntax (e.g., "every 15 minutes", "at 8:00 am")
+  isActive    Boolean  @default(true)
+  
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId   Int?
+  project     Project? @relation(fields: [projectId], references: [id])
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([projectId, name])
 }

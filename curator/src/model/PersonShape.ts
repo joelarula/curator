@@ -20,8 +20,16 @@ export const PersonShape: SemanticNodeShape = {
             name: 'Email Address',
             description: 'Email address of the person.',
             datatype: 'xsd:string',
+            pattern: '^[^@]+@[^@]+\\.[^@]+$',
             maxCount: 1 
         },
-        knows: { path: 'schema:knows', class: 'schema:Person' }
+        knows: { path: 'schema:knows', class: 'schema:Person' },
+        authoredArticles: {
+            path: 'schema:author',
+            name: 'Authored Articles',
+            description: 'Articles authored by this person.',
+            class: 'schema:Article',
+            inverse: true
+        }
     }
 };

@@ -32,7 +32,7 @@ export const ArticleShape: SemanticNodeShape = {
             path: 'schema:author',
             name: 'Author',
             description: 'The author of this content or rating. Please note that author is special in that HTML 5 provides a special mechanism for indicating authorship via the rel tag. That is equivalent to this and may be used interchangeably.',
-            class: 'schema:Person'
+            class: ['schema:Person', 'schema:Organization']
         },
         datePublished: {
             path: 'schema:datePublished',
@@ -49,6 +49,12 @@ export const ArticleShape: SemanticNodeShape = {
             in: ['DRAFT', 'PUBLISHED', 'ARCHIVED'],
             minCount: 1,
             maxCount: 1
+        },
+        keywords: {
+            path: 'schema:keywords',
+            name: 'Keywords',
+            description: 'Keywords or tags used to describe this content.',
+            datatype: 'xsd:string'
         }
     }
 };
