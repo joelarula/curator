@@ -39,7 +39,7 @@ These are the primary references for the APIs used here:
 
 Model links used by this setup:
 
-- [Gemma 3 1B IT GGUF repository (bartowski)](https://huggingface.co/bartowski/google_gemma-3-1b-it-GGUF)
+- [Gemma 3 1B IT GGUF repository (bartowski)](docker)
 - [Direct download: google_gemma-3-1b-it-Q4_K_M.gguf](https://huggingface.co/bartowski/google_gemma-3-1b-it-GGUF/resolve/main/google_gemma-3-1b-it-Q4_K_M.gguf)
 
 ## Exact llama-cpp-v3 APIs used in this crate

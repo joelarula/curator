@@ -1,0 +1,33 @@
+{
+  "name": "@curator/agent-server",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/bin/cli.ts",
+    "build": "tsc",
+    "start": "node dist/bin/cli.js",
+    "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push",
+    "prisma:studio": "prisma studio",
+    "agent": "tsx src/bin/cli.ts"
+  },
+  "dependencies": {
+    "@google/adk": "^1.2.0",
+    "@google/genai": "^2.8.0",
+    "@google/generative-ai": "^0.24.1",
+    "@prisma/adapter-better-sqlite3": "^7.8.0",
+    "better-sqlite3": "^12.10.0",
+    "coffeescript": "^2.7.0",
+    "commander": "^14.0.2",
+    "dotenv": "^16.6.1"
+  },
+  "devDependencies": {
+    "@prisma/client": "^7.6.0",
+    "@types/coffeescript": "^2.5.7",
+    "@types/node": "^22.19.1",
+    "prisma": "^7.6.0",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2"
+  }
+}

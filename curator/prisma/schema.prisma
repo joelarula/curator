@@ -1,0 +1,194 @@
+datasource db {
+  provider = "sqlite"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Official ADK Storage/Session Models
+// ─────────────────────────────────────────────────────────────────────────────
+
+model AdkMetadata {
+  key   String @id
+  value String
+}
+
+model AdkAppState {
+  appName    String   @id
+  state      Json
+  updateTime DateTime @updatedAt
+}
+
+model AdkUserState {
+  appName    String
+  userId     String
+  state      Json
+  updateTime DateTime @updatedAt
+
+  @@id([appName, userId])
+}
+
+model AdkSession {
+  id         String
+  appName    String
+  userId     String
+  state      Json
+  createTime DateTime @default(now())
+  updateTime DateTime @updatedAt
+  events     AdkEvent[]
+  requests   Request[]
+  responses  Response[]
+
+  @@id([id, appName, userId])
+  @@index([userId])
+}
+
+model AdkEvent {
+  id           String
+  appName      String
+  userId       String
+  sessionId    String
+  session      AdkSession @relation(fields: [sessionId, appName, userId], references: [id, appName, userId], onDelete: Cascade)
+  invocationId String
+  timestamp    DateTime
+  eventData    Json
+
+  @@id([id, appName, userId, sessionId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Minimal ADK Workflow Models
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Tool {
+  id               Int      @id @default(autoincrement())
+  name             String   @unique
+  description      String
+  parametersSchema Json?
+  sourceCode       String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model User {
+  id            String         @id
+  name          String?
+  email         String?        @unique
+  requests      Request[]
+  resources     Resource[]
+  projects      Project[]
+  createdAt     DateTime       @default(now())
+}
+
+model Request {
+  id             Int          @id @default(autoincrement())
+  status         String       @default("NEW")
+  toolName       String?
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId      String?
+  project        Project?     @relation(fields: [projectId], references: [id])
+  sessionId      String
+  appName        String
+  session        AdkSession   @relation(fields: [sessionId, appName, userId], references: [id, appName, userId])
+  ast            Json?
+  context        Json?
+  lockedBy            String?
+  lockedAt            DateTime?
+  scheduledAt         DateTime?
+  retryCount          Int          @default(0)
+  notifyId            Int?         // The ID of the parent/join Request to wake up when this finishes
+  pendingDependencies Int          @default(0) // If >0, this Request is blocked from executing
+  responses           Response[]
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+}
+
+model Response {
+  id             Int          @id @default(autoincrement())
+  requestId      Int
+  request        Request      @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  projectId      String?
+  project        Project?     @relation(fields: [projectId], references: [id])
+  sessionId      String
+  appName        String
+  userId         String
+  session        AdkSession   @relation(fields: [sessionId, appName, userId], references: [id, appName, userId])
+  content        String
+  createdAt      DateTime     @default(now())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RDF Graph Triplestore Models
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Resource {
+  id                 Int               @id @default(autoincrement())
+  uri                String            @unique
+  title              String?
+  description        String?
+  content            String?
+  
+  userId             String
+  user               User              @relation(fields: [userId], references: [id])
+  projectId          String?
+  project            Project?          @relation(fields: [projectId], references: [id])
+  
+  subjectRelations   Relation[]        @relation("RelationSubject")
+  predicateRelations Relation[]        @relation("RelationPredicate")
+  objectRelations    Relation[]        @relation("RelationObject")
+  
+  existent           Boolean?          @default(true)
+  deletedAt          DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@index([uri, existent])
+}
+
+model Relation {
+  id             Int          @id @default(autoincrement())
+  subjectId      Int
+  predicateId    Int
+  objectId       Int
+  subject        Resource     @relation("RelationSubject", fields: [subjectId], references: [id], onDelete: Cascade)
+  predicate      Resource     @relation("RelationPredicate", fields: [predicateId], references: [id], onDelete: Cascade)
+  object         Resource     @relation("RelationObject", fields: [objectId], references: [id], onDelete: Cascade)
+  
+  literalValue     Float?
+  literalString    String?
+  literalDate      DateTime?
+  literalBoolean   Boolean?
+  literalDatatype  String?
+
+  projectId        String?
+  project          Project? @relation(fields: [projectId], references: [id])
+  existent         Boolean? @default(true)
+  createdAt        DateTime @default(now())
+
+  @@unique([subjectId, predicateId, objectId])
+  @@index([subjectId, existent])
+  @@index([predicateId, existent])
+  @@index([objectId, existent])
+}
+
+model Project {
+  id          String    @id @default(cuid())
+  name        String
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  
+  resources   Resource[]
+  relations   Relation[]
+  requests    Request[]
+  responses   Response[]
+
+  existent    Boolean?  @default(true)
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([userId, existent])
+}
