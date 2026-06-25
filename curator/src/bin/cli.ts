@@ -1,9 +1,10 @@
 #!/usr/bin/env tsx
-console.log('[CLI Bootstrap] Booting...');
+logger.info('[CLI Bootstrap] Booting...');
 import dotenv from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
+import { logger } from '../utils/logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import fs from 'node:fs';
@@ -58,17 +59,17 @@ program
 
     const { randomUUID } = await import('node:crypto');
     options.session = options.session || randomUUID();
-    console.log(`[CLI] Using Session ID: ${options.session}`);
+    logger.info(`[CLI] Using Session ID: ${options.session}`);
 
     // 2. Resolve and (optionally) compile the script
     const absoluteScriptPath = path.resolve(scriptPath);
-    console.log(`[CLI] Running script: ${absoluteScriptPath} on database: ${options.db}`);
+    logger.info(`[CLI] Running script: ${absoluteScriptPath} on database: ${options.db}`);
 
     let importPath = absoluteScriptPath;
     let tempMjs: string | null = null;
 
     if (absoluteScriptPath.endsWith('.coffee')) {
-      console.log(`[CLI] CoffeeScript detected — compiling...`);
+      logger.info(`[CLI] CoffeeScript detected — compiling...`);
       const coffee = (await import('coffeescript')).default;
       const source = fs.readFileSync(absoluteScriptPath, 'utf8');
       // Compile to JS; CoffeeScript 2 preserves import/export keywords → valid ESM
@@ -76,7 +77,7 @@ program
       tempMjs = absoluteScriptPath.replace(/\.coffee$/, '.compiled.mjs');
       fs.writeFileSync(tempMjs, js, 'utf8');
       importPath = tempMjs;
-      console.log(`[CLI] Compiled to: ${tempMjs}`);
+      logger.info(`[CLI] Compiled to: ${tempMjs}`);
     }
 
     try {
@@ -88,17 +89,17 @@ program
       if (currentFilePath.includes(path.join('dist', 'src', 'bin')) || currentFilePath.endsWith('cli.bundle.cjs')) {
         const relativeToRoot = path.relative(root, importPath);
         importPath = path.join(root, 'dist', relativeToRoot.replace(/\.ts$/, '.js'));
-        console.log(`[CLI Debug] Mapped TypeScript script to compiled path: ${importPath}`);
+        logger.info(`[CLI Debug] Mapped TypeScript script to compiled path: ${importPath}`);
       }
 
       const scriptUrl = pathToFileURL(importPath).href;
-      console.log(`[CLI Debug] Importing: ${scriptUrl}...`);
+      logger.info(`[CLI Debug] Importing: ${scriptUrl}...`);
       const scriptModule = await import(scriptUrl);
-      console.log(`[CLI Debug] Script imported successfully.`);
+      logger.info(`[CLI Debug] Script imported successfully.`);
 
       // Check if it exports a run function
       if (typeof scriptModule.run === 'function') {
-        console.log(`[CLI] Executing exported run() function...`);
+        logger.info(`[CLI] Executing exported run() function...`);
         let result: any;
         
         await curatorContext.run({
@@ -113,7 +114,7 @@ program
         });
         
         if (result && typeof result === 'object' && result.type) {
-          console.log(`[CLI] Script returned an AST. Submitting as a new Request...`);
+          logger.info(`[CLI] Script returned an AST. Submitting as a new Request...`);
           
           const user = await prisma.user.upsert({
             where: { id: 2 },
@@ -137,45 +138,87 @@ program
             }
           });
 
-          console.log(`[CLI] Request ${req.id} enqueued. Starting local CuratorRequestProcessor worker...`);
+          logger.info(`[CLI] Request ${req.id} enqueued. Starting local CuratorRequestProcessor worker...`);
 
           const { CuratorRequestProcessor } = await import('../engine/CuratorRequestProcessor.js');
           const processor = new CuratorRequestProcessor(prisma);
           await processor.start(1000);
 
-          process.stdout.write(`[CLI] Polling for completion...`);
+          logger.info(`[CLI] Polling for completion...`);
+          const seenResponses = new Set<any>();
+
           while (true) {
+            const responses = await prisma.response.findMany({
+              where: { conversationId: options.session, requestId: { gte: req.id } },
+              include: { request: true },
+              orderBy: { createdAt: 'asc' }
+            });
+
+            for (const resp of responses) {
+              if (!seenResponses.has(resp.id)) {
+                seenResponses.add(resp.id);
+                
+                const ast = (resp.request?.ast as any) || {};
+                const input = ast.prompt || ast.parameters || ast.args || ast.code || ast;
+
+                logger.info(`--- Result for Request ${resp.requestId} (${resp.request?.toolName || ast.type}) ---`, {
+                  input: input,
+                  output: (() => {
+                    try { return JSON.parse(resp.content); } catch (e) { return resp.content; }
+                  })()
+                });
+              }
+            }
+
             const pending = await prisma.request.count({
               where: { conversationId: options.session, status: { in: ['NEW', 'WAITING'] }, id: { gte: req.id } }
             });
-            
-            if (pending === 0) {
-              const response = await prisma.response.findFirst({ 
-                where: { conversationId: options.session, requestId: { gte: req.id } }, 
-                orderBy: { createdAt: 'desc' } 
-              });
-              
-              console.log(`\n\n--- Execution Finished ---`);
-              if (response) {
-                 try {
-                   const parsed = JSON.parse(response.content);
-                   console.log(`Response:\n${JSON.stringify(parsed, null, 2)}`);
-                 } catch (e) {
-                   console.log(`Response:\n${response.content}`);
-                 }
+
+            // Check if any request is waiting for human input
+            const waitingHumanReq = await prisma.request.findFirst({
+              where: { conversationId: options.session, status: 'WAITING_FOR_USER', id: { gte: req.id } },
+              include: { responses: true }
+            });
+
+            if (waitingHumanReq && waitingHumanReq.responses.length === 0) {
+              const ast = waitingHumanReq.ast as any;
+              let promptText = `\n🤖 [Human Input Required]\n${ast.prompt}\n`;
+              if (ast.inputType === 'choices' && Array.isArray(ast.choices)) {
+                promptText += `Choices: [${ast.choices.join(', ')}]\n`;
               }
+              promptText += '> ';
+
+              const { createInterface } = await import('node:readline');
+              const rl = createInterface({ input: process.stdin, output: process.stdout });
+              
+              const answer = await new Promise<string>((resolve) => {
+                rl.question(promptText, resolve);
+              });
+              rl.close();
+              const impersonatedUserId = (ast.targetUserId && typeof ast.targetUserId === 'number') ? ast.targetUserId : waitingHumanReq.userId;
+
+              await prisma.response.create({
+                data: {
+                  requestId: waitingHumanReq.id,
+                  conversationId: waitingHumanReq.conversationId,
+                  userId: impersonatedUserId,
+                  projectId: waitingHumanReq.projectId,
+                  content: JSON.stringify({ output: answer.trim() })
+                }
+              });
+            } else if (pending === 0 && !waitingHumanReq) {
+              logger.info(`\n\n--- Execution Finished ---`);
               processor.stop();
               break;
             }
-            process.stdout.write('.');
             await new Promise(r => setTimeout(r, 1000));
           }
         }
       } else {
-        console.warn(`[CLI] Warning: No run() function exported by ${scriptPath}. Doing nothing.`);
+        logger.warn(`[CLI] Warning: No run() function exported by ${scriptPath}. Doing nothing.`);
       }
     } catch (error: any) {
-      console.error(`[CLI] Error running script:`, error);
+      logger.error(`[CLI] Error running script:`, error);
       process.exit(1);
     } finally {
       // Clean up temporary compiled file if created
@@ -196,7 +239,7 @@ program
     const { provisionSqliteDb } = await import('../db/sqliteProvisioner.js');
     const prisma = await provisionSqliteDb(options.db, false);
     
-    console.log(`[CLI] Starting background workers...`);
+    logger.info(`[CLI] Starting background workers...`);
     
     // 1. Start Curator Request Processor
     const { CuratorRequestProcessor } = await import('../engine/CuratorRequestProcessor.js');
@@ -204,13 +247,14 @@ program
     await processor.start(1000);
     
     // 2. Start Agent Scheduler
-    const { AgentScheduler } = await import('../engine/AgentScheduler.js');
-    const scheduler = new AgentScheduler(prisma);
+    const { ScheduledAgentScheduler, setGlobalScheduler } = await import('../engine/ScheduledAgentScheduler.js');
+    const scheduler = new ScheduledAgentScheduler(prisma);
+    setGlobalScheduler(scheduler);
     await scheduler.start();
 
     // Keep process alive
     process.on('SIGINT', async () => {
-      console.log(`\n[CLI] Shutting down workers...`);
+      logger.info(`\n[CLI] Shutting down workers...`);
       processor.stop();
       await scheduler.stop();
       await prisma.$disconnect();
@@ -219,6 +263,6 @@ program
   });
 
 program.parseAsync(process.argv).catch((error) => {
-  console.error('[CLI] Fatal Error:', error);
+  logger.error('[CLI] Fatal Error:', error);
   process.exit(1);
 });

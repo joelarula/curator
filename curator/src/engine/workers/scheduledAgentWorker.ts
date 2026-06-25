@@ -6,25 +6,25 @@ import { pathToFileURL } from 'url';
 const prisma = new PrismaClient();
 
 async function run() {
-  const agentId = workerData.agentId;
-  if (!agentId) {
-    throw new Error('No agentId provided to worker');
+  const scheduledAgentId = workerData.scheduledAgentId;
+  if (!scheduledAgentId) {
+    throw new Error('No scheduledAgentId provided to worker');
   }
 
-  const agent = await prisma.agent.findUnique({
-    where: { id: agentId }
+  const agent = await prisma.scheduledAgent.findUnique({
+    where: { id: scheduledAgentId }
   });
 
   if (!agent) {
-    throw new Error(`Agent ${agentId} not found`);
+    throw new Error(`ScheduledAgent ${scheduledAgentId} not found`);
   }
 
-  console.log(`[AgentWorker] Executing agent ${agent.name} (ID: ${agent.id})`);
+  console.log(`[ScheduledAgentWorker] Executing scheduled agent ${agent.name} (ID: ${agent.id})`);
 
   let ast: any = null;
   let status = 'NEW';
   let context: any = null;
-  let toolName: string | null = null;
+  let workflowName: string | null = null;
   let errorMsg: string | null = null;
 
   try {
@@ -54,19 +54,18 @@ async function run() {
       } else {
         throw new Error(`Script '${agent.scriptPath}' is not registered in the CuratorEngine whitelist.`);
       }
-    } else if (agent.toolName) {
-      toolName = agent.toolName;
+    } else if (agent.workflowName) {
+      workflowName = agent.workflowName;
       ast = {
-        type: 'ToolTask',
-        toolName: agent.toolName,
-        parameters: agent.toolParams || {}
+        type: 'Curator_AgentRef',
+        agentName: agent.workflowName
       };
-      context = agent.toolParams;
+      context = { input: agent.workflowParams || {} };
     } else {
-      throw new Error('Agent has neither scriptPath nor toolName defined');
+      throw new Error('Agent has neither scriptPath nor workflowName defined');
     }
   } catch (err: any) {
-    console.error(`[AgentWorker] Execution failed for agent ${agent.name}:`, err);
+    console.error(`[ScheduledAgentWorker] Execution failed for agent ${agent.name}:`, err);
     status = 'FAILED';
     errorMsg = err.message;
     
@@ -90,13 +89,13 @@ async function run() {
       projectId: agent.projectId,
       conversationId,
       status: status,
-      toolName: toolName || 'Curator_Workflow',
+      toolName: workflowName || 'Curator_Workflow',
       ast: ast,
       context: context
     }
   });
 
-  console.log(`[AgentWorker] Created Request ${req.id} for agent ${agent.name} with status ${status}`);
+  console.log(`[ScheduledAgentWorker] Created Request ${req.id} for agent ${agent.name} with status ${status}`);
 
   if (parentPort) {
     parentPort.postMessage('done');
@@ -105,7 +104,7 @@ async function run() {
 
 run()
   .catch(err => {
-    console.error('[AgentWorker] Fatal worker error:', err);
+    console.error('[ScheduledAgentWorker] Fatal worker error:', err);
     if (parentPort) {
       parentPort.postMessage('error');
     }

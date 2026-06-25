@@ -36,8 +36,59 @@ model Tool {
   sourceCode       String
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
-  agents           Agent[]
 }
+
+model Agent {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id])
+  projectId   Int?
+  project     Project? @relation(fields: [projectId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  workflows   AgentWorkflow[]
+}
+
+model AgentWorkflow {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  ast         Json?
+  sourceCode  String?
+  
+  agentId     Int
+  agent       Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  eventSubscriptions EventSubscription[]
+  scheduledAgents    ScheduledAgent[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model EventSubscription {
+  id               Int      @id @default(autoincrement())
+  eventName        String
+  
+  agentWorkflowId  Int?
+  agentWorkflow    AgentWorkflow? @relation(fields: [agentWorkflowId], references: [id])
+  
+  workflowAst      Json?
+  
+  userId           Int
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId        Int?
+  project          Project? @relation(fields: [projectId], references: [id])
+  
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+
+  @@index([eventName, isActive])
+}
+
 
 model User {
   id            Int            @id @default(autoincrement())
@@ -47,8 +98,10 @@ model User {
   requests      Request[]
   resources     Resource[]
   projects      Project[]
-  agents        Agent[]
+  scheduledAgents ScheduledAgent[]
   conversations Conversation[]
+  agents        Agent[]
+  eventSubscriptions EventSubscription[]
   createdAt     DateTime       @default(now())
 }
 
@@ -64,6 +117,7 @@ model Request {
   conversation        Conversation  @relation(fields: [conversationId], references: [id])
   ast                 Json?
   context             Json?
+  priority            Int           @default(0) // Higher = more urgent. Interrupts use high values.
   lockedBy            String?
   lockedAt            DateTime?
   scheduledAt         DateTime?
@@ -174,7 +228,9 @@ model Project {
   relations   Relation[]
   requests    Request[]
   responses   Response[]
+  scheduledAgents ScheduledAgent[]
   agents      Agent[]
+  eventSubscriptions EventSubscription[]
 
   existent    Boolean?  @default(true)
   deletedAt   DateTime?
@@ -184,7 +240,7 @@ model Project {
   @@index([userId, existent])
 }
 
-model Agent {
+model ScheduledAgent {
   id          Int      @id @default(autoincrement())
   // 'system' is a reserved name and should be blocked at the application level
   name        String   
@@ -192,11 +248,13 @@ model Agent {
   
   // Execution type (mutually exclusive)
   scriptPath  String?  // Relative path to filesystem built-in script
-  toolName    String?  // Name of the tool in the database
-  tool        Tool?    @relation(fields: [toolName], references: [name])
-  toolParams  Json?    // Serialized parameters for the tool execution
+  workflowName String? // Name of the agent workflow in the database
+  workflow    AgentWorkflow? @relation(fields: [workflowName], references: [name])
+  workflowParams Json? // Serialized parameters for the workflow execution
   
-  schedule    String   // Bree syntax (e.g., "every 15 minutes", "at 8:00 am")
+  schedule    String?  // Cron/Bree recurring syntax (e.g., "every 15 minutes", "* * * * *"). Null if runOnce=true.
+  runOnce     Boolean  @default(false) // If true, runs exactly once at runAt time then deactivates
+  runAt       DateTime? // UTC datetime to run once. Required if runOnce=true.
   isActive    Boolean  @default(true)
   
   userId      Int

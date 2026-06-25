@@ -6,6 +6,7 @@ export interface CuratorToolContext {
   conversationId?: string;
   userId?: number;
   projectId?: number;
+  prisma?: any;
 }
 
 export interface CuratorTool {

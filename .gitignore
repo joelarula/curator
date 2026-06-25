@@ -32,9 +32,12 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Prisma
+# Prisma & SQLite Data
 /server/prisma/dev.db
 /server/prisma/dev.db-journal
+/curator/data/
+**/data/*.db
+**/data/*.db-journal
 
 # Python
 __pycache__/

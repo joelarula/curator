@@ -5,12 +5,14 @@ export interface CuratorPlugin {
   tools?: Record<string, any>; 
   models?: SemanticNodeShape[]; 
   scripts?: Record<string, { run: (context: any) => Promise<any> }>; 
+  agents?: Record<string, any>;
 }
 
 export class CuratorEngine {
   public tools = new Map<string, any>();
   public models = new Map<string, SemanticNodeShape>();
   public scripts = new Map<string, any>();
+  public agents = new Map<string, any>();
   public plugins: CuratorPlugin[] = [];
 
   public registerPlugin(plugin: CuratorPlugin) {
@@ -25,6 +27,9 @@ export class CuratorEngine {
     }
     if (plugin.scripts) {
       Object.entries(plugin.scripts).forEach(([k, v]) => this.scripts.set(k, v));
+    }
+    if (plugin.agents) {
+      Object.entries(plugin.agents).forEach(([k, v]) => this.agents.set(k, v));
     }
   }
 }

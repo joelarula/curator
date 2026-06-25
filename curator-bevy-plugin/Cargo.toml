@@ -1,0 +1,26 @@
+[package]
+name = "curator-bevy-plugin"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "curator_bevy_plugin"
+path = "src/lib.rs"
+
+[dependencies]
+bevy_app = "0.18.1"
+bevy_ecs = "0.18.1"
+bevy_time = "0.18.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.38", features = ["sync", "rt", "macros"] }
+tracing = "0.1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+uuid = { version = "1.8", features = ["v4"] }
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive", "env"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[[bin]]
+name = "curator_run"
+path = "src/bin/curator_run.rs"
