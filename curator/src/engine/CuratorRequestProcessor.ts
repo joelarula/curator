@@ -2,7 +2,6 @@ import * as vm from 'node:vm';
 import AjvModule from 'ajv';
 const Ajv = (AjvModule as any).default || AjvModule;
 import { GoogleGenAI } from '@google/genai';
-import { toolRegistry } from '../tools/index.js';
 import { curatorEngine } from './CuratorEngine.js';
 import { curatorContext } from './CuratorContext.js';
 
@@ -195,7 +194,7 @@ export class CuratorRequestProcessor {
           return;
         }
 
-        const nodeTypes = ['Curator_Agent', 'Curator_Sequential', 'Curator_Parallel', 'Curator_Join', 'Curator_Tool', 'Curator_Script', 'Curator_Route', 'Curator_HumanInput', 'Curator_Graph', 'Curator_AgentRef', 'Curator_SetState', 'Curator_Interrupt', 'Curator_EmitEvent', 'Curator_Assign', 'Curator_IfElse', 'Curator_While', 'Curator_ForEach'];
+        const nodeTypes = ['Curator_Agent', 'Curator_Sequential', 'Curator_Parallel', 'Curator_Join', 'Curator_Tool', 'Curator_Script', 'Curator_Route', 'Curator_HumanInput', 'Curator_Graph', 'Curator_AgentRef', 'Curator_SetState', 'Curator_Interrupt', 'Curator_EmitEvent', 'Curator_WaitEvent', 'Curator_Assign', 'Curator_IfElse', 'Curator_While', 'Curator_ForEach'];
         if (nodeTypes.includes(ast.type)) {
           switch (ast.type) {
             case 'Curator_Agent': return await this.executeAgent(ast as CuratorAgentNode, req);
@@ -206,6 +205,7 @@ export class CuratorRequestProcessor {
             case 'Curator_Script': return await this.handleScript(ast as CuratorScriptNode, req);
             case 'Curator_Route': return await this.handleRoute(ast as CuratorRouteNode, req);
             case 'Curator_HumanInput': return await this.handleHumanInput(ast as any, req);
+            case 'Curator_WaitEvent': return await this.handleWaitEvent(ast as any, req);
             case 'Curator_Graph': return await this.handleGraph(ast as CuratorGraphNode, req);
             case 'Curator_AgentRef': return await this.handleAgentRef(req, ast as any, req.context);
             case 'Curator_SetState': return await this.handleSetState(ast as any, req);
@@ -254,16 +254,34 @@ export class CuratorRequestProcessor {
 
   private async handleEmitEvent(node: any, req: any) {
     logger.info(`[CuratorRequestProcessor] Emitting event: ${node.eventName}`);
-    const payload = node.payload ?? req.context?.input;
+    
+    // Evaluate dynamic payload
+    let payload = node.payload ?? req.context?.input;
+    if (typeof node.payload === 'string' && node.payload.startsWith('(') && node.payload.endsWith('(context)')) {
+      payload = await this.evaluateExpressionAsync(node.payload, req);
+    }
+    
+    // Evaluate dynamic targetAgentId
+    let targetAgentId = node.targetAgentId;
+    if (typeof targetAgentId === 'string') {
+      targetAgentId = await this.evaluateExpressionAsync(targetAgentId, req);
+    }
 
     const subscriptions = await this.prisma.eventSubscription.findMany({
-      where: { eventName: node.eventName, isActive: true },
+      where: { 
+        eventName: node.eventName, 
+        isActive: true,
+        OR: [
+          { conversationId: req.conversationId },
+          { conversationId: null }
+        ]
+      },
       include: { agentWorkflow: true }
     });
 
     let spawnedCount = 0;
     for (const sub of subscriptions) {
-      if (node.targetAgentId && sub.agentWorkflow?.agentId !== node.targetAgentId) {
+      if (targetAgentId && sub.agentWorkflow?.agentId !== targetAgentId) {
         continue;
       }
 
@@ -282,9 +300,58 @@ export class CuratorRequestProcessor {
       });
       spawnedCount++;
     }
+    
+    // Wake up WAITING_FOR_EVENT requests
+    const waitingRequests = await this.prisma.request.findMany({
+      where: {
+        conversationId: req.conversationId,
+        status: 'WAITING_FOR_EVENT'
+      }
+    });
 
-    await this.saveResponse(req, `Emitted event '${node.eventName}' to ${spawnedCount} listeners.`);
+    let wokenCount = 0;
+    for (const waitReq of waitingRequests) {
+      const ctx = waitReq.context as any;
+      if (ctx?.waitEvent === node.eventName) {
+        logger.info(`[CuratorRequestProcessor] Waking up request ${waitReq.id} waiting for event ${node.eventName}`);
+        
+        let newState = {};
+        if (ctx.payloadAlias) {
+           newState = { [ctx.payloadAlias]: payload };
+        }
+        
+        const updatedContext = { ...ctx };
+        delete updatedContext.waitEvent;
+        delete updatedContext.payloadAlias;
+        if (ctx.payloadAlias) {
+           updatedContext.state = { ...(updatedContext.state || {}), ...newState };
+           
+           const conv = await this.prisma.conversation.findUnique({ where: { id: waitReq.conversationId } });
+           await this.prisma.conversation.update({
+             where: { id: waitReq.conversationId },
+             data: { state: { ...(conv?.state as any || {}), ...newState } }
+           });
+        }
+        
+        await this.prisma.request.update({
+          where: { id: waitReq.id },
+          data: { status: 'NEW', context: updatedContext }
+        });
+        wokenCount++;
+      }
+    }
+
+    await this.saveResponse(req, `Emitted event '${node.eventName}' to ${spawnedCount} listeners. Woke up ${wokenCount} waiting workflows.`);
     await this.completeRequest(req.id, 'COMPLETED');
+  }
+
+  private async handleWaitEvent(ast: any, req: any) {
+    logger.info(`[CuratorRequestProcessor] Request ${req.id} paused, waiting for event '${ast.eventName}'.`);
+    const updatedContext = { ...(req.context || {}), waitEvent: ast.eventName, payloadAlias: ast.payloadAlias };
+    await this.prisma.request.update({
+      where: { id: req.id },
+      data: { status: 'WAITING_FOR_EVENT', context: updatedContext }
+    });
   }
 
   /**
@@ -693,7 +760,7 @@ export class CuratorRequestProcessor {
     try {
       const output = vm.runInContext(ast.code, context);
       
-      const nodeTypes = ['Curator_Agent', 'Curator_Sequential', 'Curator_Parallel', 'Curator_Join', 'Curator_Tool', 'Curator_Script', 'Curator_Route', 'Curator_HumanInput', 'Curator_Graph', 'Curator_AgentRef', 'Curator_SetState'];
+      const nodeTypes = ['Curator_Agent', 'Curator_Sequential', 'Curator_Parallel', 'Curator_Join', 'Curator_Tool', 'Curator_Script', 'Curator_Route', 'Curator_HumanInput', 'Curator_Graph', 'Curator_AgentRef', 'Curator_SetState', 'Curator_EmitEvent', 'Curator_WaitEvent', 'Curator_Interrupt', 'Curator_Assign', 'Curator_IfElse', 'Curator_While', 'Curator_ForEach'];
       if (output && typeof output === 'object' && output.type && nodeTypes.includes(output.type)) {
         logger.info(`[CuratorRequestProcessor] Script generated a valid AST node of type ${output.type}. Spawning as child...`);
         // Spawn the dynamic AST
@@ -729,13 +796,24 @@ export class CuratorRequestProcessor {
 
   private async handleTool(ast: CuratorToolNode, req: any) {
     logger.info(`[CuratorRequestProcessor] Executing Tool '${ast.toolName}' for request ${req.id}`);
-    const tool = toolRegistry[ast.toolName];
-    if (!tool) throw new Error(`Tool ${ast.toolName} not found in TypeScript registry.`);
+    const tool = curatorEngine.tools.get(ast.toolName);
+    if (!tool) throw new Error(`Tool ${ast.toolName} not found in dynamic registry.`);
 
     let result = '';
     try {
       const toolArgs = ast.parameters || ast.args || { url: req.context?.input || '' };
-      const output = await tool.runAsync({ args: toolArgs, toolContext: { conversationId: req.conversationId, userId: req.userId, projectId: req.projectId, prisma: this.prisma } });
+      
+      // Evaluate string expressions in toolArgs
+      const evaluatedArgs: Record<string, any> = {};
+      for (const [k, v] of Object.entries(toolArgs)) {
+        if (typeof v === 'string' && v.startsWith('(') && v.endsWith('(context)')) {
+          evaluatedArgs[k] = await this.evaluateExpressionAsync(v, req);
+        } else {
+          evaluatedArgs[k] = v;
+        }
+      }
+      
+      const output = await tool.runAsync({ args: evaluatedArgs, toolContext: { conversationId: req.conversationId, userId: req.userId, projectId: req.projectId, prisma: this.prisma } });
       result = typeof output === 'string' ? output : JSON.stringify(output);
     } catch(e: any) {
       result = `[Tool Error] ${e.message}`;

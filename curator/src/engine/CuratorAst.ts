@@ -38,7 +38,8 @@ export type CuratorAstNode =
   | CuratorAssignNode
   | CuratorIfElseNode
   | CuratorWhileNode
-  | CuratorForEachNode;
+  | CuratorForEachNode
+  | CuratorWaitEventNode;
 
 export interface CuratorInlineTool {
   name: string;
@@ -71,8 +72,14 @@ export interface CuratorSetStateNode extends CuratorBaseNode {
 export interface CuratorEmitEventNode extends CuratorBaseNode {
   type: 'Curator_EmitEvent';
   eventName: string;
-  targetAgentId?: number;
+  targetAgentId?: number | string;
   payload?: any;
+}
+
+export interface CuratorWaitEventNode extends CuratorBaseNode {
+  type: 'Curator_WaitEvent';
+  eventName: string;
+  payloadAlias?: string;
 }
 
 export interface CuratorAssignNode extends CuratorBaseNode {

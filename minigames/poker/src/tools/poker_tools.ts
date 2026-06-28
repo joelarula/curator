@@ -1,4 +1,4 @@
-import { defineTool } from './CuratorTool.js';
+import { defineTool } from '@curator/agent-server';
 
 const SUITS = ['♠', '♥', '♦', '♣'];
 const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
@@ -38,14 +38,20 @@ export const deal_cards = defineTool({
       hands[`hand_${i}`] = [deck.pop()!, deck.pop()!];
     }
 
-    const bets: Record<string, number> = {};
-    const active: number[] = [];
-    for (let i = 1; i <= numPlayers; i++) { bets[i] = 0; active.push(i); }
-
     const convo = await ctx.prisma.conversation.findFirst({
       where: { id: ctx.conversationId }
     });
     const existing = (convo?.state as Record<string, any>) || {};
+
+    const bets: Record<string, number> = {};
+    const active: number[] = [];
+    const balances: Record<string, number> = existing.balances ?? {};
+    
+    for (let i = 1; i <= numPlayers; i++) { 
+        bets[i] = 0; 
+        active.push(i);
+        if (balances[i] === undefined) balances[i] = 1000;
+    }
     
     // Preserve dealer and hand number or initialize
     const dealer_index = existing.dealer_index ?? 0;
@@ -59,6 +65,7 @@ export const deal_cards = defineTool({
       community: [] as string[],
       pot: 0,
       bets,
+      balances,
       active_players: active,
       current_bet: 0,
       phase: 'preflop',
@@ -152,31 +159,38 @@ export const apply_bet = defineTool({
 
     let pot: number = state.pot ?? 0;
     const bets: Record<number, number> = state.bets ?? {};
+    const balances: Record<number, number> = state.balances ?? {};
+    if (balances[player] === undefined) balances[player] = 1000;
+    
     let active: number[] = state.active_players ?? [];
     const currentBet: number = state.current_bet ?? 0;
 
     if (actionStr === 'fold') {
       active = active.filter((p: number) => p !== player);
-      result = `Player ${player} folds. Active players: [${active.join(', ')}]`;
+      result = `Player ${player} folds. Active players: [${active.join(', ')}]. Balance: ${balances[player]}`;
     } else if (actionStr === 'call') {
       const toCall = currentBet - (bets[player] ?? 0);
-      bets[player] = (bets[player] ?? 0) + toCall;
-      pot += toCall;
-      result = `Player ${player} calls ${toCall}. Pot: ${pot}`;
+      const amountToDeduct = Math.min(toCall, balances[player]);
+      balances[player] -= amountToDeduct;
+      bets[player] = (bets[player] ?? 0) + amountToDeduct;
+      pot += amountToDeduct;
+      result = `Player ${player} calls ${amountToDeduct}. Balance: ${balances[player]}. Pot: ${pot}`;
     } else if (actionStr === 'raise') {
       const toCall = currentBet - (bets[player] ?? 0);
       const total = toCall + amount;
-      bets[player] = (bets[player] ?? 0) + total;
-      pot += total;
+      const amountToDeduct = Math.min(total, balances[player]);
+      balances[player] -= amountToDeduct;
+      bets[player] = (bets[player] ?? 0) + amountToDeduct;
+      pot += amountToDeduct;
       state.current_bet = (bets[player] ?? 0);
-      result = `Player ${player} raises by ${amount}. Pot: ${pot}`;
+      result = `Player ${player} raises by ${amount} (deducted ${amountToDeduct}). Balance: ${balances[player]}. Pot: ${pot}`;
     } else {
       result = `Player ${player} took no valid action ("${actionRaw}").`;
     }
 
     await ctx.prisma.conversation.update({
       where: { id: ctx.conversationId },
-      data: { state: { ...state, pot, bets, active_players: active } }
+      data: { state: { ...state, pot, bets, balances, active_players: active } }
     });
 
     return result;

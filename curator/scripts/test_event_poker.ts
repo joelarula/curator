@@ -28,7 +28,11 @@ export async function run({ prisma }: { prisma: any }): Promise<CuratorSequentia
   });
   
   const humanWorkflowAST = Curator.seq('Human_Player_Turn_Logic',
-    Curator.humanInput('Your turn! Current Pot: {state.pot}. Hand: {state.hand_1}. Enter your action (e.g. {"action":"call","amount":0}):'),
+    Curator.humanInput(
+      'Your turn! Current Pot: {state.pot}. Hand: {state.hand_1}. Choose your action:',
+      'choices',
+      ['fold', 'call', 'raise']
+    ),
     Curator.emitEvent('player_action_submitted')
   );
 
@@ -50,7 +54,22 @@ export async function run({ prisma }: { prisma: any }): Promise<CuratorSequentia
   
   const aiWorkflowAST = Curator.seq('AI_Player_Turn_Logic',
     Curator.agent({
-      prompt: 'Your turn! You are Player 2. Pot: {state.pot}. Hand: {state.hand_2}. Decide your action and return JSON: {"action":"call","amount":0}'
+      prompt: 'Your turn! You are Player 2. Pot: {state.pot}. Hand: {state.hand_2}. Decide your action.',
+      output_schema: {
+        type: "object",
+        properties: {
+          action: {
+            type: "string",
+            enum: ["fold", "call", "raise"],
+            description: "The action to take in the poker game."
+          },
+          amount: {
+            type: "number",
+            description: "The amount to raise if action is 'raise'. Default to 0 otherwise."
+          }
+        },
+        required: ["action"]
+      }
     }),
     Curator.emitEvent('player_action_submitted')
   );

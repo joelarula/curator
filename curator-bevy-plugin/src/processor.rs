@@ -1,7 +1,78 @@
-use crate::ast::{CuratorAstNode, CuratorGraphNode, CuratorInterruptNode, CuratorParallelNode, CuratorRouteNode, CuratorSequentialNode};
+﻿use crate::ast::{CuratorAstNode, CuratorGraphNode, CuratorInterruptNode, CuratorParallelNode, CuratorRouteNode, CuratorSequentialNode};
 use crate::sqlite_store::{RequestRow, SqliteStore};
 use serde_json::{json, Value};
 use uuid::Uuid;
+
+// ---------------------------------------------------------------------------
+// Typed context structs for the SQLite-backed processor.
+// These replace ad-hoc ctx["key"] JSON access with proper typed fields.
+// They serialize to the same JSON shape so the DB format is unchanged.
+// ---------------------------------------------------------------------------
+
+/// State persisted by the processor while a Graph node is mid-flight.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub struct GraphContext {
+    /// The graph state-machine node currently executing (e.g. "PENDING").
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub active_node: String,
+
+    /// The last output/payload from the child node or edge router.
+    #[serde(default)]
+    pub state_data: serde_json::Value,
+
+    /// What the graph is blocked on: None = just started,
+    /// "NODE" = waiting for a state node child to finish,
+    /// "ROUTER" = waiting for a dynamic-edge router to return the next name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waiting_for: Option<GraphWaitKind>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum GraphWaitKind {
+    Node,
+    Router,
+}
+
+impl GraphContext {
+    /// Deserialize from the raw JSON context blob stored in SQLite.
+    pub fn from_ctx(ctx: &serde_json::Value) -> Self {
+        serde_json::from_value(ctx.clone()).unwrap_or_default()
+    }
+
+    /// Merge back into the raw context blob (preserves other user-written keys).
+    pub fn apply_to(&self, ctx: &mut serde_json::Value) {
+        if let Ok(v) = serde_json::to_value(self) {
+            if let (serde_json::Value::Object(src), serde_json::Value::Object(dst)) = (v, ctx) {
+                for (k, val) in src { dst.insert(k, val); }
+            }
+        }
+    }
+}
+
+/// State persisted by the processor while a Route node is mid-flight.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub struct RouteContext {
+    /// true once the router sub-agent has been dispatched and we are
+    /// waiting for its decision to come back via ctx["input"].
+    #[serde(default)]
+    pub route_decided: bool,
+}
+
+impl RouteContext {
+    pub fn from_ctx(ctx: &serde_json::Value) -> Self {
+        serde_json::from_value(ctx.clone()).unwrap_or_default()
+    }
+
+    pub fn apply_to(&self, ctx: &mut serde_json::Value) {
+        if let Ok(v) = serde_json::to_value(self) {
+            if let (serde_json::Value::Object(src), serde_json::Value::Object(dst)) = (v, ctx) {
+                for (k, val) in src { dst.insert(k, val); }
+            }
+        }
+    }
+}
+
 
 #[derive(Clone)]
 pub struct CuratorProcessor {
@@ -78,7 +149,7 @@ impl CuratorProcessor {
             return Ok(());
         };
 
-        let ast: CuratorAstNode = match serde_json::from_str(ast_raw) {
+        let ast: CuratorAstNode<serde_json::Value> = match serde_json::from_str(ast_raw) {
             Ok(x) => x,
             Err(err) => {
                 tracing::warn!("Unknown AST for request {}: {}", req.id, err);
@@ -278,7 +349,7 @@ impl CuratorProcessor {
         Ok(())
     }
 
-    fn handle_sequential(&self, ast: &CuratorSequentialNode, req: &RequestRow) -> anyhow::Result<()> {
+    fn handle_sequential(&self, ast: &CuratorSequentialNode<serde_json::Value>, req: &RequestRow) -> anyhow::Result<()> {
         if ast.subAgents.is_empty() {
             return self.complete_request(req.id, "COMPLETED");
         }
@@ -319,7 +390,7 @@ impl CuratorProcessor {
         self.complete_request(req.id, "COMPLETED")
     }
 
-    fn handle_parallel(&self, ast: &CuratorParallelNode, req: &RequestRow) -> anyhow::Result<()> {
+    fn handle_parallel(&self, ast: &CuratorParallelNode<serde_json::Value>, req: &RequestRow) -> anyhow::Result<()> {
         if ast.subAgents.is_empty() {
             return self.complete_request(req.id, "COMPLETED");
         }
@@ -380,12 +451,10 @@ impl CuratorProcessor {
         self.complete_request(req.id, "COMPLETED")
     }
 
-    fn handle_route(&self, ast: &CuratorRouteNode, req: &RequestRow) -> anyhow::Result<()> {
+    fn handle_route(&self, ast: &CuratorRouteNode<serde_json::Value>, req: &RequestRow) -> anyhow::Result<()> {
         let mut ctx = parse_context(req.context.as_deref());
-        let decided = ctx
-            .get("routeDecided")
-            .and_then(|x| x.as_bool())
-            .unwrap_or(false);
+        let mut route_ctx = RouteContext::from_ctx(&ctx);
+        let decided = route_ctx.route_decided;
 
         if !decided {
             self.store.insert_request(
@@ -399,7 +468,8 @@ impl CuratorProcessor {
                 0,
                 None,
             )?;
-            ctx["routeDecided"] = Value::Bool(true);
+            route_ctx.route_decided = true;
+            route_ctx.apply_to(&mut ctx);
             self.store.set_request_context_and_new(req.id, 1, &ctx)?;
             return Ok(());
         }
@@ -456,56 +526,58 @@ impl CuratorProcessor {
         self.complete_request(req.id, "COMPLETED")
     }
 
-    fn handle_graph(&self, ast: &CuratorGraphNode, req: &RequestRow) -> anyhow::Result<()> {
+    fn handle_graph(&self, ast: &CuratorGraphNode<serde_json::Value>, req: &RequestRow) -> anyhow::Result<()> {
         let mut ctx = parse_context(req.context.as_deref());
-        let mut active_node = ctx
-            .get("activeNode")
-            .and_then(|x| x.as_str())
-            .unwrap_or(&ast.startNode)
-            .to_string();
-        let waiting_for = ctx
-            .get("waitingFor")
-            .and_then(|x| x.as_str())
-            .map(|x| x.to_string());
-        let mut state_data = ctx
-            .get("stateData")
-            .cloned()
-            .or_else(|| ctx.get("input").cloned())
-            .unwrap_or(Value::String(String::new()));
+        let mut graph_ctx = GraphContext::from_ctx(&ctx);
+        let mut active_node = if graph_ctx.active_node.is_empty() {
+            ast.startNode.clone()
+        } else {
+            graph_ctx.active_node.clone()
+        };
+        let waiting_for = graph_ctx.waiting_for.clone();
+        let mut state_data = if graph_ctx.state_data.is_null() {
+            ctx.get("input").cloned().unwrap_or(Value::String(String::new()))
+        } else {
+            graph_ctx.state_data.clone()
+        };
 
-        if let Some(waiting) = waiting_for.as_deref() {
-            if waiting == "NODE" {
+        if let Some(ref waiting) = waiting_for {
+            if *waiting == GraphWaitKind::Node {
                 state_data = ctx.get("input").cloned().unwrap_or(state_data);
                 if let Some(edges) = &ast.edges {
                     if let Some(edge) = edges.get(&active_node) {
-                        if edge == "__end__" {
-                            self.store.create_response(
-                                req.id,
-                                &req.conversation_id,
-                                req.user_id,
-                                &to_text(&state_data),
-                            )?;
-                            return self.complete_request(req.id, "COMPLETED");
-                        }
-                        if let Some(next_str) = edge.as_str() {
-                            active_node = next_str.to_string();
-                        } else {
-                            self.store.insert_request(
-                                req.user_id,
-                                &req.conversation_id,
-                                "NEW",
-                                0,
-                                Some(req.id),
-                                Some(&serde_json::to_string(edge)?),
-                                Some(&serde_json::to_string(&json!({"input": state_data}))?),
-                                0,
-                                None,
-                            )?;
-                            ctx["activeNode"] = Value::String(active_node);
-                            ctx["stateData"] = state_data;
-                            ctx["waitingFor"] = Value::String("ROUTER".to_string());
-                            self.store.set_request_context_and_new(req.id, 1, &ctx)?;
-                            return Ok(());
+                        match edge {
+                            crate::ast::CuratorEdge::Static(next_str) => {
+                                if next_str == "__end__" {
+                                    self.store.create_response(
+                                        req.id,
+                                        &req.conversation_id,
+                                        req.user_id,
+                                        &to_text(&state_data),
+                                    )?;
+                                    return self.complete_request(req.id, "COMPLETED");
+                                }
+                                active_node = next_str.to_string();
+                            }
+                            crate::ast::CuratorEdge::Dynamic(edge_ast) => {
+                                self.store.insert_request(
+                                    req.user_id,
+                                    &req.conversation_id,
+                                    "NEW",
+                                    0,
+                                    Some(req.id),
+                                    Some(&serde_json::to_string(&edge_ast)?),
+                                    Some(&serde_json::to_string(&json!({"input": state_data}))?),
+                                    0,
+                                    None,
+                                )?;
+                                graph_ctx.active_node = active_node;
+                                graph_ctx.state_data = state_data;
+                                graph_ctx.waiting_for = Some(GraphWaitKind::Router);
+                                graph_ctx.apply_to(&mut ctx);
+                                self.store.set_request_context_and_new(req.id, 1, &ctx)?;
+                                return Ok(());
+                            }
                         }
                     } else {
                         self.store.create_response(
@@ -517,7 +589,7 @@ impl CuratorProcessor {
                         return self.complete_request(req.id, "COMPLETED");
                     }
                 }
-            } else if waiting == "ROUTER" {
+            } else if *waiting == GraphWaitKind::Router {
                 let route_dest = ctx
                     .get("input")
                     .and_then(|x| x.as_str())
@@ -560,14 +632,15 @@ impl CuratorProcessor {
             None,
         )?;
 
-        ctx["activeNode"] = Value::String(active_node);
-        ctx["stateData"] = state_data;
-        ctx["waitingFor"] = Value::String("NODE".to_string());
+        graph_ctx.active_node = active_node;
+        graph_ctx.state_data = state_data;
+        graph_ctx.waiting_for = Some(GraphWaitKind::Node);
+        graph_ctx.apply_to(&mut ctx);
         self.store.set_request_context_and_new(req.id, 1, &ctx)?;
         Ok(())
     }
 
-    fn handle_interrupt(&self, ast: &CuratorInterruptNode, req: &RequestRow) -> anyhow::Result<()> {
+    fn handle_interrupt(&self, ast: &CuratorInterruptNode<serde_json::Value>, req: &RequestRow) -> anyhow::Result<()> {
         let mode = ast.mode.clone().unwrap_or_else(|| "stop".to_string());
         let priority = ast.priority;
         let threshold = ast.cancelBelowPriority.unwrap_or(priority);

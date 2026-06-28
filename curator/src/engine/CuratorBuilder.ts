@@ -9,7 +9,10 @@ import type {
   CuratorEmitEventNode,
   CuratorSetStateNode,
   CuratorHumanInputNode,
-  CuratorParallelNode
+  CuratorParallelNode,
+  CuratorScriptNode,
+  CuratorWaitEventNode,
+  CuratorToolNode
 } from './CuratorAst.js';
 
 export class CuratorBuilder {
@@ -49,8 +52,17 @@ export class CuratorBuilder {
   /**
    * Emit a Pub/Sub event to awaken listening AgentWorkflows.
    */
-  static emitEvent(eventName: string, payload?: any, targetAgentId?: number): CuratorEmitEventNode {
-    return { type: 'Curator_EmitEvent', eventName, payload, targetAgentId };
+  static emitEvent(eventName: string, payload?: any | ((ctx: any) => any), targetAgentId?: number | string | ((ctx: any) => number | string)): CuratorEmitEventNode {
+    const payloadVal = typeof payload === 'function' ? `(${payload.toString()})(context)` : payload;
+    const targetAgentIdVal = typeof targetAgentId === 'function' ? `(${targetAgentId.toString()})(context)` : targetAgentId;
+    return { type: 'Curator_EmitEvent', eventName, payload: payloadVal, targetAgentId: targetAgentIdVal };
+  }
+
+  /**
+   * Wait synchronously for a Pub/Sub event to be emitted.
+   */
+  static waitEvent(eventName: string, payloadAlias?: string): CuratorWaitEventNode {
+    return { type: 'Curator_WaitEvent', eventName, payloadAlias };
   }
 
   /**
@@ -75,10 +87,10 @@ export class CuratorBuilder {
   }
 
   /**
-   * Wait for human input from the UI.
+   * Wait for human input from the UI or CLI.
    */
-  static humanInput(prompt: string, inputType: 'text' | 'choices' | 'file' = 'text'): CuratorHumanInputNode {
-    return { type: 'Curator_HumanInput', prompt, inputType };
+  static humanInput(prompt: string, inputType: 'text' | 'choices' | 'file' = 'text', choices?: string[]): CuratorHumanInputNode {
+    return { type: 'Curator_HumanInput', prompt, inputType, choices };
   }
 
   /**
@@ -86,5 +98,27 @@ export class CuratorBuilder {
    */
   static agent(options: Omit<CuratorAgentNode, 'type'>): CuratorAgentNode {
     return { type: 'Curator_Agent', ...options };
+  }
+
+  /**
+   * Execute an arbitrary script (e.g. for game logic evaluation).
+   * Can accept a raw string or a closure that takes the `context` object.
+   */
+  static script(code: string | ((ctx: any) => any), language: 'javascript' | 'coffeescript' = 'javascript'): CuratorScriptNode {
+    const codeStr = typeof code === 'function' ? `(${code.toString()})(context)` : code;
+    return { type: 'Curator_Script', language, code: codeStr };
+  }
+
+  /**
+   * Execute a registered tool.
+   */
+  static tool(toolName: string, args?: Record<string, any>): CuratorToolNode {
+    const evaluatedArgs: Record<string, any> = {};
+    if (args) {
+      for (const [k, v] of Object.entries(args)) {
+        evaluatedArgs[k] = typeof v === 'function' ? `(${v.toString()})(context)` : v;
+      }
+    }
+    return { type: 'Curator_Tool', toolName, args: evaluatedArgs };
   }
 }

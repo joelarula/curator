@@ -5,3 +5,4 @@ export * from './engine/CuratorEngine.js';
 export * from './engine/CuratorContext.js';
 export * from './plugins/core/index.js';
 export { defineTool } from './tools/CuratorTool.js';
+export * from './engine/CuratorBuilder.js';

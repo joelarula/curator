@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ESNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "paths": {
+      "@curator/agent-server": ["../../curator/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*"]
+}

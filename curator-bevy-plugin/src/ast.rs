@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CuratorBaseNode {
@@ -24,27 +25,29 @@ pub struct CuratorInlineTool {
     pub sourceCode: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+pub type ArcScriptClosure<T> = Arc<dyn Fn(serde_json::Value, Option<Arc<Mutex<T>>>) -> String + Send + Sync>;
+
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
-pub enum CuratorAstNode {
+#[serde(bound="")] pub enum CuratorAstNode<T> {
     #[serde(rename = "Curator_Agent")]
     Agent(CuratorAgentNode),
     #[serde(rename = "Curator_Sequential")]
-    Sequential(CuratorSequentialNode),
+    Sequential(CuratorSequentialNode<T>),
     #[serde(rename = "Curator_Parallel")]
-    Parallel(CuratorParallelNode),
+    Parallel(CuratorParallelNode<T>),
     #[serde(rename = "Curator_Join")]
-    Join(CuratorJoinNode),
+    Join(CuratorJoinNode<T>),
     #[serde(rename = "Curator_Route")]
-    Route(CuratorRouteNode),
+    Route(CuratorRouteNode<T>),
     #[serde(rename = "Curator_Loop")]
-    Loop(CuratorLoopNode),
+    Loop(CuratorLoopNode<T>),
     #[serde(rename = "Curator_Tool")]
     Tool(CuratorToolNode),
     #[serde(rename = "Curator_Script")]
-    Script(CuratorScriptNode),
+    Script(CuratorScriptNode<T>),
     #[serde(rename = "Curator_Graph")]
-    Graph(CuratorGraphNode),
+    Graph(CuratorGraphNode<T>),
     #[serde(rename = "Curator_HumanInput")]
     HumanInput(CuratorHumanInputNode),
     #[serde(rename = "Curator_AgentRef")]
@@ -52,7 +55,27 @@ pub enum CuratorAstNode {
     #[serde(rename = "Curator_SetState")]
     SetState(CuratorSetStateNode),
     #[serde(rename = "Curator_Interrupt")]
-    Interrupt(CuratorInterruptNode),
+    Interrupt(CuratorInterruptNode<T>),
+}
+
+impl<T: std::fmt::Debug> std::fmt::Debug for CuratorAstNode<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Agent(arg0) => f.debug_tuple("Agent").field(arg0).finish(),
+            Self::Sequential(arg0) => f.debug_tuple("Sequential").field(arg0).finish(),
+            Self::Parallel(arg0) => f.debug_tuple("Parallel").field(arg0).finish(),
+            Self::Join(arg0) => f.debug_tuple("Join").field(arg0).finish(),
+            Self::Route(arg0) => f.debug_tuple("Route").field(arg0).finish(),
+            Self::Loop(arg0) => f.debug_tuple("Loop").field(arg0).finish(),
+            Self::Tool(arg0) => f.debug_tuple("Tool").field(arg0).finish(),
+            Self::Script(arg0) => f.debug_tuple("Script").field(arg0).finish(),
+            Self::Graph(arg0) => f.debug_tuple("Graph").field(arg0).finish(),
+            Self::HumanInput(arg0) => f.debug_tuple("HumanInput").field(arg0).finish(),
+            Self::AgentRef(arg0) => f.debug_tuple("AgentRef").field(arg0).finish(),
+            Self::SetState(arg0) => f.debug_tuple("SetState").field(arg0).finish(),
+            Self::Interrupt(arg0) => f.debug_tuple("Interrupt").field(arg0).finish(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,29 +113,29 @@ pub struct CuratorSetStateNode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CuratorSequentialNode {
+#[serde(bound="")] pub struct CuratorSequentialNode<T> {
     #[serde(flatten)]
     pub base: CuratorBaseNode,
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
     pub prompt: Option<String>,
-    pub subAgents: Vec<CuratorAstNode>,
+    pub subAgents: Vec<CuratorAstNode<T>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CuratorParallelNode {
+#[serde(bound="")] pub struct CuratorParallelNode<T> {
     #[serde(flatten)]
     pub base: CuratorBaseNode,
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
     pub prompt: Option<String>,
-    pub subAgents: Vec<CuratorAstNode>,
+    pub subAgents: Vec<CuratorAstNode<T>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CuratorJoinNode {
+#[serde(bound="")] pub struct CuratorJoinNode<T> {
     #[serde(flatten)]
     pub base: CuratorBaseNode,
     #[serde(default)]
@@ -120,37 +143,44 @@ pub struct CuratorJoinNode {
     #[serde(default)]
     pub joinLogic: Option<String>,
     #[serde(default)]
-    pub nextNode: Option<Box<CuratorAstNode>>,
+    pub nextNode: Option<Box<CuratorAstNode<T>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CuratorRouteNode {
+#[serde(bound="")] pub struct CuratorRouteNode<T> {
     #[serde(flatten)]
     pub base: CuratorBaseNode,
     #[serde(default)]
     pub name: Option<String>,
-    pub router: Box<CuratorAstNode>,
-    pub subAgents: HashMap<String, CuratorAstNode>,
+    pub router: Box<CuratorAstNode<T>>,
+    pub subAgents: HashMap<String, CuratorAstNode<T>>,
     #[serde(default)]
     pub defaultRoute: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CuratorGraphNode {
+#[serde(untagged)]
+#[serde(bound="")] pub enum CuratorEdge<T> {
+    Static(String),
+    Dynamic(CuratorAstNode<T>),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(bound="")] pub struct CuratorGraphNode<T> {
     #[serde(flatten)]
     pub base: CuratorBaseNode,
     #[serde(default)]
     pub name: Option<String>,
     pub startNode: String,
-    pub nodes: HashMap<String, CuratorAstNode>,
+    pub nodes: HashMap<String, CuratorAstNode<T>>,
     #[serde(default)]
-    pub edges: Option<HashMap<String, Value>>,
+    pub edges: Option<HashMap<String, CuratorEdge<T>>>,
     #[serde(default)]
     pub stateSchema: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CuratorLoopNode {
+#[serde(bound="")] pub struct CuratorLoopNode<T> {
     #[serde(flatten)]
     pub base: CuratorBaseNode,
     #[serde(default)]
@@ -159,7 +189,7 @@ pub struct CuratorLoopNode {
     pub prompt: Option<String>,
     #[serde(default)]
     pub maxIterations: Option<u32>,
-    pub agent: Box<CuratorAstNode>,
+    pub agent: Box<CuratorAstNode<T>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -173,12 +203,24 @@ pub struct CuratorToolNode {
     pub parameters: Option<Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CuratorScriptNode {
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(bound="")] pub struct CuratorScriptNode<T> {
     #[serde(flatten)]
     pub base: CuratorBaseNode,
     pub language: String,
     pub code: String,
+    #[serde(skip)]
+    pub closure: Option<ArcScriptClosure<T>>,
+}
+
+impl<T: std::fmt::Debug> std::fmt::Debug for CuratorScriptNode<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CuratorScriptNode")
+            .field("base", &self.base)
+            .field("language", &self.language)
+            .field("code", &self.code)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -190,6 +232,8 @@ pub struct CuratorHumanInputNode {
     pub prompt: String,
     #[serde(default)]
     pub inputType: Option<String>,
+    #[serde(default)]
+    pub inputSchema: Option<String>,
     #[serde(default)]
     pub choices: Option<Vec<String>>,
     #[serde(default)]
@@ -204,16 +248,19 @@ pub struct CuratorAgentRefNode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CuratorInterruptNode {
+#[serde(bound="")] pub struct CuratorInterruptNode<T> {
     #[serde(flatten)]
     pub base: CuratorBaseNode,
+    #[serde(default)]
+    pub name: Option<String>,
+    pub signal: String,
     pub priority: i64,
     #[serde(default)]
     pub mode: Option<String>,
     #[serde(default)]
     pub cancelBelowPriority: Option<i64>,
     #[serde(default)]
-    pub handler: Option<Box<CuratorAstNode>>,
+    pub handler: Option<Box<CuratorAstNode<T>>>,
     #[serde(default)]
-    pub resume: Option<Box<CuratorAstNode>>,
+    pub resume: Option<Box<CuratorAstNode<T>>>,
 }
