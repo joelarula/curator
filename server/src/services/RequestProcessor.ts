@@ -91,6 +91,29 @@ export class RequestProcessor {
         return stack;
     }
 
+    private async resolveHierarchicalContext(requestId: number): Promise<Record<string, any>> {
+        const contextStack: Record<string, any>[] = [];
+        let currentId: number | null = requestId;
+        const seenIds = new Set<number>();
+
+        while (currentId && !seenIds.has(currentId)) {
+            seenIds.add(currentId);
+            const parentReq: any = await this.prisma.request.findUnique({
+                where: { id: currentId },
+                select: { parentId: true, context: true }
+            });
+
+            if (!parentReq) break;
+
+            if (parentReq.context && typeof parentReq.context === 'object') {
+                contextStack.unshift(parentReq.context as Record<string, any>);
+            }
+            currentId = parentReq.parentId;
+        }
+
+        return Object.assign({}, ...contextStack);
+    }
+
     public async processRequest(request: any) {
         console.log(`[RequestProcessor] Processing request ${request.id}`);
 
@@ -143,7 +166,7 @@ export class RequestProcessor {
             }
 
             const ast: any = req.ast;
-            const initialContext = (req.context as any) || {};
+            const initialContext = await this.resolveHierarchicalContext(req.id);
 
             if (ast) {
                 // Execute the new Formal Execution AST
