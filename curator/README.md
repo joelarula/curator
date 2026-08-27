@@ -4,6 +4,11 @@ This module contains the standalone parallel agentic engine (`AdkRequestProcesso
 
 ## The Full Concept: Database-Driven Parallel Agentic Application
 
+The execution engine and semantic model are separate plugins. `corePlugin` provides
+tools and built-in workflows, while `semanticShapesPlugin` provides the built-in
+knowledge graph shapes. The CLI registers both by default; applications that do not
+use semantic entities can register only `corePlugin`.
+
 The overarching goal is to **revamp the legacy cursor server** into an ADK-driven application:
 
 1. **Dynamic AST Workflows**: Instead of running hardcoded routines in memory, users or systems insert new workflows directly into the `Request` table. These workflows are serialized as Abstract Syntax Trees (ASTs). The `AdkRequestProcessor` watches this table and executes them dynamically.

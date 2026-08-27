@@ -1,14 +1,15 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { PrismaClient } from '@prisma/client';
+import type { CuratorExecutionContext } from './CuratorContracts.js';
 
-export interface CuratorUserContext {
+export interface CuratorUserContext extends CuratorExecutionContext {
   userId: number; // Primary user
   projectId: number; // Primary project
   userIds?: number[]; // All associated users
   projectIds?: number[]; // All associated projects
   sessionId?: string;
   requestId?: number;
-  prisma?: PrismaClient; // Contextual database connection
+  prisma?: PrismaClient;
 }
 
 class CuratorContextManager {

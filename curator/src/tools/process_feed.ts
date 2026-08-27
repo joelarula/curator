@@ -25,7 +25,12 @@ export const process_feed = defineTool({
   },
   execute: async (args, _ctx) => {
     try {
-      const { url, limit } = args;
+      const url = args.url;
+      if (typeof url !== 'string' || url.length === 0) throw new Error('url must be a non-empty string');
+      const limit = args.limit;
+      if (limit !== undefined && (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1)) {
+        throw new Error('limit must be a positive integer');
+      }
       console.log(`[process_feed] Fetching RSS feed: ${url}`);
       
       const parser = new Parser();
@@ -74,7 +79,7 @@ export const process_feed = defineTool({
       const existingUriSet = new Set(existingResources.map(r => r.uri));
 
       let newFeedItems = items.filter((item: any) => !existingUriSet.has(item.uri));
-      if (limit && limit > 0) {
+      if (typeof limit === 'number') {
         newFeedItems = newFeedItems.slice(0, limit);
       }
 

@@ -1,18 +1,14 @@
 import type { SemanticNodeShape } from '../services/SemanticSchemaEngine.js';
+import type { CuratorAgentDefinition, CuratorPluginDefinition, CuratorScriptDefinition } from './CuratorContracts.js';
+import type { CuratorTool } from '../tools/CuratorTool.js';
 
-export interface CuratorPlugin {
-  name: string;
-  tools?: Record<string, any>; 
-  models?: SemanticNodeShape[]; 
-  scripts?: Record<string, { run: (context: any) => Promise<any> }>; 
-  agents?: Record<string, any>;
-}
+export type CuratorPlugin = CuratorPluginDefinition;
 
 export class CuratorEngine {
-  public tools = new Map<string, any>();
+  public tools = new Map<string, CuratorTool>();
   public models = new Map<string, SemanticNodeShape>();
-  public scripts = new Map<string, any>();
-  public agents = new Map<string, any>();
+  public scripts = new Map<string, CuratorScriptDefinition>();
+  public agents = new Map<string, CuratorAgentDefinition | import('./CuratorAst.js').CuratorAstNode>();
   public plugins: CuratorPlugin[] = [];
 
   public registerPlugin(plugin: CuratorPlugin) {

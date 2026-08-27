@@ -1,0 +1,38 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+
+:root {
+  color: #17221f;
+  background: #e9efe8;
+  font-family: 'DM Sans', sans-serif;
+  font-synthesis: none;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+.shell { width: min(980px, calc(100% - 40px)); margin: 0 auto; padding: 72px 0 96px; }
+.masthead { border-left: 5px solid #ef6a45; padding-left: 22px; }
+.eyebrow, .track-position { color: #ef6a45; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+h1, h2 { font-family: 'Space Grotesk', sans-serif; margin: 0; }
+h1 { font-size: clamp(2.6rem, 8vw, 6rem); letter-spacing: -0.04em; line-height: 0.95; }
+.intro { font-size: 1.05rem; margin: 20px 0 0; max-width: 480px; }
+.search-panel { background: #17221f; color: #f6f4ed; margin: 52px 0 28px; padding: 26px; }
+label { display: block; font-size: 0.85rem; font-weight: 700; margin-bottom: 10px; }
+input { background: #f6f4ed; border: 0; border-bottom: 3px solid #ef6a45; color: #17221f; font: inherit; font-size: 1.2rem; outline: none; padding: 14px 15px; width: 100%; }
+input:focus { box-shadow: 0 0 0 3px #ef6a45; }
+.hint, .state { color: #60706a; font-size: 0.9rem; }
+.search-panel .hint { color: #b8c9c0; margin: 12px 0 0; }
+.state { padding: 24px 0; }
+.error { color: #bd3924; }
+.results { display: grid; gap: 2px; }
+.result { align-items: center; background: #f6f4ed; display: flex; gap: 24px; justify-content: space-between; padding: 22px 24px; }
+.track-position { margin: 0 0 8px; }
+h2 { font-size: 1.15rem; }
+.artist, .episode p { color: #60706a; margin: 7px 0 0; }
+.episode { flex: 0 0 190px; text-align: right; }
+.episode p { margin: 0 0 10px; }
+a { color: #bd3924; font-weight: 700; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+@media (max-width: 600px) {
+  .shell { padding-top: 42px; width: min(100% - 28px, 980px); }
+  .result { align-items: flex-start; flex-direction: column; gap: 14px; }
+  .episode { flex-basis: auto; text-align: left; }
+}

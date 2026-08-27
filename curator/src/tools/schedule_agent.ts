@@ -1,5 +1,6 @@
 import { defineTool } from './CuratorTool.js';
 import { getGlobalScheduler } from '../engine/ScheduledAgentScheduler.js';
+import type { Prisma } from '@prisma/client';
 
 export const schedule_agent = defineTool({
   name: 'schedule_agent',
@@ -36,20 +37,27 @@ export const schedule_agent = defineTool({
         return 'Error: Database connection not available in tool context.';
       }
 
-      const isOnce = !!args.runAt;
+      const name = args.name;
+      const workflowName = args.workflowName;
+      const schedule = args.schedule;
+      const runAt = args.runAt;
+      if (typeof name !== 'string' || typeof workflowName !== 'string') return 'Error: name and workflowName must be strings.';
+      if (schedule !== undefined && typeof schedule !== 'string') return 'Error: schedule must be a string.';
+      if (runAt !== undefined && typeof runAt !== 'string') return 'Error: runAt must be an ISO datetime string.';
+      const isOnce = typeof runAt === 'string' && runAt.length > 0;
       
-      if (!isOnce && !args.schedule) {
+      if (!isOnce && !schedule) {
         return 'Error: Must provide either "schedule" (for recurring) or "runAt" (for one-shot).';
       }
 
       const scheduledAgent = await ctx.prisma.scheduledAgent.create({
         data: {
-          name: args.name,
-          workflowName: args.workflowName,
-          schedule: isOnce ? null : args.schedule,
+          name,
+          workflowName,
+          schedule: isOnce ? null : schedule,
           runOnce: isOnce,
-          runAt: isOnce ? new Date(args.runAt) : null,
-          workflowParams: args.workflowParams ? JSON.stringify(args.workflowParams) : null,
+          runAt: isOnce ? new Date(runAt) : null,
+          workflowParams: args.workflowParams === undefined ? undefined : JSON.parse(JSON.stringify(args.workflowParams)) as Prisma.InputJsonValue,
           userId: ctx.userId || 1,
           isActive: true
         }
@@ -60,13 +68,13 @@ export const schedule_agent = defineTool({
         await scheduler.addAgentJob(scheduledAgent.id);
         const modeStr = isOnce
           ? `once at ${args.runAt}`
-          : `recurring: "${args.schedule}"`;
-        return `Successfully scheduled agent '${args.workflowName}' as '${args.name}' (${modeStr}). ID: ${scheduledAgent.id}`;
+          : `recurring: "${schedule}"`;
+        return `Successfully scheduled agent '${workflowName}' as '${name}' (${modeStr}). ID: ${scheduledAgent.id}`;
       } else {
         return `Saved schedule to database, but the scheduler is not running currently. ID: ${scheduledAgent.id}`;
       }
-    } catch(e: any) {
-      return 'Failed to schedule agent: ' + e.message;
+    } catch(e: unknown) {
+      return 'Failed to schedule agent: ' + (e instanceof Error ? e.message : String(e));
     }
   }
 });

@@ -15,12 +15,13 @@ export const web_scraper = defineTool({
   },
   execute: async (args, _ctx) => {
     try {
+      if (typeof args.url !== 'string' || args.url.length === 0) throw new Error('url must be a non-empty string');
       console.log('[web_scraper] Fetching URL: ' + args.url);
       const response = await fetch(args.url);
       const text = await response.text();
       return text.substring(0, 2000);
-    } catch(e: any) {
-      return 'Failed to fetch URL: ' + e.message;
+    } catch(e: unknown) {
+      return 'Failed to fetch URL: ' + (e instanceof Error ? e.message : String(e));
     }
   }
 });

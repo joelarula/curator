@@ -1,0 +1,30 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { openDatabase } from './db.js';
+import { importLegacyJson } from './import-legacy.js';
+import { createCuratorStore } from './curator-store.js';
+import { registerKeerisPlugins } from './plugins/index.js';
+
+const databasePath = process.env.CURATOR_DATABASE_PATH ?? 'data/curator.db';
+const input = process.env.LEGACY_IMPORT_PATH ?? 'web/public/tracks.json';
+const progressPath = process.env.MIGRATION_PROGRESS_PATH ?? 'data/migration-progress.json';
+const { provisionSqliteDb, curatorEngine } = await import('@curator/agent-server');
+const sqlite = openDatabase(process.env.DATABASE_PATH ?? 'data/kauamangiv.sqlite');
+const engine = await registerKeerisPlugins({ db: sqlite });
+const prisma = await provisionSqliteDb(process.env.CURATOR_DATABASE_NAME ?? 'keeris', false, { databasePath });
+const agentCount = await prisma.agent.count();
+const workflowCount = await prisma.agentWorkflow.count();
+if (!agentCount || !workflowCount) throw new Error('Curator setup is incomplete. Run `npm run setup:curator` before migration.');
+console.log('[Keeris migration] Curator setup verified. Importing legacy data...');
+const store = await createCuratorStore(prisma, curatorEngine);
+const writeProgress = (progress) => {
+	mkdirSync(dirname(progressPath), { recursive: true });
+	writeFileSync(`${progressPath}.tmp`, `${JSON.stringify({ ...progress, updatedAt: new Date().toISOString() })}\n`, 'utf8');
+	writeFileSync(progressPath, `${JSON.stringify({ ...progress, updatedAt: new Date().toISOString() })}\n`, 'utf8');
+};
+writeProgress({ phase: 'started', totalEpisodes: 0, totalTracks: 0, completedEpisodes: 0, migratedTracks: 0 });
+const result = await importLegacyJson(input, sqlite, { onEpisodes: store.saveEpisodes, onProgress: writeProgress });
+const verification = await store.verify();
+console.log(JSON.stringify({ phase: 'complete', migration: result, verification, plugins: engine.plugins.map((plugin) => plugin.name) }, null, 2));
+await prisma.$disconnect();
+sqlite.close();

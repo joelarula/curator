@@ -1,11 +1,13 @@
 import Bree from 'bree';
 import tsWorker from '@breejs/ts-worker';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import type { PrismaClient } from '@prisma/client';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const scheduledWorkerPath = path.join(__dirname, 'workers', fs.existsSync(path.join(__dirname, 'workers', 'scheduledAgentWorker.js')) ? 'scheduledAgentWorker.js' : 'scheduledAgentWorker.ts');
 
 Bree.extend(tsWorker);
 
@@ -27,7 +29,7 @@ export class ScheduledAgentScheduler {
 
     const jobs = agents.map(agent => ({
       name: `scheduled-agent-${agent.id}`,
-      path: path.join(__dirname, 'workers', 'scheduledAgentWorker.ts'),
+      path: scheduledWorkerPath,
       cron: agent.schedule || undefined,
       worker: {
         workerData: {
@@ -77,7 +79,7 @@ export class ScheduledAgentScheduler {
 
     let jobConfig: any = {
       name: jobName,
-      path: path.join(__dirname, 'workers', 'scheduledAgentWorker.ts'),
+      path: scheduledWorkerPath,
       worker: {
         workerData: {
           scheduledAgentId: agent.id

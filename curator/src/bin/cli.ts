@@ -50,9 +50,12 @@ program
     const { curatorEngine } = await import('../engine/CuratorEngine.js');
     const { curatorContext } = await import('../engine/CuratorContext.js');
     const { corePlugin } = await import('../plugins/core/index.js');
+    const { semanticShapesPlugin } = await import('../plugins/semantic-shapes/index.js');
+    const { validateCuratorAst, withCurrentAstVersion } = await import('../engine/CuratorAstValidation.js');
     const { provisionSqliteDb } = await import('../db/sqliteProvisioner.js');
     
     curatorEngine.registerPlugin(corePlugin);
+    curatorEngine.registerPlugin(semanticShapesPlugin);
 
     // 1. Provision / connect database
     const prisma = await provisionSqliteDb(options.db, options.reset);
@@ -114,6 +117,9 @@ program
         });
         
         if (result && typeof result === 'object' && result.type) {
+          const validation = validateCuratorAst(result);
+          if (!validation.valid) throw new Error(`Invalid Curator AST: ${validation.errors.join('; ')}`);
+          result = withCurrentAstVersion(validation.node!);
           logger.info(`[CLI] Script returned an AST. Submitting as a new Request...`);
           
           const user = await prisma.user.upsert({

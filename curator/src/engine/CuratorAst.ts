@@ -1,4 +1,6 @@
 export interface CuratorBaseNode {
+  /** Runtime AST contract version. Version 1 is the current format. */
+  astVersion?: 1;
   exclude_from_history?: boolean;
   /**
    * Delay execution of this node until a specific time.
@@ -40,6 +42,9 @@ export type CuratorAstNode =
   | CuratorWhileNode
   | CuratorForEachNode
   | CuratorWaitEventNode;
+
+// ADK_* nodes belong to the legacy ADK processor and are intentionally not
+// part of the Curator AST contract.
 
 export interface CuratorInlineTool {
   name: string;
@@ -159,6 +164,7 @@ export interface CuratorToolNode extends CuratorBaseNode {
   type: 'Curator_Tool';
   toolName: string;
   args?: Record<string, any>;
+  /** @deprecated Use args. Legacy scripts are normalized at the AST boundary. */
   parameters?: Record<string, any>;
 }
 

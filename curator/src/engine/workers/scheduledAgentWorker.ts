@@ -1,7 +1,9 @@
 import { parentPort, workerData } from 'worker_threads';
 import { PrismaClient } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import path from 'path';
 import { pathToFileURL } from 'url';
+import { validateCuratorAst } from '../CuratorAstValidation.js';
 
 const prisma = new PrismaClient();
 
@@ -21,9 +23,9 @@ async function run() {
 
   console.log(`[ScheduledAgentWorker] Executing scheduled agent ${agent.name} (ID: ${agent.id})`);
 
-  let ast: any = null;
+  let ast: unknown = null;
   let status = 'NEW';
-  let context: any = null;
+  let context: Record<string, unknown> | null = null;
   let workflowName: string | null = null;
   let errorMsg: string | null = null;
 
@@ -45,8 +47,10 @@ async function run() {
           prisma
         }, async () => {
           const result = await registeredScript.run({ prisma, dbName: 'default.db' });
-          if (result && typeof result === 'object' && result.type) {
-            ast = result;
+          if (result && typeof result === 'object' && 'type' in result) {
+            const validation = validateCuratorAst(result);
+            if (!validation.valid) throw new Error(`Invalid scheduled AST: ${validation.errors.join('; ')}`);
+            ast = validation.node;
           } else {
             throw new Error('Registered script run() did not return a valid AST object');
           }
@@ -90,10 +94,17 @@ async function run() {
       conversationId,
       status: status,
       toolName: workflowName || 'Curator_Workflow',
-      ast: ast,
-      context: context
+      ast: ast as Prisma.InputJsonValue,
+      context: context ? context as Prisma.InputJsonValue : undefined
     }
   });
+
+  if (agent.runOnce) {
+    await prisma.scheduledAgent.update({
+      where: { id: agent.id },
+      data: { isActive: false },
+    });
+  }
 
   console.log(`[ScheduledAgentWorker] Created Request ${req.id} for agent ${agent.name} with status ${status}`);
 

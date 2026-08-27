@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PrismaClient } from '@prisma/client';
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
+import { DatabaseSync } from 'node:sqlite';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -18,19 +19,19 @@ while (root !== path.dirname(root)) {
 const CURATOR_ROOT = root;
 const DATA_DIR = path.join(CURATOR_ROOT, 'data');
 
-export async function provisionSqliteDb(name: string, forceReset: boolean = false): Promise<PrismaClient> {
+export async function provisionSqliteDb(name: string, forceReset: boolean = false, options: { databasePath?: string } = {}): Promise<PrismaClient> {
   // Validate name (alphanumeric, hyphens, underscores only)
   if (!/^[\w-]+$/.test(name)) {
     throw new Error(`[Curator CLI] Invalid database name "${name}". Use letters, numbers, hyphens or underscores only.`);
   }
 
-  // Ensure data/ directory exists
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+  const dbPath = options.databasePath ? path.resolve(options.databasePath) : path.join(DATA_DIR, `${name}.db`);
+  const dbDirectory = path.dirname(dbPath);
+  if (!fs.existsSync(dbDirectory)) {
+    fs.mkdirSync(dbDirectory, { recursive: true });
     console.log(`[Curator CLI] Created data directory: ${DATA_DIR}`);
   }
 
-  const dbPath = path.join(DATA_DIR, `${name}.db`);
   const dbUrl = `file:${dbPath}`;
 
   if (forceReset && fs.existsSync(dbPath)) {
@@ -44,7 +45,19 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
 
   const isNew = !fs.existsSync(dbPath);
 
-  if (isNew) {
+  const hasSchema = !isNew && (() => {
+    let db: DatabaseSync | undefined;
+    try {
+      db = new DatabaseSync(dbPath, { readOnly: true });
+      return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='User'").get());
+    } catch {
+      return false;
+    } finally {
+      db?.close();
+    }
+  })();
+
+  if (isNew || !hasSchema) {
     console.log(`[Curator CLI] 🗄️ Provisioning new database: ${name}`);
     console.log(`[Curator CLI] Applying schema...`);
     execSync(

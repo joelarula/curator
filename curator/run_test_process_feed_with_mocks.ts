@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { provisionSqliteDb } from './src/db/sqliteProvisioner.js';
 import { curatorEngine, type CuratorPlugin } from './src/engine/CuratorEngine.js';
 import { corePlugin } from './src/plugins/core/index.js';
+import { semanticShapesPlugin } from './src/plugins/semantic-shapes/index.js';
 import { CuratorRequestProcessor } from './src/engine/CuratorRequestProcessor.js';
 import { defineTool } from './src/tools/CuratorTool.js';
 import { run } from './scripts/test_process_feed_with_mocks.js';
@@ -71,6 +72,7 @@ async function main() {
   try {
     // Register core plugin first, then override process_feed with deterministic mock.
     curatorEngine.registerPlugin(corePlugin);
+    curatorEngine.registerPlugin(semanticShapesPlugin);
 
     const mockProcessFeed = defineTool({
       name: 'process_feed',

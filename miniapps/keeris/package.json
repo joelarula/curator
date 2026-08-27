@@ -1,0 +1,39 @@
+{
+  "name": "keeris-kauamangiv-scraper",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.5" },
+  "scripts": {
+    "postinstall": "prisma generate --schema=../../curator/prisma/schema.prisma",
+    "scrape": "node src/cli.js scrape",
+    "search": "node src/cli.js search --artist=Keeris",
+    "stats": "node src/cli.js stats",
+    "export:web": "node src/cli.js export-json",
+    "import:legacy": "node src/import-legacy.js",
+    "migrate:curator": "node src/run-curator-migration.js",
+    "migration:status": "node src/migration-status.js",
+    "setup:curator": "node src/setup-curator.js",
+    "prisma:setup": "prisma db push --schema=../../curator/prisma/schema.prisma --accept-data-loss",
+    "dev:server": "node --watch src/server/index.js",
+    "dev:web": "vite --config web/vite.config.js",
+    "build:web": "vite build --config web/vite.config.js",
+    "build:server": "node --check src/server/index.js",
+    "build": "npm run build:server && npm run build:web",
+    "start": "node src/server/index.js",
+    "docker:build": "docker build -t keeris .",
+    "docker:run": "docker run --rm -p 4000:4000 -v keeris-data:/app/data keeris",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "cheerio": "^1.1.2",
+    "express": "^5.1.0",
+    "graphql": "^16.11.0",
+    "@curator/agent-server": "file:../../curator",
+    "@prisma/client": "^7.6.0",
+    "vue": "^3.5.18"
+  },
+  "devDependencies": {
+    "prisma": "^7.6.0",
+    "vite": "^7.1.3"
+  }
+}

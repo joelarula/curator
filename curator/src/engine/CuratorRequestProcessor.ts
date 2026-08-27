@@ -7,6 +7,8 @@ import { curatorContext } from './CuratorContext.js';
 
 import type { CuratorAstNode, CuratorAgentNode, CuratorSequentialNode, CuratorParallelNode, CuratorJoinNode, CuratorToolNode, CuratorScriptNode, CuratorRouteNode, CuratorGraphNode } from './CuratorAst.js';
 import { logger } from '../utils/logger.js';
+import { validateCuratorAst } from './CuratorAstValidation.js';
+import type { Prisma } from '@prisma/client';
 
 // Map GOOGLE_API_KEY for @google/genai if needed
 if (!process.env.GOOGLE_API_KEY && process.env.GEMINI_API_KEY) {
@@ -21,6 +23,17 @@ export class CuratorRequestProcessor {
 
   constructor(prisma: any) {
     this.prisma = prisma;
+  }
+
+  private async createValidatedRequest(args: Prisma.RequestCreateArgs) {
+    const validation = validateCuratorAst(args.data.ast);
+    if (!validation.valid) {
+      throw new Error(`Invalid child Curator AST: ${validation.errors.join('; ')}`);
+    }
+    return this.prisma.request.create({
+      ...args,
+      data: { ...args.data, ast: validation.node }
+    });
   }
 
   public async start(intervalMs: number = 3000) {
@@ -178,7 +191,15 @@ export class CuratorRequestProcessor {
       });
       if (!req) throw new Error(`Request ${request.id} not found`);
 
-      const ast: CuratorAstNode = req.ast as CuratorAstNode;
+      const validation = validateCuratorAst(req.ast);
+      if (!validation.valid) {
+        const message = `Invalid Curator AST: ${validation.errors.join('; ')}`;
+        logger.error(`[CuratorRequestProcessor] Request ${request.id} rejected: ${message}`);
+        await this.prisma.response.create({ data: { requestId: request.id, conversationId: req.conversationId, userId: req.userId, projectId: req.projectId, content: `ERROR: ${message}` } });
+        await this.prisma.request.update({ where: { id: request.id }, data: { status: 'FAILED', lockedBy: null, lockedAt: null } });
+        return;
+      }
+      const ast: CuratorAstNode = validation.node!;
 
       await curatorContext.run({
         userId: req.userId,
@@ -288,7 +309,7 @@ export class CuratorRequestProcessor {
       const targetAst = sub.workflowAst || sub.agentWorkflow?.ast;
       if (!targetAst) continue;
 
-      await this.prisma.request.create({
+      await this.createValidatedRequest({
         data: {
           userId: sub.userId,
           projectId: sub.projectId,
@@ -393,7 +414,7 @@ export class CuratorRequestProcessor {
       let nodeAst = subAgents[i] as any;
       if (isFirst && ast.prompt && !nodeAst.prompt) nodeAst.prompt = ast.prompt;
 
-      const newReq = await this.prisma.request.create({
+      const newReq = await this.createValidatedRequest({
         data: {
           userId: req.userId,
           conversationId: req.conversationId,
@@ -415,7 +436,7 @@ export class CuratorRequestProcessor {
     const subAgents = ast.subAgents;
     if (!subAgents || subAgents.length === 0) { await this.completeRequest(req.id, 'COMPLETED'); return; }
 
-    const joinReq = await this.prisma.request.create({
+    const joinReq = await this.createValidatedRequest({
       data: {
         userId: req.userId,
         conversationId: req.conversationId,
@@ -429,7 +450,7 @@ export class CuratorRequestProcessor {
     for (const sub of subAgents) {
       let nodeAst = sub as any;
       if (ast.prompt && !nodeAst.prompt) nodeAst.prompt = ast.prompt;
-      await this.prisma.request.create({
+      await this.createValidatedRequest({
         data: { userId: req.userId, conversationId: req.conversationId, status: 'NEW', pendingDependencies: 0, notifyId: joinReq.id, ast: nodeAst, priority: nodeAst.priority ?? 0, scheduledAt: this.resolveScheduledAt(nodeAst) ?? null }
       });
     }
@@ -458,7 +479,7 @@ export class CuratorRequestProcessor {
       // Inherit the prompt into the router if applicable
       let routerAst = { ...ast.router } as any;
 
-      await this.prisma.request.create({
+      await this.createValidatedRequest({
         data: {
           userId: req.userId,
           conversationId: req.conversationId,
@@ -572,7 +593,7 @@ export class CuratorRequestProcessor {
           activeNode = edge;
         } else {
           logger.info(`[CuratorRequestProcessor] Graph Node ${req.id} spawning conditional router for '${activeNode}'.`);
-          await this.prisma.request.create({
+          await this.createValidatedRequest({
             data: {
               userId: req.userId,
               conversationId: req.conversationId,
@@ -623,7 +644,7 @@ export class CuratorRequestProcessor {
       
       let nodeAst = { ...targetAst } as any;
 
-      await this.prisma.request.create({
+      await this.createValidatedRequest({
         data: {
           userId: req.userId,
           conversationId: req.conversationId,
@@ -719,7 +740,7 @@ export class CuratorRequestProcessor {
     }
 
     // Spawn the loaded AST as a child request, inheriting the input context
-    await this.prisma.request.create({
+    await this.createValidatedRequest({
       data: {
         userId: req.userId,
         conversationId: req.conversationId,
@@ -764,7 +785,7 @@ export class CuratorRequestProcessor {
       if (output && typeof output === 'object' && output.type && nodeTypes.includes(output.type)) {
         logger.info(`[CuratorRequestProcessor] Script generated a valid AST node of type ${output.type}. Spawning as child...`);
         // Spawn the dynamic AST
-        await this.prisma.request.create({
+        await this.createValidatedRequest({
           data: {
             ast: output,
             context: { ...req.context, spawnedChild: false, input: req.context?.input },
@@ -801,7 +822,7 @@ export class CuratorRequestProcessor {
 
     let result = '';
     try {
-      const toolArgs = ast.parameters || ast.args || { url: req.context?.input || '' };
+      const toolArgs = ast.args || { url: req.context?.input || '' };
       
       // Evaluate string expressions in toolArgs
       const evaluatedArgs: Record<string, any> = {};
@@ -884,7 +905,7 @@ export class CuratorRequestProcessor {
 
       // Run handler if provided
       if (ast.handler) {
-        await this.prisma.request.create({
+        await this.createValidatedRequest({
           data: {
             userId: req.userId,
             conversationId: req.conversationId,
@@ -920,7 +941,7 @@ export class CuratorRequestProcessor {
       // If resume is provided, handler notifies the resume node
       let notifyId = req.notifyId;
       if (ast.resume) {
-        const resumeReq = await this.prisma.request.create({
+        const resumeReq = await this.createValidatedRequest({
           data: {
             userId: req.userId,
             conversationId: req.conversationId,
@@ -934,7 +955,7 @@ export class CuratorRequestProcessor {
         notifyId = resumeReq.id;
       }
 
-      await this.prisma.request.create({
+      await this.createValidatedRequest({
         data: {
           userId: req.userId,
           conversationId: req.conversationId,
@@ -1387,7 +1408,7 @@ export class CuratorRequestProcessor {
     const branchToExecute = conditionResult ? ast.thenBranch : ast.elseBranch;
     
     if (branchToExecute) {
-      await this.prisma.request.create({
+      await this.createValidatedRequest({
         data: {
           ast: branchToExecute,
           context: req.context,
@@ -1425,7 +1446,7 @@ export class CuratorRequestProcessor {
     const conditionResult = await this.evaluateExpressionAsync(ast.condition, req);
     
     if (conditionResult) {
-      await this.prisma.request.create({
+      await this.createValidatedRequest({
         data: {
           ast: ast.body,
           context: req.context,
@@ -1471,7 +1492,7 @@ export class CuratorRequestProcessor {
     const item = collection[currentIndex];
     const iteratorName = ast.iteratorName || 'item';
     
-    await this.prisma.request.create({
+    await this.createValidatedRequest({
       data: {
         ast: ast.body,
         context: { ...req.context, [iteratorName]: item },

@@ -22,12 +22,16 @@ export const cancel_scheduled_agent = defineTool({
       if (!ctx.prisma) {
         return 'Error: Database connection not available in tool context.';
       }
-      if (!args.id && !args.name) {
+      const id = args.id;
+      const name = args.name;
+      if (id === undefined && name === undefined) {
         return 'Error: Must provide either id or name to cancel the scheduled agent.';
       }
+      if (id !== undefined && (typeof id !== 'number' || !Number.isInteger(id))) return 'Error: id must be an integer.';
+      if (name !== undefined && typeof name !== 'string') return 'Error: name must be a string.';
 
       const scheduledAgent = await ctx.prisma.scheduledAgent.findFirst({
-        where: args.id ? { id: args.id } : { name: args.name }
+        where: id !== undefined ? { id } : { name: name as string }
       });
 
       if (!scheduledAgent) {
@@ -46,8 +50,8 @@ export const cancel_scheduled_agent = defineTool({
       } else {
         return `Marked scheduled agent as inactive in DB. ID: ${scheduledAgent.id}`;
       }
-    } catch(e: any) {
-      return 'Failed to cancel scheduled agent: ' + e.message;
+    } catch(e: unknown) {
+      return 'Failed to cancel scheduled agent: ' + (e instanceof Error ? e.message : String(e));
     }
   }
 });
