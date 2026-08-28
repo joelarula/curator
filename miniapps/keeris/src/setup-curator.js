@@ -6,32 +6,29 @@ import { openDatabase } from './db.js';
 const databasePath = process.env.CURATOR_DATABASE_PATH ?? 'data/curator.db';
 const databaseName = process.env.CURATOR_DATABASE_NAME ?? 'keeris';
 
-if (!existsSync(databasePath)) {
-  throw new Error(`Curator database not found: ${databasePath}. Run Prisma db push first.`);
-}
 const prisma = await provisionSqliteDb(databaseName, false, { databasePath });
-const sqlite = openDatabase(process.env.DATABASE_PATH ?? 'data/kauamangiv.sqlite');
+const sqlite = openDatabase(process.env.DATABASE_PATH ?? 'data/keeris.db');
 const engine = await registerKeerisPlugins({ db: sqlite });
-const user = await prisma.user.upsert({ where: { id: 1 }, update: {}, create: { id: 1, username: 'system', name: 'System User', email: 'system@local' } });
-const project = await prisma.project.upsert({ where: { id: 1 }, update: {}, create: { id: 1, name: 'Keeris', userId: user.id } });
+const user = await prisma.user.upsert({ where: { email: 'system@local' }, update: {}, create: { id: '1', name: 'System User', email: 'system@local' } });
+const project = await prisma.project.upsert({ where: { id: '1' }, update: {}, create: { id: '1', name: 'Keeris', userId: user.id } });
 
 for (const [name, tool] of engine.tools) {
   await prisma.tool.upsert({
     where: { name },
-    update: { description: tool.description, parametersSchema: tool.parameters, sourceCode: '' },
-    create: { name, description: tool.description, parametersSchema: tool.parameters, sourceCode: '' },
+    update: { description: tool.description ?? '', version: '1.0.0' },
+    create: { name, description: tool.description ?? '', version: '1.0.0' },
   });
 }
 for (const [name, definition] of engine.agents) {
-  const agent = await prisma.agent.upsert({
+  const script = await prisma.script.upsert({
     where: { name },
-    update: { description: definition.description ?? '', userId: user.id, projectId: project.id },
-    create: { name, description: definition.description ?? '', userId: user.id, projectId: project.id },
+    update: { body: `// Keeris workflow: ${name}`, ast: definition, userId: user.id, projectId: project.id },
+    create: { name, body: `// Keeris workflow: ${name}`, ast: definition, userId: user.id, projectId: project.id },
   });
-  await prisma.agentWorkflow.upsert({
+  await prisma.agent.upsert({
     where: { name },
-    update: { description: `Keeris workflow: ${name}`, ast: definition, agentId: agent.id },
-    create: { name, description: `Keeris workflow: ${name}`, ast: definition, agentId: agent.id },
+    update: { scriptId: script.id, userId: user.id, projectId: project.id },
+    create: { name, scriptId: script.id, userId: user.id, projectId: project.id },
   });
 }
 

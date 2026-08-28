@@ -1,45 +1,37 @@
-export async function startCuratorRuntime({ databaseName, keerisDb, intervalMs = 1000, logger = console } = {}) {
+export async function startCuratorRuntime({ databaseName = 'keeris', intervalMs = 1000, logger = console } = {}) {
   if (!databaseName) return null;
 
   const { provisionSqliteDb } = await import('@curator/agent-server');
-  const { CuratorRequestProcessor } = await import('@curator/agent-server');
-  const { ScheduledAgentScheduler, setGlobalScheduler } = await import('@curator/agent-server/dist/src/engine/ScheduledAgentScheduler.js');
   const prisma = await provisionSqliteDb(databaseName, false, {
-    databasePath: process.env.CURATOR_DATABASE_PATH,
+    databasePath: process.env.CURATOR_DATABASE_PATH ?? 'data/curator.db',
   });
-  const processor = new CuratorRequestProcessor(prisma);
-  await processor.start(intervalMs);
-  const scheduler = new ScheduledAgentScheduler(prisma);
-  setGlobalScheduler(scheduler);
 
-  const agent = await prisma.agent.findFirst({ where: { name: 'keeris_kauamangiv_scrape' } });
-  const workflow = await prisma.agentWorkflow.findUnique({ where: { name: 'keeris_kauamangiv_scrape' } });
-  const scheduledAgent = agent && workflow && await prisma.scheduledAgent.findFirst({ where: { name: 'keeris-kauamangiv-hourly', isActive: true } });
-  if (agent && workflow && !scheduledAgent) {
-    await prisma.scheduledAgent.create({
-      data: { name: 'keeris-kauamangiv-hourly', workflowName: workflow.name, schedule: process.env.KEERIS_SCRAPE_SCHEDULE ?? '0 * * * *', userId: agent.userId, projectId: agent.projectId, isActive: true },
-    });
+  const user = await prisma.user.upsert({ where: { email: 'system@local' }, update: {}, create: { id: '1', name: 'System User', email: 'system@local' } });
+  const project = await prisma.project.upsert({ where: { id: '1' }, update: {}, create: { id: '1', name: 'Keeris', userId: user.id } });
+  let conversation = await prisma.conversation.findFirst({ where: { userId: user.id, projectId: project.id } });
+  if (!conversation) {
+    conversation = await prisma.conversation.create({ data: { userId: user.id, projectId: project.id } });
   }
-  const migrationAgent = await prisma.agent.findFirst({ where: { name: 'keeris_legacy_migration' } });
-  const migrationWorkflow = await prisma.agentWorkflow.findUnique({ where: { name: 'keeris_legacy_migration' } });
-  if (process.env.KEERIS_MIGRATE_LEGACY === 'true' && migrationAgent && migrationWorkflow) {
-    const alreadyScheduled = await prisma.scheduledAgent.findFirst({ where: { name: 'keeris-legacy-migration', isActive: true } });
-    if (!alreadyScheduled) {
-      await prisma.scheduledAgent.create({
-        data: { name: 'keeris-legacy-migration', workflowName: migrationWorkflow.name, runOnce: true, runAt: new Date(Date.now() + 1000), userId: migrationAgent.userId, projectId: migrationAgent.projectId, isActive: true },
-      });
-    }
-  }
-  await scheduler.start();
 
-  logger.log('[Keeris] Curator processor and scheduled-agent scheduler are running.');
+  logger.log('[Keeris] Curator database connection established.');
+
   return {
     prisma,
-    processor,
-    scheduler,
+    async triggerAgent(name, context = {}) {
+      const script = await prisma.script.findFirst({ where: { name } });
+      if (!script) throw new Error(`Curator script '${name}' not found`);
+      return prisma.request.create({
+        data: {
+          user: { connect: { id: user.id } },
+          project: { connect: { id: project.id } },
+          conversation: { connect: { id: conversation.id } },
+          script: { connect: { id: script.id } },
+          ast: script.ast,
+          context,
+        },
+      });
+    },
     async stop() {
-      processor.stop();
-      await scheduler.stop();
       await prisma.$disconnect();
     },
   };

@@ -1,13 +1,49 @@
-import { createApp, ref, watch } from 'vue';
+import { createApp, ref, computed, watch } from 'vue';
 import './style.css';
+
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function highlight(text, search) {
+  if (!text) return '';
+  const escaped = escapeHtml(text);
+  if (!search || !search.trim()) return escaped;
+
+  const term = search.trim();
+  const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const variant = term.replace(/kandaat/g, 'kantaat').replace(/kantaat/g, 'kandaat');
+  const escapedVariant = variant !== term ? '|' + variant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '';
+  
+  const regex = new RegExp(`(${escapedTerm}${escapedVariant})`, 'gi');
+  return escaped.replace(regex, '<mark class="highlight">$1</mark>');
+}
 
 const app = {
   setup() {
-    const tracks = ref([]);
+    const songs = ref([]);
     const query = ref('');
     const loading = ref(true);
     const error = ref('');
     const totalTracks = ref(0);
+    const totalUniqueTracks = ref(0);
+    const expandedSongs = ref(new Set());
+
+    const toggleExpand = (songId) => {
+      const copy = new Set(expandedSongs.value);
+      if (copy.has(songId)) copy.delete(songId);
+      else copy.add(songId);
+      expandedSongs.value = copy;
+    };
+
+    const totalMatchingAirings = computed(() => {
+      return songs.value.reduce((acc, s) => acc + (s.airings?.length || s.playCount || 1), 0);
+    });
 
     const request = async (query, variables = {}) => {
       const response = await fetch('/graphql', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query, variables }) });
@@ -21,53 +57,93 @@ const app = {
       loading.value = true;
       error.value = '';
       try {
-        const data = await request(`query($search: String) { tracks(search: $search, limit: 500) { id position artist title date episodeTitle episodeUrl rawText } }`, { search: value });
-        tracks.value = data.tracks;
+        const data = await request(`query($search: String) {
+          uniqueTracks(search: $search, limit: 200) {
+            id
+            artist
+            title
+            playCount
+            firstPlayedAt
+            lastPlayedAt
+            airings {
+              id
+              position
+              date
+              episodeTitle
+              episodeUrl
+              programTitle
+              episodeDescription
+            }
+          }
+        }`, { search: value });
+        songs.value = data.uniqueTracks;
       } catch (reason) {
         error.value = reason.message;
-        tracks.value = [];
+        songs.value = [];
       } finally {
         loading.value = false;
       }
     };
 
-    request('{ stats { tracks } }')
-      .then((data) => { totalTracks.value = data.stats.tracks; return search(''); })
+    request('{ stats { tracks uniqueTracks } }')
+      .then((data) => {
+        totalTracks.value = data.stats.tracks;
+        totalUniqueTracks.value = data.stats.uniqueTracks;
+        return search('');
+      })
       .catch((reason) => { error.value = reason.message; loading.value = false; });
     watch(query, (value) => search(value.trim()), { flush: 'post' });
 
-    return { tracks, query, loading, error, totalTracks };
+    return { songs, query, loading, error, totalTracks, totalUniqueTracks, totalMatchingAirings, expandedSongs, toggleExpand, highlight };
   },
   template: `
     <main class="shell">
       <header class="masthead">
-        <p class="eyebrow">Vikerraadio archive</p>
-        <h1>Kauamängiv</h1>
-        <p class="intro">Search the published music lists and open the episode at ERR.</p>
+        <div class="brand">
+          <span class="eyebrow">ERR Radio</span>
+          <h1>ERR Archive Index</h1>
+        </div>
+        <div class="stats-counter" v-if="!query">{{ totalUniqueTracks.toLocaleString() }} unique songs · {{ totalTracks.toLocaleString() }} airings</div>
+        <div class="stats-counter" v-else>{{ songs.length.toLocaleString() }} {{ songs.length === 1 ? 'song' : 'unique songs' }} ({{ totalMatchingAirings.toLocaleString() }} total airings)</div>
       </header>
 
       <section class="search-panel" aria-label="Track search">
-        <label for="track-search">Search artist or track</label>
-        <input id="track-search" v-model="query" type="search" autofocus placeholder="Try Keeris, title, or artist" />
-        <p class="hint" v-if="!query">{{ totalTracks.toLocaleString() }} tracks indexed</p>
-        <p class="hint" v-else>{{ tracks.length.toLocaleString() }} matching tracks</p>
+        <input id="track-search" v-model="query" type="search" autofocus placeholder="Search unique song title, artist, or show notes (e.g. Remedium, Keeris, Kauamängiv)..." />
       </section>
 
-      <p class="state" v-if="loading">Loading the index...</p>
+      <p class="state" v-if="loading">Loading unique songs index...</p>
       <p class="state error" v-else-if="error">{{ error }}</p>
-      <p class="state" v-else-if="query && !tracks.length">No matching tracks.</p>
-      <p class="state" v-else-if="!query">Enter a search term to begin.</p>
+      <p class="state" v-else-if="query && !songs.length">No matching unique songs found.</p>
 
-      <section class="results" v-if="tracks.length" aria-live="polite">
-        <article class="result" v-for="track in tracks" :key="track.id">
-          <div>
-            <p class="track-position">Track {{ track.position }}</p>
-            <h2>{{ track.title || 'Untitled track' }}</h2>
-            <p class="artist">{{ track.artist || 'Unknown artist' }}</p>
+      <section class="results" v-if="songs.length" aria-live="polite">
+        <article class="song-card" :class="{ 'is-episode-match': String(song.id).startsWith('ep-') }" v-for="song in songs" :key="song.id">
+          <div class="song-header">
+            <div class="song-title-group">
+              <span class="play-count-badge episode-badge" v-if="String(song.id).startsWith('ep-')">Episode text match</span>
+              <span class="play-count-badge" v-else-if="song.playCount > 1">Played {{ song.playCount }}x</span>
+              <span class="play-count-badge single" v-else>Played 1x</span>
+              <h2 v-html="highlight(song.title || 'Untitled song', query)"></h2>
+              <p class="artist" v-html="highlight(song.artist || 'Unknown artist', query)"></p>
+            </div>
           </div>
-          <div class="episode">
-            <p>{{ track.date || 'Date unknown' }}</p>
-            <a :href="track.episodeUrl" target="_blank" rel="noreferrer">Open episode <span aria-hidden="true">↗</span></a>
+
+          <div class="airings-section" v-if="song.airings && song.airings.length">
+            <ul class="airings-list">
+              <li class="airing-item" v-for="airing in (expandedSongs.has(song.id) ? song.airings : song.airings.slice(0, 1))" :key="airing.id">
+                <div class="airing-meta">
+                  <span class="program-badge" v-if="airing.programTitle" v-html="highlight(airing.programTitle, query)"></span>
+                  <span class="airing-date">{{ airing.date ? airing.date.slice(0, 10) : 'Date unknown' }}</span>
+                  <span class="airing-pos" v-if="airing.position">Track {{ airing.position }}</span>
+                  <span class="episode-title" v-if="airing.episodeTitle">— <span v-html="highlight(airing.episodeTitle, query)"></span></span>
+                </div>
+                <p class="episode-desc" v-if="airing.episodeDescription" v-html="highlight(airing.episodeDescription, query)"></p>
+                <a :href="airing.episodeUrl" target="_blank" rel="noreferrer" class="open-link">Open episode <span aria-hidden="true">↗</span></a>
+              </li>
+            </ul>
+            <button class="expand-btn" v-if="song.airings.length > 1" @click="toggleExpand(song.id)">
+              <span v-if="!expandedSongs.has(song.id)">+ {{ song.airings.length - 1 }} more {{ song.airings.length - 1 === 1 ? 'episode airing' : 'episode airings' }} ↓</span>
+              <span v-else>Show fewer ↑</span>
+            </button>
           </div>
         </article>
       </section>
@@ -75,4 +151,4 @@ const app = {
   `,
 };
 
-createApp(app).mount('#app');
+createApp(app).mount('#app');

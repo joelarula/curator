@@ -6,7 +6,7 @@ export const config = {
   requestDelayMs: Number(process.env.REQUEST_DELAY_MS ?? 1000),
   maxRetries: 3,
   userAgent: 'keeris-kauamangiv-scraper/1.0 (research use)',
-  defaultDatabase: 'data/kauamangiv.sqlite'
+  defaultDatabase: 'data/keeris.db'
 };
 
 export function parseDateOption(value) {

@@ -4,8 +4,16 @@ import { keerisDomainPlugin } from './keeris-domain.js';
 let registered = false;
 const localEngine = {
   plugins: [],
+  tools: new Map(),
+  agents: new Map(),
   registerPlugin(plugin) {
     this.plugins.push(plugin);
+    if (plugin.tools) {
+      Object.entries(plugin.tools).forEach(([k, v]) => this.tools.set(k, v));
+    }
+    if (plugin.agents) {
+      Object.entries(plugin.agents).forEach(([k, v]) => this.agents.set(k, v));
+    }
   },
 };
 

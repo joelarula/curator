@@ -32,12 +32,24 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Prisma & SQLite Data
+# Prisma & SQLite Data & Data folders
 /server/prisma/dev.db
 /server/prisma/dev.db-journal
 /curator/data/
-**/data/*.db
-**/data/*.db-journal
+**/data/
+data/
+*.db
+*.db-*
+*.db-shm
+*.db-wal
+*.db-journal
+*.sqlite
+*.sqlite-*
+*.sqlite-shm
+*.sqlite-wal
+
+# Generated Prisma client code
+/curator/src/generated/
 
 # Python
 __pycache__/

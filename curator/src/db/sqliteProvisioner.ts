@@ -8,10 +8,10 @@ import { DatabaseSync } from 'node:sqlite';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Resolve project root dynamically by walking up until we find package.json and prisma folder
+// Resolve project root dynamically by walking up until we find package.json and prisma/sqlite folder
 let root = __dirname;
 while (root !== path.dirname(root)) {
-  if (fs.existsSync(path.join(root, 'package.json')) && fs.existsSync(path.join(root, 'prisma', 'schema.prisma'))) {
+  if (fs.existsSync(path.join(root, 'package.json')) && fs.existsSync(path.join(root, 'prisma', 'sqlite', 'schema.prisma'))) {
     break;
   }
   root = path.dirname(root);
@@ -57,15 +57,17 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
     }
   })();
 
-  if (isNew || !hasSchema) {
+  if (isNew || !hasSchema || forceReset) {
     console.log(`[Curator CLI] 🗄️ Provisioning new database: ${name}`);
     console.log(`[Curator CLI] Applying schema...`);
+    const sqliteSchemaPath = path.join(CURATOR_ROOT, 'prisma', 'sqlite', 'schema.prisma');
+    const pushFlags = forceReset ? '--force-reset' : '--accept-data-loss';
     execSync(
-      `npx prisma db push --accept-data-loss`,
+      `npx prisma db push ${pushFlags} --schema="${sqliteSchemaPath}" --url="${dbUrl}"`,
       {
         stdio: 'inherit',
         cwd: CURATOR_ROOT,
-        env: { ...process.env, DATABASE_URL: dbUrl }
+        env: { ...process.env, DATABASE_URL: dbUrl, PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION: 'yes' }
       }
     );
     console.log(`[Curator CLI] ✓ Database ready: ${dbPath}`);
@@ -74,20 +76,21 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
   }
 
   // Return a PrismaClient pointed at the SQLite file via better-sqlite3 adapter.
+  const { PrismaClient: SqlitePrismaClient } = await import('../generated/prisma-sqlite/index.js');
   const adapter = new PrismaBetterSqlite3({ url: dbUrl });
-  const prisma = new PrismaClient({ adapter });
+  const prisma = new SqlitePrismaClient({ adapter }) as any;
 
   // Ensure system user and project exist
-  await prisma.user.upsert({
-    where: { id: 1 },
+  const user = await prisma.user.upsert({
+    where: { email: 'system@local' },
     update: {},
-    create: { id: 1, username: 'system', name: 'System User', email: 'system@example.com' }
+    create: { id: '1', name: 'System User', email: 'system@local' }
   });
 
   await prisma.project.upsert({
-    where: { id: 1 },
+    where: { id: '1' },
     update: {},
-    create: { id: 1, name: 'System Project', userId: 1 }
+    create: { id: '1', name: 'System Project', userId: user.id }
   });
 
   return prisma;

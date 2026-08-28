@@ -41,7 +41,7 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
   }
 
   const dbUrl  = `file:${dbPath}`;
-  const isNew  = !fs.existsSync(dbPath);
+  const isNew  = !fs.existsSync(dbPath) || forceReset;
 
   if (isNew) {
     console.log(`[Curator] 🗄️  Provisioning new database: ${name}`);
@@ -49,11 +49,11 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
     // 1. Push the schema (simpler than migrate deploy for SQLite dev databases)
     console.log(`[Curator]    Applying schema...`);
     execSync(
-      `npx prisma db push --config="${path.join(PROJECT_ROOT, 'prisma.sqlite.config.js')}"`,
+      `npx prisma db push --accept-data-loss --config="${path.join(PROJECT_ROOT, 'prisma.sqlite.config.js')}"`,
       {
         stdio: 'inherit',
         cwd: PROJECT_ROOT,
-        env: { ...process.env, DATABASE_URL: dbUrl }
+        env: { ...process.env, DATABASE_URL: dbUrl, PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION: 'yes' }
       }
     );
 

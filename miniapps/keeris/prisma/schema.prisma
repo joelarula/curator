@@ -1,0 +1,93 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:../data/keeris.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Program {
+  id          Int       @id @default(autoincrement())
+  seriesId    String    @unique @map("series_id")
+  title       String
+  slug        String?   @unique
+  description String?
+  url         String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  episodes    Episode[]
+
+  @@map("programs")
+}
+
+model Episode {
+  id          Int              @id
+  programId   Int?             @map("program_id")
+  url         String           @unique
+  title       String
+  scheduledAt String?          @map("scheduled_at")
+  publishedAt String?          @map("published_at")
+  fetchedAt   String           @map("fetched_at")
+  rawHash     String?          @map("raw_hash")
+  parseStatus String           @default("pending") @map("parse_status")
+  parseError  String?          @map("parse_error")
+
+  program     Program?         @relation(fields: [programId], references: [id], onDelete: SetNull)
+  tracks      Track[]
+  metadata    EpisodeMetadata?
+
+  @@index([scheduledAt])
+  @@index([programId])
+  @@map("episodes")
+}
+
+model Track {
+  id            Int          @id @default(autoincrement())
+  episodeId     Int          @map("episode_id")
+  uniqueTrackId Int?         @map("unique_track_id")
+  position      Int
+  artist        String?
+  title         String?
+  rawText       String       @map("raw_text")
+
+  episode       Episode      @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  uniqueTrack   UniqueTrack? @relation(fields: [uniqueTrackId], references: [id], onDelete: SetNull)
+
+  @@unique([episodeId, position])
+  @@index([artist])
+  @@index([uniqueTrackId])
+  @@map("tracks")
+}
+
+model UniqueTrack {
+  id            Int      @id @default(autoincrement())
+  fingerprint   String   @unique
+  artist        String?
+  title         String?
+  playCount     Int      @default(1) @map("play_count")
+  firstPlayedAt String?  @map("first_played_at")
+  lastPlayedAt  String?  @map("last_played_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  airings       Track[]
+
+  @@index([playCount])
+  @@index([artist])
+  @@map("unique_tracks")
+}
+
+model EpisodeMetadata {
+  id          Int     @id @default(autoincrement())
+  episodeId   Int     @unique @map("episode_id")
+  description String?
+  fullText    String? @map("full_text")
+  summary     String?
+  keywords    String?
+
+  episode     Episode @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+
+  @@map("episode_metadata")
+}
