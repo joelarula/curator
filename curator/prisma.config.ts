@@ -13,7 +13,7 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') });
 const databaseUrl = process.env.DATABASE_URL || 'file:data/default.db';
 
 export default defineConfig({
-  schema: 'prisma/schema.prisma',
+  schema: 'prisma/sqlite/schema.prisma',
   migrations: {
     path: 'prisma/migrations',
   },

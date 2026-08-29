@@ -24,11 +24,13 @@ datasource db {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
+  id        String      @id @default(cuid())
+  email     String      @unique
   name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  roles     UserRole[]
+  agents    Agent[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
   requests  Request[]
 }
 
@@ -39,8 +41,13 @@ model User {
 enum RequestStatus {
   NEW
   WAITING
+  WAITING_FOR_USER
+  WAITING_FOR_EVENT
   COMPLETED
   FAILED
+  CANCELLED
+  PAUSED
+  SKIPPED
 }
 
 model Project {
@@ -64,14 +71,17 @@ model Project {
 }
 
 model Tool {
-  id          Int      @id @default(autoincrement())
-  name        String   @unique
-  description String?
-  version     String?
-  enabled     Boolean  @default(true)
-  existent    Boolean? @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                   Int          @id @default(autoincrement())
+  name                 String       @unique
+  description          String?
+  version              String?
+  accessLevel          String       @default("safe_write") // read_only, safe_write, elevated, destructive
+  requiresConfirmation Boolean      @default(false)
+  permissions          Permission[]
+  enabled              Boolean      @default(true)
+  existent             Boolean?     @default(true)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
 
   @@index([existent])
 }
@@ -309,24 +319,88 @@ model ResourceTree {
 }
 
 model Agent {
-  id           String    @id @default(cuid())
+  id           String      @id @default(cuid())
   name         String
-  scriptId     Int
-  script       Script    @relation(fields: [scriptId], references: [id])
-  schedule     String    @default("every 10 minutes")
+  scriptId     Int?
+  script       Script?     @relation(fields: [scriptId], references: [id])
+  schedule     String      @default("every 10 minutes")
   lastPolledAt DateTime?
   userId       String
+  user         User        @relation(fields: [userId], references: [id])
   projectId    String?
-  project      Project?  @relation(fields: [projectId], references: [id])
-  enabled      Boolean   @default(true)
-  existent     Boolean?  @default(true)
+  project      Project?    @relation(fields: [projectId], references: [id])
+  enabled      Boolean     @default(true)
+  roles        AgentRole[]
+  existent     Boolean?    @default(true)
   deletedAt    DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
   requests     Request[]
 
   @@unique([name])
   @@index([existent])
+}
+
+model Permission {
+  id                   String           @id @default(cuid())
+  name                 String           @unique
+  description          String?
+  toolName             String?
+  tool                 Tool?            @relation(fields: [toolName], references: [name], onDelete: Cascade)
+  accessLevel          String?
+  requiresConfirmation Boolean          @default(false)
+  roles                RolePermission[]
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+}
+
+model Role {
+  id          String            @id @default(cuid())
+  name        String            @unique
+  description String?
+  permissions RolePermission[]
+  users       UserRole[]
+  agents      AgentRole[]
+  parentRoles RoleInheritance[] @relation("SubRole")
+  subRoles    RoleInheritance[] @relation("ParentRole")
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+}
+
+model RoleInheritance {
+  parentId  String
+  parent    Role   @relation("ParentRole", fields: [parentId], references: [id], onDelete: Cascade)
+  subRoleId String
+  subRole   Role   @relation("SubRole", fields: [subRoleId], references: [id], onDelete: Cascade)
+
+  @@id([parentId, subRoleId])
+}
+
+model RolePermission {
+  roleId       String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model UserRole {
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId String
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+model AgentRole {
+  agentId String
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  roleId  String
+  role    Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([agentId, roleId])
 }
 
 model Task {
@@ -365,4 +439,5 @@ model WorkflowCheckpoint {
   result       Json?
   createdAt    DateTime        @default(now())
 }
+
 

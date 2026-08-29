@@ -20,7 +20,7 @@ function highlight(text, search) {
   const variant = term.replace(/kandaat/g, 'kantaat').replace(/kantaat/g, 'kandaat');
   const escapedVariant = variant !== term ? '|' + variant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '';
   
-  const regex = new RegExp(`(${escapedTerm}${escapedVariant})`, 'gi');
+  const regex = new RegExp(`(${escapedTerm}${escapedVariant})`, 'giu');
   return escaped.replace(regex, '<mark class="highlight">$1</mark>');
 }
 
@@ -53,7 +53,11 @@ const app = {
       return payload.data;
     };
 
+    let searchSeq = 0;
+    let debounceTimer = null;
+
     const search = async (value) => {
+      const currentSeq = ++searchSeq;
       loading.value = true;
       error.value = '';
       try {
@@ -76,23 +80,44 @@ const app = {
             }
           }
         }`, { search: value });
+
+        // If a newer search was initiated while this request was in-flight, ignore stale response
+        if (currentSeq !== searchSeq) return;
+
         songs.value = data.uniqueTracks;
       } catch (reason) {
+        if (currentSeq !== searchSeq) return;
         error.value = reason.message;
         songs.value = [];
       } finally {
-        loading.value = false;
+        if (currentSeq === searchSeq) {
+          loading.value = false;
+        }
       }
     };
 
+    // Load initial stats and default tracks
     request('{ stats { tracks uniqueTracks } }')
       .then((data) => {
         totalTracks.value = data.stats.tracks;
         totalUniqueTracks.value = data.stats.uniqueTracks;
-        return search('');
+        // Only load blank default tracks if the user hasn't already started typing
+        if (!query.value.trim()) {
+          return search('');
+        }
       })
-      .catch((reason) => { error.value = reason.message; loading.value = false; });
-    watch(query, (value) => search(value.trim()), { flush: 'post' });
+      .catch((reason) => {
+        error.value = reason.message;
+        loading.value = false;
+      });
+
+    // 180ms debounce on keystrokes
+    watch(query, (value) => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        search(value.trim());
+      }, 180);
+    }, { flush: 'post' });
 
     return { songs, query, loading, error, totalTracks, totalUniqueTracks, totalMatchingAirings, expandedSongs, toggleExpand, highlight };
   },

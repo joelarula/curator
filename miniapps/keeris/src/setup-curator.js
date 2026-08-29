@@ -20,15 +20,21 @@ for (const [name, tool] of engine.tools) {
   });
 }
 for (const [name, definition] of engine.agents) {
+  const isAgentEnabled = definition.enabled === true;
+  const ast = {
+    type: definition.type || 'Curator_Tool',
+    toolName: definition.toolName,
+    args: definition.args || {},
+  };
   const script = await prisma.script.upsert({
     where: { name },
-    update: { body: `// Keeris workflow: ${name}`, ast: definition, userId: user.id, projectId: project.id },
-    create: { name, body: `// Keeris workflow: ${name}`, ast: definition, userId: user.id, projectId: project.id },
+    update: { body: `// Keeris workflow: ${name}`, ast, userId: user.id, projectId: project.id },
+    create: { name, body: `// Keeris workflow: ${name}`, ast, userId: user.id, projectId: project.id },
   });
   await prisma.agent.upsert({
     where: { name },
-    update: { scriptId: script.id, userId: user.id, projectId: project.id },
-    create: { name, scriptId: script.id, userId: user.id, projectId: project.id },
+    update: { scriptId: script.id, userId: user.id, projectId: project.id, enabled: isAgentEnabled, schedule: definition.schedule ?? '0 * * * *' },
+    create: { name, scriptId: script.id, userId: user.id, projectId: project.id, enabled: isAgentEnabled, schedule: definition.schedule ?? '0 * * * *' },
   });
 }
 

@@ -5,9 +5,13 @@ import { DatabaseSync } from 'node:sqlite';
 export function openDatabase(filename) {
   mkdirSync(dirname(filename), { recursive: true });
   const db = new DatabaseSync(filename);
+  try {
+    db.function('lower_utf', (text) => (text == null ? '' : String(text).toLocaleLowerCase('et-EE')));
+  } catch (_) {}
   db.exec(`
     PRAGMA foreign_keys = ON;
     PRAGMA journal_mode = WAL;
+    PRAGMA busy_timeout = 5000;
 
     CREATE TABLE IF NOT EXISTS programs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

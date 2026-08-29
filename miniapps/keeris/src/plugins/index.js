@@ -15,12 +15,26 @@ const localEngine = {
       Object.entries(plugin.agents).forEach(([k, v]) => this.agents.set(k, v));
     }
   },
+  isAgentEnabled(nameOrDef) {
+    const agent = typeof nameOrDef === 'string' ? this.agents.get(nameOrDef) : nameOrDef;
+    if (!agent) return false;
+    return agent.enabled === true || agent.isActive === true;
+  },
+  getActiveAgents() {
+    const active = [];
+    for (const [name, definition] of this.agents.entries()) {
+      if (this.isAgentEnabled(definition)) {
+        active.push({ name, definition });
+      }
+    }
+    return active;
+  },
 };
 
 export async function registerKeerisPlugins({ db } = {}) {
   if (registered) return localEngine;
   let engine = localEngine;
-  if (process.env.CURATOR_DATABASE_NAME) try {
+  try {
     const { curatorEngine, corePlugin, semanticShapesPlugin } = await import('@curator/agent-server');
     engine = curatorEngine;
     curatorEngine.registerPlugin(corePlugin);
@@ -28,8 +42,13 @@ export async function registerKeerisPlugins({ db } = {}) {
   } catch (error) {
     console.warn(`[Keeris] Curator runtime unavailable; continuing with local plugins: ${error.message}`);
   }
-  engine.registerPlugin(keerisDomainPlugin);
-  engine.registerPlugin(createErrRadioPlugin(db));
+  const errRadioPlugin = createErrRadioPlugin(db);
+  localEngine.registerPlugin(keerisDomainPlugin);
+  localEngine.registerPlugin(errRadioPlugin);
+  if (engine !== localEngine) {
+    engine.registerPlugin(keerisDomainPlugin);
+    engine.registerPlugin(errRadioPlugin);
+  }
   registered = true;
   return engine;
 }

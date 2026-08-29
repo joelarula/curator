@@ -16,17 +16,20 @@ const webRoot = join(root, 'web-dist');
 const db = openDatabase(databasePath);
 const engine = await registerKeerisPlugins({ db });
 let curatorRuntime = null;
-if (process.env.CURATOR_DATABASE_NAME) {
+const curatorDbName = process.env.CURATOR_DATABASE_NAME ?? 'keeris';
+if (curatorDbName) {
   try {
-    curatorRuntime = await startCuratorRuntime({ databaseName: process.env.CURATOR_DATABASE_NAME, keerisDb: db });
+    curatorRuntime = await startCuratorRuntime({ databaseName: curatorDbName });
   } catch (error) {
     console.error(`[Keeris] Curator runtime failed to start: ${error.message}`);
-    process.exitCode = 1;
   }
 }
-const indexer = !curatorRuntime && (process.env.INDEX_ON_START === 'true' || process.env.INDEX_INTERVAL_MS)
-  ? startIndexer({ databasePath, intervalMs: Number(process.env.INDEX_INTERVAL_MS ?? 21_600_000) })
-  : null;
+const indexer = startIndexer({
+  databasePath,
+  curatorRuntime,
+  intervalMs: Number(process.env.INDEX_INTERVAL_MS ?? 60_000),
+  runImmediate: true,
+});
 const app = express();
 
 app.disable('x-powered-by');
@@ -43,7 +46,7 @@ app.get('/health', (_request, response) => {
 
 app.post('/graphql', async (request, response) => {
   if (typeof request.body?.query !== 'string') return response.status(400).json({ errors: [{ message: 'query is required' }] });
-  const result = await executeGraphql(db, request.body.query, request.body.variables);
+  const result = await executeGraphql(db, request.body.query, request.body.variables, { curatorRuntime });
   response.status(result.errors ? 400 : 200).json(result);
 });
 

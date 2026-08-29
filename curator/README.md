@@ -79,3 +79,25 @@ $env:GEMINI_API_KEY="your_api_key"
 # Using the CLI natively
 npx tsx src/bin/cli.ts run scripts/test_process_feed.ts --db test_db --session my_unique_trial --reset
 ```
+
+## Agent Scheduling & Bree Engine
+
+Background workflows and recurring agent jobs are scheduled and executed via **[Bree](https://github.com/breejs/bree)** (`ScheduledAgentScheduler`).
+
+### Supported Schedule Formats
+
+Bree supports two main scheduling syntaxes:
+
+1. **Standard 5-Field Cron Patterns**:
+   - `0 * * * *` — Runs every hour at minute 0
+   - `*/10 * * * *` — Runs every 10 minutes
+   - `0 0 * * *` — Runs daily at midnight
+   - `0 0 1 1 *` — Runs once a year on Jan 1st
+
+2. **Human-Friendly Text Intervals** (powered by [@breejs/later](https://github.com/breejs/later)):
+   - `every 10 minutes` / `every 10 mins`
+   - `every 1 hour` / `every 2 hours`
+   - `at 8:00 am`
+
+For full documentation and all supported syntax patterns, see the **[Bree Documentation](https://github.com/breejs/bree)** and **[Bree Job Scheduler Guide](https://jobscheduler.net/)**.
+

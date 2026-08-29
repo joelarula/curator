@@ -35,14 +35,17 @@ model Project {
 
 
 model Tool {
-  id          Int      @id @default(autoincrement())
-  name        String   @unique // e.g. "upsert_resource", "categorize_article"
-  description String?  @db.Text
-  version     String? // semver, e.g. "1.0.0"
-  enabled     Boolean  @default(true)
-  existent    Boolean? @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                   Int          @id @default(autoincrement())
+  name                 String       @unique // e.g. "upsert_resource", "categorize_article"
+  description          String?      @db.Text
+  version              String? // semver, e.g. "1.0.0"
+  accessLevel          String       @default("safe_write")
+  requiresConfirmation Boolean      @default(false)
+  permissions          Permission[]
+  enabled              Boolean      @default(true)
+  existent             Boolean?     @default(true)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
 
   @@index([existent])
 }
@@ -373,12 +376,13 @@ model Agent {
   projectId    String?
   project      Project?  @relation(fields: [projectId], references: [id])
 
-  enabled   Boolean  @default(true)
+  enabled   Boolean     @default(true)
+  roles     AgentRole[]
 
-  existent  Boolean? @default(true)
+  existent  Boolean?    @default(true)
   deletedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
   requests  Request[]
 
 

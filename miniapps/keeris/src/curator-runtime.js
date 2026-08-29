@@ -1,7 +1,13 @@
-export async function startCuratorRuntime({ databaseName = 'keeris', intervalMs = 1000, logger = console } = {}) {
+import { registerKeerisPlugins } from './plugins/index.js';
+
+export async function startCuratorRuntime({ databaseName = 'keeris', keerisDb, intervalMs = 1000, logger = console } = {}) {
   if (!databaseName) return null;
 
-  const { provisionSqliteDb } = await import('@curator/agent-server');
+  if (keerisDb) {
+    await registerKeerisPlugins({ db: keerisDb });
+  }
+
+  const { provisionSqliteDb, CuratorRequestProcessor } = await import('@curator/agent-server');
   const prisma = await provisionSqliteDb(databaseName, false, {
     databasePath: process.env.CURATOR_DATABASE_PATH ?? 'data/curator.db',
   });
@@ -13,10 +19,14 @@ export async function startCuratorRuntime({ databaseName = 'keeris', intervalMs 
     conversation = await prisma.conversation.create({ data: { userId: user.id, projectId: project.id } });
   }
 
-  logger.log('[Keeris] Curator database connection established.');
+  const processor = new CuratorRequestProcessor(prisma);
+  await processor.start(intervalMs);
+
+  logger.log('[Keeris] Curator database connection established and RequestProcessor active.');
 
   return {
     prisma,
+    processor,
     async triggerAgent(name, context = {}) {
       const script = await prisma.script.findFirst({ where: { name } });
       if (!script) throw new Error(`Curator script '${name}' not found`);
@@ -32,6 +42,9 @@ export async function startCuratorRuntime({ databaseName = 'keeris', intervalMs 
       });
     },
     async stop() {
+      if (processor && typeof processor.stop === 'function') {
+        processor.stop();
+      }
       await prisma.$disconnect();
     },
   };

@@ -9,6 +9,8 @@ import type { CuratorAstNode, CuratorAgentNode, CuratorSequentialNode, CuratorPa
 import { logger } from '../utils/logger.js';
 import { validateCuratorAst } from './CuratorAstValidation.js';
 import type { Prisma } from '@prisma/client';
+import { LlmFactory } from './llm/LlmFactory.js';
+import type { LlmMessage, LlmToolDefinition, LlmRequest } from './llm/ILlmProvider.js';
 
 // Map GOOGLE_API_KEY for @google/genai if needed
 if (!process.env.GOOGLE_API_KEY && process.env.GEMINI_API_KEY) {
@@ -46,18 +48,90 @@ export class CuratorRequestProcessor {
 
   private async syncToolsToDb() {
     try {
-      logger.info(`[CuratorRequestProcessor] Syncing tools from CuratorEngine registry...`);
+      logger.info(`[CuratorRequestProcessor] Syncing tools & permissions from CuratorEngine registry...`);
       let count = 0;
+
+      // Ensure base roles exist
+      const adminRole = await this.prisma.role.upsert({
+        where: { name: 'Admin' },
+        update: { description: 'Full system administrator with all tool and agent permissions' },
+        create: { name: 'Admin', description: 'Full system administrator with all tool and agent permissions' }
+      });
+
+      const workerRole = await this.prisma.role.upsert({
+        where: { name: 'AgentWorker' },
+        update: { description: 'Standard automated agent worker with safe execution permissions' },
+        create: { name: 'AgentWorker', description: 'Standard automated agent worker with safe execution permissions' }
+      });
+
+      // Role inheritance: Admin includes subRole AgentWorker
+      await this.prisma.roleInheritance.upsert({
+        where: {
+          parentId_subRoleId: {
+            parentId: adminRole.id,
+            subRoleId: workerRole.id
+          }
+        },
+        update: {},
+        create: {
+          parentId: adminRole.id,
+          subRoleId: workerRole.id
+        }
+      });
+
       for (const [name, tool] of curatorEngine.tools.entries()) {
-        logger.info(`[CuratorRequestProcessor] Upserting tool ${name}...`);
+        const accessLevel = (tool as any).accessLevel ?? 'safe_write';
+        const requiresConfirmation = (tool as any).requiresConfirmation ?? false;
+
         await this.prisma.tool.upsert({
           where: { name },
-          update: { description: (tool as any).description, parametersSchema: (tool as any).parameters, sourceCode: '' },
-          create: { name, description: (tool as any).description, parametersSchema: (tool as any).parameters, sourceCode: '' }
+          update: { description: (tool as any).description ?? '', version: '1.0.0', accessLevel, requiresConfirmation },
+          create: { name, description: (tool as any).description ?? '', version: '1.0.0', accessLevel, requiresConfirmation }
         });
+
+        // Upsert permission for tool
+        const permName = `tool:${name}:execute`;
+        const perm = await this.prisma.permission.upsert({
+          where: { name: permName },
+          update: { description: `Execute tool ${name}`, toolName: name, accessLevel, requiresConfirmation },
+          create: { name: permName, description: `Execute tool ${name}`, toolName: name, accessLevel, requiresConfirmation }
+        });
+
+        // Attach to Admin role
+        await this.prisma.rolePermission.upsert({
+          where: {
+            roleId_permissionId: {
+              roleId: adminRole.id,
+              permissionId: perm.id
+            }
+          },
+          update: {},
+          create: {
+            roleId: adminRole.id,
+            permissionId: perm.id
+          }
+        });
+
+        // If safe, attach to AgentWorker role
+        if (accessLevel === 'read_only' || accessLevel === 'safe_write') {
+          await this.prisma.rolePermission.upsert({
+            where: {
+              roleId_permissionId: {
+                roleId: workerRole.id,
+                permissionId: perm.id
+              }
+            },
+            update: {},
+            create: {
+              roleId: workerRole.id,
+              permissionId: perm.id
+            }
+          });
+        }
+
         count++;
       }
-      logger.info(`[CuratorRequestProcessor] Synced ${count} tools.`);
+      logger.info(`[CuratorRequestProcessor] Synced ${count} tools with permissions & nested roles.`);
     } catch (err) {
       logger.error('[CuratorRequestProcessor] Failed to sync tools to DB:', err);
     }
@@ -67,33 +141,58 @@ export class CuratorRequestProcessor {
     try {
       logger.info(`[CuratorRequestProcessor] Syncing agents from CuratorEngine registry...`);
       let count = 0;
-      for (const [name, agentDef] of curatorEngine.agents.entries()) {
-        logger.info(`[CuratorRequestProcessor] Upserting agent ${name}...`);
 
+      const workerRole = await this.prisma.role.findUnique({ where: { name: 'AgentWorker' } });
+
+      for (const [name, agentDef] of curatorEngine.agents.entries()) {
         // Ensure system user and project exist
         const user = await this.prisma.user.upsert({
-          where: { id: 1 },
+          where: { email: 'system@local' },
           update: {},
-          create: { id: 1, username: 'system', name: 'System', email: 'system@local' }
+          create: { id: '1', name: 'System User', email: 'system@local' }
         });
 
         const project = await this.prisma.project.upsert({
-          where: { id: 1 },
+          where: { id: '1' },
           update: {},
-          create: { id: 1, name: 'System Project', userId: user.id }
+          create: { id: '1', name: 'System Project', userId: user.id }
         });
 
+        const cleanAst = {
+          type: (agentDef as any).type || 'Curator_Tool',
+          toolName: (agentDef as any).toolName,
+          args: (agentDef as any).args || {}
+        };
+
+        const script = await this.prisma.script.upsert({
+          where: { name },
+          update: { body: `// Workflow: ${name}`, ast: cleanAst, userId: user.id, projectId: project.id },
+          create: { name, body: `// Workflow: ${name}`, ast: cleanAst, userId: user.id, projectId: project.id }
+        });
+
+        const isAgentEnabled = (agentDef as any).enabled === true;
         const agent = await this.prisma.agent.upsert({
           where: { name },
-          update: { description: (agentDef as any).description || '', userId: user.id, projectId: project.id },
-          create: { name, description: (agentDef as any).description || '', userId: user.id, projectId: project.id }
+          update: { scriptId: script.id, userId: user.id, projectId: project.id, enabled: isAgentEnabled, schedule: (agentDef as any).schedule ?? '0 * * * *' },
+          create: { name, scriptId: script.id, userId: user.id, projectId: project.id, enabled: isAgentEnabled, schedule: (agentDef as any).schedule ?? '0 * * * *' }
         });
 
-        await this.prisma.agentWorkflow.upsert({
-          where: { name },
-          update: { description: 'Default workflow', ast: agentDef, agentId: agent.id },
-          create: { name, description: 'Default workflow', ast: agentDef, agentId: agent.id }
-        });
+        if (workerRole) {
+          await this.prisma.agentRole.upsert({
+            where: {
+              agentId_roleId: {
+                agentId: agent.id,
+                roleId: workerRole.id
+              }
+            },
+            update: {},
+            create: {
+              agentId: agent.id,
+              roleId: workerRole.id
+            }
+          });
+        }
+
         count++;
       }
       logger.info(`[CuratorRequestProcessor] Synced ${count} agents.`);
@@ -119,7 +218,7 @@ export class CuratorRequestProcessor {
         // 1. Wake up requests that were WAITING_FOR_USER and just received a response
         const userRespondedRequests = await this.prisma.request.findMany({
           where: {
-            status: 'WAITING_FOR_USER',
+            status: 'WAITING',
             responses: { some: {} } // Has at least one response
           },
           include: { responses: { orderBy: { createdAt: 'desc' }, take: 1 } },
@@ -150,13 +249,9 @@ export class CuratorRequestProcessor {
         const requests = await this.prisma.request.findMany({
           where: {
             status: 'NEW',
-            pendingDependencies: 0,
-            OR: [
-              { scheduledAt: null },
-              { scheduledAt: { lte: new Date() } }
-            ]
+            scheduledAt: { lte: new Date() }
           },
-          orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
+          orderBy: [{ createdAt: 'asc' }],
           take: 5
         });
 
@@ -165,7 +260,7 @@ export class CuratorRequestProcessor {
         const lockedRequests = [];
         for (const req of requests) {
           const updated = await this.prisma.request.updateMany({
-            where: { id: req.id, status: 'NEW', pendingDependencies: 0 },
+            where: { id: req.id, status: 'NEW' },
             data: { status: 'WAITING', lockedBy: this.workerId, lockedAt: new Date() }
           });
           if (updated.count > 0) lockedRequests.push(req);
@@ -263,9 +358,7 @@ export class CuratorRequestProcessor {
 
       logger.error(`[CuratorRequestProcessor] Failed request ${request.id}:`, error);
       try {
-        await this.prisma.response.create({
-          data: { requestId: request.id, conversationId: request.conversationId, userId: request.userId, content: `ERROR: ${msg}` }
-        });
+        await this.saveResponse(request, `ERROR: ${msg}`);
       } catch (dbErr) {
         logger.error(`[CuratorRequestProcessor] Failed to write error response:`, dbErr);
       }
@@ -815,26 +908,155 @@ export class CuratorRequestProcessor {
     }
   }
 
+  private async resolveActorPermissions(actor: { userId?: string; agentId?: string }): Promise<Set<string>> {
+    const permissions = new Set<string>();
+    const visitedRoles = new Set<string>();
+    const roleQueue: string[] = [];
+
+    try {
+      if (actor.userId) {
+        const userRoles = await this.prisma.userRole.findMany({
+          where: { userId: actor.userId },
+          select: { roleId: true }
+        });
+        for (const ur of userRoles) roleQueue.push(ur.roleId);
+      }
+
+      if (actor.agentId) {
+        const agentRoles = await this.prisma.agentRole.findMany({
+          where: { agentId: actor.agentId },
+          select: { roleId: true }
+        });
+        for (const ar of agentRoles) roleQueue.push(ar.roleId);
+      }
+
+      // Recursively traverse role inheritance graph (nested subroles)
+      while (roleQueue.length > 0) {
+        const roleId = roleQueue.shift()!;
+        if (visitedRoles.has(roleId)) continue;
+        visitedRoles.add(roleId);
+
+        // Fetch role's permissions
+        const rolePerms = await this.prisma.rolePermission.findMany({
+          where: { roleId },
+          include: { permission: true }
+        });
+        for (const rp of rolePerms) {
+          if (rp.permission?.name) {
+            permissions.add(rp.permission.name);
+            if (rp.permission.toolName) permissions.add(`tool:${rp.permission.toolName}:execute`);
+          }
+        }
+
+        // Fetch inherited subroles
+        const inherited = await this.prisma.roleInheritance.findMany({
+          where: { parentId: roleId },
+          select: { subRoleId: true }
+        });
+        for (const inh of inherited) {
+          if (!visitedRoles.has(inh.subRoleId)) {
+            roleQueue.push(inh.subRoleId);
+          }
+        }
+      }
+    } catch (err) {
+      logger.error('[CuratorRequestProcessor] Error resolving actor permissions:', err);
+    }
+
+    return permissions;
+  }
+
+  private async checkToolAccess(req: any, toolName: string, tool: any): Promise<{ allowed: boolean; requiresConfirmation: boolean; reason?: string }> {
+    const accessLevel = (tool as any).accessLevel || 'safe_write';
+    const requiresConfirmation = (tool as any).requiresConfirmation || accessLevel === 'destructive';
+
+    // If confirmation is needed and not already confirmed in request context:
+    if (requiresConfirmation && req.context?.confirmed !== true) {
+      return {
+        allowed: false,
+        requiresConfirmation: true,
+        reason: `Tool '${toolName}' (${accessLevel}) requires user confirmation before execution.`
+      };
+    }
+
+    // If there are RBAC permissions configured in database, verify them
+    try {
+      const totalPermissionsCount = await this.prisma.permission.count();
+      if (totalPermissionsCount > 0) {
+        const actorPerms = await this.resolveActorPermissions({ userId: req.userId, agentId: req.agentId });
+        if (actorPerms.size > 0) {
+          const hasDirectPerm = actorPerms.has(`tool:${toolName}:execute`) || actorPerms.has('*') || actorPerms.has('admin');
+          if (!hasDirectPerm) {
+            return {
+              allowed: false,
+              requiresConfirmation: false,
+              reason: `Actor lacks required permission 'tool:${toolName}:execute'.`
+            };
+          }
+        }
+      }
+    } catch (err) {
+      logger.warn('[CuratorRequestProcessor] Permission check encountered error, defaulting to safe allow:', err);
+    }
+
+    return { allowed: true, requiresConfirmation: false };
+  }
+
   private async handleTool(ast: CuratorToolNode, req: any) {
     logger.info(`[CuratorRequestProcessor] Executing Tool '${ast.toolName}' for request ${req.id}`);
     const tool = curatorEngine.tools.get(ast.toolName);
     if (!tool) throw new Error(`Tool ${ast.toolName} not found in dynamic registry.`);
 
+    const toolArgs = ast.args || { url: req.context?.input || '' };
+    
+    // Evaluate string expressions in toolArgs
+    const evaluatedArgs: Record<string, any> = {};
+    for (const [k, v] of Object.entries(toolArgs)) {
+      if (typeof v === 'string' && v.startsWith('(') && v.endsWith('(context)')) {
+        evaluatedArgs[k] = await this.evaluateExpressionAsync(v, req);
+      } else {
+        evaluatedArgs[k] = v;
+      }
+    }
+
+    // RBAC & Tool confirmation gate
+    const accessCheck = await this.checkToolAccess(req, ast.toolName, tool);
+    if (!accessCheck.allowed) {
+      if (accessCheck.requiresConfirmation) {
+        logger.info(`[CuratorRequestProcessor] Request ${req.id} pausing on WAITING_FOR_USER for tool '${ast.toolName}'.`);
+        await this.prisma.request.update({
+          where: { id: req.id },
+          data: {
+            status: 'WAITING_FOR_USER',
+            lockedBy: null,
+            lockedAt: null,
+            context: {
+              ...req.context,
+              pendingToolCall: { name: ast.toolName, args: evaluatedArgs },
+              reason: accessCheck.reason
+            }
+          }
+        });
+        await this.saveResponse(req, `[WAITING_FOR_USER] ${accessCheck.reason}`);
+        return;
+      } else {
+        await this.saveResponse(req, `[Access Denied] ${accessCheck.reason}`);
+        await this.completeRequest(req.id, 'FAILED');
+        return;
+      }
+    }
+
     let result = '';
     try {
-      const toolArgs = ast.args || { url: req.context?.input || '' };
-      
-      // Evaluate string expressions in toolArgs
-      const evaluatedArgs: Record<string, any> = {};
-      for (const [k, v] of Object.entries(toolArgs)) {
-        if (typeof v === 'string' && v.startsWith('(') && v.endsWith('(context)')) {
-          evaluatedArgs[k] = await this.evaluateExpressionAsync(v, req);
-        } else {
-          evaluatedArgs[k] = v;
+      const output = await tool.runAsync({
+        args: evaluatedArgs,
+        toolContext: {
+          conversationId: req.conversationId,
+          userId: req.userId,
+          projectId: req.projectId,
+          prisma: this.prisma
         }
-      }
-      
-      const output = await tool.runAsync({ args: evaluatedArgs, toolContext: { conversationId: req.conversationId, userId: req.userId, projectId: req.projectId, prisma: this.prisma } });
+      });
       result = typeof output === 'string' ? output : JSON.stringify(output);
     } catch(e: any) {
       result = `[Tool Error] ${e.message}`;
@@ -1036,7 +1258,7 @@ export class CuratorRequestProcessor {
     return result;
   }
 
-  private async loadConversationHistory(req: any, includeContents?: string): Promise<{role: string, content: string}[]> {
+  private async loadConversationHistory(req: any, includeContents?: string): Promise<LlmMessage[]> {
     if (includeContents === 'none') return [];
     
     const pastResponses = await this.prisma.response.findMany({
@@ -1047,24 +1269,20 @@ export class CuratorRequestProcessor {
     
     if (pastResponses.length === 0) return [];
 
-    let currentRole = '';
-    let currentContent = '';
-    const messages: {role: string, content: string}[] = [];
+    const messages: LlmMessage[] = [];
 
     for (const pr of pastResponses) {
       const prAst = pr.request?.ast as any;
       if (prAst?.exclude_from_history) continue;
 
       if (prAst?.type === 'Curator_Agent') {
-         const prompt = await this.interpolateTemplate(prAst.prompt, pr.request) || '';
-         if (prompt) messages.push({ role: 'user', content: prompt });
-         messages.push({ role: 'model', content: pr.content });
+        const prompt = await this.interpolateTemplate(prAst.prompt, pr.request) || '';
+        if (prompt) messages.push({ role: 'user', content: prompt });
+        messages.push({ role: 'assistant', content: pr.content });
       } else if (prAst?.type === 'Curator_HumanInput') {
-         messages.push({ role: 'user', content: pr.content });
+        messages.push({ role: 'user', content: pr.content });
       } else if (prAst?.type === 'Curator_Script' || prAst?.type === 'Curator_Tool') {
-         // Maybe these should be internal by default? Or we treat them as tool outputs if needed.
-         // For now, let's treat them as user context if they are explicitly kept.
-         messages.push({ role: 'user', content: pr.content });
+        messages.push({ role: 'tool', toolName: prAst.toolName || prAst.name || 'tool', content: pr.content });
       }
     }
 
@@ -1081,7 +1299,7 @@ export class CuratorRequestProcessor {
         try {
           inputToValidate = JSON.parse(inputToValidate);
         } catch (e) {
-          // If it's supposed to be an object per schema but is a string, and isn't JSON, it might fail validation naturally
+          // Fall through
         }
       }
       
@@ -1103,177 +1321,165 @@ export class CuratorRequestProcessor {
       else instruction = schemaPrompt;
     }
 
-    logger.info(`[CuratorRequestProcessor] Executing Agent '${ast.agentName}' for request ${req.id} [mode: ${hasTools ? 'agentic' : 'direct'}]`);
+    const provider = LlmFactory.getProvider(ast.provider, ast.baseUrl);
+    const model = ast.model;
 
-    const ai = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
-    const model = ast.model || 'gemini-2.5-flash';
+    logger.info(`[CuratorRequestProcessor] Executing Agent '${ast.agentName}' for request ${req.id} using provider '${provider.providerName}' [mode: ${hasTools ? 'agentic' : 'direct'}]`);
 
-    // Route to local OpenAI-compatible provider (llama.cpp, Ollama, etc.)
-    if (ast.provider === 'local' || ast.baseUrl) {
-      return this.executeLocalLlm(ast, req, prompt);
-    }
-
-    if (!hasTools) {
-      // Direct LLM call — no tool-calling loop needed
-      const config: any = {};
-      if (instruction) config.systemInstruction = instruction;
-      if (ast.output_schema && ast.provider !== ('local' as any)) {
-        config.responseMimeType = "application/json";
-      }
-
-      const history = await this.loadConversationHistory(req, ast.include_contents);
-      const rawMessages = history.map(h => ({ role: h.role, text: h.content }));
-      rawMessages.push({ role: 'user', text: prompt });
-      
-      let consolidated: any[] = [];
-      for (const m of rawMessages) {
-        const last = consolidated[consolidated.length - 1];
-        if (last && last.role === m.role) {
-           last.parts[0].text += '\n\n' + m.text;
-        } else {
-           consolidated.push({ role: m.role, parts: [{ text: m.text }] });
+    // Build tool definitions if tools specified
+    const toolDefs: LlmToolDefinition[] = [];
+    if (hasTools) {
+      for (const toolOrName of ast.tools!) {
+        const tool = typeof toolOrName === 'string' ? curatorEngine.tools.get(toolOrName) : null;
+        if (tool) {
+          toolDefs.push({
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters as Record<string, unknown>
+          });
+        } else if (typeof toolOrName !== 'string') {
+          toolDefs.push({
+            name: toolOrName.name,
+            description: toolOrName.description,
+            parameters: toolOrName.parameters
+          });
         }
       }
-      
-      if (consolidated.length > 0 && consolidated[0].role === 'model') {
-        consolidated.unshift({ role: 'user', parts: [{ text: '[Conversation Started]' }] });
-      }
-
-      const result = await ai.models.generateContent({
-        model,
-        contents: consolidated,
-        config
-      });
-
-      const text = result.text ?? '';
-      logger.info(`[CuratorRequestProcessor] Direct LLM finished. Output length: ${text.length}`);
-      await this.saveResponse(req, text);
-      await this.completeRequest(req.id, 'COMPLETED');
-      return;
     }
 
-    // Agentic tool-calling loop — model decides what tools to call
-    const genaiTools = ast.tools!.map((toolOrName: any) => {
-      const tool = typeof toolOrName === 'string' ? curatorEngine.tools.get(toolOrName) : null;
-      if (!tool && typeof toolOrName === 'string') throw new Error(`Tool ${toolOrName} not found in registry`);
-
-      if (tool) {
-        return { functionDeclarations: [tool.toGenAiDeclaration()] };
-      } else {
-        // Inline tool definition
-        return { functionDeclarations: [{ name: toolOrName.name, description: toolOrName.description, parameters: toolOrName.parameters }] };
-      }
-    });
-
+    // Load Granular Message History from database
     const history = await this.loadConversationHistory(req, ast.include_contents);
-    const rawMessages = history.map(h => ({ role: h.role, text: h.content }));
-    rawMessages.push({ role: 'user', text: prompt });
-    
-    let consolidated: any[] = [];
-    for (const m of rawMessages) {
-      const last = consolidated[consolidated.length - 1];
-      if (last && last.role === m.role) {
-         last.parts[0].text += '\n\n' + m.text;
-      } else {
-         consolidated.push({ role: m.role, parts: [{ text: m.text }] });
-      }
-    }
-    
-    if (consolidated.length > 0 && consolidated[0].role === 'model') {
-      consolidated.unshift({ role: 'user', parts: [{ text: '[Conversation Started]' }] });
-    }
+    const messages: LlmMessage[] = [...history];
+    messages.push({ role: 'user', content: prompt });
 
-    const messages: any[] = [...consolidated];
-
-    const config: any = { tools: genaiTools };
-    if (instruction) config.systemInstruction = instruction;
-    if (ast.output_schema && ast.provider !== ('local' as any)) {
-      config.responseMimeType = "application/json";
-    }
-    let lastText = '';
+    // Multi-Turn LLM Agentic Loop (State-Machine Transitions)
     let iterations = 0;
     const MAX_ITERATIONS = 10;
+    let finalOutput = '';
 
     while (iterations < MAX_ITERATIONS) {
       iterations++;
-      const result = await ai.models.generateContent({ model, contents: messages, config });
-      const calls = result.functionCalls;
 
-      if (!calls || calls.length === 0) {
-        lastText = result.text ?? '';
+      const llmReq: LlmRequest = {
+        model,
+        systemPrompt: instruction,
+        messages,
+        tools: toolDefs.length > 0 ? toolDefs : undefined,
+        jsonOutput: !!ast.output_schema,
+        baseUrl: ast.baseUrl
+      };
+
+      const response = await provider.generateContent(llmReq);
+
+      // If model returned no tool calls, it's a final answer
+      if (!response.toolCalls || response.toolCalls.length === 0) {
+        finalOutput = response.text || '';
         break;
       }
 
-      // Push model response into history
-      messages.push({ role: 'model', parts: result.candidates?.[0]?.content?.parts ?? [] });
+      // Model returned tool calls: persist the assistant turn into DB
+      logger.info(`[CuratorRequestProcessor] Agent '${ast.agentName}' invoked ${response.toolCalls.length} tool(s) in turn ${iterations}.`);
+      
+      messages.push({
+        role: 'assistant',
+        content: response.text,
+        toolCalls: response.toolCalls
+      });
 
-      // Execute tools and push results back
-      const toolResponses = await Promise.all(calls.map(async (call: any) => {
-        const tool = curatorEngine.tools.get(call.name);
+      // Save assistant response to DB for auditability
+      await this.saveResponse(req, response.text || `[Invoking ${response.toolCalls.map(t => t.name).join(', ')}]`);
+
+      // Execute each tool and check permissions
+      let pausedForUser = false;
+
+      for (const tc of response.toolCalls) {
+        const tool = curatorEngine.tools.get(tc.name);
+        let toolOutput = '';
+        let isError = false;
+
         if (tool) {
-          const output = await tool.runAsync({ args: call.args, toolContext: { conversationId: req.conversationId, userId: req.userId, projectId: req.projectId, prisma: this.prisma } });
-          return { functionResponse: { name: call.name, response: { output: typeof output === 'string' ? output : JSON.stringify(output) } } };
+          // Check tool access & permission
+          const accessCheck = await this.checkToolAccess(req, tc.name, tool);
+          if (!accessCheck.allowed) {
+            if (accessCheck.requiresConfirmation) {
+              logger.info(`[CuratorRequestProcessor] Request ${req.id} pausing on WAITING_FOR_USER for tool '${tc.name}'.`);
+              await this.prisma.request.update({
+                where: { id: req.id },
+                data: {
+                  status: 'WAITING_FOR_USER',
+                  lockedBy: null,
+                  lockedAt: null,
+                  context: {
+                    ...req.context,
+                    pendingToolCall: tc,
+                    reason: accessCheck.reason
+                  }
+                }
+              });
+              await this.saveResponse(req, `[WAITING_FOR_USER] Approval required to execute '${tc.name}' with args: ${JSON.stringify(tc.args)}`);
+              pausedForUser = true;
+              break;
+            } else {
+              toolOutput = `[Access Denied] ${accessCheck.reason}`;
+              isError = true;
+            }
+          } else {
+            try {
+              const res = await tool.runAsync({
+                args: tc.args,
+                toolContext: {
+                  conversationId: req.conversationId,
+                  userId: req.userId,
+                  projectId: req.projectId,
+                  prisma: this.prisma
+                }
+              });
+              toolOutput = typeof res === 'string' ? res : JSON.stringify(res);
+            } catch (err: any) {
+              toolOutput = `[Tool Error] ${err.message}`;
+              isError = true;
+            }
+          }
+        } else {
+          // Inline tool check
+          const inlineDef = (ast.tools as any[]).find((t: any) => typeof t !== 'string' && t.name === tc.name);
+          if (inlineDef) {
+            try {
+              const sandbox = { console, args: tc.args, fetch };
+              const ctx = vm.createContext(sandbox);
+              const wrapper = `(async () => { const fn = ${inlineDef.sourceCode}; return await fn(args); })()`;
+              const res = await vm.runInContext(wrapper, ctx);
+              toolOutput = typeof res === 'string' ? res : JSON.stringify(res);
+            } catch (err: any) {
+              toolOutput = `[Inline Tool Error] ${err.message}`;
+              isError = true;
+            }
+          } else {
+            toolOutput = `[Error] Tool '${tc.name}' not found.`;
+            isError = true;
+          }
         }
-        // Inline tool — execute via VM
-        const inlineDef = (ast.tools as any[]).find((t: any) => typeof t !== 'string' && t.name === call.name);
-        if (inlineDef) {
-          const sandbox = { console, args: call.args, fetch };
-          const ctx = vm.createContext(sandbox);
-          const wrapper = `(async () => { const fn = ${inlineDef.sourceCode}; return await fn(args); })()`;
-          const output = await vm.runInContext(wrapper, ctx);
-          return { functionResponse: { name: call.name, response: { output } } };
-        }
-        return { functionResponse: { name: call.name, response: { error: 'Tool not found' } } };
-      }));
 
-      messages.push({ role: 'user', parts: toolResponses });
+        // Push tool output message to context
+        messages.push({
+          role: 'tool',
+          toolCallId: tc.id,
+          toolName: tc.name,
+          content: toolOutput,
+          isError
+        });
+
+        // Save tool result response to DB
+        await this.saveResponse(req, `[Tool Result: ${tc.name}]\n${toolOutput}`);
+      }
+
+      if (pausedForUser) {
+        return; // Request safely paused in DB
+      }
     }
 
-    logger.info(`[CuratorRequestProcessor] Agentic loop finished after ${iterations} iterations. Output length: ${lastText.length}`);
-    await this.saveResponse(req, lastText);
-    await this.completeRequest(req.id, 'COMPLETED');
-  }
-
-  private async executeLocalLlm(ast: CuratorAgentNode, req: any, prompt: string) {
-    const baseUrl = ast.baseUrl || process.env.LOCAL_LLM_URL || 'http://localhost:8080';
-    const model = ast.model || 'default'; // llama.cpp ignores model name but some servers use it
-
-    logger.info(`[CuratorRequestProcessor] Calling local LLM at ${baseUrl} model=${model}`);
-
-    const messages: any[] = [];
-    if (ast.instruction) {
-      messages.push({ role: 'system', content: ast.instruction });
-    }
-
-    const history = await this.loadConversationHistory(req, ast.include_contents);
-    for (const msg of history) {
-      messages.push({ role: msg.role === 'model' ? 'assistant' : msg.role, content: msg.content });
-    }
-
-    messages.push({ role: 'user', content: prompt });
-
-    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: 0.7,
-        max_tokens: 1024,
-        stream: false
-      })
-    });
-
-    if (!response.ok) {
-      const err = await response.text();
-      throw new Error(`Local LLM error ${response.status}: ${err}`);
-    }
-
-    const data = await response.json() as any;
-    const text = data.choices?.[0]?.message?.content ?? '';
-
-    logger.info(`[CuratorRequestProcessor] Local LLM finished. Output length: ${text.length}`);
-    await this.saveResponse(req, text);
+    logger.info(`[CuratorRequestProcessor] Agent '${ast.agentName}' completed in ${iterations} turn(s). Output length: ${finalOutput.length}`);
+    await this.saveResponse(req, finalOutput);
     await this.completeRequest(req.id, 'COMPLETED');
   }
 
@@ -1282,7 +1488,7 @@ export class CuratorRequestProcessor {
       data: {
         requestId: req.id,
         conversationId: req.conversationId,
-        userId: req.userId,
+        projectId: req.projectId ?? null,
         content,
       }
     });

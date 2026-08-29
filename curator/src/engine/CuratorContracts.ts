@@ -54,6 +54,10 @@ export interface CuratorAgentDefinition {
   description?: string;
   ast?: CuratorAstNode;
   sourceCode?: string;
+  schedule?: string;
+  enabled?: boolean;
+  toolName?: string;
+  args?: Record<string, unknown>;
 }
 
 export interface CuratorPluginDefinition {

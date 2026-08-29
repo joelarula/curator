@@ -28,7 +28,44 @@ export class CuratorEngine {
       Object.entries(plugin.agents).forEach(([k, v]) => this.agents.set(k, v));
     }
   }
+
+  public registerTool(tool: CuratorTool) {
+    this.tools.set(tool.name, tool);
+  }
+
+  public isAgentEnabled(nameOrDef: string | CuratorAgentDefinition | any): boolean {
+    const agent = typeof nameOrDef === 'string' ? this.agents.get(nameOrDef) : nameOrDef;
+    if (!agent) return false;
+    return (agent as any).enabled === true || (agent as any).isActive === true;
+  }
+
+  public getActiveAgents(): Array<{ name: string; definition: any }> {
+    const active: Array<{ name: string; definition: any }> = [];
+    for (const [name, definition] of this.agents.entries()) {
+      if (this.isAgentEnabled(definition)) {
+        active.push({ name, definition });
+      }
+    }
+    return active;
+  }
+
+  public getScheduledAgents(): Array<{ name: string; schedule: string; enabled: boolean; definition: any }> {
+    const scheduled: Array<{ name: string; schedule: string; enabled: boolean; definition: any }> = [];
+    for (const [name, definition] of this.agents.entries()) {
+      const def = definition as any;
+      if (def.schedule) {
+        scheduled.push({
+          name,
+          schedule: def.schedule,
+          enabled: this.isAgentEnabled(def),
+          definition: def,
+        });
+      }
+    }
+    return scheduled;
+  }
 }
 
 // Singleton registry instance
 export const curatorEngine = new CuratorEngine();
+

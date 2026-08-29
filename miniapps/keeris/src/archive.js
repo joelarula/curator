@@ -1,6 +1,6 @@
 import { parseEpisodeDate } from './episode-parser.js';
 
-export async function discoverEpisodes(client, { seriesContentId = '1037846', onPage } = {}) {
+export async function discoverEpisodes(client, { seriesContentId = '1037846', onPage, shouldStop } = {}) {
   const episodes = new Map();
   const isUrl = String(seriesContentId).startsWith('http://') || String(seriesContentId).startsWith('https://');
 
@@ -45,7 +45,6 @@ export async function discoverEpisodes(client, { seriesContentId = '1037846', on
     return { episodes: [...episodes.values()], pages };
   }
 
-
   const cursors = new Set();
   let params = { seriesContentId };
   let pages = 0;
@@ -53,7 +52,11 @@ export async function discoverEpisodes(client, { seriesContentId = '1037846', on
     const response = await client.archive(params);
     pages += 1;
     onPage?.(pages, response);
-    for (const episode of response.data ?? []) episodes.set(episode.id, episode);
+    const items = response.data ?? [];
+    for (const episode of items) episodes.set(episode.id, episode);
+    
+    if (shouldStop?.(items)) break;
+
     const cursor = response.previous;
     if (!cursor || cursors.has(cursor)) break;
     cursors.add(cursor);

@@ -54,7 +54,7 @@ const schema = buildSchema(`
     newest: String,
     programBreakdown: [ProgramStat!]!
   }
-  type CuratorAgent { id: ID!, name: String!, ast: String, schedule: String, isActive: Boolean }
+  type CuratorAgent { id: ID!, name: String!, ast: String, schedule: String, isActive: Boolean, enabled: Boolean }
   type CuratorResponse { id: ID!, requestId: ID!, content: String, createdAt: String }
   type CuratorRequest { id: ID!, scriptId: ID, agentName: String, ast: String, createdAt: String, responses: [CuratorResponse!]! }
   type ScrapeResult { seriesContentId: String!, programTitle: String!, episodesSeen: Int!, episodesParsed: Int!, tracksSaved: Int!, failures: Int! }
@@ -97,7 +97,13 @@ function rowToTrack(row) {
   };
 }
 
-function resolvers(db) {
+function resolvers(db, { curatorRuntime } = {}) {
+  try {
+    if (typeof db.function === 'function') {
+      db.function('lower_utf', (text) => (text == null ? '' : String(text).toLocaleLowerCase('et-EE')));
+    }
+  } catch (_) {}
+
   return {
     programs: () => {
       return db.prepare('SELECT id, series_id AS seriesId, title, slug, description, url FROM programs ORDER BY title').all();
@@ -105,7 +111,7 @@ function resolvers(db) {
     tracks: ({ search = '', programId, limit = 100, offset = 0 }) => {
       const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
       const safeOffset = Math.max(Number(offset) || 0, 0);
-      const needle = `%${String(search).trim().toLocaleLowerCase()}%`;
+      const needle = `%${String(search).trim().toLocaleLowerCase('et-EE')}%`;
       const filterProgram = programId ? 'AND e.program_id = ?' : '';
       const params = programId ? [needle, needle, programId, safeLimit, safeOffset] : [needle, needle, safeLimit, safeOffset];
 
@@ -118,25 +124,31 @@ function resolvers(db) {
         LEFT JOIN programs p ON p.id=e.program_id
         LEFT JOIN unique_tracks ut ON ut.id=t.unique_track_id
         LEFT JOIN episode_metadata m ON m.episode_id=e.id
-        WHERE (lower(coalesce(t.artist, '') || ' ' || coalesce(t.title, '') || ' ' || t.raw_text) LIKE ?
-           OR lower(coalesce(m.description, '') || ' ' || coalesce(m.full_text, '')) LIKE ?)
+        WHERE (lower_utf(coalesce(t.artist, '') || ' ' || coalesce(t.title, '') || ' ' || t.raw_text) LIKE ?
+           OR lower_utf(coalesce(m.description, '') || ' ' || coalesce(m.full_text, '')) LIKE ?)
           ${filterProgram}
         ORDER BY e.scheduled_at DESC, t.position LIMIT ? OFFSET ?`).all(...params).map(rowToTrack);
     },
     uniqueTracks: ({ search = '', limit = 100, offset = 0 }) => {
       const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
       const safeOffset = Math.max(Number(offset) || 0, 0);
-      const term = String(search).trim().toLocaleLowerCase();
+      const term = String(search).trim().toLocaleLowerCase('et-EE');
       const needle1 = `%${term}%`;
-      const variant = term.replace(/kandaat/g, 'kantaat').replace(/kantaat/g, 'kandaat');
-      const needle2 = `%${variant}%`;
+      const vKantaat = term.replace(/kandaat/g, 'kantaat').replace(/kantaat/g, 'kandaat');
+      const vDzass = term.replace(/dzass/g, 'džäss').replace(/dzäss/g, 'džäss');
+      const vDiacritics = term
+        .replace(/z/g, 'ž')
+        .replace(/s/g, 'š')
+        .replace(/oo/g, 'öö');
+      
+      const needles = Array.from(new Set([needle1, `%${vKantaat}%`, `%${vDzass}%`, `%${vDiacritics}%`]));
+      const orClauses = needles.map(() => `lower_utf(coalesce(ut.artist, '') || ' ' || coalesce(ut.title, '')) LIKE ?`).join(' OR ');
 
       // 1. Direct track matches (Artist / Title) - ALWAYS PROCEED TEXT MATCHES, ordered by play_count DESC
       const trackRows = db.prepare(`SELECT DISTINCT ut.id, ut.fingerprint, ut.artist, ut.title, ut.play_count, ut.first_played_at, ut.last_played_at
         FROM unique_tracks ut
-        WHERE (lower(coalesce(ut.artist, '') || ' ' || coalesce(ut.title, '')) LIKE ?
-           OR lower(coalesce(ut.artist, '') || ' ' || coalesce(ut.title, '')) LIKE ?)
-        ORDER BY ut.play_count DESC, ut.last_played_at DESC LIMIT ? OFFSET ?`).all(needle1, needle2, safeLimit, safeOffset);
+        WHERE (${orClauses})
+        ORDER BY ut.play_count DESC, ut.last_played_at DESC LIMIT ? OFFSET ?`).all(...needles, safeLimit, safeOffset);
 
       const formatted = trackRows.map((row) => ({
         id: row.id,
@@ -158,16 +170,16 @@ function resolvers(db) {
       }));
 
       if (term.length > 0) {
+        const epOrClauses = needles.map(() => `lower_utf(coalesce(e.title, '') || ' ' || coalesce(m.description, '')) LIKE ?`).join(' OR ');
         // 2. Episode text matches (only visible fields: e.title or m.description) - listed after track matches
         const epRows = db.prepare(`SELECT e.id, e.title AS episodeTitle, e.url AS episodeUrl, e.scheduled_at AS date,
             p.title AS programTitle, m.description AS episodeDescription
           FROM episodes e
           LEFT JOIN programs p ON p.id = e.program_id
           LEFT JOIN episode_metadata m ON m.episode_id = e.id
-          WHERE (lower(coalesce(e.title, '') || ' ' || coalesce(m.description, '')) LIKE ?
-             OR lower(coalesce(e.title, '') || ' ' || coalesce(m.description, '')) LIKE ?)
+          WHERE (${epOrClauses})
             AND e.id NOT IN (SELECT DISTINCT episode_id FROM tracks WHERE episode_id IS NOT NULL AND unique_track_id IS NOT NULL)
-          ORDER BY e.scheduled_at DESC LIMIT ?`).all(needle1, needle2, safeLimit);
+          ORDER BY e.scheduled_at DESC LIMIT ?`).all(...needles, safeLimit);
 
         for (const ep of epRows) {
           formatted.push({
@@ -198,7 +210,7 @@ function resolvers(db) {
     },
     episodes: ({ search = '', programId, limit = 100 }) => {
       const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
-      const needle = `%${String(search).trim().toLocaleLowerCase()}%`;
+      const needle = `%${String(search).trim().toLocaleLowerCase('et-EE')}%`;
       const filterProgram = programId ? 'AND e.program_id = ?' : '';
       const params = programId ? [needle, needle, programId, safeLimit] : [needle, needle, safeLimit];
 
@@ -208,8 +220,8 @@ function resolvers(db) {
         LEFT JOIN tracks t ON t.episode_id=e.id
         LEFT JOIN programs p ON p.id=e.program_id
         LEFT JOIN episode_metadata m ON m.episode_id=e.id
-        WHERE (lower(e.title || ' ' || coalesce(m.description, '') || ' ' || coalesce(m.full_text, '')) LIKE ?
-           OR lower(coalesce(t.artist, '') || ' ' || coalesce(t.title, '')) LIKE ?)
+        WHERE (lower_utf(e.title || ' ' || coalesce(m.description, '') || ' ' || coalesce(m.full_text, '')) LIKE ?
+           OR lower_utf(coalesce(t.artist, '') || ' ' || coalesce(t.title, '')) LIKE ?)
           ${filterProgram}
         GROUP BY e.id
         ORDER BY e.scheduled_at DESC LIMIT ?`).all(...params);
@@ -250,30 +262,42 @@ function resolvers(db) {
       };
     },
     curatorAgents: async () => {
-      const { startCuratorRuntime } = await import('../curator-runtime.js');
-      const runtime = await startCuratorRuntime({ databaseName: 'keeris' });
+      let runtime = curatorRuntime;
+      let shouldStop = false;
+      if (!runtime) {
+        const { startCuratorRuntime } = await import('../curator-runtime.js');
+        runtime = await startCuratorRuntime({ databaseName: 'keeris', keerisDb: db });
+        shouldStop = true;
+      }
       const agents = await runtime.prisma.agent.findMany({ include: { script: true } });
-      await runtime.stop();
+      if (shouldStop) await runtime.stop();
       return agents.map((a) => {
         const astObj = typeof a.script?.ast === 'object' ? a.script.ast : JSON.parse(a.script?.ast || '{}');
+        const isAgentEnabled = a.enabled ?? (astObj.enabled ?? astObj.isActive ?? false);
         return {
           id: a.id,
           name: a.name,
           ast: JSON.stringify(astObj),
-          schedule: astObj.schedule ?? '0 * * * *',
-          isActive: astObj.isActive ?? false,
+          schedule: a.schedule ?? astObj.schedule ?? '0 * * * *',
+          isActive: isAgentEnabled,
+          enabled: isAgentEnabled,
         };
       });
     },
     curatorRequests: async ({ limit = 20 }) => {
-      const { startCuratorRuntime } = await import('../curator-runtime.js');
-      const runtime = await startCuratorRuntime({ databaseName: 'keeris' });
+      let runtime = curatorRuntime;
+      let shouldStop = false;
+      if (!runtime) {
+        const { startCuratorRuntime } = await import('../curator-runtime.js');
+        runtime = await startCuratorRuntime({ databaseName: 'keeris', keerisDb: db });
+        shouldStop = true;
+      }
       const requests = await runtime.prisma.request.findMany({
         orderBy: { createdAt: 'desc' },
         take: Math.min(Math.max(Number(limit) || 20, 1), 100),
         include: { responses: true, script: true },
       });
-      await runtime.stop();
+      if (shouldStop) await runtime.stop();
       return requests.map((r) => ({
         id: r.id,
         scriptId: r.scriptId,
@@ -289,9 +313,14 @@ function resolvers(db) {
       }));
     },
     triggerCuratorAgent: async ({ name, refresh = false }) => {
-      const { startCuratorRuntime } = await import('../curator-runtime.js');
+      let runtime = curatorRuntime;
+      let shouldStop = false;
+      if (!runtime) {
+        const { startCuratorRuntime } = await import('../curator-runtime.js');
+        runtime = await startCuratorRuntime({ databaseName: 'keeris', keerisDb: db });
+        shouldStop = true;
+      }
       const { createErrRadioPlugin } = await import('../plugins/err-radio.js');
-      const runtime = await startCuratorRuntime({ databaseName: 'keeris' });
 
       const req = await runtime.triggerAgent(name, { refresh });
       const plugin = createErrRadioPlugin(db);
@@ -307,7 +336,7 @@ function resolvers(db) {
           content: `Indexed ${result.episodesParsed} episodes (${result.tracksSaved} tracks saved) for ${result.programTitle} successfully.`,
         },
       });
-      await runtime.stop();
+      if (shouldStop) await runtime.stop();
       return {
         id: resp.id,
         requestId: req.id,
@@ -355,8 +384,8 @@ function resolvers(db) {
   };
 }
 
-export async function executeGraphql(db, source, variables = {}) {
-  return graphql({ schema, source, rootValue: resolvers(db), variableValues: variables });
+export async function executeGraphql(db, source, variables = {}, { curatorRuntime } = {}) {
+  return graphql({ schema, source, rootValue: resolvers(db, { curatorRuntime }), variableValues: variables });
 }
 
 export { schema };

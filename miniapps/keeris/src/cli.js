@@ -94,7 +94,7 @@ program
   .description('List registered Curator workflow agents & schedules via GraphQL')
   .action(async () => {
     const db = openDatabase(program.opts().db);
-    const res = await executeGraphql(db, 'query { curatorAgents { id name ast schedule isActive } }');
+    const res = await executeGraphql(db, 'query { curatorAgents { id name ast schedule isActive enabled } }');
     if (res.errors?.length) throw new Error(res.errors[0].message);
     console.log(JSON.stringify(res.data.curatorAgents, null, 2));
     db.close();

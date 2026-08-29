@@ -25,16 +25,60 @@ model User {
 
 
 model Role {
-  id          String     @id @default(cuid())
-  name        String     @unique
-  description String?    @db.Text
+  id          String            @id @default(cuid())
+  name        String            @unique
+  description String?           @db.Text
   users       UserRole[]
+  agents      AgentRole[]
+  permissions RolePermission[]
+  parentRoles RoleInheritance[] @relation("SubRole")
+  subRoles    RoleInheritance[] @relation("ParentRole")
 
   deletedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
+model RoleInheritance {
+  parentId String
+  parent   Role   @relation("ParentRole", fields: [parentId], references: [id], onDelete: Cascade)
+  subRoleId String
+  subRole  Role   @relation("SubRole", fields: [subRoleId], references: [id], onDelete: Cascade)
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@id([parentId, subRoleId])
+}
+
+model Permission {
+  id                   String           @id @default(cuid())
+  name                 String           @unique
+  description          String?          @db.Text
+  toolName             String?
+  tool                 Tool?            @relation(fields: [toolName], references: [name], onDelete: Cascade)
+  accessLevel          String?
+  requiresConfirmation Boolean          @default(false)
+  roles                RolePermission[]
+
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model RolePermission {
+  roleId       String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@id([roleId, permissionId])
+}
 
 model UserRole {
   userId String
@@ -44,8 +88,18 @@ model UserRole {
 
   deletedAt DateTime?
 
-
   @@id([userId, roleId])
+}
+
+model AgentRole {
+  agentId String
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  roleId  String
+  role    Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  deletedAt DateTime?
+
+  @@id([agentId, roleId])
 }
 
 model UserQuota {
