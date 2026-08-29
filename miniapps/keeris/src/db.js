@@ -2,10 +2,19 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
+export function normalizeText(text) {
+  if (text == null) return '';
+  return String(text)
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase();
+}
+
 export function openDatabase(filename) {
   mkdirSync(dirname(filename), { recursive: true });
   const db = new DatabaseSync(filename);
   try {
+    db.function('norm_text', (text) => normalizeText(text));
     db.function('lower_utf', (text) => (text == null ? '' : String(text).toLocaleLowerCase('et-EE')));
   } catch (_) {}
   db.exec(`

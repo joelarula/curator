@@ -97,9 +97,18 @@ function rowToTrack(row) {
   };
 }
 
+function normalizeText(text) {
+  if (text == null) return '';
+  return String(text)
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase();
+}
+
 function resolvers(db, { curatorRuntime } = {}) {
   try {
     if (typeof db.function === 'function') {
+      db.function('norm_text', (text) => normalizeText(text));
       db.function('lower_utf', (text) => (text == null ? '' : String(text).toLocaleLowerCase('et-EE')));
     }
   } catch (_) {}
@@ -111,7 +120,7 @@ function resolvers(db, { curatorRuntime } = {}) {
     tracks: ({ search = '', programId, limit = 100, offset = 0 }) => {
       const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
       const safeOffset = Math.max(Number(offset) || 0, 0);
-      const needle = `%${String(search).trim().toLocaleLowerCase('et-EE')}%`;
+      const needle = `%${normalizeText(search)}%`;
       const filterProgram = programId ? 'AND e.program_id = ?' : '';
       const params = programId ? [needle, needle, programId, safeLimit, safeOffset] : [needle, needle, safeLimit, safeOffset];
 
@@ -124,31 +133,22 @@ function resolvers(db, { curatorRuntime } = {}) {
         LEFT JOIN programs p ON p.id=e.program_id
         LEFT JOIN unique_tracks ut ON ut.id=t.unique_track_id
         LEFT JOIN episode_metadata m ON m.episode_id=e.id
-        WHERE (lower_utf(coalesce(t.artist, '') || ' ' || coalesce(t.title, '') || ' ' || t.raw_text) LIKE ?
-           OR lower_utf(coalesce(m.description, '') || ' ' || coalesce(m.full_text, '')) LIKE ?)
+        WHERE (norm_text(coalesce(t.artist, '') || ' ' || coalesce(t.title, '') || ' ' || t.raw_text) LIKE ?
+           OR norm_text(coalesce(m.description, '') || ' ' || coalesce(m.full_text, '')) LIKE ?)
           ${filterProgram}
         ORDER BY e.scheduled_at DESC, t.position LIMIT ? OFFSET ?`).all(...params).map(rowToTrack);
     },
     uniqueTracks: ({ search = '', limit = 100, offset = 0 }) => {
       const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
       const safeOffset = Math.max(Number(offset) || 0, 0);
-      const term = String(search).trim().toLocaleLowerCase('et-EE');
-      const needle1 = `%${term}%`;
-      const vKantaat = term.replace(/kandaat/g, 'kantaat').replace(/kantaat/g, 'kandaat');
-      const vDzass = term.replace(/dzass/g, 'džäss').replace(/dzäss/g, 'džäss');
-      const vDiacritics = term
-        .replace(/z/g, 'ž')
-        .replace(/s/g, 'š')
-        .replace(/oo/g, 'öö');
-      
-      const needles = Array.from(new Set([needle1, `%${vKantaat}%`, `%${vDzass}%`, `%${vDiacritics}%`]));
-      const orClauses = needles.map(() => `lower_utf(coalesce(ut.artist, '') || ' ' || coalesce(ut.title, '')) LIKE ?`).join(' OR ');
+      const cleanSearch = String(search || '').trim();
+      const needle = `%${normalizeText(cleanSearch)}%`;
 
       // 1. Direct track matches (Artist / Title) - ALWAYS PROCEED TEXT MATCHES, ordered by play_count DESC
       const trackRows = db.prepare(`SELECT DISTINCT ut.id, ut.fingerprint, ut.artist, ut.title, ut.play_count, ut.first_played_at, ut.last_played_at
         FROM unique_tracks ut
-        WHERE (${orClauses})
-        ORDER BY ut.play_count DESC, ut.last_played_at DESC LIMIT ? OFFSET ?`).all(...needles, safeLimit, safeOffset);
+        WHERE norm_text(coalesce(ut.artist, '') || ' ' || coalesce(ut.title, '')) LIKE ?
+        ORDER BY ut.play_count DESC, ut.last_played_at DESC LIMIT ? OFFSET ?`).all(needle, safeLimit, safeOffset);
 
       const formatted = trackRows.map((row) => ({
         id: row.id,
@@ -169,17 +169,16 @@ function resolvers(db, { curatorRuntime } = {}) {
         }
       }));
 
-      if (term.length > 0) {
-        const epOrClauses = needles.map(() => `lower_utf(coalesce(e.title, '') || ' ' || coalesce(m.description, '')) LIKE ?`).join(' OR ');
+      if (cleanSearch.length > 0) {
         // 2. Episode text matches (only visible fields: e.title or m.description) - listed after track matches
         const epRows = db.prepare(`SELECT e.id, e.title AS episodeTitle, e.url AS episodeUrl, e.scheduled_at AS date,
             p.title AS programTitle, m.description AS episodeDescription
           FROM episodes e
           LEFT JOIN programs p ON p.id = e.program_id
           LEFT JOIN episode_metadata m ON m.episode_id = e.id
-          WHERE (${epOrClauses})
+          WHERE (norm_text(coalesce(e.title, '') || ' ' || coalesce(m.description, '')) LIKE ?)
             AND e.id NOT IN (SELECT DISTINCT episode_id FROM tracks WHERE episode_id IS NOT NULL AND unique_track_id IS NOT NULL)
-          ORDER BY e.scheduled_at DESC LIMIT ?`).all(...needles, safeLimit);
+          ORDER BY e.scheduled_at DESC LIMIT ?`).all(needle, safeLimit);
 
         for (const ep of epRows) {
           formatted.push({
@@ -210,7 +209,7 @@ function resolvers(db, { curatorRuntime } = {}) {
     },
     episodes: ({ search = '', programId, limit = 100 }) => {
       const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
-      const needle = `%${String(search).trim().toLocaleLowerCase('et-EE')}%`;
+      const needle = `%${normalizeText(search)}%`;
       const filterProgram = programId ? 'AND e.program_id = ?' : '';
       const params = programId ? [needle, needle, programId, safeLimit] : [needle, needle, safeLimit];
 
@@ -220,8 +219,8 @@ function resolvers(db, { curatorRuntime } = {}) {
         LEFT JOIN tracks t ON t.episode_id=e.id
         LEFT JOIN programs p ON p.id=e.program_id
         LEFT JOIN episode_metadata m ON m.episode_id=e.id
-        WHERE (lower_utf(e.title || ' ' || coalesce(m.description, '') || ' ' || coalesce(m.full_text, '')) LIKE ?
-           OR lower_utf(coalesce(t.artist, '') || ' ' || coalesce(t.title, '')) LIKE ?)
+        WHERE (norm_text(e.title || ' ' || coalesce(m.description, '') || ' ' || coalesce(m.full_text, '')) LIKE ?
+           OR norm_text(coalesce(t.artist, '') || ' ' || coalesce(t.title, '')) LIKE ?)
           ${filterProgram}
         GROUP BY e.id
         ORDER BY e.scheduled_at DESC LIMIT ?`).all(...params);

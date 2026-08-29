@@ -10,17 +10,42 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
+function makeDiacriticPattern(str) {
+  const diacritics = {
+    a: '[aàáâãäåāăą]',
+    c: '[cçćĉċč]',
+    d: '[dďđ]',
+    e: '[eèéêëēĕėęě]',
+    g: '[gĝğġģ]',
+    h: '[hĥħ]',
+    i: '[iìíîïĩīĭįı]',
+    j: '[jĵ]',
+    k: '[kķ]',
+    l: '[lĺļľŀł]',
+    n: '[nñńņňŉŋ]',
+    o: '[oòóôõöøōŏő]',
+    r: '[rŕŗř]',
+    s: '[sśŝşš]',
+    t: '[tţťŧ]',
+    u: '[uùúûüũūŭůűų]',
+    z: '[zźżž]',
+  };
+  const normalized = str.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase();
+  return normalized
+    .split('')
+    .map((ch) => diacritics[ch] || ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('');
+}
+
 function highlight(text, search) {
   if (!text) return '';
   const escaped = escapeHtml(text);
   if (!search || !search.trim()) return escaped;
 
-  const term = search.trim();
-  const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const variant = term.replace(/kandaat/g, 'kantaat').replace(/kantaat/g, 'kandaat');
-  const escapedVariant = variant !== term ? '|' + variant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '';
-  
-  const regex = new RegExp(`(${escapedTerm}${escapedVariant})`, 'giu');
+  const pattern = makeDiacriticPattern(search.trim());
+  if (!pattern) return escaped;
+
+  const regex = new RegExp(`(${pattern})`, 'giu');
   return escaped.replace(regex, '<mark class="highlight">$1</mark>');
 }
 
