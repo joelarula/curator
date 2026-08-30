@@ -1,5 +1,15 @@
 import { GoogleGenAI } from '@google/genai';
-import type { ILlmProvider, LlmRequest, LlmResponse, LlmToolCall, LlmMessage } from './ILlmProvider.js';
+import type {
+  ILlmProvider,
+  LlmRequest,
+  LlmResponse,
+  LlmToolCall,
+  LlmMessage,
+  LlmEmbeddingRequest,
+  LlmEmbeddingResponse,
+  LlmCreateCacheRequest,
+  LlmCacheInfo,
+} from './ILlmProvider.js';
 import { logger } from '../../utils/logger.js';
 
 export class GeminiLlmProvider implements ILlmProvider {
@@ -17,6 +27,9 @@ export class GeminiLlmProvider implements ILlmProvider {
     const config: any = {};
     if (req.systemPrompt) {
       config.systemInstruction = req.systemPrompt;
+    }
+    if (req.cachedContent) {
+      config.cachedContent = req.cachedContent;
     }
     if (req.jsonOutput) {
       config.responseMimeType = 'application/json';
@@ -71,9 +84,107 @@ export class GeminiLlmProvider implements ILlmProvider {
         ? {
             inputTokens: result.usageMetadata.promptTokenCount,
             outputTokens: result.usageMetadata.candidatesTokenCount,
+            cachedTokens: (result.usageMetadata as any).cachedContentTokenCount || 0,
+            totalTokens: result.usageMetadata.totalTokenCount,
           }
         : undefined,
     };
+  }
+
+  public async embedContent(req: LlmEmbeddingRequest): Promise<LlmEmbeddingResponse> {
+    const apiKey = req.apiKey || process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error('[GeminiLlmProvider] API key missing for embeddings. Please set GOOGLE_API_KEY or GEMINI_API_KEY.');
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+    const model = req.model || 'text-embedding-004';
+    const texts = Array.isArray(req.text) ? req.text : [req.text];
+
+    const config: any = {};
+    if (req.dimensions) {
+      config.outputDimensionality = req.dimensions;
+    }
+    if (req.taskType) {
+      config.taskType = req.taskType;
+    }
+
+    const embeddings: number[][] = [];
+    let totalTokens = 0;
+
+    for (const txt of texts) {
+      const res = await ai.models.embedContent({
+        model,
+        contents: txt,
+        config: Object.keys(config).length > 0 ? config : undefined,
+      });
+
+      const embeddingValues = (res as any).embeddings?.[0]?.values || (res as any).embedding?.values;
+      if (embeddingValues && Array.isArray(embeddingValues)) {
+        embeddings.push(embeddingValues);
+      }
+    }
+
+    const dimensions = embeddings.length > 0 ? embeddings[0].length : 0;
+    return {
+      embeddings,
+      dimensions,
+      usage: totalTokens > 0 ? { totalTokens } : undefined,
+    };
+  }
+
+  public async createContextCache(req: LlmCreateCacheRequest): Promise<LlmCacheInfo> {
+    const apiKey = req.apiKey || process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error('[GeminiLlmProvider] API key missing for cache creation. Please set GOOGLE_API_KEY or GEMINI_API_KEY.');
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+    const model = req.model || 'gemini-2.5-flash';
+    const ttl = `${req.ttlSeconds || 3600}s`;
+
+    const config: any = {
+      ttl,
+    };
+
+    if (req.displayName) {
+      config.displayName = req.displayName;
+    }
+    if (req.systemPrompt) {
+      config.systemInstruction = req.systemPrompt;
+    }
+    if (req.messages && req.messages.length > 0) {
+      config.contents = this.formatGeminiContents(req.messages);
+    }
+
+    const cache = await ai.caches.create({
+      model,
+      config,
+    });
+
+    return {
+      name: cache.name || `cachedContents/${Math.random().toString(36).substring(2, 9)}`,
+      model: cache.model || model,
+      displayName: cache.displayName,
+      createTime: cache.createTime,
+      expireTime: cache.expireTime,
+      usageMetadata: cache.usageMetadata
+        ? {
+            totalTokenCount: cache.usageMetadata.totalTokenCount,
+          }
+        : undefined,
+    };
+  }
+
+  public async deleteContextCache(name: string, apiKey?: string): Promise<void> {
+    const key = apiKey || process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
+    if (!key) {
+      throw new Error('[GeminiLlmProvider] API key missing for cache deletion.');
+    }
+
+    const ai = new GoogleGenAI({ apiKey: key });
+    await ai.caches.delete({ name });
+    logger.info(`[GeminiLlmProvider] Deleted context cache: ${name}`);
   }
 
   private formatGeminiContents(messages: LlmMessage[]): any[] {

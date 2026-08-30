@@ -1,5 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import type { CuratorAstNode } from './CuratorAst.js';
+import type { CuratorTool } from '../tools/CuratorTool.js';
+import type { SemanticNodeShape } from '../services/SemanticSchemaEngine.js';
 
 export type JsonRecord = Record<string, unknown>;
 
@@ -28,25 +30,26 @@ export interface CuratorRequestRecord {
 export interface CuratorResponseRecord {
   id: number;
   requestId: number;
-  conversationId: string;
   userId: number;
   projectId?: number | null;
-  content: string;
-}
-
-export interface CuratorToolResult {
-  output: unknown;
-  content?: string;
-}
-
-export interface CuratorModelResult {
-  text: string;
-  raw?: unknown;
-  model?: string;
-  provider?: string;
+  conversationId: string;
+  ast?: unknown;
+  context?: CuratorExecutionContext | null;
+  state?: JsonRecord | null;
+  durationMs?: number | null;
+  cost?: number | null;
+  status: string;
+  errorMessage?: string | null;
+  retryCount: number;
+  createdAt: Date;
+  completedAt?: Date | null;
 }
 
 export interface CuratorScriptDefinition {
+  name: string;
+  description?: string;
+  body?: string;
+  ast?: CuratorAstNode;
   run: (context: CuratorExecutionContext) => Promise<unknown>;
 }
 
@@ -62,8 +65,8 @@ export interface CuratorAgentDefinition {
 
 export interface CuratorPluginDefinition {
   name: string;
-  tools?: Record<string, import('../tools/CuratorTool.js').CuratorTool>;
-  models?: import('../services/SemanticSchemaEngine.js').SemanticNodeShape[];
+  tools?: Record<string, CuratorTool>;
+  models?: SemanticNodeShape[];
   scripts?: Record<string, CuratorScriptDefinition>;
   agents?: Record<string, CuratorAgentDefinition | CuratorAstNode>;
 }

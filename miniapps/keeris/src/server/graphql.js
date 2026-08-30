@@ -387,4 +387,4 @@ export async function executeGraphql(db, source, variables = {}, { curatorRuntim
   return graphql({ schema, source, rootValue: resolvers(db, { curatorRuntime }), variableValues: variables });
 }
 
-export { schema };
+export { schema, resolvers };

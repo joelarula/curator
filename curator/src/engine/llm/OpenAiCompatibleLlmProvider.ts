@@ -1,4 +1,12 @@
-import type { ILlmProvider, LlmRequest, LlmResponse, LlmToolCall, LlmMessage } from './ILlmProvider.js';
+import type {
+  ILlmProvider,
+  LlmRequest,
+  LlmResponse,
+  LlmToolCall,
+  LlmMessage,
+  LlmEmbeddingRequest,
+  LlmEmbeddingResponse,
+} from './ILlmProvider.js';
 import { logger } from '../../utils/logger.js';
 
 export class OpenAiCompatibleLlmProvider implements ILlmProvider {
@@ -117,8 +125,51 @@ export class OpenAiCompatibleLlmProvider implements ILlmProvider {
         ? {
             inputTokens: data.usage.prompt_tokens,
             outputTokens: data.usage.completion_tokens,
+            totalTokens: data.usage.total_tokens,
           }
         : undefined,
+    };
+  }
+
+  public async embedContent(req: LlmEmbeddingRequest): Promise<LlmEmbeddingResponse> {
+    const baseUrl = req.baseUrl || process.env.LOCAL_LLM_URL || process.env.OPENAI_BASE_URL || 'http://localhost:8080';
+    const apiKey = req.apiKey || process.env.OPENAI_API_KEY || 'no-key-required';
+    const model = req.model || 'text-embedding-3-small';
+
+    const endpoint = baseUrl.endsWith('/') ? `${baseUrl}v1/embeddings` : `${baseUrl}/v1/embeddings`;
+
+    const payload: any = {
+      model,
+      input: req.text,
+    };
+    if (req.dimensions) {
+      payload.dimensions = req.dimensions;
+    }
+
+    logger.info(`[OpenAiCompatibleLlmProvider] Calling embeddings ${endpoint} with model=${model}`);
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`[OpenAiCompatibleLlmProvider] HTTP ${res.status}: ${errText}`);
+    }
+
+    const data: any = await res.json();
+    const embeddings: number[][] = (data.data || []).map((item: any) => item.embedding);
+    const dimensions = embeddings.length > 0 ? embeddings[0].length : 0;
+
+    return {
+      embeddings,
+      dimensions,
+      usage: data.usage ? { totalTokens: data.usage.total_tokens } : undefined,
     };
   }
 }

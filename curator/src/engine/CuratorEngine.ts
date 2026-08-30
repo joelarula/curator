@@ -1,6 +1,16 @@
 import type { SemanticNodeShape } from '../services/SemanticSchemaEngine.js';
 import type { CuratorAgentDefinition, CuratorPluginDefinition, CuratorScriptDefinition } from './CuratorContracts.js';
+import type { CuratorAstNode } from './CuratorAst.js';
 import type { CuratorTool } from '../tools/CuratorTool.js';
+import type {
+  LlmRequest,
+  LlmResponse,
+  LlmEmbeddingRequest,
+  LlmEmbeddingResponse,
+  LlmCreateCacheRequest,
+  LlmCacheInfo,
+} from './llm/ILlmProvider.js';
+import { LlmFactory } from './llm/LlmFactory.js';
 
 export type CuratorPlugin = CuratorPluginDefinition;
 
@@ -8,7 +18,7 @@ export class CuratorEngine {
   public tools = new Map<string, CuratorTool>();
   public models = new Map<string, SemanticNodeShape>();
   public scripts = new Map<string, CuratorScriptDefinition>();
-  public agents = new Map<string, CuratorAgentDefinition | import('./CuratorAst.js').CuratorAstNode>();
+  public agents = new Map<string, CuratorAgentDefinition | CuratorAstNode>();
   public plugins: CuratorPlugin[] = [];
 
   public registerPlugin(plugin: CuratorPlugin) {
@@ -64,8 +74,47 @@ export class CuratorEngine {
     }
     return scheduled;
   }
+
+  public async generateContent(req: LlmRequest & { provider?: string }): Promise<LlmResponse> {
+    const provider = LlmFactory.getProvider(req.provider || 'gemini');
+    return provider.generateContent(req);
+  }
+
+  public async embed(
+    text: string | string[],
+    options: Partial<LlmEmbeddingRequest> & { provider?: string } = {}
+  ): Promise<LlmEmbeddingResponse> {
+    const provider = LlmFactory.getProvider(options.provider || 'gemini');
+    if (!provider.embedContent) {
+      throw new Error(`[CuratorEngine] Provider '${provider.providerName}' does not support embeddings.`);
+    }
+    return provider.embedContent({
+      text,
+      ...options,
+    });
+  }
+
+  public async createContextCache(
+    options: LlmCreateCacheRequest & { provider?: string }
+  ): Promise<LlmCacheInfo> {
+    const provider = LlmFactory.getProvider(options.provider || 'gemini');
+    if (!provider.createContextCache) {
+      throw new Error(`[CuratorEngine] Provider '${provider.providerName}' does not support context caching.`);
+    }
+    return provider.createContextCache(options);
+  }
+
+  public async deleteContextCache(
+    name: string,
+    options: { provider?: string; apiKey?: string } = {}
+  ): Promise<void> {
+    const provider = LlmFactory.getProvider(options.provider || 'gemini');
+    if (!provider.deleteContextCache) {
+      throw new Error(`[CuratorEngine] Provider '${provider.providerName}' does not support context caching deletion.`);
+    }
+    return provider.deleteContextCache(name, options.apiKey);
+  }
 }
 
 // Singleton registry instance
 export const curatorEngine = new CuratorEngine();
-
