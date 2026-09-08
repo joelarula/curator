@@ -3,7 +3,7 @@
   "name": "Curator Knowledge Studio",
   "version": "1.0.0",
   "description": "Your semantic client-side knowledge graph inside Chrome",
-  "permissions": ["activeTab", "tabs", "storage", "unlimitedStorage", "contextMenus", "notifications"],
+  "permissions": ["activeTab", "tabs", "scripting", "storage", "unlimitedStorage", "contextMenus", "notifications"],
   "host_permissions": ["<all_urls>"],
   "icons": {
     "16": "src/popup/icon16.png",

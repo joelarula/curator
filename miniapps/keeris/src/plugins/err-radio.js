@@ -3,6 +3,34 @@ import { scrape } from '../scrape.js';
 import { parseMusicList, parseEpisodeText } from '../episode-parser.js';
 import { saveProgramData } from '../db.js';
 
+export function createProgramScrapeAST({ seriesContentId, programTitle, limit = 50 }) {
+  return {
+    type: 'Sequence',
+    steps: [
+      {
+        type: 'ToolTask',
+        tool: 'vikerraadio_discover_episodes',
+        args: { seriesContentId: String(seriesContentId), limit },
+        as: 'discovery',
+      },
+      {
+        type: 'ForEach',
+        collection: '{{discovery.data}}',
+        iterator: 'episode',
+        body: {
+          type: 'ToolTask',
+          tool: 'vikerraadio_process_episode',
+          args: {
+            url: '{{episode.url}}',
+            episode: '{{episode}}',
+            program: { seriesId: String(seriesContentId), title: programTitle },
+          },
+        },
+      },
+    ],
+  };
+}
+
 export function createErrRadioPlugin(db) {
   const client = new ErrClient();
 
@@ -80,7 +108,7 @@ export function createErrRadioPlugin(db) {
       },
       vikerraadio_store_program_data: {
         name: 'vikerraadio_store_program_data',
-        description: 'Persist program, episode details, music tracks, and textual metadata into SQLite database.',
+        description: 'Persist program, episode details, music tracks, and textual metadata into database.',
         parameters: {
           type: 'object',
           properties: {
@@ -100,6 +128,130 @@ export function createErrRadioPlugin(db) {
             metadata: args.metadata ?? {},
           });
           return { stored: true, episodeId: args.episode.id };
+        },
+        toGenAiDeclaration() {
+          return { name: this.name, description: this.description, parameters: this.parameters };
+        },
+      },
+      vikerraadio_process_episode: {
+        name: 'vikerraadio_process_episode',
+        description: 'Fetch, parse, and persist a single episode into the database in one fault-isolated step.',
+        parameters: {
+          type: 'object',
+          properties: {
+            episode: { type: 'object' },
+            program: { type: 'object' },
+            url: { type: 'string' },
+          },
+          required: ['url'],
+        },
+        async runAsync({ args } = {}) {
+          const url = args?.url || args?.episode?.url;
+          if (!url) throw new Error('url parameter is required');
+          const html = await client.episode(url);
+          const tracks = parseMusicList(html);
+          const metadata = parseEpisodeText(html);
+
+          const epData = args?.episode || {
+            id: Date.now(),
+            url,
+            title: metadata?.description ? metadata.description.slice(0, 100) : url,
+          };
+
+          saveProgramData(db, {
+            program: args?.program ?? { seriesId: '1037846', title: 'Vikerraadio' },
+            episode: epData,
+            tracks,
+            metadata,
+          });
+
+          return {
+            stored: true,
+            episodeId: epData.id,
+            tracksSaved: tracks.length,
+            hasMetadata: Boolean(metadata?.description),
+          };
+        },
+        toGenAiDeclaration() {
+          return { name: this.name, description: this.description, parameters: this.parameters };
+        },
+      },
+      vikerraadio_download_episode: {
+        name: 'vikerraadio_download_episode',
+        description: 'Download the high-quality audio file (.m4a / .mp3) for any Vikerraadio/ERR episode into disk storage.',
+        parameters: {
+          type: 'object',
+          properties: {
+            url: { type: 'string' },
+            outputDir: { type: 'string' },
+            fileName: { type: 'string' },
+          },
+          required: ['url'],
+        },
+        async runAsync({ args } = {}) {
+          const inputUrl = args?.url;
+          if (!inputUrl) throw new Error('url parameter is required');
+
+          const pageUrl = inputUrl.startsWith('http') ? inputUrl : `https://vikerraadio.err.ee/${inputUrl}`;
+          const html = await client.episode(pageUrl);
+          
+          // Unescape backslashes in HTML JSON
+          const cleanHtml = html.replace(/\\"/g, '"').replace(/\\\//g, '/');
+
+          // Extract direct .m4a / .mp3 audio file or .m3u8 stream
+          let audioUrl = null;
+          const fileMatch = cleanHtml.match(/"file"\s*:\s*"(\/\/[^"]+\.(m4a|mp3))"/i)
+            || cleanHtml.match(/https?:\/\/[^"'\s]*vod\.err\.ee[^"'\s]*\.(m4a|mp3)/i);
+          if (fileMatch) {
+            const raw = fileMatch[1] || fileMatch[0];
+            audioUrl = raw.startsWith('http') ? raw : `https:${raw}`;
+          }
+
+          if (!audioUrl) {
+            const hlsMatch = cleanHtml.match(/"hls"\s*:\s*"(\/\/[^"]+\.m3u8)"/i)
+              || cleanHtml.match(/https?:\/\/[^"'\s]*vod\.err\.ee[^"'\s]*\.m3u8/i);
+            if (hlsMatch) {
+              const raw = hlsMatch[1] || hlsMatch[0];
+              audioUrl = raw.startsWith('http') ? raw : `https:${raw}`;
+            }
+          }
+
+          if (!audioUrl) {
+            throw new Error(`No downloadable audio file found on episode page: ${pageUrl}`);
+          }
+
+          const { createWriteStream, mkdirSync } = await import('node:fs');
+          const { join } = await import('node:path');
+          const { pipeline } = await import('node:stream/promises');
+
+          const outDir = args?.outputDir ?? 'data/downloads';
+          mkdirSync(outDir, { recursive: true });
+
+          const idMatch = pageUrl.match(/\/(\d+)/);
+          const epId = idMatch ? idMatch[1] : Date.now();
+          const ext = audioUrl.includes('.mp3') ? 'mp3' : (audioUrl.includes('.m3u8') ? 'm3u8' : 'm4a');
+          const name = args?.fileName || `episode_${epId}.${ext}`;
+          const destPath = join(outDir, name);
+
+          const response = await fetch(audioUrl);
+          if (!response.ok || !response.body) {
+            throw new Error(`Failed to stream audio from ${audioUrl} (HTTP ${response.status})`);
+          }
+
+          const fileStream = createWriteStream(destPath);
+          await pipeline(response.body, fileStream);
+
+          const contentLength = response.headers.get('content-length');
+          const fileSizeMB = contentLength ? (Number(contentLength) / (1024 * 1024)).toFixed(2) : 'unknown';
+
+          return {
+            downloaded: true,
+            episodeUrl: pageUrl,
+            audioUrl,
+            filePath: destPath,
+            fileName: name,
+            fileSizeMB: `${fileSizeMB} MB`,
+          };
         },
         toGenAiDeclaration() {
           return { name: this.name, description: this.description, parameters: this.parameters };

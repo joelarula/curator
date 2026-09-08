@@ -1,6 +1,5 @@
 datasource db {
-  provider = "sqlite"
-  url      = "file:../data/keeris.db"
+  provider = "postgresql"
 }
 
 generator client {
@@ -37,6 +36,7 @@ model Episode {
   program     Program?         @relation(fields: [programId], references: [id], onDelete: SetNull)
   tracks      Track[]
   metadata    EpisodeMetadata?
+  playlistItems PlaylistItem[]
 
   @@index([scheduledAt])
   @@index([programId])
@@ -54,6 +54,7 @@ model Track {
 
   episode       Episode      @relation(fields: [episodeId], references: [id], onDelete: Cascade)
   uniqueTrack   UniqueTrack? @relation(fields: [uniqueTrackId], references: [id], onDelete: SetNull)
+  playlistItems PlaylistItem[]
 
   @@unique([episodeId, position])
   @@index([artist])
@@ -73,6 +74,7 @@ model UniqueTrack {
   updatedAt     DateTime @updatedAt @map("updated_at")
 
   airings       Track[]
+  playlistItems PlaylistItem[]
 
   @@index([playCount])
   @@index([artist])
@@ -90,4 +92,35 @@ model EpisodeMetadata {
   episode     Episode @relation(fields: [episodeId], references: [id], onDelete: Cascade)
 
   @@map("episode_metadata")
+}
+
+model Playlist {
+  id          Int            @id @default(autoincrement())
+  title       String
+  description String?
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  items       PlaylistItem[]
+
+  @@map("playlists")
+}
+
+model PlaylistItem {
+  id            Int          @id @default(autoincrement())
+  playlistId    Int          @map("playlist_id")
+  uniqueTrackId Int?         @map("unique_track_id")
+  trackId       Int?         @map("track_id")
+  episodeId     Int?         @map("episode_id")
+  position      Int          @default(1)
+  notes         String?
+  createdAt     DateTime     @default(now()) @map("created_at")
+
+  playlist      Playlist     @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  uniqueTrack   UniqueTrack? @relation(fields: [uniqueTrackId], references: [id], onDelete: SetNull)
+  track         Track?       @relation(fields: [trackId], references: [id], onDelete: SetNull)
+  episode       Episode?     @relation(fields: [episodeId], references: [id], onDelete: SetNull)
+
+  @@index([playlistId, position])
+  @@map("playlist_items")
 }

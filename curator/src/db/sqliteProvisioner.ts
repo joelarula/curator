@@ -1,22 +1,28 @@
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { PrismaClient } from '@prisma/client';
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
 import { DatabaseSync } from 'node:sqlite';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Resolve project root dynamically by walking up until we find package.json and prisma/sqlite folder
-let root = __dirname;
-while (root !== path.dirname(root)) {
-  if (fs.existsSync(path.join(root, 'package.json')) && fs.existsSync(path.join(root, 'prisma', 'sqlite', 'schema.prisma'))) {
-    break;
+function findCuratorRoot(): string {
+  let cur = __dirname;
+  while (cur !== path.dirname(cur)) {
+    if (fs.existsSync(path.join(cur, 'prisma', 'sqlite', 'schema.prisma'))) {
+      return cur;
+    }
+    if (fs.existsSync(path.join(cur, 'curator', 'prisma', 'sqlite', 'schema.prisma'))) {
+      return path.join(cur, 'curator');
+    }
+    cur = path.dirname(cur);
   }
-  root = path.dirname(root);
+  return path.resolve(__dirname, '../../..');
 }
-const CURATOR_ROOT = root;
+
+const CURATOR_ROOT = findCuratorRoot();
 const DATA_DIR = path.join(CURATOR_ROOT, 'data');
 
 export async function provisionSqliteDb(name: string, forceReset: boolean = false, options: { databasePath?: string } = {}): Promise<PrismaClient> {
@@ -76,7 +82,25 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
   }
 
   // Return a PrismaClient pointed at the SQLite file via better-sqlite3 adapter.
-  const { PrismaClient: SqlitePrismaClient } = await import('../generated/prisma-sqlite/index.js');
+  let SqlitePrismaClient: any;
+  const potentialPaths = [
+    path.join(__dirname, '../generated/prisma-sqlite/index.js'),
+    path.join(__dirname, '../../src/generated/prisma-sqlite/index.js'),
+    path.join(CURATOR_ROOT, 'src/generated/prisma-sqlite/index.js'),
+    path.join(CURATOR_ROOT, 'dist/src/generated/prisma-sqlite/index.js'),
+  ];
+  for (const p of potentialPaths) {
+    if (fs.existsSync(p)) {
+      const mod = await import(pathToFileURL(p).href);
+      SqlitePrismaClient = mod.PrismaClient;
+      break;
+    }
+  }
+  if (!SqlitePrismaClient) {
+    const mod = await import('../generated/prisma-sqlite/index.js');
+    SqlitePrismaClient = mod.PrismaClient;
+  }
+
   const adapter = new PrismaBetterSqlite3({ url: dbUrl });
   const prisma = new SqlitePrismaClient({ adapter }) as any;
 

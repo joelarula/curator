@@ -18,16 +18,25 @@ export function parseMusicList(html) {
   // 2. Fallback: Parse paragraphs/list-items containing numbered or hyphenated track lines
   if (tracks.length === 0) {
     let position = 1;
-    const isNav = (t) => /saated a-ü|etteütlus|по-русски|vaegkuuljatele|otse|ajakava|saatekava/i.test(t);
-    $('article p, section p, .body-text p, .content p, li').each((_, el) => {
-      const text = clean($(el).text());
-      if (isNav(text)) return;
-      const match = text.match(/^(?:\d+[\.\)]\s*)?([^-–—]+)\s*[-–—]\s*(.+)$/);
-      if (match) {
-        const artist = clean(match[1].replace(/^\d+[\.\)]\s*/, ''));
-        const title = clean(match[2]);
-        if (artist && title && artist.length < 100 && title.length < 150 && !isNav(artist) && !isNav(title)) {
-          tracks.push({ position: position++, artist, title, rawText: text });
+    const isNav = (t) => /saated a-ü|etteütlus|по-русски|vaegkuuljatele|otse|ajakava|saatekava|e-post|kontakt|toimetaja:|saatejuht:|autor:|helioperaator:|foto:|pildi autor/i.test(t);
+    $('.radio-article-body p, .radio-article p, article p, section p, .body-text p, .content p, .article-body p, li, p').each((_, el) => {
+      const rawBlock = $(el).text();
+      const lines = rawBlock.split('\n').map(clean).filter(Boolean);
+      for (const text of lines) {
+        if (isNav(text)) continue;
+        const match = text.match(/^(?:\d+[\.\)]\s*)?([^-–—]+)\s*[-–—]\s*(.+)$/);
+        if (match) {
+          const artist = clean(match[1].replace(/^\d+[\.\)]\s*/, ''));
+          const title = clean(match[2]);
+          if (
+            artist && title &&
+            artist.length > 1 && artist.length < 100 &&
+            title.length > 1 && title.length < 150 &&
+            !isNav(artist) && !isNav(title) &&
+            !/^(saade|esmaspäev|teisipäev|kolmapäev|neljapäev|reede|laupäev|pühapäev)\b/i.test(artist)
+          ) {
+            tracks.push({ position: position++, artist, title, rawText: text });
+          }
         }
       }
     });
@@ -37,7 +46,7 @@ export function parseMusicList(html) {
   if (tracks.length === 0) {
     const textSources = [
       clean($('.lead, .summary, meta[name="description"]').first().attr('content') ?? $('.lead, .summary').first().text()),
-      ...$('article p, section p, .body-text p, .content p').map((_, el) => clean($(el).text())).get()
+      ...$('.radio-article-body p, .radio-article p, article p, section p, .body-text p, .content p').map((_, el) => clean($(el).text())).get()
     ].filter(Boolean);
 
     for (const text of textSources) {
@@ -69,11 +78,11 @@ export function parseEpisodeText(html) {
   const $ = cheerio.load(html);
   const description = clean($('.lead, .summary, meta[name="description"]').first().attr('content') ?? $('.lead, .summary').first().text());
   const paragraphs = [];
-  $('article p, section p, .body-text p, .content p').each((_, el) => {
+  $('.radio-article-body p, .radio-article p, article p, section p, .body-text p, .content p').each((_, el) => {
     const text = clean($(el).text());
-    if (text && text.length > 10) paragraphs.push(text);
+    if (text && text.length > 5) paragraphs.push(text);
   });
-  const fullText = clean(paragraphs.join('\n\n') || $('article, section, .main-content').first().text());
+  const fullText = clean(paragraphs.join('\n\n') || $('article, section, .main-content, .radio-article-body').first().text());
   return {
     description: description || null,
     fullText: fullText || null,

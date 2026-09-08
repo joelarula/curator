@@ -533,3 +533,108 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         await logEvent('ERROR', 'EXCEPTION', `GraphQL exception in context menu: ${err.message}`, err.stack);
     }
 });
+
+// ==========================================
+// Curator Browser Relay Worker
+// ==========================================
+
+function waitForTabLoad(tabId: number, timeoutMs = 20000): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+            chrome.tabs.onUpdated.removeListener(listener);
+            resolve(); // Resolve on timeout to allow partial DOM extraction
+        }, timeoutMs);
+
+        function listener(updatedTabId: number, changeInfo: chrome.tabs.TabChangeInfo) {
+            if (updatedTabId === tabId && changeInfo.status === 'complete') {
+                clearTimeout(timer);
+                chrome.tabs.onUpdated.removeListener(listener);
+                resolve();
+            }
+        }
+        chrome.tabs.onUpdated.addListener(listener);
+    });
+}
+
+async function waitForSelectorInTab(tabId: number, selector: string, timeoutMs = 10000): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        try {
+            const [res] = await chrome.scripting.executeScript({
+                target: { tabId },
+                func: (sel: string) => !!document.querySelector(sel),
+                args: [selector]
+            });
+            if (res.result) return;
+        } catch {
+            // Tab might be navigating
+        }
+        await new Promise(r => setTimeout(r, 300));
+    }
+}
+
+export async function extractRenderedPage(url: string, waitForSelector?: string): Promise<{
+    url: string;
+    title: string;
+    html: string;
+    text: string;
+    meta: Record<string, string>;
+}> {
+    const tab = await chrome.tabs.create({ url, active: false });
+    if (!tab.id) throw new Error('[Curator Extension] Failed to create background tab.');
+
+    try {
+        await waitForTabLoad(tab.id);
+
+        if (waitForSelector) {
+            await waitForSelectorInTab(tab.id, waitForSelector);
+        }
+
+        const [injection] = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: () => {
+                const meta: Record<string, string> = {};
+                document.querySelectorAll('meta').forEach(el => {
+                    const name = el.getAttribute('name') || el.getAttribute('property');
+                    const content = el.getAttribute('content');
+                    if (name && content) meta[name] = content;
+                });
+                return {
+                    title: document.title || '',
+                    html: document.documentElement.outerHTML,
+                    text: document.body ? document.body.innerText : '',
+                    meta
+                };
+            }
+        });
+
+        return {
+            url,
+            ...injection.result
+        };
+    } finally {
+        if (tab.id) {
+            await chrome.tabs.remove(tab.id).catch(() => {});
+        }
+    }
+}
+
+// Listen for Browser Relay extraction requests via Chrome message bus or popup
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === 'BROWSER_RELAY_EXTRACT') {
+        const { url, waitForSelector } = message.payload || {};
+        if (!url) {
+            sendResponse({ error: 'url is required' });
+            return true;
+        }
+
+        extractRenderedPage(url, waitForSelector)
+            .then(data => sendResponse({ status: 'ok', data }))
+            .catch(err => sendResponse({ status: 'error', error: err.message }));
+
+        return true; // Asynchronous sendResponse
+    }
+});
+
+console.log('[Curator Extension] Browser Relay Worker active and ready for background scraping.');
+

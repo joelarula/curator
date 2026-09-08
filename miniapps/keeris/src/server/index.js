@@ -11,7 +11,7 @@ import { startCuratorRuntime } from '../curator-runtime.js';
 
 const root = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const port = Number(process.env.PORT ?? 4000);
-const databasePath = process.env.DATABASE_PATH ?? config.defaultDatabase;
+const databasePath = process.env.DATABASE_URL || process.env.DATABASE_PATH || config.defaultDatabase;
 const webRoot = join(root, 'web-dist');
 const db = openDatabase(databasePath);
 const engine = await registerKeerisPlugins({ db });
@@ -35,10 +35,16 @@ const app = express();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '256kb' }));
 
-app.get('/health', (_request, response) => {
+app.get('/health', async (_request, response) => {
   try {
-    const stats = db.prepare('SELECT COUNT(*) AS episodes FROM episodes').get();
-    response.json({ status: 'ok', database: 'ready', processor: curatorRuntime ? 'ready' : 'standalone', plugins: engine.plugins.map((plugin) => plugin.name), episodes: stats.episodes });
+    const stats = await db.prepare('SELECT COUNT(*) AS episodes FROM episodes').get();
+    response.json({
+      status: 'ok',
+      database: db.isPostgres ? 'postgresql' : 'sqlite',
+      processor: curatorRuntime ? 'ready' : 'standalone',
+      plugins: engine.plugins.map((plugin) => plugin.name),
+      episodes: Number(stats?.episodes || 0)
+    });
   } catch (error) {
     response.status(503).json({ status: 'error', database: 'unavailable', error: error.message });
   }

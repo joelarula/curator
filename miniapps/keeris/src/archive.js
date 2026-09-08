@@ -16,8 +16,8 @@ export async function discoverEpisodes(client, { seriesContentId = '1037846', on
       pages += 1;
       onPage?.(pages);
 
-      const match = url.match(/\/(\d+)/);
-      const id = match ? Number(match[1]) : Date.now();
+      const matches = [...url.matchAll(/\/(\d+)/g)];
+      const id = matches.length > 0 ? Number(matches[matches.length - 1][1]) : Date.now();
 
       try {
         const html = await client.episode(url);
@@ -25,8 +25,11 @@ export async function discoverEpisodes(client, { seriesContentId = '1037846', on
         // Extract real broadcast date from the page
         const isoDate = parseEpisodeDate(html);
         const scheduleStart = isoDate ? Math.floor(new Date(isoDate).getTime() / 1000) : null;
+        const epObj = { id, url, scheduleStart };
 
-        episodes.set(id, { id, url, scheduleStart });
+        episodes.set(id, epObj);
+
+        if (shouldStop?.([epObj])) break;
 
         const jsonMatch = html.match(/<script id="carouselJsonStruct" type="application\/ld\+json">(.*?)<\/script>/s);
         if (jsonMatch) {

@@ -34,10 +34,8 @@ export function startIndexer({ databasePath, curatorRuntime, intervalMs = 60_000
     }
   };
 
-  if (runImmediate) {
-    runActiveAgents();
-  }
-
-  const timer = setInterval(runActiveAgents, intervalMs);
-  return { db, run: runActiveAgents, stop: () => { clearInterval(timer); db.close(); } };
+  // When Curator runtime is active, agent scheduling and AST Request execution are orchestrated natively.
+  // In standalone fallback mode without Curator, run fallback timer.
+  const timer = curatorRuntime ? null : setInterval(runActiveAgents, intervalMs);
+  return { db, run: runActiveAgents, stop: () => { if (timer) clearInterval(timer); db.close(); } };
 }

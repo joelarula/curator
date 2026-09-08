@@ -32,3 +32,28 @@ node src/cli.js stats
 # List registered agents & schedules
 node src/cli.js agents
 ```
+
+## Docker Deployment
+
+Build and start the standalone container with persistent storage:
+
+```powershell
+# Build and run with Docker Compose
+npm run docker:up
+
+# View real-time logs
+npm run docker:logs
+
+# Stop container
+npm run docker:down
+```
+
+Or using standard Docker CLI:
+
+```powershell
+# Build container from repo root
+docker build -t keeris -f miniapps/keeris/Dockerfile .
+
+# Run with persistent volume
+docker run -d -p 4000:4000 -v keeris-data:/app/data --name keeris-app keeris
+```

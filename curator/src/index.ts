@@ -17,7 +17,9 @@ export * from './engine/llm/OpenAiCompatibleLlmProvider.js';
 
 // Tools & Services
 export { defineTool } from './tools/CuratorTool.js';
+export * from './tools/index.js';
 export * from './services/SemanticSchemaEngine.js';
+export * from './services/BrowserRelayService.js';
 export * from './db/sqliteProvisioner.js';
 
 // Built-in Plugins

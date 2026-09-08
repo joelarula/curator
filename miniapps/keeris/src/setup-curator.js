@@ -21,7 +21,7 @@ for (const [name, tool] of engine.tools) {
 }
 for (const [name, definition] of engine.agents) {
   const isAgentEnabled = definition.enabled === true;
-  const ast = {
+  const ast = definition.ast ?? {
     type: definition.type || 'Curator_Tool',
     toolName: definition.toolName,
     args: definition.args || {},
