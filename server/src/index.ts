@@ -20,11 +20,13 @@ import { syncToolsToDatabase } from './services/ToolRegistry.js';
 
 dotenv.config();
 
+console.log('⚡ Initializing database connection...');
 const connectionString = process.env.DATABASE_URL!;
 const pool = new Pool({ connectionString });
 const adapter = new PrismaPg(pool as any);
 const prisma = new PrismaClient({ adapter });
 
+console.log('⚡ Initializing Express app...');
 const app = express();
 const PORT = process.env.PORT || 4000;
 

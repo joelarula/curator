@@ -203,7 +203,11 @@ onMounted(() => {
       return;
     }
     if (eventType === 'stats') {
-      addLog('info', '[Scraper] ' + payload.discovered + ' episodes found, ' + payload.toProcess + ' to scrape');
+      addLog('info', '[Scraper] ' + payload.discovered + ' episodes found, ' + payload.toProcess + ' to scrape');Agent
+      curator
+      
+      
+      
       return;
     }
     if (eventType === 'done') {

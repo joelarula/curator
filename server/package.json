@@ -5,7 +5,7 @@
   "description": "Curator — Advanced Identity-Centric Knowledge Studio",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "prisma:generate": "prisma generate",
