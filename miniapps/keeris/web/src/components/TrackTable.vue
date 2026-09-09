@@ -18,7 +18,7 @@
         <div class="filter-header-left">
           <span class="filter-title">Filter by Program</span>
           <span class="filter-status">
-            {{ selectedPrograms.length === 0 ? `All ${programs.length || 18} programs shown` : `${selectedPrograms.length} of ${programs.length} programs selected` }}
+            {{ selectedPrograms.length === 0 ? `All ${programs.length} programs shown` : `${selectedPrograms.length} of ${programs.length} programs selected` }}
           </span>
         </div>
         <div class="filter-header-right">
@@ -40,11 +40,11 @@
         </label>
       </div>
     </section>
-
     <!-- Stats Bar -->
     <div class="stats-bar">
-      <div class="stats-counter">
-        {{ (stats.uniqueTracks || 46230).toLocaleString() }} unique songs · {{ (stats.tracks || 123594).toLocaleString() }} airings across {{ (stats.episodes || 10803).toLocaleString() }} episodes
+      <div v-if="loadError" class="stats-counter" style="color: #c0392b;">⚠ {{ loadError }}</div>
+      <div v-else class="stats-counter">
+        {{ (stats.uniqueTracks || 0).toLocaleString() }} unique songs · {{ (stats.tracks || 0).toLocaleString() }} airings across {{ (stats.episodes || 0).toLocaleString() }} episodes
       </div>
     </div>
 
@@ -115,6 +115,7 @@ const programs = ref([]);
 const selectedPrograms = ref([]);
 const filtersExpanded = ref(false);
 const loading = ref(false);
+const loadError = ref(null);
 const expandedSongs = ref(new Set());
 let debounceTimer = null;
 
@@ -192,17 +193,21 @@ async function fetchInitialStats() {
     `);
     if (data.stats) {
       stats.value = data.stats;
+      loadError.value = null;
       if (data.stats.programBreakdown) {
         programs.value = data.stats.programBreakdown;
       }
     }
   } catch (err) {
     console.error('[TrackTable] Failed to fetch stats:', err);
+    loadError.value = 'Failed to load catalog stats: ' + err.message;
   }
 }
 
 async function fetchData() {
-  loading.value = true;
+  // Only show the "Loading catalog..." spinner on the true initial load; typeahead
+  // search/filter refetches update the results in place without flashing it.
+  if (songs.value.length === 0) loading.value = true;
   try {
     const data = await requestGraphql(`
       query GetUniqueTracks($search: String, $programIds: [ID]) {

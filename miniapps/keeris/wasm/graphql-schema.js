@@ -1,4 +1,5 @@
 import { buildSchema, graphql } from 'graphql';
+import { PROGRAM_MANIFEST, resolveAgentByTitle } from './wasm-curator-engine.js';
 import { typeDefs } from '../src/graphql-typedefs.js';
 
 const schema = buildSchema(typeDefs);
@@ -171,16 +172,33 @@ export async function executeInWorkerGraphql(db, query, variables = {}) {
     },
 
     curatorAgents() {
-      const rows = queryAll(db, 'SELECT id, name, schedule, is_active FROM agents');
-      return rows.map(r => {
-        const epRes = queryOne(db, 'SELECT COUNT(*) as count FROM episodes');
-        const trRes = queryOne(db, 'SELECT COUNT(*) as count FROM tracks');
-        const reqRes = queryOne(db, "SELECT created_at FROM requests WHERE status = 'completed' ORDER BY created_at DESC LIMIT 1");
+      // Merge DB agent rows with manifest to ensure all agents are visible
+      const dbRows = queryAll(db, 'SELECT id, name, schedule, is_active FROM agents');
+      const dbMap = new Map(dbRows.map(r => [r.id, r]));
+
+      return Object.entries(PROGRAM_MANIFEST).map(([agentName, def]) => {
+        const dbRow = dbMap.get(agentName);
+        const epRes = queryOne(db, `
+          SELECT COUNT(*) as count FROM episodes e
+          JOIN programs p ON e.program_id = p.id
+          WHERE p.series_id = ?
+        `, [String(def.seriesContentId)]);
+        const trRes = queryOne(db, `
+          SELECT COUNT(*) as count FROM tracks t
+          JOIN episodes e ON t.episode_id = e.id
+          JOIN programs p ON e.program_id = p.id
+          WHERE p.series_id = ?
+        `, [String(def.seriesContentId)]);
+        const reqRes = queryOne(db, `
+          SELECT created_at FROM requests
+          WHERE status = 'completed' AND ast LIKE ?
+          ORDER BY created_at DESC LIMIT 1
+        `, [`%"programTitle":"${def.programTitle}"%`]);
         return {
-          id: r.id,
-          name: r.name,
-          schedule: r.schedule,
-          isActive: Boolean(r.is_active),
+          id: agentName,
+          name: def.programTitle,
+          schedule: dbRow?.schedule ?? '0 0 * * *',
+          isActive: Boolean(dbRow?.is_active ?? 0),
           episodesCount: epRes?.count || 0,
           tracksCount: trRes?.count || 0,
           lastRunAt: reqRes?.created_at || 'Never',
@@ -283,16 +301,44 @@ export async function executeInWorkerGraphql(db, query, variables = {}) {
     },
 
     triggerCuratorAgent({ agentName }) {
+      // Resolve agent definition from the Curator Engine manifest
+      let def = PROGRAM_MANIFEST[agentName];
+      if (!def) {
+        const resolved = resolveAgentByTitle(agentName);
+        if (resolved) def = resolved;
+      }
+
+      // Build the canonical agent AST (mirrors createProgramScrapeAST)
+      const ast = def
+        ? {
+            type: 'Sequence',
+            name: `scrape_${def.programTitle}`,
+            steps: [{
+              type: 'ToolTask',
+              tool: 'vikerraadio_scrape',
+              args: { seriesContentId: String(def.seriesContentId), programTitle: def.programTitle },
+            }],
+          }
+        : { type: 'Sequence', name: agentName, steps: [] };
+
       const reqId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+
+      // Ensure FK rows exist
+      try {
+        executeSql(db, `INSERT OR IGNORE INTO users (id, name, email) VALUES ('1', 'wasm-user', 'wasm@local')`);
+        executeSql(db, `INSERT OR IGNORE INTO projects (id, name, user_id) VALUES ('1', 'keeris', '1')`);
+        executeSql(db, `INSERT OR IGNORE INTO conversations (id, user_id, project_id) VALUES ('1', '1', '1')`);
+      } catch (_) {}
+
       executeSql(db, `
         INSERT INTO requests (id, user_id, project_id, conversation_id, ast, status)
         VALUES (?, '1', '1', '1', ?, 'pending')
-      `, [reqId, JSON.stringify({ type: 'Sequence', name: agentName })]);
+      `, [reqId, JSON.stringify(ast)]);
 
       return {
         id: reqId,
         scriptId: null,
-        ast: JSON.stringify({ type: 'Sequence', name: agentName }),
+        ast: JSON.stringify(ast),
         status: 'pending',
         createdAt: new Date().toISOString(),
         responses: [],

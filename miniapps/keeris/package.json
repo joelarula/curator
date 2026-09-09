@@ -43,6 +43,7 @@
     "graphql": "^16.11.0",
     "pg": "^8.23.0",
     "vue": "^3.5.18",
+    "vue-router": "^4.4.5",
     "vuetify": "^3.11.2"
   },
   "devDependencies": {

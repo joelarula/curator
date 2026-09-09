@@ -1,10 +1,19 @@
-import { initSqliteOpfs, rehydrateFromSeed } from './sqlite-opfs.js';
+import { initSqliteOpfs, rehydrateFromSeed, getCurrentDb, resetDatabase } from './sqlite-opfs.js';
 import { executeInWorkerGraphql } from './graphql-schema.js';
-import { startInWorkerCuratorRunner } from './curator-ast-runner.js';
+import { startWasmRequestProcessor, enqueueScrapeRequest, resolveAgentByTitle, PROGRAM_MANIFEST } from './wasm-curator-engine.js';
 
 let dbInstance = null;
-let runnerInstance = null;
+let processorInstance = null;
 let bootstrapPromise = null;
+
+/**
+ * Emit an agent progress event back to the main thread.
+ * The graphql-client.js listens for AGENT_PROGRESS messages
+ * and broadcasts them to Vue components.
+ */
+function emitProgress(eventType, payload) {
+  self.postMessage({ type: 'AGENT_PROGRESS', eventType, payload });
+}
 
 async function bootstrap() {
   if (!bootstrapPromise) {
@@ -14,7 +23,11 @@ async function bootstrap() {
         const { sqlite3, db } = await initSqliteOpfs();
         dbInstance = db;
 
-        runnerInstance = startInWorkerCuratorRunner(dbInstance);
+        // Start the Curator Engine request processor
+        processorInstance = startWasmRequestProcessor(dbInstance, {
+          intervalMs: 1500,
+          onProgress: emitProgress,
+        });
 
         self.postMessage({ type: 'READY', payload: { version: sqlite3.version.libVersion } });
         return dbInstance;
@@ -29,7 +42,7 @@ async function bootstrap() {
 }
 
 self.onmessage = async (event) => {
-  const { id, type, query, variables } = event.data || {};
+  const { id, type, query, variables, agentName, refresh } = event.data || {};
 
   if (type === 'GRAPHQL_REQUEST') {
     try {
@@ -41,10 +54,40 @@ self.onmessage = async (event) => {
     }
   }
 
+  if (type === 'ENQUEUE_AGENT') {
+    try {
+      const db = await bootstrap();
+      const enqueued = enqueueScrapeRequest(db, agentName, refresh === true);
+      self.postMessage({ id, type: 'AGENT_ENQUEUED', payload: enqueued });
+      emitProgress('log', '[Worker] Enqueued scrape for: ' + enqueued.programTitle);
+    } catch (err) {
+      self.postMessage({ id, type: 'AGENT_ENQUEUED', error: err.message });
+      emitProgress('error', '[Worker] Failed to enqueue: ' + err.message);
+    }
+  }
+
   if (type === 'REHYDRATE_SEED') {
     await bootstrap();
     const success = await rehydrateFromSeed();
+    if (success) {
+      // rehydrateFromSeed closes the old connection and opens a new one; the
+      // running processor's closure still points at the closed handle, so
+      // restart it against the fresh db to avoid SQLITE_CANTOPEN on the next tick.
+      processorInstance?.stop();
+      dbInstance = getCurrentDb();
+      processorInstance = startWasmRequestProcessor(dbInstance, {
+        intervalMs: 1500,
+        onProgress: emitProgress,
+      });
+    }
     self.postMessage({ id, type: 'REHYDRATE_RESPONSE', success });
+  }
+
+  if (type === 'RESET_DATABASE') {
+    await bootstrap();
+    processorInstance?.stop();
+    const success = await resetDatabase();
+    self.postMessage({ id, type: 'RESET_RESPONSE', success });
   }
 
   if (type === 'GET_STORAGE_INFO') {
@@ -54,6 +97,10 @@ self.onmessage = async (event) => {
     } else {
       self.postMessage({ id, type: 'STORAGE_INFO', payload: { usage: 0, quota: 0 } });
     }
+  }
+
+  if (type === 'GET_AGENT_MANIFEST') {
+    self.postMessage({ id, type: 'AGENT_MANIFEST', payload: PROGRAM_MANIFEST });
   }
 };
 

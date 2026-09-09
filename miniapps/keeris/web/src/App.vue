@@ -6,25 +6,26 @@
           <h1>ERR Archive Index</h1>
         </div>
         <nav class="nav-tabs" aria-label="Main Navigation">
-          <button :class="{ active: activeTab === 'songs' }" @click="activeTab = 'songs'"> 🎵 Songs &amp; Airings </button>
-          <button :class="{ active: activeTab === 'summary' }" @click="activeTab = 'summary'"> 📊 Program Summary </button>
-          <button :class="{ active: activeTab === 'playlists' }" @click="activeTab = 'playlists'"> 📋 Playlists </button>
-          <button :class="{ active: activeTab === 'agents' }" @click="activeTab = 'agents'"> 🤖 Program Agents </button>
+          <RouterLink to="/" custom v-slot="{ href, navigate, isActive }">
+            <a :href="href" :class="{ active: isActive }" @click="navigate"> 🎵 Songs &amp; Airings </a>
+          </RouterLink>
+          <RouterLink to="/summary" custom v-slot="{ href, navigate, isActive }">
+            <a :href="href" :class="{ active: isActive }" @click="navigate"> 📊 Program Summary </a>
+          </RouterLink>
+          <RouterLink to="/playlists" custom v-slot="{ href, navigate, isActive }">
+            <a :href="href" :class="{ active: isActive }" @click="navigate"> 📋 Playlists </a>
+          </RouterLink>
+          <RouterLink to="/agents" custom v-slot="{ href, navigate, isActive }">
+            <a :href="href" :class="{ active: isActive }" @click="navigate"> 🤖 Program Agents </a>
+          </RouterLink>
         </nav>
       </header>
 
-      <div v-if="activeTab === 'songs'">
-        <TrackTable @play-track="handlePlayTrack" />
-      </div>
-      <div v-else-if="activeTab === 'summary'">
-        <ProgramSummary />
-      </div>
-      <div v-else-if="activeTab === 'playlists'">
-        <PlaylistManager />
-      </div>
-      <div v-else-if="activeTab === 'agents'">
-        <AgentManager />
-      </div>
+      <RouterView v-slot="{ Component }">
+        <KeepAlive>
+          <component :is="Component" @play-track="handlePlayTrack" />
+        </KeepAlive>
+      </RouterView>
     </main>
 
     <!-- Curator AST Agent Drawer -->
@@ -37,16 +38,12 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
+import { RouterLink, RouterView } from 'vue-router';
 import KeerisHeader from './components/KeerisHeader.vue';
-import TrackTable from './components/TrackTable.vue';
-import ProgramSummary from './components/ProgramSummary.vue';
-import PlaylistManager from './components/PlaylistManager.vue';
-import AgentManager from './components/AgentManager.vue';
 import CuratorDrawer from './components/CuratorDrawer.vue';
 import AudioBar from './components/AudioBar.vue';
 import { requestGraphql, onWorkerReady } from '@wasm/graphql-client.js';
 
-const activeTab = ref('songs');
 const drawerOpen = ref(false);
 const activeTrack = ref(null);
 const stats = ref({ episodes: 0, tracks: 0, uniqueTracks: 0, programs: 0 });
