@@ -29,8 +29,13 @@ export default defineConfig({
       'Cross-Origin-Embedder-Policy': 'require-corp',
     },
   },
+  worker: {
+    format: 'es',
+    sourcemap: true,
+  },
   build: {
     outDir: fileURLToPath(new URL('../web-dist', import.meta.url)),
     emptyOutDir: false,
+    sourcemap: true,
   },
 });

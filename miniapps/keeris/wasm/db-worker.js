@@ -6,7 +6,6 @@ let dbInstance = null;
 let processorInstance = null;
 let bootstrapPromise = null;
 
-/**
 let dbChangeDebounceTimer = null;
 const pendingChangedTables = new Set();
 
@@ -61,6 +60,21 @@ async function bootstrap() {
 
         const isOpfs = 'opfs' in sqlite3;
         console.log(`[Web Worker] SQLite Storage Mode: ${isOpfs ? 'Persistent OPFS (Disk)' : 'Transient Memory (RAM)'}`);
+
+        // Expose debug utilities on self for developer console inspection
+        self.__debug = {
+          getDb: () => dbInstance,
+          query: (sql, params = []) => {
+            const rows = [];
+            dbInstance.exec({ sql, bind: params, rowMode: 'object', resultRows: rows });
+            console.table(rows);
+            return rows;
+          },
+          processor: () => processorInstance,
+          manifest: PROGRAM_MANIFEST,
+        };
+        console.log('%c[Web Worker] Debug console ready! Switch console context to worker and run: %c__debug.query("SELECT * FROM episodes LIMIT 5")', 'color: #38bdf8;', 'color: #f59e0b; font-weight: bold;');
+
         self.postMessage({ type: 'READY', payload: { version: sqlite3.version.libVersion, isOpfs } });
         return dbInstance;
       } catch (error) {

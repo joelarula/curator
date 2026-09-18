@@ -335,6 +335,7 @@ const storageInfo = ref({ usage: 0, quota: 0 });
 const dbStats = ref({});
 
 let unsubProgress = null;
+let unsubDbChange = null;
 
 const drawerWidth = computed(() => {
   if (isExpanded.value) return Math.min(window.innerWidth - 40, 960);

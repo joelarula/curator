@@ -273,6 +273,107 @@ export async function scrapeProgram(db, { seriesContentId, programTitle, refresh
   }
 }
 
+/**
+ * Run a bounded concurrency pool over an async-iterable source of work items.
+ * Up to `concurrency` items are processed in parallel at any moment.
+ * @param {AsyncIterable<T>} source - yields items as they are discovered
+ * @param {number} concurrency - max parallel workers
+ * @param {(item: T) => Promise<void>} worker - async function to process one item
+ */
+async function pipelinePool(source, concurrency, worker) {
+  const active = new Set();
+  for await (const item of source) {
+    if (active.size >= concurrency) {
+      // Wait for the first settled slot to free up
+      await Promise.race(active);
+    }
+    const task = worker(item).finally(() => active.delete(task));
+    active.add(task);
+  }
+  // Drain remaining active tasks
+  await Promise.all(active);
+}
+
+/**
+ * Async generator that yields episode objects one archive API page at a time,
+ * emitting each item as soon as its page lands — no blocking "collect all" phase.
+ * For URL-based (non-series-id) programs it falls back to sequential page crawling.
+ */
+async function* streamEpisodes(seriesContentId, { shouldStop, onPage, isPaused, onProgress } = {}) {
+  const isUrl = String(seriesContentId).startsWith('http://') || String(seriesContentId).startsWith('https://');
+
+  if (isUrl) {
+    // URL-based crawl: pages are HTML episodes linked via carouselJsonStruct
+    const visitedUrls = new Set();
+    const queue = [String(seriesContentId)];
+    let page = 0;
+    while (queue.length > 0) {
+      if (typeof isPaused === 'function' && isPaused()) {
+        onProgress?.('log', `[Scraper] ⏸ Paused during discovery. Waiting...`);
+        while (typeof isPaused === 'function' && isPaused()) await sleep(500);
+        onProgress?.('log', `[Scraper] ▶ Resumed discovery`);
+      }
+      const url = queue.shift();
+      if (visitedUrls.has(url)) continue;
+      visitedUrls.add(url);
+      page++;
+      onPage?.(page);
+      const matches = [...url.matchAll(/\/(\d+)/g)];
+      const id = matches.length > 0 ? Number(matches[matches.length - 1][1]) : Date.now();
+      try {
+        const html = await errFetch(url, 'text');
+        const isoDate = parseEpisodeDateFromHtml(html);
+        const scheduleStart = isoDate ? Math.floor(new Date(isoDate).getTime() / 1000) : null;
+        const epObj = { id, url, scheduleStart, _prefetchedHtml: html };
+        if (shouldStop?.([epObj])) return;
+        yield epObj;
+        const jsonMatch = html.match(/<script id="carouselJsonStruct" type="application\/ld\+json">(.*?)<\/script>/s);
+        if (jsonMatch) {
+          const data = JSON.parse(jsonMatch[1]);
+          for (const item of (data.itemListElement || [])) {
+            if (item.url && !visitedUrls.has(item.url)) queue.push(item.url);
+          }
+        }
+      } catch (_) {
+        yield { id, url, scheduleStart: null };
+      }
+    }
+    return;
+  }
+
+  // Series-id archive API: paginate and yield each episode as its page lands
+  const cursors = new Set();
+  let params = { seriesContentId, limit: 50 };
+  let page = 0;
+  const seenIds = new Set();
+  while (true) {
+    if (typeof isPaused === 'function' && isPaused()) {
+      onProgress?.('log', `[Scraper] ⏸ Paused at archive page ${page + 1}. Waiting...`);
+      while (typeof isPaused === 'function' && isPaused()) await sleep(500);
+      onProgress?.('log', `[Scraper] ▶ Resumed at archive page ${page + 1}`);
+    }
+    page++;
+    const response = await fetchArchivePage(params);
+    const items = response?.data ?? [];
+    onPage?.(page, items.length);
+
+    // Yield each new episode on this page immediately
+    let stopEarly = false;
+    for (const episode of items) {
+      if (seenIds.has(episode.id)) continue;
+      seenIds.add(episode.id);
+      if (shouldStop?.([episode])) { stopEarly = true; break; }
+      yield episode;
+    }
+    if (stopEarly) break;
+
+    const cursor = response?.previous;
+    if (!cursor || cursors.has(cursor)) break;
+    cursors.add(cursor);
+    params = { seriesContentId, unixTime: cursor, limit: 50 };
+  }
+}
+
 async function _runScrapeProgram(db, { seriesContentId, programTitle, refresh = false, onProgress, isPaused, checkPause } = {}) {
   function queryOne(sql, params = []) {
     const rows = [];
@@ -295,8 +396,9 @@ async function _runScrapeProgram(db, { seriesContentId, programTitle, refresh = 
   const program = queryOne('SELECT id FROM programs WHERE series_id = ?', [String(seriesContentId)]);
   const programId = program?.id;
 
-  onProgress?.('log', `[Scraper] Discovering episodes from ERR archive API...`);
+  onProgress?.('log', `[Scraper] Streaming episodes from ERR archive API with parallel processing...`);
 
+  // For incremental (non-refresh) runs: stop discovery once we hit an already-parsed page
   const shouldStop = refresh
     ? undefined
     : (items) => items.some((item) => {
@@ -304,45 +406,25 @@ async function _runScrapeProgram(db, { seriesContentId, programTitle, refresh = 
         return row && ['parsed', 'no_tracks'].includes(row.parse_status);
       });
 
-  let discovered;
-  try {
-    discovered = await discoverAllEpisodes(seriesContentId, {
-      shouldStop,
-      onPage: (page) => onProgress?.('log', `[Scraper] Archive page ${page}...`),
-      isPaused,
-      onProgress,
-    });
-  } catch (err) {
-    onProgress?.('error', `[Scraper] Discovery failed: ${err.message}`);
-    throw err;
-  }
+  let discovered = 0, parsed = 0, tracksSaved = 0, failures = 0;
+  let pageCount = 0;
 
-  const toProcess = refresh
-    ? discovered
-    : discovered.filter((item) => {
-        const row = queryOne('SELECT parse_status FROM episodes WHERE id = ?', [item.id]);
-        return !row || !['parsed', 'no_tracks'].includes(row.parse_status);
-      });
-
-  onProgress?.('stats', { discovered: discovered.length, toProcess: toProcess.length });
-  onProgress?.('log', `[Scraper] Found ${discovered.length} episodes total, ${toProcess.length} new to process`);
-
-  let parsed = 0, tracksSaved = 0, failures = 0;
-
-  for (let i = 0; i < toProcess.length; i++) {
-    // Check pause state before processing next episode
+  // processSingleEpisode: fetch + parse + write one episode to SQLite
+  async function processSingleEpisode(item) {
     if (typeof isPaused === 'function' && isPaused()) {
-      onProgress?.('log', `[Scraper] ⏸ Paused at episode ${i + 1}/${toProcess.length}. Waiting to resume...`);
-      while (typeof isPaused === 'function' && isPaused()) {
-        await new Promise(r => setTimeout(r, 600));
-      }
-      onProgress?.('log', `[Scraper] ▶ Resumed at episode ${i + 1}/${toProcess.length}`);
+      while (typeof isPaused === 'function' && isPaused()) await sleep(600);
     }
 
-    const item = toProcess[i];
+    // Skip already-done episodes on incremental runs
+    if (!refresh) {
+      const row = queryOne('SELECT parse_status FROM episodes WHERE id = ?', [item.id]);
+      if (row && ['parsed', 'no_tracks'].includes(row.parse_status)) return;
+    }
+
     const scheduledAt = episodeDate(item);
     const episodeUrl = item.url ?? `${ERR_BASE}/${item.id}`;
     const episodeTitle = item.heading ?? item.title ?? item.name ?? String(item.id);
+    const episodeIdx = ++parsed; // approximate (discovery still in flight)
 
     try {
       executeSql('BEGIN');
@@ -359,13 +441,12 @@ async function _runScrapeProgram(db, { seriesContentId, programTitle, refresh = 
       `, [item.id, programId ?? null, episodeUrl, episodeTitle, scheduledAt ?? null, now]);
       executeSql('COMMIT');
 
-      const html = await errFetch(episodeUrl, 'text');
+      // Reuse prefetched HTML if the generator already fetched it (URL-mode)
+      const html = item._prefetchedHtml ?? await errFetch(episodeUrl, 'text');
       const tracks = parseMusicListFromHtml(html);
       const metadata = parseEpisodeMetadata(html);
       const status = (tracks.length || metadata.fullText) ? 'parsed' : 'no_tracks';
 
-      // Batch this episode's track/metadata/status writes into one transaction
-      // instead of ~30 auto-committing statements (each syncs to the OPFS file).
       executeSql('BEGIN');
       if (tracks.length > 0) {
         executeSql('DELETE FROM tracks WHERE episode_id = ?', [item.id]);
@@ -407,13 +488,12 @@ async function _runScrapeProgram(db, { seriesContentId, programTitle, refresh = 
         `, [item.id, metadata.description ?? null, metadata.fullText ?? null, metadata.summary ?? null, null]);
       }
 
-      executeSql("UPDATE episodes SET parse_status = ?, fetched_at = ? WHERE id = ?", [status, now, item.id]);
+      executeSql('UPDATE episodes SET parse_status = ?, fetched_at = ? WHERE id = ?', [status, now, item.id]);
       executeSql('COMMIT');
-      parsed++;
 
       onProgress?.('episode', {
-        index: i + 1,
-        total: toProcess.length,
+        index: episodeIdx,
+        total: discovered, // live total grows as discovery proceeds
         episodeId: item.id,
         episodeTitle,
         scheduledAt,
@@ -423,13 +503,37 @@ async function _runScrapeProgram(db, { seriesContentId, programTitle, refresh = 
     } catch (err) {
       try { executeSql('ROLLBACK'); } catch (_) {}
       failures++;
-      executeSql("UPDATE episodes SET parse_status = 'failed', parse_error = ? WHERE id = ?", [String(err), item.id]);
+      try { executeSql("UPDATE episodes SET parse_status = 'failed', parse_error = ? WHERE id = ?", [String(err), item.id]); } catch (_) {}
       onProgress?.('log', `[Scraper] Failed ${episodeUrl}: ${err.message}`);
     }
   }
 
-  const result = { seriesContentId, programTitle, discovered: discovered.length, processed: toProcess.length, parsed, tracksSaved, failures };
+  // Stream discovery and processing in parallel with a pool of 3 concurrent workers
+  const episodeStream = streamEpisodes(seriesContentId, {
+    shouldStop,
+    onPage: (page, count) => {
+      pageCount = page;
+      onProgress?.('log', `[Scraper] Archive page ${page}${count !== undefined ? ` (${count} episodes)` : ''}...`);
+    },
+    isPaused,
+    onProgress,
+  });
+
+  // Wrap the stream to count discovered items as they arrive
+  async function* countingStream() {
+    for await (const item of episodeStream) {
+      discovered++;
+      onProgress?.('stats', { discovered, toProcess: discovered });
+      yield item;
+    }
+  }
+
+  // CONCURRENCY = 3: discovery of archive pages + up to 3 episode HTML fetches run simultaneously
+  await pipelinePool(countingStream(), 3, processSingleEpisode);
+
+  const result = { seriesContentId, programTitle, discovered, processed: discovered, parsed, tracksSaved, failures };
   onProgress?.('done', result);
-  onProgress?.('log', `[Scraper] Done! Parsed ${parsed} episodes, saved ${tracksSaved} tracks, ${failures} failures.`);
+  onProgress?.('log', `[Scraper] Done! Parsed ${parsed} episodes (${pageCount} archive pages), saved ${tracksSaved} tracks, ${failures} failures.`);
   return result;
 }
+

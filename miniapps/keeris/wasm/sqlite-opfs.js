@@ -98,7 +98,14 @@ export async function initSqliteOpfs({ seedUrl = '/data/keeris-seed.sqlite3', db
       const response = await fetch(seedUrl);
       if (response.ok) {
         const arrayBuffer = await response.arrayBuffer();
-        if (arrayBuffer.byteLength > 1000) {
+        // Validate SQLite file magic: bytes 0-15 must be "SQLite format 3\000"
+        const magic = new Uint8Array(arrayBuffer, 0, 16);
+        const expectedMagic = [83, 81, 76, 105, 116, 101, 32, 102, 111, 114, 109, 97, 116, 32, 51, 0];
+        const isSqlite = expectedMagic.every((b, i) => magic[i] === b);
+
+        if (!isSqlite || arrayBuffer.byteLength < 1000) {
+          console.warn('[SQLite WASM] Seed file does not appear to be a valid SQLite database (bad magic bytes or too small). Skipping hydration.');
+        } else {
           if (dbInstance) {
             try { dbInstance.close(); } catch (_) {}
             dbInstance = null;
@@ -107,14 +114,21 @@ export async function initSqliteOpfs({ seedUrl = '/data/keeris-seed.sqlite3', db
             await sqlite3Instance.oo1.OpfsDb.importDb(opfsPath, new Uint8Array(arrayBuffer));
             dbInstance = await openOpfsDbWithRetry(opfsPath);
           } else {
-            dbInstance = new sqlite3Instance.oo1.DB(opfsPath, 'c');
-            sqlite3Instance.capi.sqlite3_deserialize(
+            // In-memory mode: open a blank DB and deserialize the seed bytes into it
+            dbInstance = new sqlite3Instance.oo1.DB(':memory:', 'c');
+            const rc = sqlite3Instance.capi.sqlite3_deserialize(
               dbInstance.pointer, 'main',
-              new Uint8Array(arrayBuffer),
+              sqlite3Instance.wasm.allocFromTypedArray(new Uint8Array(arrayBuffer)),
               arrayBuffer.byteLength,
               arrayBuffer.byteLength,
-              sqlite3Instance.capi.SQLITE_DESERIALIZE_RESIZEABLE
+              sqlite3Instance.capi.SQLITE_DESERIALIZE_RESIZEABLE |
+              sqlite3Instance.capi.SQLITE_DESERIALIZE_FREEONCLOSE
             );
+            if (rc !== 0) {
+              console.warn(`[SQLite WASM] sqlite3_deserialize failed (rc=${rc}), starting empty DB`);
+              try { dbInstance.close(); } catch (_) {}
+              dbInstance = new sqlite3Instance.oo1.DB(':memory:', 'c');
+            }
           }
           ensureBaselineTables(dbInstance);
           console.log(`[SQLite WASM] Auto-hydration complete (${arrayBuffer.byteLength} bytes).`);
@@ -124,15 +138,16 @@ export async function initSqliteOpfs({ seedUrl = '/data/keeris-seed.sqlite3', db
       }
     } catch (seedErr) {
       console.warn('[SQLite WASM] Auto-hydration skipped:', seedErr.message);
-      if (!dbInstance) {
-        if ('opfs' in sqlite3Instance) {
-          dbInstance = await openOpfsDbWithRetry(opfsPath);
-        } else {
-          dbInstance = new sqlite3Instance.oo1.DB(opfsPath, 'c');
-        }
-        ensureBaselineTables(dbInstance);
+    }
+    // Ensure dbInstance exists even if seed failed
+    if (!dbInstance) {
+      if ('opfs' in sqlite3Instance) {
+        dbInstance = await openOpfsDbWithRetry(opfsPath);
+      } else {
+        dbInstance = new sqlite3Instance.oo1.DB(':memory:', 'c');
       }
     }
+    ensureBaselineTables(dbInstance);
   }
 
   ensureBaselineTables(dbInstance);

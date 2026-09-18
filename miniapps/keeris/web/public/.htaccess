@@ -1,0 +1,29 @@
+# Apache configuration for Curator MiniApp (Vue 3 + SQLite WASM OPFS)
+
+# 1. MIME Type for WebAssembly
+<IfModule mod_mime.c>
+  AddType application/wasm .wasm
+</IfModule>
+
+# 2. Critical Cross-Origin Isolation Headers (required for SQLite OPFS & SharedArrayBuffer)
+<IfModule mod_headers.c>
+  Header set Cross-Origin-Opener-Policy "same-origin"
+  Header set Cross-Origin-Embedder-Policy "require-corp"
+</IfModule>
+
+# 3. SPA Routing Fallback (redirects /summary, /agents, /playlists to index.html)
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  RewriteRule ^index\.html$ - [L]
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . /index.html [L]
+</IfModule>
+
+# FallbackResource alternative if mod_rewrite is not active
+<IfModule !mod_rewrite.c>
+  <IfModule mod_dir.c>
+    FallbackResource /index.html
+  </IfModule>
+</IfModule>
