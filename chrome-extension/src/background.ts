@@ -43,23 +43,11 @@ if (typeof (globalThis as any).XMLHttpRequest === 'undefined') {
 }
 
 import initSqlJs from 'sql.js';
-import { graphql } from 'graphql';
-import { makeExecutableSchema } from '@graphql-tools/schema';
-
-// Import shared schema and resolvers
-import { typeDefs } from '../../server/src/schema/index.js';
-import { resolvers } from '../../server/src/resolvers/index.js';
-
-// Import our custom WASM database adapter
-import { SQLiteWasmAdapter } from './adapter/sqliteWasmAdapter.js';
-import { SCHEMA_DDL } from './adapter/schema.ts';
-
-// Import generated Prisma client for SQLite (edge/wasm target)
-import { PrismaClient } from '../../server/src/generated/prisma-sqlite/edge.js';
+import { CuratorWasmCore } from '../../server/src/wasm-core/index.js';
 
 let db: any;
-let prisma: PrismaClient;
-let schema: any;
+let core: CuratorWasmCore = new CuratorWasmCore();
+
 
 interface DbRegistry {
     activeId: string;
@@ -201,10 +189,6 @@ async function initDatabase() {
         await persistDatabase();
     }
 
-    // Instanciate Prisma Client using the custom driver adapter
-    const adapter = new SQLiteWasmAdapter(db);
-    prisma = new PrismaClient({ adapter });
-
     const extensionResolvers = {
         Query: {
             projects: async () => {
@@ -225,12 +209,16 @@ async function initDatabase() {
         }
     };
 
-    schema = makeExecutableSchema({ 
-        typeDefs: [typeDefs], 
-        resolvers: [resolvers, extensionResolvers] 
+    await core.init({
+        db,
+        defaultUserId: 'curator-extension-user',
+        defaultProjectId: currentDbId,
+        customResolvers: extensionResolvers,
+        onPersist: persistDatabase,
+        onLog: (level, type, message, detail) => logEvent(level, type, message, detail)
     });
 
-    console.log('[Curator Extension] In-memory GraphQL and SQLite WASM database initialized successfully!');
+    console.log('[Curator Extension] Curator WASM Core initialized successfully!');
     await logEvent('INFO', 'SYSTEM', 'In-memory GraphQL & SQLite WASM database fully ready.');
 }
 
@@ -304,36 +292,6 @@ chrome.action.onClicked.addListener(async () => {
     await openCuratorTab();
 });
 
-let graphqlQueuePromise: Promise<void> = Promise.resolve();
-
-async function enqueueGraphQL(query: string, variables: any, userId: string): Promise<any> {
-    return new Promise((resolve) => {
-        // Always chain with .catch(() => {}) so a prior rejection never breaks the queue
-        graphqlQueuePromise = graphqlQueuePromise
-            .catch(() => {}) // Ensure the chain continues even if the previous item rejected
-            .then(async () => {
-                try {
-                    const res = await graphql({
-                        schema,
-                        source: query,
-                        variableValues: variables,
-                        contextValue: {
-                            prisma,
-                            user: { id: userId },
-                            activeProjectId: currentDbId,
-                            activeProjectIds: [currentDbId],
-                            agentScheduler:    { getState: () => ({ isRunning: false, activeJobs: 0 }) },
-                            requestProcessor:  { getState: () => ({ isRunning: false, requestsProcessed: 0 }) },
-                        },
-                    });
-                    resolve(res);
-                } catch (err: any) {
-                    resolve({ errors: [{ message: err.message }] });
-                }
-            });
-    });
-}
-
 // Setup messaging listener for GraphQL request routing.
 // Returns true immediately so Chrome keeps the sendResponse port open,
 // then awaits dbReadyPromise before executing — this prevents the
@@ -344,8 +302,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
         console.log('[Curator Extension] Intercepted GraphQL Request:', query, variables);
 
-        // Handle the async work in an IIFE so we can use await while still
-        // returning `true` synchronously to keep the message channel open.
         (async () => {
             // Wait for full DB + Prisma + schema initialisation before proceeding.
             await dbReadyPromise;
@@ -358,24 +314,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
             await logEvent('INFO', 'GRAPHQL_REQUEST', `Query: ${query.trim().split('\n')[0]}...`, { query, variables });
 
-            if (!schema || !prisma) {
-                sendResponse({ errors: [{ message: 'Database initialisation failed. Check extension logs.' }] });
-                return;
-            }
-
             try {
-                const result = await enqueueGraphQL(query, variables, userId);
+                const result = await core.handleGraphQL({
+                    query,
+                    variables,
+                    activeProjectId: currentDbId,
+                    userId
+                });
 
                 if (result.errors?.length) {
                     await logEvent('ERROR', 'GRAPHQL_RESPONSE', `GraphQL returned ${result.errors.length} errors`, result.errors);
                 } else {
                     await logEvent('INFO', 'GRAPHQL_RESPONSE', 'Query completed successfully');
-                }
-
-                // Persist DB snapshot after any mutation
-                if (/\bmutation\b/i.test(query)) {
-                    await logEvent('INFO', 'SYSTEM', 'Mutation detected — persisting database…');
-                    await persistDatabase();
                 }
 
                 sendResponse(result);
@@ -444,8 +394,8 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     console.log(`[Curator Extension] Context Menu action triggered: ${info.menuItemId} for ${url}`);
     logEvent('INFO', 'CONTEXT_MENU', `Context menu action ${info.menuItemId} triggered for: ${url}`);
 
-    if (!schema || !prisma) {
-        console.error('[Curator Extension] DB init failed — schema/prisma unavailable.');
+    if (!core) {
+        console.error('[Curator Extension] DB init failed — core unavailable.');
         chrome.notifications.create({
             type: 'basic',
             iconUrl: 'src/popup/icon128.png',
@@ -494,7 +444,12 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     }
 
     try {
-        const result = await enqueueGraphQL(query, variables, 'curator-extension-user');
+        const result = await core.handleGraphQL({
+            query,
+            variables,
+            userId: 'curator-extension-user',
+            activeProjectId: currentDbId
+        });
 
         if (result.errors && result.errors.length > 0) {
             const errMsg = result.errors[0].message;

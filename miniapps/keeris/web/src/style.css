@@ -550,6 +550,41 @@ mark.highlight {
   background: #ef6a45;
 }
 
+.pause-toggle-btn {
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 5px 12px;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+  margin-top: 10px;
+  margin-right: 8px;
+  transition: all 0.2s ease;
+}
+
+.btn-pause {
+  background: #fdf6e2;
+  color: #b58900;
+  border: 1px solid #b58900;
+}
+
+.btn-pause:hover:not(:disabled) {
+  background: #b58900;
+  color: #fff;
+}
+
+.btn-resume {
+  background: #e8f5e9;
+  color: #2e7d32;
+  border: 1px solid #2e7d32;
+}
+
+.btn-resume:hover:not(:disabled) {
+  background: #2e7d32;
+  color: #fff;
+}
+
 .danger-btn {
   background: #f6f4ed;
   color: #c0392b;
@@ -570,6 +605,52 @@ mark.highlight {
 }
 
 .danger-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.export-btn {
+  background: #e0f2fe;
+  color: #0284c7;
+  border: 1px solid #0284c7;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+  margin-top: 10px;
+  transition: all 0.15s;
+}
+
+.export-btn:hover:not(:disabled) {
+  background: #0284c7;
+  color: #ffffff;
+}
+
+.import-btn {
+  background: #f3e8ff;
+  color: #7e22ce;
+  border: 1px solid #7e22ce;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+  margin-top: 10px;
+  transition: all 0.15s;
+}
+
+.import-btn:hover:not(:disabled) {
+  background: #7e22ce;
+  color: #ffffff;
+}
+
+.export-btn:disabled,
+.import-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
@@ -827,6 +908,60 @@ mark.highlight {
   color: #60706a;
 }
 
+.badge-running {
+  background: #ef6a45;
+  color: #fff;
+  animation: pulse 1.5s infinite;
+}
+
+.badge-paused {
+  background: #b58900;
+  color: #fff;
+}
+
+.engine-state-pill {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.pill-active {
+  background: #e8f5e9;
+  color: #2e7d32;
+  border: 1px solid #a5d6a7;
+}
+
+.pill-paused {
+  background: #fff8e1;
+  color: #b58900;
+  border: 1px solid #ffe082;
+}
+
+.card-action-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.card-pause-btn {
+  flex: 1;
+  text-align: center;
+  justify-content: center;
+  font-size: 0.75rem;
+}
+
+.card-running-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #60706a;
+  white-space: nowrap;
+}
+
 .agent-last-run {
   font-size: 0.68rem;
   color: #60706a;
@@ -849,5 +984,11 @@ mark.highlight {
   width: 100%;
   justify-content: center;
   margin-top: 4px;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.65; }
+  100% { opacity: 1; }
 }
 

@@ -83,9 +83,9 @@ export const typeDefs = `
 
   type Query {
     programs: [Program!]!,
-    tracks(search: String, programId: ID, limit: Int, offset: Int): [Track!]!,
+    tracks(search: String, programId: ID, episodeId: ID, limit: Int, offset: Int): [Track!]!,
     uniqueTracks(search: String, programIds: [ID], limit: Int, offset: Int): [UniqueTrack!]!,
-    episodes(search: String, limit: Int): [Episode!]!,
+    episodes(search: String, programId: ID, limit: Int, offset: Int): [Episode!]!,
     stats: Stats!,
     curatorAgents: [CuratorAgent!]!,
     curatorRequests(limit: Int): [CuratorRequest!]!,

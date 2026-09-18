@@ -1,6 +1,7 @@
 enum RequestStatus {
   NEW
   WAITING
+  PAUSED
   COMPLETED
   FAILED
 }

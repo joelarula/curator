@@ -31,36 +31,16 @@ try {
   console.error('[esbuild] Failed to copy query_compiler_fast_bg.wasm:', err);
 }
 
+import { getWasmCoreEsbuildAliases } from '../server/src/wasm-core/shims/esbuild-aliases.js';
+
 const ctx = await esbuild.context({
   entryPoints: ['src/background.ts'],
   bundle: true,
   outfile: 'dist/background.js',
   format: 'esm',
   target: 'es2020',
-  alias: {
-    'node:vm': './src/shims/vm.ts',
-    'vm': './src/shims/vm.ts',
-    'fs': './src/shims/fs.ts',
-    'fs/promises': './src/shims/fs.ts',
-    'playwright': './src/shims/playwright.ts',
-    'path': 'path-browserify',
-    'os': './src/shims/node-shims.ts',
-    'crypto': './src/shims/node-shims.ts',
-    'http': './src/shims/node-shims.ts',
-    'https': './src/shims/node-shims.ts',
-    'url': './src/shims/node-shims.ts',
-    'node:url': './src/shims/node-shims.ts',
-    'timers': './src/shims/node-shims.ts',
-    'child_process': './src/shims/node-shims.ts',
-    'node:child_process': './src/shims/node-shims.ts',
-    'net': './src/shims/node-shims.ts',
-    'tls': './src/shims/node-shims.ts',
-    'dotenv': './src/shims/node-shims.ts',
-    'stream': './src/shims/node-shims.ts',
-    'string_decoder': './src/shims/node-shims.ts',
-    // Mock the generated WASM compiler loader directly
-    '#wasm-compiler-loader': './src/shims/prisma-wasm-loader.ts'
-  },
+  alias: getWasmCoreEsbuildAliases(),
+  external: ['playwright', 'playwright-core'],
   define: {
     'global': 'globalThis',
     'process.env.NODE_ENV': '"production"'

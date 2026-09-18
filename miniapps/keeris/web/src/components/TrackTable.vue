@@ -103,9 +103,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
-import { requestGraphql, onWorkerReady } from '@wasm/graphql-client.js';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { useRoute } from 'vue-router';
+import { requestGraphql, onWorkerReady, onDatabaseChange } from '@wasm/graphql-client.js';
 
+const route = useRoute();
 defineEmits(['play-track']);
 
 const searchQuery = ref('');
@@ -118,6 +120,8 @@ const loading = ref(false);
 const loadError = ref(null);
 const expandedSongs = ref(new Set());
 let debounceTimer = null;
+let liveRefreshTimer = null;
+let unsubDbChange = null;
 
 function toggleExpand(songId) {
   const copy = new Set(expandedSongs.value);
@@ -249,11 +253,40 @@ function onSearch() {
   }, 180);
 }
 
+watch(() => route.query, (q) => {
+  if (q.search !== undefined) searchQuery.value = q.search || '';
+  if (q.programId !== undefined) {
+    selectedPrograms.value = q.programId ? [q.programId] : [];
+  }
+  fetchData();
+});
+
 onMounted(() => {
+  if (route.query.search) {
+    searchQuery.value = String(route.query.search);
+  }
+  if (route.query.programId) {
+    selectedPrograms.value = [route.query.programId];
+  }
+
   onWorkerReady(() => {
     fetchInitialStats();
     fetchData();
   });
+
+  unsubDbChange = onDatabaseChange(() => {
+    if (liveRefreshTimer) clearTimeout(liveRefreshTimer);
+    liveRefreshTimer = setTimeout(() => {
+      fetchInitialStats();
+      fetchData();
+    }, 400);
+  });
+});
+
+onUnmounted(() => {
+  if (unsubDbChange) unsubDbChange();
+  if (liveRefreshTimer) clearTimeout(liveRefreshTimer);
+  if (debounceTimer) clearTimeout(debounceTimer);
 });
 </script>
 

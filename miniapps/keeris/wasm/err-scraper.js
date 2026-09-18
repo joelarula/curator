@@ -1,4 +1,4 @@
-﻿/**
+/**
  * wasm/err-scraper.js
  * Browser-native ERR Radio scraper for the WASM Web Worker.
  * Uses fetch + cheerio (DOMParser is not available in Web Worker global scope).
@@ -13,13 +13,21 @@ const REQUEST_DELAY_MS = 400;
 
 let lastRequestAt = 0;
 
+let _activePauseChecker = null;
+
 async function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
 async function errFetch(url, type = 'json') {
+  if (typeof _activePauseChecker === 'function') {
+    await _activePauseChecker();
+  }
   const wait = REQUEST_DELAY_MS - (Date.now() - lastRequestAt);
   if (wait > 0) await sleep(wait);
+  if (typeof _activePauseChecker === 'function') {
+    await _activePauseChecker();
+  }
   const res = await fetch(url, {
     headers: {
       'Accept': type === 'json' ? 'application/json' : 'text/html,application/xhtml+xml,*/*;q=0.9',
@@ -71,7 +79,7 @@ function parseEpisodeDateFromHtml(html) {
   return null;
 }
 
-async function discoverAllEpisodes(seriesContentId, { shouldStop, onPage } = {}) {
+async function discoverAllEpisodes(seriesContentId, { shouldStop, onPage, isPaused, onProgress } = {}) {
   const episodes = new Map();
   const isUrl = String(seriesContentId).startsWith('http://') || String(seriesContentId).startsWith('https://');
 
@@ -82,6 +90,13 @@ async function discoverAllEpisodes(seriesContentId, { shouldStop, onPage } = {})
     const queue = [String(seriesContentId)];
     let page = 0;
     while (queue.length > 0) {
+      if (typeof isPaused === 'function' && isPaused()) {
+        onProgress?.('log', `[Scraper] ⏸ Scraper paused during discovery. Waiting to resume...`);
+        while (typeof isPaused === 'function' && isPaused()) {
+          await sleep(500);
+        }
+        onProgress?.('log', `[Scraper] ▶ Scraper resumed discovery`);
+      }
       const url = queue.shift();
       if (visitedUrls.has(url)) continue;
       visitedUrls.add(url);
@@ -119,6 +134,13 @@ async function discoverAllEpisodes(seriesContentId, { shouldStop, onPage } = {})
   let params = { seriesContentId, limit: 50 };
   let page = 0;
   while (true) {
+    if (typeof isPaused === 'function' && isPaused()) {
+      onProgress?.('log', `[Scraper] ⏸ Scraper paused at archive page ${page + 1}. Waiting to resume...`);
+      while (typeof isPaused === 'function' && isPaused()) {
+        await sleep(500);
+      }
+      onProgress?.('log', `[Scraper] ▶ Scraper resumed at archive page ${page + 1}`);
+    }
     page++;
     const response = await fetchArchivePage(params);
     onPage?.(page, response);
@@ -232,7 +254,26 @@ function makeFingerprint(artist, title, rawText) {
   return raw || null;
 }
 
-export async function scrapeProgram(db, { seriesContentId, programTitle, refresh = false, onProgress } = {}) {
+export async function scrapeProgram(db, { seriesContentId, programTitle, refresh = false, onProgress, isPaused, checkPause } = {}) {
+  const effectiveCheckPause = checkPause || (async () => {
+    if (typeof isPaused === 'function' && isPaused()) {
+      onProgress?.('log', `[Scraper] ⏸ Scraper paused. Waiting to resume...`);
+      while (typeof isPaused === 'function' && isPaused()) {
+        await sleep(400);
+      }
+      onProgress?.('log', `[Scraper] ▶ Scraper resumed.`);
+    }
+  });
+
+  _activePauseChecker = effectiveCheckPause;
+  try {
+    return await _runScrapeProgram(db, { seriesContentId, programTitle, refresh, onProgress, isPaused, checkPause: effectiveCheckPause });
+  } finally {
+    _activePauseChecker = null;
+  }
+}
+
+async function _runScrapeProgram(db, { seriesContentId, programTitle, refresh = false, onProgress, isPaused, checkPause } = {}) {
   function queryOne(sql, params = []) {
     const rows = [];
     db.exec({ sql, bind: params, rowMode: 'object', resultRows: rows });
@@ -268,6 +309,8 @@ export async function scrapeProgram(db, { seriesContentId, programTitle, refresh
     discovered = await discoverAllEpisodes(seriesContentId, {
       shouldStop,
       onPage: (page) => onProgress?.('log', `[Scraper] Archive page ${page}...`),
+      isPaused,
+      onProgress,
     });
   } catch (err) {
     onProgress?.('error', `[Scraper] Discovery failed: ${err.message}`);
@@ -287,6 +330,15 @@ export async function scrapeProgram(db, { seriesContentId, programTitle, refresh
   let parsed = 0, tracksSaved = 0, failures = 0;
 
   for (let i = 0; i < toProcess.length; i++) {
+    // Check pause state before processing next episode
+    if (typeof isPaused === 'function' && isPaused()) {
+      onProgress?.('log', `[Scraper] ⏸ Paused at episode ${i + 1}/${toProcess.length}. Waiting to resume...`);
+      while (typeof isPaused === 'function' && isPaused()) {
+        await new Promise(r => setTimeout(r, 600));
+      }
+      onProgress?.('log', `[Scraper] ▶ Resumed at episode ${i + 1}/${toProcess.length}`);
+    }
+
     const item = toProcess[i];
     const scheduledAt = episodeDate(item);
     const episodeUrl = item.url ?? `${ERR_BASE}/${item.id}`;

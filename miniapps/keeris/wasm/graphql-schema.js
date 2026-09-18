@@ -33,27 +33,39 @@ export async function executeInWorkerGraphql(db, query, variables = {}) {
       return queryAll(db, 'SELECT id, series_id AS seriesId, title, slug, description, url FROM programs ORDER BY id ASC');
     },
 
-    episodes({ search, limit = 50 }) {
+    episodes({ search, programId, limit = 100, offset = 0 }) {
       let sql = 'SELECT id, program_id, url, title, scheduled_at AS scheduledAt, published_at AS publishedAt, parse_status AS parseStatus FROM episodes';
       const params = [];
+      const where = [];
+      if (programId) {
+        where.push('program_id = ?');
+        params.push(programId);
+      }
       if (search) {
-        sql += ' WHERE title LIKE ? OR url LIKE ?';
+        where.push('(title LIKE ? OR url LIKE ?)');
         params.push(`%${search}%`, `%${search}%`);
       }
-      sql += ' ORDER BY id DESC LIMIT ?';
-      params.push(limit);
+      if (where.length > 0) {
+        sql += ' WHERE ' + where.join(' AND ');
+      }
+      sql += ' ORDER BY scheduled_at DESC, id DESC LIMIT ? OFFSET ?';
+      params.push(limit, offset);
 
       const rows = queryAll(db, sql, params);
       return rows.map((ep) => {
         const countRes = queryOne(db, 'SELECT COUNT(*) as count FROM tracks WHERE episode_id = ?', [ep.id]);
+        const prog = ep.program_id ? queryOne(db, 'SELECT id, series_id AS seriesId, title, slug, description, url FROM programs WHERE id = ?', [ep.program_id]) : null;
+        const meta = queryOne(db, 'SELECT id, description, full_text AS fullText, summary, keywords FROM episode_metadata WHERE episode_id = ?', [ep.id]);
         return {
           ...ep,
           trackCount: countRes?.count || 0,
+          program: prog,
+          metadata: meta,
         };
       });
     },
 
-    tracks({ search, limit = 50, offset = 0 }) {
+    tracks({ search, programId, episodeId, limit = 100, offset = 0 }) {
       let sql = `
         SELECT t.id, t.position, t.artist, t.title, t.raw_text AS rawText, t.unique_track_id,
                e.title AS episodeTitle, e.url AS episodeUrl, e.scheduled_at AS date,
@@ -63,11 +75,23 @@ export async function executeInWorkerGraphql(db, query, variables = {}) {
         LEFT JOIN programs p ON e.program_id = p.id
       `;
       const params = [];
+      const where = [];
+      if (episodeId) {
+        where.push('t.episode_id = ?');
+        params.push(episodeId);
+      }
+      if (programId) {
+        where.push('e.program_id = ?');
+        params.push(programId);
+      }
       if (search) {
-        sql += ' WHERE t.artist LIKE ? OR t.title LIKE ? OR t.raw_text LIKE ?';
+        where.push('(t.artist LIKE ? OR t.title LIKE ? OR t.raw_text LIKE ?)');
         params.push(`%${search}%`, `%${search}%`, `%${search}%`);
       }
-      sql += ' ORDER BY t.id DESC LIMIT ? OFFSET ?';
+      if (where.length > 0) {
+        sql += ' WHERE ' + where.join(' AND ');
+      }
+      sql += ' ORDER BY t.position ASC, t.id ASC LIMIT ? OFFSET ?';
       params.push(limit, offset);
 
       const rows = queryAll(db, sql, params);

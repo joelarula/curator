@@ -3,19 +3,14 @@
  * 
  * Central GraphQL client and global notification layer.
  * 
- * Provides:
- * - `graphql(query, variables)` — authenticated POST to /graphql, returns
- *   response data or null on error. Automatically injects the Bearer token
- *   from `useAuth`.
- * - `showSuccess(msg)` / `showError(msg)` — writes to the module-level
- *   snackbar refs consumed by the App root's <v-snackbar>.
- * 
- * All pages and components use this single function rather than raw fetch,
- * ensuring consistent auth headers and error surfacing.
+ * Supports 3 runtimes transparently:
+ * 1. Chrome Extension: Routes via chrome.runtime.sendMessage
+ * 2. Static WASM Worker: Routes via Web Worker (curator-worker.js) + OPFS SQLite
+ * 3. Server Mode: Routes via HTTP POST /graphql (with auto-fallback to WASM worker if static)
  */
 import { ref } from 'vue'
 import { token } from './useAuth'
-import { isExtensionContext } from './useEnv'
+import { isExtensionContext, isStaticWasmContext } from './useEnv'
 
 export const snackbar = ref(false)
 export const snackbarText = ref('')
@@ -39,16 +34,57 @@ export function showError(msg: string) {
   pushSnackbar(`Error: ${msg}`, true)
 }
 
+// ─── Web Worker Transport State ───────────────────────────────────────────────
+let wasmWorker: Worker | null = null;
+let reqId = 0;
+const pendingWorkerRequests = new Map<string, { resolve: (res: any) => void; reject: (err: any) => void }>();
+let forceWorkerMode = false;
+
+function getWasmWorker(): Worker {
+  if (!wasmWorker) {
+    console.log('[GraphQL Client] Initializing Curator Web Worker...');
+    const workerUrl = new URL('./curator-worker.js', window.location.href).href;
+    wasmWorker = new Worker(workerUrl, { type: 'module' });
+
+    wasmWorker.onmessage = (event) => {
+      const { id, type, data, errors } = event.data || {};
+      if (type === 'GRAPHQL_RESPONSE' && id && pendingWorkerRequests.has(id)) {
+        const { resolve } = pendingWorkerRequests.get(id)!;
+        pendingWorkerRequests.delete(id);
+        resolve({ data, errors });
+      }
+    };
+
+    wasmWorker.onerror = (err) => {
+      console.error('[GraphQL Client] Web Worker error:', err);
+    };
+  }
+  return wasmWorker;
+}
+
+function sendViaWorker(query: string, variables: any, activeProjectId: string): Promise<any> {
+  const worker = getWasmWorker();
+  const id = `req_${++reqId}`;
+  return new Promise((resolve, reject) => {
+    pendingWorkerRequests.set(id, { resolve, reject });
+    worker.postMessage({
+      id,
+      type: 'GRAPHQL_REQUEST',
+      payload: { query, variables, activeProjectId }
+    });
+  });
+}
+
 /**
- * Sends an authenticated GraphQL request to the server.
+ * Sends a GraphQL request using the appropriate transport for the current environment.
  * @returns The `data` field of the response, or `null` if an error occurred.
- * Errors are automatically shown in the global snackbar.
  */
 export async function graphql(query: string, variables: any = {}) {
   try {
     let result: any;
+    const activeProjectId = localStorage.getItem('activeProjectId') || 'system';
+
     if (isExtensionContext()) {
-      const activeProjectId = localStorage.getItem('activeProjectId') || ''
       result = await new Promise((resolve, reject) => {
         chrome.runtime.sendMessage(
           { type: 'GRAPHQL_REQUEST', payload: { query, variables, activeProjectId } },
@@ -58,29 +94,45 @@ export async function graphql(query: string, variables: any = {}) {
           }
         );
       });
+    } else if (forceWorkerMode || isStaticWasmContext()) {
+      result = await sendViaWorker(query, variables, activeProjectId);
     } else {
-      const activeProjectId = localStorage.getItem('activeProjectId') || ''
-      const response = await fetch('/graphql', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token.value}`,
-          ...(activeProjectId && { 'x-project-id': activeProjectId }),
-        },
-        body: JSON.stringify({ query, variables }),
-      });
-      result = await response.json();
+      try {
+        const response = await fetch('/graphql', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token.value}`,
+            ...(activeProjectId && { 'x-project-id': activeProjectId }),
+          },
+          body: JSON.stringify({ query, variables }),
+        });
+
+        if (response.ok) {
+          result = await response.json();
+        } else if (response.status === 404 || response.status === 502) {
+          console.warn(`[GraphQL Client] /graphql returned ${response.status}. Switching to static WASM worker mode.`);
+          forceWorkerMode = true;
+          result = await sendViaWorker(query, variables, activeProjectId);
+        } else {
+          result = await response.json().catch(() => ({ errors: [{ message: `HTTP ${response.status}` }] }));
+        }
+      } catch (netErr) {
+        console.warn('[GraphQL Client] Network error fetching /graphql. Switching to static WASM worker mode:', netErr);
+        forceWorkerMode = true;
+        result = await sendViaWorker(query, variables, activeProjectId);
+      }
     }
 
     if (result.errors) {
-      console.error('GraphQL Errors:', result.errors)
-      showError(result.errors[0].message)
-      return null
+      console.error('GraphQL Errors:', result.errors);
+      showError(result.errors[0].message);
+      return null;
     }
-    return result.data
-  } catch (error) {
-    console.error('GraphQL Fetch Error:', error)
-    showError('Network error connecting to server')
-    return null
+    return result.data;
+  } catch (error: any) {
+    console.error('GraphQL Fetch Error:', error);
+    showError(error.message || 'Network error connecting to server');
+    return null;
   }
 }

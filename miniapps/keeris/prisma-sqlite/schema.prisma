@@ -1,0 +1,220 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:../data/keeris.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/@prisma/client-sqlite"
+}
+
+model Program {
+  id          Int       @id @default(autoincrement())
+  seriesId    String    @unique @map("series_id")
+  title       String
+  slug        String?   @unique
+  description String?
+  url         String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  episodes    Episode[]
+
+  @@map("programs")
+}
+
+model Episode {
+  id          Int              @id
+  programId   Int?             @map("program_id")
+  url         String           @unique
+  title       String
+  scheduledAt String?          @map("scheduled_at")
+  publishedAt String?          @map("published_at")
+  fetchedAt   DateTime         @default(now()) @map("fetched_at")
+  rawHash     String?          @map("raw_hash")
+  parseStatus String?          @default("pending") @map("parse_status")
+  parseError  String?          @map("parse_error")
+
+  program     Program?         @relation(fields: [programId], references: [id], onDelete: SetNull)
+  tracks      Track[]
+  metadata    EpisodeMetadata?
+  playlistItems PlaylistItem[]
+
+  @@index([scheduledAt])
+  @@index([programId])
+  @@map("episodes")
+}
+
+model Track {
+  id            Int          @id @default(autoincrement())
+  episodeId     Int          @map("episode_id")
+  uniqueTrackId Int?         @map("unique_track_id")
+  position      Int
+  artist        String?
+  title         String?
+  rawText       String       @map("raw_text")
+
+  episode       Episode      @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  uniqueTrack   UniqueTrack? @relation(fields: [uniqueTrackId], references: [id], onDelete: SetNull)
+  playlistItems PlaylistItem[]
+
+  @@unique([episodeId, position])
+  @@index([artist])
+  @@index([uniqueTrackId])
+  @@map("tracks")
+}
+
+model UniqueTrack {
+  id            Int      @id @default(autoincrement())
+  fingerprint   String   @unique
+  artist        String?
+  title         String?
+  playCount     Int      @default(1) @map("play_count")
+  firstPlayedAt String?  @map("first_played_at")
+  lastPlayedAt  String?  @map("last_played_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+
+  airings       Track[]
+  playlistItems PlaylistItem[]
+
+  @@index([playCount])
+  @@index([artist])
+  @@map("unique_tracks")
+}
+
+model EpisodeMetadata {
+  id          Int     @id @default(autoincrement())
+  episodeId   Int     @unique @map("episode_id")
+  description String?
+  fullText    String? @map("full_text")
+  summary     String?
+  keywords    String?
+
+  episode     Episode @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+
+  @@map("episode_metadata")
+}
+
+model Playlist {
+  id          Int            @id @default(autoincrement())
+  title       String
+  description String?
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @default(now()) @updatedAt @map("updated_at")
+
+  items       PlaylistItem[]
+
+  @@map("playlists")
+}
+
+model PlaylistItem {
+  id            Int          @id @default(autoincrement())
+  playlistId    Int          @map("playlist_id")
+  uniqueTrackId Int?         @map("unique_track_id")
+  trackId       Int?         @map("track_id")
+  episodeId     Int?         @map("episode_id")
+  position      Int          @default(1)
+  notes         String?
+  createdAt     DateTime     @default(now()) @map("created_at")
+
+  playlist      Playlist     @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  uniqueTrack   UniqueTrack? @relation(fields: [uniqueTrackId], references: [id], onDelete: SetNull)
+  track         Track?       @relation(fields: [trackId], references: [id], onDelete: SetNull)
+  episode       Episode?     @relation(fields: [episodeId], references: [id], onDelete: SetNull)
+
+  @@index([playlistId, position])
+  @@map("playlist_items")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  projects  Project[]
+  requests  Request[]
+
+  @@map("users")
+}
+
+model Project {
+  id        String   @id @default(cuid())
+  name      String
+  userId    String   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  requests  Request[]
+
+  @@map("projects")
+}
+
+model Conversation {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  projectId String   @map("project_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  requests  Request[]
+
+  @@map("conversations")
+}
+
+model Script {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  ast         String
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  agents      Agent[]
+  requests    Request[]
+
+  @@map("scripts")
+}
+
+model Agent {
+  id        String   @id
+  name      String   @unique
+  scriptId  String?  @map("script_id")
+  schedule  String?
+  isActive  Int      @default(0) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  script    Script?  @relation(fields: [scriptId], references: [id], onDelete: SetNull)
+
+  @@map("agents")
+}
+
+model Request {
+  id             String   @id
+  userId         String   @map("user_id")
+  projectId      String   @map("project_id")
+  conversationId String   @map("conversation_id")
+  scriptId       String?  @map("script_id")
+  ast            String
+  context        String?
+  status         String?  @default("pending")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  user           User     @relation(fields: [userId], references: [id])
+  project        Project  @relation(fields: [projectId], references: [id])
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  script         Script?  @relation(fields: [scriptId], references: [id])
+  responses      Response[]
+
+  @@map("requests")
+}
+
+model Response {
+  id        String   @id
+  requestId String   @map("request_id")
+  content   String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  request   Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@map("responses")
+}

@@ -80,6 +80,7 @@ function buildAgentAst({ seriesContentId, programTitle }) {
 
 let _db = null;
 let _onProgress = null;
+let _isPaused = false;
 
 /** Initialize the engine with a db handle and progress emitter. */
 export function initWasmCuratorEngine(db, onProgress) {
@@ -92,7 +93,7 @@ const WASM_TOOLS = {
    * vikerraadio_scrape: Full scrape pipeline for any ERR series.
    * Mirrors the server-side err-radio.js::vikerraadio_scrape tool.
    */
-  async vikerraadio_scrape({ args }) {
+  async vikerraadio_scrape({ args, isPaused, checkPause }) {
     const seriesContentId = args?.seriesContentId ?? '1037846';
     const programTitle = args?.programTitle ?? 'Unknown Program';
     const refresh = args?.refresh === true;
@@ -101,37 +102,97 @@ const WASM_TOOLS = {
       programTitle,
       refresh,
       onProgress: _onProgress,
+      isPaused: isPaused || (() => _isPaused),
+      checkPause,
     });
   },
 
   /**
    * keeris_scrape: Convenience wrapper for Kauamängiv.
    */
-  async keeris_scrape({ args }) {
+  async keeris_scrape({ args, isPaused, checkPause }) {
     return await scrapeProgram(_db, {
       seriesContentId: '1037846',
       programTitle: 'Kauamängiv',
       refresh: args?.refresh === true,
       onProgress: _onProgress,
+      isPaused: isPaused || (() => _isPaused),
+      checkPause,
     });
   },
 };
 
 // ─── AST Executor ────────────────────────────────────────────────────────────
 
+const _pausedRequestIds = new Set();
+
+/** Set whether the entire WASM Curator Engine / Scraper is paused */
+export function setWasmEnginePaused(paused) {
+  _isPaused = Boolean(paused);
+}
+
+/** Check if the engine is paused */
+export function isWasmEnginePaused() {
+  return _isPaused;
+}
+
+/** Check if an individual request or the entire engine is paused */
+export function isRequestPaused(requestId) {
+  return _isPaused || (requestId && _pausedRequestIds.has(requestId));
+}
+
+/** Pause an individual request */
+export function pauseRequest(requestId) {
+  if (!requestId) return;
+  _pausedRequestIds.add(requestId);
+  if (_db) {
+    try {
+      executeSql(_db, "UPDATE requests SET status = 'paused' WHERE id = ?", [requestId]);
+    } catch (_) {}
+  }
+  _onProgress && _onProgress('log', `[CuratorEngine] Request ${requestId} paused.`);
+}
+
+/** Resume a paused request */
+export function resumeRequest(requestId) {
+  if (!requestId) return;
+  _pausedRequestIds.delete(requestId);
+  if (_db) {
+    try {
+      executeSql(_db, "UPDATE requests SET status = 'pending' WHERE id = ?", [requestId]);
+    } catch (_) {}
+  }
+  _onProgress && _onProgress('log', `[CuratorEngine] Request ${requestId} resumed.`);
+}
+
 /**
  * Execute a Curator AST node.
- * Supports: Sequence, ToolTask (ForEach, IfElse are stubs for future).
+ * Supports: Sequence, ToolTask, ForEach with step and iteration pause checkpoints.
  */
-async function executeAstNode(node, env = {}) {
+async function executeAstNode(node, env = {}, requestId = null) {
   if (!node || !node.type) throw new Error('Invalid AST node: ' + JSON.stringify(node));
 
   switch (node.type) {
     case 'Sequence': {
       let result = null;
-      for (const step of node.steps ?? []) {
-        result = await executeAstNode(step, env);
+      const startIndex = env.__pausedStepIndex__ ?? 0;
+      delete env.__pausedStepIndex__;
+
+      for (let i = startIndex; i < (node.steps ?? []).length; i++) {
+        if (isRequestPaused(requestId)) {
+          env.__pausedStepIndex__ = i;
+          env.__paused__ = true;
+          _onProgress && _onProgress('log', `[CuratorEngine] Request ${requestId} paused at step ${i}`);
+          if (_db && requestId) {
+            executeSql(_db, "UPDATE requests SET status = 'paused', context = ? WHERE id = ?", [JSON.stringify(env), requestId]);
+          }
+          return null;
+        }
+
+        const step = node.steps[i];
+        result = await executeAstNode(step, env, requestId);
         if (step.as) env[step.as] = result;
+        if (env.__paused__) return null;
       }
       return result;
     }
@@ -143,19 +204,60 @@ async function executeAstNode(node, env = {}) {
         _onProgress && _onProgress('log', '[CuratorEngine] Unknown tool: ' + toolName);
         return null;
       }
+
+      const checkPause = async () => {
+        if (isRequestPaused(requestId)) {
+          _onProgress && _onProgress('log', `[CuratorEngine] ⏸ Tool '${toolName}' paused. Waiting to resume...`);
+          while (isRequestPaused(requestId)) {
+            await new Promise(r => setTimeout(r, 400));
+          }
+          _onProgress && _onProgress('log', `[CuratorEngine] ▶ Tool '${toolName}' resumed.`);
+        }
+      };
+
+      await checkPause();
+
       // Resolve template args (basic {{varName.field}} interpolation)
       const resolvedArgs = resolveTemplateArgs(node.args ?? {}, env);
       _onProgress && _onProgress('log', '[CuratorEngine] Executing tool: ' + toolName);
-      return await tool({ args: resolvedArgs, env });
+      const result = await tool({
+        args: resolvedArgs,
+        env,
+        onProgress: _onProgress,
+        isPaused: () => isRequestPaused(requestId),
+        checkPause,
+      });
+
+      await checkPause();
+      return result;
     }
 
     case 'ForEach': {
       const collection = resolveValue(node.collection, env);
       if (!Array.isArray(collection)) return null;
       const results = [];
-      for (const item of collection) {
+      const startIndex = env.__pausedIterIndex__ ?? 0;
+      delete env.__pausedIterIndex__;
+
+      for (let i = startIndex; i < collection.length; i++) {
+        if (isRequestPaused(requestId)) {
+          env.__pausedIterIndex__ = i;
+          env.__paused__ = true;
+          _onProgress && _onProgress('log', `[CuratorEngine] Request ${requestId} paused at iteration ${i}/${collection.length}`);
+          if (_db && requestId) {
+            executeSql(_db, "UPDATE requests SET status = 'paused', context = ? WHERE id = ?", [JSON.stringify(env), requestId]);
+          }
+          return null;
+        }
+
+        const item = collection[i];
         const iterEnv = { ...env, [node.iterator ?? 'item']: item };
-        results.push(await executeAstNode(node.body, iterEnv));
+        const res = await executeAstNode(node.body, iterEnv, requestId);
+        results.push(res);
+        if (iterEnv.__paused__) {
+          env.__paused__ = true;
+          return null;
+        }
       }
       return results;
     }
@@ -239,6 +341,10 @@ export function startWasmRequestProcessor(db, { intervalMs = 2000, onProgress } 
 
   async function tick() {
     if (!isRunning) return;
+    if (_isPaused) {
+      timerId = setTimeout(tick, intervalMs);
+      return;
+    }
     try {
       const pending = queryAll(db, "SELECT id, ast, context FROM requests WHERE status = 'pending' ORDER BY created_at ASC LIMIT 3");
 
@@ -250,12 +356,18 @@ export function startWasmRequestProcessor(db, { intervalMs = 2000, onProgress } 
 
         let ast = {};
         try { ast = JSON.parse(req.ast); } catch (_) {}
+        let env = {};
+        try { env = req.context ? JSON.parse(req.context) : {}; } catch (_) {}
 
         const logLines = ['[CuratorEngine] Request ' + req.id + ' started'];
         let success = true;
 
         try {
-          const result = await executeAstNode(ast, {});
+          const result = await executeAstNode(ast, env, req.id);
+          if (env.__paused__) {
+            onProgress && onProgress('log', '[CuratorEngine] Request ' + req.id + ' halted in paused state.');
+            continue;
+          }
           logLines.push('[CuratorEngine] Request ' + req.id + ' completed');
           if (result) logLines.push(JSON.stringify(result, null, 2));
         } catch (err) {
@@ -275,13 +387,34 @@ export function startWasmRequestProcessor(db, { intervalMs = 2000, onProgress } 
     } catch (err) {
       console.error('[Curator WASM Engine] Tick error:', err);
     } finally {
-      if (isRunning) timerId = setTimeout(tick, intervalMs);
+      if (isRunning && !_isPaused) timerId = setTimeout(tick, intervalMs);
     }
   }
 
   tick();
 
   return {
+    pause() {
+      _isPaused = true;
+      console.log('[Curator WASM Engine] RequestProcessor paused.');
+    },
+    resume() {
+      if (_isPaused) {
+        _isPaused = false;
+        if (timerId) clearTimeout(timerId);
+        timerId = setTimeout(tick, 50);
+        console.log('[Curator WASM Engine] RequestProcessor resumed.');
+      }
+    },
+    isPaused() {
+      return _isPaused;
+    },
+    pauseRequest(id) {
+      pauseRequest(id);
+    },
+    resumeRequest(id) {
+      resumeRequest(id);
+    },
     stop() {
       isRunning = false;
       if (timerId) clearTimeout(timerId);

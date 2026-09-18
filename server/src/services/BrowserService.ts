@@ -1,6 +1,9 @@
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import path from 'path';
 import fs from 'fs/promises';
+
+export type Page = any;
+export type BrowserContext = any;
+export type Browser = any;
 
 /**
  * BrowserService
@@ -15,6 +18,15 @@ export class BrowserService {
         if (this.instance) {
             return this.instance;
         }
+
+        let playwright: any;
+        try {
+            const pkg = 'playwright';
+            playwright = await import(/* @vite-ignore */ pkg);
+        } catch {
+            throw new Error('Playwright is not available in this runtime environment. Install playwright to enable browser automation.');
+        }
+        const { chromium } = playwright;
 
         const remotePort = process.env.CHROME_REMOTE_DEBUG_PORT;
 

@@ -1,4 +1,5 @@
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
+import { SCHEMA_DDL } from './generated-schema.js';
 
 let sqlite3Instance = null;
 let dbInstance = null;
@@ -33,7 +34,7 @@ async function openOpfsDbWithRetry(opfsPath, { attempts = 5, delayMs = 400 } = {
   }
 }
 
-export async function initSqliteOpfs({ seedUrl = '/data/keeris.db', dbFileName = 'keeris.sqlite3' } = {}) {
+export async function initSqliteOpfs({ seedUrl = '/data/keeris-seed.sqlite3', dbFileName = 'keeris.sqlite3' } = {}) {
   if (dbInstance) return { sqlite3: sqlite3Instance, db: dbInstance };
 
   sqlite3Instance = await sqlite3InitModule({
@@ -76,146 +77,71 @@ export async function initSqliteOpfs({ seedUrl = '/data/keeris.db', dbFileName =
   }
 
   // 1. Ensure baseline tables exist first
-  dbInstance.exec(`
-    CREATE TABLE IF NOT EXISTS programs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      series_id TEXT UNIQUE NOT NULL,
-      title TEXT NOT NULL,
-      slug TEXT UNIQUE,
-      description TEXT,
-      url TEXT,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
+  ensureBaselineTables(dbInstance);
 
-    CREATE TABLE IF NOT EXISTS episodes (
-      id INTEGER PRIMARY KEY,
-      program_id INTEGER REFERENCES programs(id) ON DELETE SET NULL,
-      url TEXT UNIQUE NOT NULL,
-      title TEXT NOT NULL,
-      scheduled_at TEXT,
-      published_at TEXT,
-      fetched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      raw_hash TEXT,
-      parse_status TEXT DEFAULT 'pending',
-      parse_error TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_episodes_program_id ON episodes(program_id);
+  // 2. Check if this is a fresh, unseeded database
+  let isSeeded = false;
+  try {
+    const res = [];
+    dbInstance.exec({
+      sql: 'SELECT COUNT(*) as count FROM programs',
+      rowMode: 'object',
+      resultRows: res,
+    });
+    isSeeded = (res[0]?.count || 0) > 0;
+  } catch (_) {}
 
-    CREATE TABLE IF NOT EXISTS unique_tracks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      fingerprint TEXT UNIQUE NOT NULL,
-      artist TEXT,
-      title TEXT,
-      play_count INTEGER DEFAULT 1,
-      first_played_at TEXT,
-      last_played_at TEXT,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
+  // 3. Auto-hydrate from seed snapshot on initial launch
+  if (!isSeeded && seedUrl) {
+    console.log(`[SQLite WASM] Database is unseeded. Auto-hydrating from seed snapshot (${seedUrl})...`);
+    try {
+      const response = await fetch(seedUrl);
+      if (response.ok) {
+        const arrayBuffer = await response.arrayBuffer();
+        if (arrayBuffer.byteLength > 1000) {
+          if (dbInstance) {
+            try { dbInstance.close(); } catch (_) {}
+            dbInstance = null;
+          }
+          if ('opfs' in sqlite3Instance) {
+            await sqlite3Instance.oo1.OpfsDb.importDb(opfsPath, new Uint8Array(arrayBuffer));
+            dbInstance = await openOpfsDbWithRetry(opfsPath);
+          } else {
+            dbInstance = new sqlite3Instance.oo1.DB(opfsPath, 'c');
+            sqlite3Instance.capi.sqlite3_deserialize(
+              dbInstance.pointer, 'main',
+              new Uint8Array(arrayBuffer),
+              arrayBuffer.byteLength,
+              arrayBuffer.byteLength,
+              sqlite3Instance.capi.SQLITE_DESERIALIZE_RESIZEABLE
+            );
+          }
+          ensureBaselineTables(dbInstance);
+          console.log(`[SQLite WASM] Auto-hydration complete (${arrayBuffer.byteLength} bytes).`);
+        }
+      } else {
+        console.warn(`[SQLite WASM] Seed snapshot fetch returned HTTP ${response.status}`);
+      }
+    } catch (seedErr) {
+      console.warn('[SQLite WASM] Auto-hydration skipped:', seedErr.message);
+      if (!dbInstance) {
+        if ('opfs' in sqlite3Instance) {
+          dbInstance = await openOpfsDbWithRetry(opfsPath);
+        } else {
+          dbInstance = new sqlite3Instance.oo1.DB(opfsPath, 'c');
+        }
+        ensureBaselineTables(dbInstance);
+      }
+    }
+  }
 
-    CREATE TABLE IF NOT EXISTS tracks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      episode_id INTEGER NOT NULL REFERENCES episodes(id) ON DELETE CASCADE,
-      unique_track_id INTEGER REFERENCES unique_tracks(id) ON DELETE SET NULL,
-      position INTEGER NOT NULL,
-      artist TEXT,
-      title TEXT,
-      raw_text TEXT NOT NULL,
-      UNIQUE(episode_id, position)
-    );
-    CREATE INDEX IF NOT EXISTS idx_tracks_episode_id ON tracks(episode_id);
-    CREATE INDEX IF NOT EXISTS idx_tracks_unique_track_id ON tracks(unique_track_id);
-
-
-    CREATE TABLE IF NOT EXISTS episode_metadata (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      episode_id INTEGER UNIQUE NOT NULL REFERENCES episodes(id) ON DELETE CASCADE,
-      description TEXT,
-      full_text TEXT,
-      summary TEXT,
-      keywords TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS playlists (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT NOT NULL,
-      description TEXT,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS playlist_items (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
-      unique_track_id INTEGER REFERENCES unique_tracks(id) ON DELETE SET NULL,
-      track_id INTEGER REFERENCES tracks(id) ON DELETE SET NULL,
-      episode_id INTEGER REFERENCES episodes(id) ON DELETE SET NULL,
-      position INTEGER NOT NULL DEFAULT 1,
-      notes TEXT,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Curator AST Tables
-    CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      email TEXT UNIQUE NOT NULL,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS conversations (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS scripts (
-      id TEXT PRIMARY KEY,
-      name TEXT UNIQUE NOT NULL,
-      description TEXT,
-      ast TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS agents (
-      id TEXT PRIMARY KEY,
-      name TEXT UNIQUE NOT NULL,
-      script_id TEXT REFERENCES scripts(id) ON DELETE SET NULL,
-      schedule TEXT,
-      is_active INTEGER DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS requests (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES users(id),
-      project_id TEXT NOT NULL REFERENCES projects(id),
-      conversation_id TEXT NOT NULL REFERENCES conversations(id),
-      script_id TEXT REFERENCES scripts(id),
-      ast TEXT NOT NULL,
-      context TEXT,
-      status TEXT DEFAULT 'pending',
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS responses (
-      id TEXT PRIMARY KEY,
-      request_id TEXT NOT NULL REFERENCES requests(id) ON DELETE CASCADE,
-      content TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
-
+  ensureBaselineTables(dbInstance);
   return { sqlite3: sqlite3Instance, db: dbInstance };
+}
+
+export function ensureBaselineTables(db) {
+  if (!db) return;
+  db.exec(SCHEMA_DDL);
 }
 
 /** Return the currently-open db connection (may change after rehydrateFromSeed closes/reopens it). */
@@ -282,4 +208,60 @@ export async function resetDatabase(dbFileName = 'keeris.sqlite3') {
     return false;
   }
 }
+
+/** Export the OPFS SQLite database as an ArrayBuffer for downloading. */
+export async function exportDatabaseBlob(dbFileName = 'keeris.sqlite3') {
+  const cleanName = dbFileName.startsWith('/') ? dbFileName.slice(1) : dbFileName;
+  console.log(`[SQLite WASM] Exporting database '${cleanName}'...`);
+  if (dbInstance) {
+    try {
+      dbInstance.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+    } catch (_) {}
+  }
+
+  if (sqlite3Instance && 'opfs' in sqlite3Instance) {
+    const root = await navigator.storage.getDirectory();
+    const fileHandle = await root.getFileHandle(cleanName);
+    const file = await fileHandle.getFile();
+    const arrayBuffer = await file.arrayBuffer();
+    return arrayBuffer;
+  } else if (dbInstance && sqlite3Instance) {
+    const data = sqlite3Instance.capi.sqlite3_js_db_export(dbInstance.pointer);
+    return data.buffer;
+  }
+  throw new Error('No active database instance available to export');
+}
+
+/** Import a binary SQLite ArrayBuffer directly into OPFS, replacing current data. */
+export async function importDatabaseFile(arrayBuffer, dbFileName = 'keeris.sqlite3') {
+  console.log(`[SQLite WASM] Importing database (${arrayBuffer.byteLength} bytes) into '${dbFileName}'...`);
+  if (!sqlite3Instance) {
+    throw new Error('SQLite WASM instance not initialized');
+  }
+
+  const opfsPath = dbFileName.startsWith('/') ? dbFileName : `/${dbFileName}`;
+  if (dbInstance) {
+    try { dbInstance.close(); } catch (_) {}
+    dbInstance = null;
+  }
+
+  if ('opfs' in sqlite3Instance) {
+    await sqlite3Instance.oo1.OpfsDb.importDb(opfsPath, new Uint8Array(arrayBuffer));
+    dbInstance = await openOpfsDbWithRetry(opfsPath);
+  } else {
+    dbInstance = new sqlite3Instance.oo1.DB(opfsPath, 'c');
+    sqlite3Instance.capi.sqlite3_deserialize(
+      dbInstance.pointer, 'main',
+      new Uint8Array(arrayBuffer),
+      arrayBuffer.byteLength,
+      arrayBuffer.byteLength,
+      sqlite3Instance.capi.SQLITE_DESERIALIZE_RESIZEABLE
+    );
+  }
+
+  ensureBaselineTables(dbInstance);
+  console.log('[SQLite WASM] Database imported successfully.');
+  return true;
+}
+
 

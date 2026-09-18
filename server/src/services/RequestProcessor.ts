@@ -8,11 +8,36 @@ export class RequestProcessor {
     private isRunning = false;
     private workerId = `worker-${Math.random().toString(36).substring(7)}`;
     private requestsProcessed = 0;
+    private pausedRequestIds = new Set<number>();
 
     public isAdHoc = false;
 
     constructor(prisma: PrismaClient) {
         this.prisma = prisma;
+    }
+
+    public isRequestPaused(requestId: number): boolean {
+        return this.pausedRequestIds.has(requestId);
+    }
+
+    public async pauseRequest(requestId: number): Promise<boolean> {
+        this.pausedRequestIds.add(requestId);
+        await this.prisma.request.updateMany({
+            where: { id: requestId, status: { in: ['NEW', 'WAITING'] as any } },
+            data: { status: 'PAUSED' as any, lockedBy: null, lockedAt: null }
+        });
+        console.log(`[RequestProcessor] Request ${requestId} flagged for pause.`);
+        return true;
+    }
+
+    public async resumeRequest(requestId: number): Promise<boolean> {
+        this.pausedRequestIds.delete(requestId);
+        await this.prisma.request.updateMany({
+            where: { id: requestId, status: 'PAUSED' as any },
+            data: { status: 'NEW' as any, lockedBy: null, lockedAt: null, executionScheduled: new Date() }
+        });
+        console.log(`[RequestProcessor] Request ${requestId} resumed to NEW.`);
+        return true;
     }
 
     start(intervalMs: number = 5000) {
@@ -175,6 +200,11 @@ export class RequestProcessor {
                 console.log(`[RequestProcessor] Nothing to do for request ${req.id}.`);
             }
 
+            if (initialContext.__paused__) {
+                console.log(`[RequestProcessor] Request ${request.id} checkpointed in PAUSED state.`);
+                return;
+            }
+
             // Mark Request as completed
             await this.prisma.request.update({
                 where: { id: request.id },
@@ -247,14 +277,35 @@ export class RequestProcessor {
 
         switch (node.type) {
             case 'Sequence': {
-                for (const step of node.steps || []) {
+                const startIndex = context.__pausedStepIndex__ ?? 0;
+                delete context.__pausedStepIndex__;
+                for (let i = startIndex; i < (node.steps || []).length; i++) {
+                    if (this.isRequestPaused(req.id)) {
+                        console.log(`[AST Executor] Request ${req.id} paused at step ${i}`);
+                        context.__pausedStepIndex__ = i;
+                        context.__paused__ = true;
+                        await this.prisma.request.update({
+                            where: { id: req.id },
+                            data: { status: 'PAUSED' as any, context, lockedBy: null, lockedAt: null }
+                        });
+                        return;
+                    }
+                    const step = node.steps[i];
                     await this.executeAST(step, req, resourceStack, responseId, context);
-                    if (context.__transitioned__) break;
+                    if (context.__transitioned__ || context.__paused__) break;
                 }
                 break;
             }
 
             case 'ToolTask': {
+                if (this.isRequestPaused(req.id)) {
+                    context.__paused__ = true;
+                    await this.prisma.request.update({
+                        where: { id: req.id },
+                        data: { status: 'PAUSED' as any, context, lockedBy: null, lockedAt: null }
+                    });
+                    return;
+                }
                 const materializedArgs = await this.materializeToolArgs(node.args, {
                     ...context,
                     resources: resourceStack,
@@ -313,11 +364,25 @@ export class RequestProcessor {
                 }
 
                 console.log(`[AST Executor] ForEach iterating over ${items.length} items`);
-                for (const item of items) {
+                const startIndex = context.__pausedIterIndex__ ?? 0;
+                delete context.__pausedIterIndex__;
+                for (let i = startIndex; i < items.length; i++) {
+                    if (this.isRequestPaused(req.id)) {
+                        console.log(`[AST Executor] Request ${req.id} paused at iteration ${i}/${items.length}`);
+                        context.__pausedIterIndex__ = i;
+                        context.__paused__ = true;
+                        await this.prisma.request.update({
+                            where: { id: req.id },
+                            data: { status: 'PAUSED' as any, context, lockedBy: null, lockedAt: null }
+                        });
+                        return;
+                    }
+                    const item = items[i];
                     const iterationContext: Record<string, any> = { ...context, [node.iterator]: item, item: item };
                     await this.executeAST(node.body, req, resourceStack, responseId, iterationContext);
-                    if (iterationContext.__transitioned__) {
-                        context.__transitioned__ = true; // Bubble state machine transition up
+                    if (iterationContext.__transitioned__ || iterationContext.__paused__) {
+                        context.__transitioned__ = true;
+                        if (iterationContext.__paused__) context.__paused__ = true;
                         break;
                     }
                 }

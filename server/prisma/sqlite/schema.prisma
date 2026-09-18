@@ -39,6 +39,7 @@ model User {
 enum RequestStatus {
   NEW
   WAITING
+  PAUSED
   COMPLETED
   FAILED
 }

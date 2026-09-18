@@ -14,6 +14,7 @@ export default defineConfig({
       vue: 'vue/dist/vue.esm-bundler.js',
       '@': fileURLToPath(new URL('./src', import.meta.url)),
       '@wasm': fileURLToPath(new URL('../wasm', import.meta.url)),
+      '@curator/console': fileURLToPath(new URL('../../../packages/curator-console/src/index.ts', import.meta.url)),
     },
   },
   server: {
@@ -30,6 +31,6 @@ export default defineConfig({
   },
   build: {
     outDir: fileURLToPath(new URL('../web-dist', import.meta.url)),
-    emptyOutDir: true,
+    emptyOutDir: false,
   },
 });
