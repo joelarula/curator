@@ -81,11 +81,22 @@ function buildAgentAst({ seriesContentId, programTitle }) {
 let _db = null;
 let _onProgress = null;
 let _isPaused = false;
+let _activeRequestsCount = 0;
 
 /** Initialize the engine with a db handle and progress emitter. */
 export function initWasmCuratorEngine(db, onProgress) {
   _db = db;
-  _onProgress = onProgress;
+  if (onProgress) _onProgress = onProgress;
+}
+
+/** Update the active database reference */
+export function updateEngineDb(db) {
+  _db = db;
+}
+
+/** Check if engine is actively executing an AST request */
+export function isEngineBusy() {
+  return _activeRequestsCount > 0;
 }
 
 const WASM_TOOLS = {
@@ -262,6 +273,14 @@ async function executeAstNode(node, env = {}, requestId = null) {
       return results;
     }
 
+    case 'Parallel': {
+      const steps = node.steps ?? [];
+      const results = await Promise.all(
+        steps.map(step => executeAstNode(step, { ...env }, requestId))
+      );
+      return results;
+    }
+
     default:
       _onProgress && _onProgress('log', '[CuratorEngine] Unsupported AST node type: ' + node.type);
       return null;
@@ -341,48 +360,53 @@ export function startWasmRequestProcessor(db, { intervalMs = 2000, onProgress } 
 
   async function tick() {
     if (!isRunning) return;
-    if (_isPaused) {
+    if (_isPaused || !_db) {
       timerId = setTimeout(tick, intervalMs);
       return;
     }
     try {
-      const pending = queryAll(db, "SELECT id, ast, context FROM requests WHERE status = 'pending' ORDER BY created_at ASC LIMIT 3");
+      const pending = queryAll(_db, "SELECT id, ast, context FROM requests WHERE status = 'pending' ORDER BY created_at ASC LIMIT 3");
 
       for (const req of pending) {
-        // Mark as running
-        executeSql(db, "UPDATE requests SET status = 'running' WHERE id = ?", [req.id]);
-        onProgress && onProgress('request_start', { requestId: req.id });
-        onProgress && onProgress('log', '[CuratorEngine] Processing request ' + req.id);
-
-        let ast = {};
-        try { ast = JSON.parse(req.ast); } catch (_) {}
-        let env = {};
-        try { env = req.context ? JSON.parse(req.context) : {}; } catch (_) {}
-
-        const logLines = ['[CuratorEngine] Request ' + req.id + ' started'];
-        let success = true;
-
+        _activeRequestsCount++;
         try {
-          const result = await executeAstNode(ast, env, req.id);
-          if (env.__paused__) {
-            onProgress && onProgress('log', '[CuratorEngine] Request ' + req.id + ' halted in paused state.');
-            continue;
+          // Mark as running
+          executeSql(_db, "UPDATE requests SET status = 'running' WHERE id = ?", [req.id]);
+          onProgress && onProgress('request_start', { requestId: req.id });
+          onProgress && onProgress('log', '[CuratorEngine] Processing request ' + req.id);
+
+          let ast = {};
+          try { ast = JSON.parse(req.ast); } catch (_) {}
+          let env = {};
+          try { env = req.context ? JSON.parse(req.context) : {}; } catch (_) {}
+
+          const logLines = ['[CuratorEngine] Request ' + req.id + ' started'];
+          let success = true;
+
+          try {
+            const result = await executeAstNode(ast, env, req.id);
+            if (env.__paused__) {
+              onProgress && onProgress('log', '[CuratorEngine] Request ' + req.id + ' halted in paused state.');
+              continue;
+            }
+            logLines.push('[CuratorEngine] Request ' + req.id + ' completed');
+            if (result) logLines.push(JSON.stringify(result, null, 2));
+          } catch (err) {
+            success = false;
+            logLines.push('[CuratorEngine] Request ' + req.id + ' failed: ' + err.message);
+            onProgress && onProgress('log', '[CuratorEngine] Error: ' + err.message);
           }
-          logLines.push('[CuratorEngine] Request ' + req.id + ' completed');
-          if (result) logLines.push(JSON.stringify(result, null, 2));
-        } catch (err) {
-          success = false;
-          logLines.push('[CuratorEngine] Request ' + req.id + ' failed: ' + err.message);
-          onProgress && onProgress('log', '[CuratorEngine] Error: ' + err.message);
+
+          const respId = 'resp-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+          executeSql(_db, 'INSERT INTO responses (id, request_id, content) VALUES (?, ?, ?)',
+            [respId, req.id, logLines.join('\n')]);
+          executeSql(_db, 'UPDATE requests SET status = ? WHERE id = ?',
+            [success ? 'completed' : 'failed', req.id]);
+
+          onProgress && onProgress('request_done', { requestId: req.id, success });
+        } finally {
+          _activeRequestsCount = Math.max(0, _activeRequestsCount - 1);
         }
-
-        const respId = 'resp-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
-        executeSql(db, 'INSERT INTO responses (id, request_id, content) VALUES (?, ?, ?)',
-          [respId, req.id, logLines.join('\n')]);
-        executeSql(db, 'UPDATE requests SET status = ? WHERE id = ?',
-          [success ? 'completed' : 'failed', req.id]);
-
-        onProgress && onProgress('request_done', { requestId: req.id, success });
       }
     } catch (err) {
       console.error('[Curator WASM Engine] Tick error:', err);
@@ -409,11 +433,17 @@ export function startWasmRequestProcessor(db, { intervalMs = 2000, onProgress } 
     isPaused() {
       return _isPaused;
     },
+    isBusy() {
+      return _activeRequestsCount > 0;
+    },
     pauseRequest(id) {
       pauseRequest(id);
     },
     resumeRequest(id) {
       resumeRequest(id);
+    },
+    updateDb(newDb) {
+      _db = newDb;
     },
     stop() {
       isRunning = false;

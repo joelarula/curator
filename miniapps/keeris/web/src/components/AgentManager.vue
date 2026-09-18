@@ -10,6 +10,21 @@
       </p>
     </div>
 
+    <!-- Engine Pause / Resume Banner -->
+    <div class="engine-control-bar">
+      <span class="engine-status-dot" :class="isPaused ? 'dot-paused' : 'dot-live'"></span>
+      <span class="engine-status-label">{{ isPaused ? '⏸ Engine Paused' : '⚡ Engine Running' }}</span>
+      <button
+        class="pause-btn"
+        :class="isPaused ? 'pause-btn-resume' : 'pause-btn-pause'"
+        type="button"
+        :disabled="pauseToggling"
+        @click="togglePause"
+      >
+        {{ isPaused ? '▶ Resume' : '⏸ Pause' }}
+      </button>
+    </div>
+
     <!-- Live Scraper Activity Log & Progress -->
     <div v-if="scraperLogs.length > 0" class="agent-log-panel">
       <div class="agent-log-header">
@@ -99,9 +114,17 @@
           >
             ▶ Run Now
           </button>
-          <span v-if="isRunning(agent)" class="card-running-label">
-            ⚙ Scraping...
-          </span>
+          <template v-if="isRunning(agent)">
+            <span class="card-running-label">⚙ Scraping...</span>
+            <button
+              class="action-btn pause-agent-btn"
+              type="button"
+              :disabled="pauseToggling"
+              @click="togglePause"
+            >
+              {{ isPaused ? '▶ Resume' : '⏸ Pause' }}
+            </button>
+          </template>
         </div>
       </div>
     </div>
@@ -115,7 +138,9 @@ import {
   onWorkerReady, 
   enqueueAgent, 
   onAgentProgress,
-  onDatabaseChange
+  onDatabaseChange,
+  toggleEnginepause,
+  getEngineState,
 } from '@wasm/graphql-client.js';
 
 const agents = ref([]);
@@ -125,6 +150,8 @@ const runningAgents = ref(new Set());
 const scraperLogs = ref([]);
 const currentEpisode = ref(null);
 const logBodyRef = ref(null);
+const isPaused = ref(false);
+const pauseToggling = ref(false);
 let unsubProgress = null;
 let unsubDbChange = null;
 let agentRefreshTimer = null;
@@ -187,9 +214,26 @@ async function runAgent(agent) {
   }
 }
 
+async function togglePause() {
+  pauseToggling.value = true;
+  try {
+    const result = await toggleEnginepause();
+    isPaused.value = result?.isPaused ?? !isPaused.value;
+    addLog('info', `[CuratorEngine] Engine ${isPaused.value ? '⏸ Paused' : '▶ Resumed'}`);
+  } catch (err) {
+    addLog('error', `[CuratorEngine] Pause toggle failed: ${err.message}`);
+  } finally {
+    pauseToggling.value = false;
+  }
+}
+
 onMounted(() => {
-  onWorkerReady(() => {
+  onWorkerReady(async () => {
     fetchAgents();
+    try {
+      const state = await getEngineState();
+      isPaused.value = state?.isPaused ?? false;
+    } catch (_) {}
   });
 
   unsubProgress = onAgentProgress((eventType, payload) => {
@@ -199,7 +243,7 @@ onMounted(() => {
       addLog('error', payload?.message || String(payload));
     } else if (eventType === 'episode') {
       currentEpisode.value = payload;
-      addLog('ok', `Episode ${payload.index}/${payload.total}: ${payload.episodeTitle} (${payload.tracksCount} tracks)`);
+      addLog('ok', `Episode ${payload.index}/${payload.total ?? '?'}: ${payload.episodeTitle} (${payload.tracksCount} tracks)`);
     } else if (eventType === 'stats') {
       addLog('info', `[Scraper] ${payload.discovered} episodes found, ${payload.toProcess} to scrape`);
     } else if (eventType === 'complete' || eventType === 'done') {

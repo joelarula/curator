@@ -209,6 +209,25 @@ export function enqueueAgent(agentName, { refresh = false } = {}) {
   });
 }
 
+/** Toggle the WASM engine pause state. Returns the new isPaused boolean. */
+export function toggleEnginepause() {
+  return new Promise((resolve, reject) => {
+    const id = nextRequestId();
+    pendingRequests.set(id, { resolve, reject });
+    sendWorkerMessage({ id, type: 'TOGGLE_PAUSE_PROCESSOR' });
+  });
+}
+
+/** Get the current engine pause state. Returns isPaused boolean. */
+export function getEngineState() {
+  return new Promise((resolve, reject) => {
+    const id = nextRequestId();
+    pendingRequests.set(id, { resolve, reject });
+    sendWorkerMessage({ id, type: 'GET_PROCESSOR_STATE' });
+  });
+}
+
+
 export function rehydrateSeed() {
   return new Promise((resolve, reject) => {
     const id = nextRequestId();
@@ -216,6 +235,7 @@ export function rehydrateSeed() {
     sendWorkerMessage({ id, type: 'REHYDRATE_SEED' });
   });
 }
+
 
 /** Delete the OPFS database file entirely. Caller should reload the page afterward. */
 export function resetDatabase() {

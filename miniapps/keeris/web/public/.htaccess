@@ -1,29 +1,68 @@
 # Apache configuration for Curator MiniApp (Vue 3 + SQLite WASM OPFS)
 
-# 1. MIME Type for WebAssembly
+# 1. MIME Types (mod_mime)
 <IfModule mod_mime.c>
+  AddType application/javascript .js .mjs
   AddType application/wasm .wasm
+  AddType text/css .css
+  AddType application/json .json
+  AddType application/vnd.sqlite3 .sqlite3
+  AddType font/woff2 .woff2
+  AddType font/woff .woff
+  AddType font/ttf .ttf
+  AddType application/vnd.ms-fontobject .eot
+  AddType image/svg+xml .svg
 </IfModule>
 
-# 2. Critical Cross-Origin Isolation Headers (required for SQLite OPFS & SharedArrayBuffer)
+# 2. Strict Content-Type enforcement via FilesMatch
+<FilesMatch "\.(js|mjs)$">
+  <IfModule mod_headers.c>
+    Header set Content-Type "application/javascript; charset=utf-8"
+  </IfModule>
+</FilesMatch>
+
+<FilesMatch "\.wasm$">
+  <IfModule mod_headers.c>
+    Header set Content-Type "application/wasm"
+  </IfModule>
+</FilesMatch>
+
+<FilesMatch "\.css$">
+  <IfModule mod_headers.c>
+    Header set Content-Type "text/css; charset=utf-8"
+  </IfModule>
+</FilesMatch>
+
+<FilesMatch "\.json$">
+  <IfModule mod_headers.c>
+    Header set Content-Type "application/json; charset=utf-8"
+  </IfModule>
+</FilesMatch>
+
+<FilesMatch "\.sqlite3$">
+  <IfModule mod_headers.c>
+    Header set Content-Type "application/vnd.sqlite3"
+  </IfModule>
+</FilesMatch>
+
+# 3. Critical Cross-Origin Isolation Headers (required for SQLite OPFS & SharedArrayBuffer)
 <IfModule mod_headers.c>
   Header set Cross-Origin-Opener-Policy "same-origin"
   Header set Cross-Origin-Embedder-Policy "require-corp"
 </IfModule>
 
-# 3. SPA Routing Fallback (redirects /summary, /agents, /playlists to index.html)
+# 4. SPA Routing Fallback (redirects page navigation to index.html, never static files)
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /
   RewriteRule ^index\.html$ - [L]
+
+  # Exclude all static assets from rewriting
+  RewriteCond %{REQUEST_URI} !\.(js|mjs|wasm|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|sqlite3|json|map)$ [NC]
+  RewriteCond %{REQUEST_URI} !^/assets/ [NC]
+  RewriteCond %{REQUEST_URI} !^/data/ [NC]
+
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
   RewriteRule . /index.html [L]
-</IfModule>
-
-# FallbackResource alternative if mod_rewrite is not active
-<IfModule !mod_rewrite.c>
-  <IfModule mod_dir.c>
-    FallbackResource /index.html
-  </IfModule>
 </IfModule>

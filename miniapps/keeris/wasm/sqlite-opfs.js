@@ -10,7 +10,7 @@ function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
  * OPFS only allows one exclusive sync-access-handle per file at a time across
  * the whole browser (all tabs/workers). A stale lock from a previous tab or an
  * abruptly-closed worker surfaces here as SQLITE_CANTOPEN. Retry with backoff
- * before giving up, since the lock is often released shortly after.
+ * before giving up.
  */
 async function openOpfsDbWithRetry(opfsPath, { attempts = 5, delayMs = 400 } = {}) {
   for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -24,7 +24,7 @@ async function openOpfsDbWithRetry(opfsPath, { attempts = 5, delayMs = 400 } = {
       if (!isCantOpen || attempt === attempts) {
         if (isCantOpen) {
           console.error(`[SQLite WASM] OPFS db still locked after ${attempts} attempts. ` +
-            'Close any other tabs/windows of this app (OPFS allows only one writer per file) and reload.');
+            'Close any other tabs/windows of this app (OPFS allows only one connection per file at a time) and reload.');
         }
         throw err;
       }
@@ -35,7 +35,7 @@ async function openOpfsDbWithRetry(opfsPath, { attempts = 5, delayMs = 400 } = {
 }
 
 export async function initSqliteOpfs({ seedUrl = '/data/keeris-seed.sqlite3', dbFileName = 'keeris.sqlite3' } = {}) {
-  if (dbInstance) return { sqlite3: sqlite3Instance, db: dbInstance };
+  if (dbInstance) return { sqlite3: sqlite3Instance, db: dbInstance, isOpfs: true };
 
   sqlite3Instance = await sqlite3InitModule({
     print: console.log,
@@ -46,112 +46,42 @@ export async function initSqliteOpfs({ seedUrl = '/data/keeris-seed.sqlite3', db
 
   const opfsPath = dbFileName.startsWith('/') ? dbFileName : `/${dbFileName}`;
 
-  if ('opfs' in sqlite3Instance) {
-    console.log('[SQLite WASM] Opening persistent OPFS database:', opfsPath);
-    try {
-      dbInstance = await openOpfsDbWithRetry(opfsPath);
-    } catch (err) {
-      // OPFS allows only ONE open connection per file across the whole browser
-      // (all tabs/windows). This is almost always another tab of this same app
-      // already holding the file open, NOT real corruption - do NOT delete or
-      // reimport here, that would destroy real scraped data out from under the
-      // other tab. Fail loudly and tell the user how to fix it instead.
-      const message = `OPFS database '${dbFileName}' is locked by another open tab/window of this app ` +
-        '(OPFS allows only one connection per file at a time). Close the other tab(s) and reload this page.';
-      console.error(`[SQLite WASM] ${message}`, err);
-      throw new Error(message);
-    }
-  } else {
-    console.warn('[SQLite WASM] OPFS not supported, falling back to transient memory DB');
-    dbInstance = new sqlite3Instance.oo1.DB(opfsPath, 'c');
+  if (!('opfs' in sqlite3Instance)) {
+    const errorMsg = 'SQLite OPFS storage is not available in this browser context. ' +
+      'OPFS strictly requires HTTPS (a Secure Context) and Cross-Origin Isolation headers (COOP: same-origin, COEP: require-corp). ' +
+      'Please access the application over HTTPS.';
+    console.error('[SQLite WASM]', errorMsg);
+    throw new Error(errorMsg);
   }
 
-  // Without this, every INSERT/UPDATE outside an explicit transaction does a
-  // full synchronous flush to the OPFS file - the classic cause of "slow" local
-  // SQLite in the browser. This data is a re-scrapeable cache, not a system of
-  // record, so trading strict crash-durability for throughput is safe here.
+  console.log('[SQLite WASM] Opening persistent OPFS database:', opfsPath);
+  dbInstance = await openOpfsDbWithRetry(opfsPath);
+
+  // Performance pragmas for OPFS: synchronous=NORMAL avoids blocking every write
   try {
     dbInstance.exec('PRAGMA synchronous = NORMAL; PRAGMA temp_store = MEMORY; PRAGMA cache_size = -20000;');
   } catch (err) {
     console.warn('[SQLite WASM] Failed to apply performance pragmas:', err.message);
   }
 
-  // 1. Ensure baseline tables exist first
+  // Ensure baseline tables exist
   ensureBaselineTables(dbInstance);
 
-  // 2. Check if this is a fresh, unseeded database
+  // Check if seeded
   let isSeeded = false;
   try {
     const res = [];
-    dbInstance.exec({
-      sql: 'SELECT COUNT(*) as count FROM programs',
-      rowMode: 'object',
-      resultRows: res,
-    });
+    dbInstance.exec({ sql: 'SELECT COUNT(*) as count FROM programs', rowMode: 'object', resultRows: res });
     isSeeded = (res[0]?.count || 0) > 0;
   } catch (_) {}
 
-  // 3. Auto-hydrate from seed snapshot on initial launch
+  // Auto-hydrate from seed if empty
   if (!isSeeded && seedUrl) {
-    console.log(`[SQLite WASM] Database is unseeded. Auto-hydrating from seed snapshot (${seedUrl})...`);
-    try {
-      const response = await fetch(seedUrl);
-      if (response.ok) {
-        const arrayBuffer = await response.arrayBuffer();
-        // Validate SQLite file magic: bytes 0-15 must be "SQLite format 3\000"
-        const magic = new Uint8Array(arrayBuffer, 0, 16);
-        const expectedMagic = [83, 81, 76, 105, 116, 101, 32, 102, 111, 114, 109, 97, 116, 32, 51, 0];
-        const isSqlite = expectedMagic.every((b, i) => magic[i] === b);
-
-        if (!isSqlite || arrayBuffer.byteLength < 1000) {
-          console.warn('[SQLite WASM] Seed file does not appear to be a valid SQLite database (bad magic bytes or too small). Skipping hydration.');
-        } else {
-          if (dbInstance) {
-            try { dbInstance.close(); } catch (_) {}
-            dbInstance = null;
-          }
-          if ('opfs' in sqlite3Instance) {
-            await sqlite3Instance.oo1.OpfsDb.importDb(opfsPath, new Uint8Array(arrayBuffer));
-            dbInstance = await openOpfsDbWithRetry(opfsPath);
-          } else {
-            // In-memory mode: open a blank DB and deserialize the seed bytes into it
-            dbInstance = new sqlite3Instance.oo1.DB(':memory:', 'c');
-            const rc = sqlite3Instance.capi.sqlite3_deserialize(
-              dbInstance.pointer, 'main',
-              sqlite3Instance.wasm.allocFromTypedArray(new Uint8Array(arrayBuffer)),
-              arrayBuffer.byteLength,
-              arrayBuffer.byteLength,
-              sqlite3Instance.capi.SQLITE_DESERIALIZE_RESIZEABLE |
-              sqlite3Instance.capi.SQLITE_DESERIALIZE_FREEONCLOSE
-            );
-            if (rc !== 0) {
-              console.warn(`[SQLite WASM] sqlite3_deserialize failed (rc=${rc}), starting empty DB`);
-              try { dbInstance.close(); } catch (_) {}
-              dbInstance = new sqlite3Instance.oo1.DB(':memory:', 'c');
-            }
-          }
-          ensureBaselineTables(dbInstance);
-          console.log(`[SQLite WASM] Auto-hydration complete (${arrayBuffer.byteLength} bytes).`);
-        }
-      } else {
-        console.warn(`[SQLite WASM] Seed snapshot fetch returned HTTP ${response.status}`);
-      }
-    } catch (seedErr) {
-      console.warn('[SQLite WASM] Auto-hydration skipped:', seedErr.message);
-    }
-    // Ensure dbInstance exists even if seed failed
-    if (!dbInstance) {
-      if ('opfs' in sqlite3Instance) {
-        dbInstance = await openOpfsDbWithRetry(opfsPath);
-      } else {
-        dbInstance = new sqlite3Instance.oo1.DB(':memory:', 'c');
-      }
-    }
-    ensureBaselineTables(dbInstance);
+    console.log(`[SQLite WASM] OPFS database is unseeded. Auto-hydrating from seed snapshot (${seedUrl})...`);
+    await rehydrateFromSeed(seedUrl, dbFileName);
   }
 
-  ensureBaselineTables(dbInstance);
-  return { sqlite3: sqlite3Instance, db: dbInstance };
+  return { sqlite3: sqlite3Instance, db: dbInstance, isOpfs: true };
 }
 
 export function ensureBaselineTables(db) {
@@ -159,9 +89,12 @@ export function ensureBaselineTables(db) {
   db.exec(SCHEMA_DDL);
 }
 
-/** Return the currently-open db connection (may change after rehydrateFromSeed closes/reopens it). */
 export function getCurrentDb() {
   return dbInstance;
+}
+
+export function isOpfsActive() {
+  return true;
 }
 
 export async function rehydrateFromSeed(seedUrl = '/data/keeris-seed.sqlite3', dbFileName = 'keeris.sqlite3') {
@@ -179,9 +112,6 @@ export async function rehydrateFromSeed(seedUrl = '/data/keeris-seed.sqlite3', d
     }
     const arrayBuffer = await response.arrayBuffer();
 
-    // Close the connection, then import via OpfsDb.importDb() rather than a raw
-    // File System Access write, so the OPFS VFS's bookkeeping matches the file
-    // (a raw overwrite can leave the file unreadable to the VFS - SQLITE_CANTOPEN).
     if (dbInstance) {
       try { dbInstance.close(); } catch (_) {}
       dbInstance = null;
@@ -191,14 +121,15 @@ export async function rehydrateFromSeed(seedUrl = '/data/keeris-seed.sqlite3', d
     await sqlite3Instance.oo1.OpfsDb.importDb(opfsPath, new Uint8Array(arrayBuffer));
     dbInstance = await openOpfsDbWithRetry(opfsPath);
 
+    ensureBaselineTables(dbInstance);
+
     const check = [];
     dbInstance.exec({
-      sql: "SELECT COUNT(*) as count FROM unique_tracks",
+      sql: 'SELECT COUNT(*) as count FROM unique_tracks',
       rowMode: 'object',
       resultRows: check,
     });
-
-    console.log(`[SQLite WASM] Successfully hydrated OPFS database from seed URL. Unique tracks count: ${check[0]?.count || 0}`);
+    console.log(`[SQLite WASM] Successfully hydrated OPFS database from seed URL. Unique tracks: ${check[0]?.count || 0}`);
     return true;
   } catch (err) {
     console.error('[SQLite WASM] Rehydration failed:', err);
@@ -206,17 +137,17 @@ export async function rehydrateFromSeed(seedUrl = '/data/keeris-seed.sqlite3', d
   }
 }
 
-/** Close the connection and delete the OPFS file entirely, for iterating on tests. */
 export async function resetDatabase(dbFileName = 'keeris.sqlite3') {
-  console.log(`[SQLite WASM] Resetting database: deleting OPFS file '${dbFileName}'...`);
+  const cleanName = dbFileName.startsWith('/') ? dbFileName.slice(1) : dbFileName;
+  console.log(`[SQLite WASM] Resetting database: deleting OPFS file '${cleanName}'...`);
   try {
     if (dbInstance) {
       try { dbInstance.close(); } catch (_) {}
       dbInstance = null;
     }
     const root = await navigator.storage.getDirectory();
-    await root.removeEntry(dbFileName);
-    console.log('[SQLite WASM] Database reset complete. Reload the page to start fresh.');
+    await root.removeEntry(cleanName);
+    console.log('[SQLite WASM] OPFS database reset complete.');
     return true;
   } catch (err) {
     console.error('[SQLite WASM] Reset failed:', err);
@@ -224,34 +155,29 @@ export async function resetDatabase(dbFileName = 'keeris.sqlite3') {
   }
 }
 
-/** Export the OPFS SQLite database as an ArrayBuffer for downloading. */
 export async function exportDatabaseBlob(dbFileName = 'keeris.sqlite3') {
   const cleanName = dbFileName.startsWith('/') ? dbFileName.slice(1) : dbFileName;
-  console.log(`[SQLite WASM] Exporting database '${cleanName}'...`);
+  console.log(`[SQLite WASM] Exporting OPFS database '${cleanName}'...`);
   if (dbInstance) {
     try {
       dbInstance.exec('PRAGMA wal_checkpoint(TRUNCATE);');
     } catch (_) {}
   }
 
-  if (sqlite3Instance && 'opfs' in sqlite3Instance) {
+  if (sqlite3Instance && 'opfs' in sqlite3Instance && typeof navigator !== 'undefined' && navigator.storage?.getDirectory) {
     const root = await navigator.storage.getDirectory();
     const fileHandle = await root.getFileHandle(cleanName);
     const file = await fileHandle.getFile();
-    const arrayBuffer = await file.arrayBuffer();
-    return arrayBuffer;
-  } else if (dbInstance && sqlite3Instance) {
-    const data = sqlite3Instance.capi.sqlite3_js_db_export(dbInstance.pointer);
-    return data.buffer;
+    return await file.arrayBuffer();
   }
-  throw new Error('No active database instance available to export');
+
+  throw new Error('No active OPFS database instance available to export');
 }
 
-/** Import a binary SQLite ArrayBuffer directly into OPFS, replacing current data. */
 export async function importDatabaseFile(arrayBuffer, dbFileName = 'keeris.sqlite3') {
-  console.log(`[SQLite WASM] Importing database (${arrayBuffer.byteLength} bytes) into '${dbFileName}'...`);
-  if (!sqlite3Instance) {
-    throw new Error('SQLite WASM instance not initialized');
+  console.log(`[SQLite WASM] Importing database (${arrayBuffer.byteLength} bytes) into OPFS '${dbFileName}'...`);
+  if (!sqlite3Instance || !('opfs' in sqlite3Instance)) {
+    throw new Error('SQLite WASM OPFS instance not initialized');
   }
 
   const opfsPath = dbFileName.startsWith('/') ? dbFileName : `/${dbFileName}`;
@@ -260,23 +186,10 @@ export async function importDatabaseFile(arrayBuffer, dbFileName = 'keeris.sqlit
     dbInstance = null;
   }
 
-  if ('opfs' in sqlite3Instance) {
-    await sqlite3Instance.oo1.OpfsDb.importDb(opfsPath, new Uint8Array(arrayBuffer));
-    dbInstance = await openOpfsDbWithRetry(opfsPath);
-  } else {
-    dbInstance = new sqlite3Instance.oo1.DB(opfsPath, 'c');
-    sqlite3Instance.capi.sqlite3_deserialize(
-      dbInstance.pointer, 'main',
-      new Uint8Array(arrayBuffer),
-      arrayBuffer.byteLength,
-      arrayBuffer.byteLength,
-      sqlite3Instance.capi.SQLITE_DESERIALIZE_RESIZEABLE
-    );
-  }
-
+  await sqlite3Instance.oo1.OpfsDb.importDb(opfsPath, new Uint8Array(arrayBuffer));
+  dbInstance = await openOpfsDbWithRetry(opfsPath);
   ensureBaselineTables(dbInstance);
-  console.log('[SQLite WASM] Database imported successfully.');
+
+  console.log('[SQLite WASM] OPFS database imported successfully.');
   return true;
 }
-
-

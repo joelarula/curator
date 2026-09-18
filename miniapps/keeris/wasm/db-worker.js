@@ -1,6 +1,20 @@
-import { initSqliteOpfs, rehydrateFromSeed, getCurrentDb, resetDatabase, exportDatabaseBlob, importDatabaseFile } from './sqlite-opfs.js';
+import {
+  initSqliteOpfs,
+  rehydrateFromSeed,
+  getCurrentDb,
+  resetDatabase,
+  exportDatabaseBlob,
+  importDatabaseFile,
+  isOpfsActive,
+} from './sqlite-opfs.js';
 import { executeInWorkerGraphql } from './graphql-schema.js';
-import { startWasmRequestProcessor, enqueueScrapeRequest, resolveAgentByTitle, PROGRAM_MANIFEST, setWasmEnginePaused } from './wasm-curator-engine.js';
+import {
+  startWasmRequestProcessor,
+  enqueueScrapeRequest,
+  resolveAgentByTitle,
+  PROGRAM_MANIFEST,
+  setWasmEnginePaused,
+} from './wasm-curator-engine.js';
 
 let dbInstance = null;
 let processorInstance = null;
@@ -15,6 +29,7 @@ const pendingChangedTables = new Set();
  */
 function emitDatabaseChange(tables = ['all']) {
   tables.forEach(t => pendingChangedTables.add(t));
+
   if (dbChangeDebounceTimer) return;
   dbChangeDebounceTimer = setTimeout(() => {
     dbChangeDebounceTimer = null;
@@ -49,7 +64,7 @@ async function bootstrap() {
     bootstrapPromise = (async () => {
       try {
         console.log('[Web Worker] Bootstrapping SQLite OPFS & Curator Engine...');
-        const { sqlite3, db } = await initSqliteOpfs();
+        const { sqlite3, db, isOpfs } = await initSqliteOpfs();
         dbInstance = db;
 
         // Start the Curator Engine request processor
@@ -58,8 +73,7 @@ async function bootstrap() {
           onProgress: emitProgress,
         });
 
-        const isOpfs = 'opfs' in sqlite3;
-        console.log(`[Web Worker] SQLite Storage Mode: ${isOpfs ? 'Persistent OPFS (Disk)' : 'Transient Memory (RAM)'}`);
+        console.log(`[Web Worker] SQLite Storage Mode: Persistent OPFS (Disk)`);
 
         // Expose debug utilities on self for developer console inspection
         self.__debug = {
@@ -75,7 +89,7 @@ async function bootstrap() {
         };
         console.log('%c[Web Worker] Debug console ready! Switch console context to worker and run: %c__debug.query("SELECT * FROM episodes LIMIT 5")', 'color: #38bdf8;', 'color: #f59e0b; font-weight: bold;');
 
-        self.postMessage({ type: 'READY', payload: { version: sqlite3.version.libVersion, isOpfs } });
+        self.postMessage({ type: 'READY', payload: { version: sqlite3.version.libVersion, isOpfs: true } });
         return dbInstance;
       } catch (error) {
         console.error('[Web Worker] Initialization failed:', error);
@@ -88,7 +102,7 @@ async function bootstrap() {
 }
 
 self.onmessage = async (event) => {
-  const { id, type, query, variables, agentName, refresh } = event.data || {};
+  const { id, type, query, variables, agentName, refresh, payload } = event.data || {};
   console.log(`%c[db-worker RX ➔] %c${type || 'UNKNOWN'}`, 'color: #a855f7; font-weight: bold;', 'color: #cbd5e1;', event.data);
 
   if (type === 'GRAPHQL_REQUEST') {
@@ -120,9 +134,6 @@ self.onmessage = async (event) => {
     await bootstrap();
     const success = await rehydrateFromSeed();
     if (success) {
-      // rehydrateFromSeed closes the old connection and opens a new one; the
-      // running processor's closure still points at the closed handle, so
-      // restart it against the fresh db to avoid SQLITE_CANTOPEN on the next tick.
       processorInstance?.stop();
       dbInstance = getCurrentDb();
       processorInstance = startWasmRequestProcessor(dbInstance, {
@@ -174,12 +185,21 @@ self.onmessage = async (event) => {
   }
 
   if (type === 'GET_STORAGE_INFO') {
-    if (navigator.storage && navigator.storage.estimate) {
-      const estimate = await navigator.storage.estimate();
-      self.postMessage({ id, type: 'STORAGE_INFO', payload: estimate });
-    } else {
-      self.postMessage({ id, type: 'STORAGE_INFO', payload: { usage: 0, quota: 0 } });
+    let estimate = { usage: 0, quota: 0 };
+    if (typeof navigator !== 'undefined' && navigator.storage?.estimate) {
+      try {
+        estimate = await navigator.storage.estimate();
+      } catch (_) {}
     }
+    self.postMessage({
+      id,
+      type: 'STORAGE_INFO',
+      payload: {
+        ...estimate,
+        isOpfs: true,
+        storageEngine: 'OPFS FileSystem',
+      },
+    });
   }
 
   if (type === 'GET_AGENT_MANIFEST') {
@@ -210,15 +230,15 @@ self.onmessage = async (event) => {
 
   if (type === 'PAUSE_REQUEST') {
     await bootstrap();
-    const { requestId } = event.data || {};
-    processorInstance?.pauseRequest(requestId);
+    const { requestId: reqId } = event.data || {};
+    processorInstance?.pauseRequest(reqId);
     self.postMessage({ id, type: 'PAUSE_REQUEST_RESULT', success: true });
   }
 
   if (type === 'RESUME_REQUEST') {
     await bootstrap();
-    const { requestId } = event.data || {};
-    processorInstance?.resumeRequest(requestId);
+    const { requestId: reqId } = event.data || {};
+    processorInstance?.resumeRequest(reqId);
     self.postMessage({ id, type: 'RESUME_REQUEST_RESULT', success: true });
   }
 };

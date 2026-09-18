@@ -299,7 +299,7 @@ async function pipelinePool(source, concurrency, worker) {
  * emitting each item as soon as its page lands — no blocking "collect all" phase.
  * For URL-based (non-series-id) programs it falls back to sequential page crawling.
  */
-async function* streamEpisodes(seriesContentId, { shouldStop, onPage, isPaused, onProgress } = {}) {
+export async function* streamEpisodes(seriesContentId, { shouldStop, onPage, isPaused, onProgress } = {}) {
   const isUrl = String(seriesContentId).startsWith('http://') || String(seriesContentId).startsWith('https://');
 
   if (isUrl) {
@@ -374,141 +374,153 @@ async function* streamEpisodes(seriesContentId, { shouldStop, onPage, isPaused, 
   }
 }
 
-async function _runScrapeProgram(db, { seriesContentId, programTitle, refresh = false, onProgress, isPaused, checkPause } = {}) {
-  function queryOne(sql, params = []) {
+/**
+ * Upsert a program row into SQLite and return its integer id.
+ * Idempotent — safe to call multiple times for the same seriesContentId.
+ */
+export function upsertProgramRow(db, seriesContentId, programTitle) {
+  const now = new Date().toISOString();
+  db.exec({
+    sql: `
+      INSERT INTO programs (series_id, title, slug, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(series_id) DO UPDATE SET title = excluded.title, updated_at = excluded.updated_at
+    `,
+    bind: [String(seriesContentId), programTitle, programTitle.toLowerCase().replace(/[^a-z0-9]/g, '-'), now, now],
+  });
+  const rows = [];
+  db.exec({ sql: 'SELECT id FROM programs WHERE series_id = ?', bind: [String(seriesContentId)], rowMode: 'object', resultRows: rows });
+  return rows[0]?.id ?? null;
+}
+
+/**
+ * Fetch + parse + write a single episode item into SQLite.
+ * Returns { status, tracksCount } on success, null if skipped (already parsed).
+ * This is the atomic unit that the AST engine's StreamForEach body calls.
+ */
+export async function processEpisodeItem(db, item, {
+  programId = null,
+  now = new Date().toISOString(),
+  refresh = false,
+  onProgress = null,
+  isPaused = null,
+  episodeCounter = null,   // optional { get, increment } to track parsed count externally
+} = {}) {
+  function qOne(sql, params = []) {
     const rows = [];
     db.exec({ sql, bind: params, rowMode: 'object', resultRows: rows });
     return rows[0] ?? null;
   }
-  function executeSql(sql, params = []) {
-    db.exec({ sql, bind: params });
+  function exec(sql, params = []) { db.exec({ sql, bind: params }); }
+
+  if (typeof isPaused === 'function' && isPaused()) {
+    while (typeof isPaused === 'function' && isPaused()) await sleep(600);
   }
 
+  // Skip already-done episodes on incremental runs
+  if (!refresh) {
+    const row = qOne('SELECT parse_status FROM episodes WHERE id = ?', [item.id]);
+    if (row && ['parsed', 'no_tracks'].includes(row.parse_status)) return null;
+  }
+
+  const scheduledAt = episodeDate(item);
+  const episodeUrl = item.url ?? `${ERR_BASE}/${item.id}`;
+  const episodeTitle = item.heading ?? item.title ?? item.name ?? String(item.id);
+  let tracksSaved = 0;
+
+  try {
+    exec('BEGIN');
+    exec(`
+      INSERT INTO episodes (id, program_id, url, title, scheduled_at, fetched_at, parse_status)
+      VALUES (?, ?, ?, ?, ?, ?, 'pending')
+      ON CONFLICT(id) DO UPDATE SET
+        program_id = COALESCE(excluded.program_id, episodes.program_id),
+        url = excluded.url, title = excluded.title,
+        scheduled_at = excluded.scheduled_at, fetched_at = excluded.fetched_at,
+        parse_status = 'pending'
+    `, [item.id, programId ?? null, episodeUrl, episodeTitle, scheduledAt ?? null, now]);
+    exec('COMMIT');
+
+    const html = item._prefetchedHtml ?? await errFetch(episodeUrl, 'text');
+    const tracks = parseMusicListFromHtml(html);
+    const metadata = parseEpisodeMetadata(html);
+    const status = (tracks.length || metadata.fullText) ? 'parsed' : 'no_tracks';
+
+    exec('BEGIN');
+    if (tracks.length > 0) {
+      exec('DELETE FROM tracks WHERE episode_id = ?', [item.id]);
+      for (const track of tracks) {
+        const fp = makeFingerprint(track.artist, track.title, track.rawText);
+        let utId = null;
+        if (fp) {
+          const existing = qOne('SELECT id FROM unique_tracks WHERE fingerprint = ?', [fp]);
+          if (existing) {
+            utId = existing.id;
+            exec('UPDATE unique_tracks SET play_count = play_count + 1, last_played_at = COALESCE(?, last_played_at), updated_at = ? WHERE id = ?',
+              [scheduledAt, now, utId]);
+          } else {
+            exec('INSERT INTO unique_tracks (fingerprint, artist, title, play_count, first_played_at, last_played_at, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?, ?)',
+              [fp, track.artist ?? null, track.title ?? null, scheduledAt, scheduledAt, now, now]);
+            const newUt = qOne('SELECT id FROM unique_tracks WHERE fingerprint = ?', [fp]);
+            utId = newUt?.id ?? null;
+          }
+        }
+        exec('INSERT OR IGNORE INTO tracks (episode_id, unique_track_id, position, artist, title, raw_text) VALUES (?, ?, ?, ?, ?, ?)',
+          [item.id, utId, track.position, track.artist ?? null, track.title ?? null, track.rawText]);
+        tracksSaved++;
+      }
+    }
+    if (metadata.description || metadata.fullText || metadata.summary) {
+      exec(`
+        INSERT INTO episode_metadata (episode_id, description, full_text, summary, keywords)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(episode_id) DO UPDATE SET
+          description = excluded.description, full_text = excluded.full_text,
+          summary = excluded.summary, keywords = excluded.keywords
+      `, [item.id, metadata.description ?? null, metadata.fullText ?? null, metadata.summary ?? null, null]);
+    }
+    exec('UPDATE episodes SET parse_status = ?, fetched_at = ? WHERE id = ?', [status, now, item.id]);
+    exec('COMMIT');
+
+    const episodeIdx = episodeCounter ? episodeCounter.increment() : null;
+    onProgress?.('episode', {
+      index: episodeIdx,
+      episodeId: item.id,
+      episodeTitle,
+      scheduledAt,
+      tracksCount: tracks.length,
+      status,
+    });
+    return { status, tracksCount: tracks.length, tracksSaved };
+  } catch (err) {
+    try { exec('ROLLBACK'); } catch (_) {}
+    try { exec("UPDATE episodes SET parse_status = 'failed', parse_error = ? WHERE id = ?", [String(err), item.id]); } catch (_) {}
+    onProgress?.('log', `[Scraper] Failed ${episodeUrl}: ${err.message}`);
+    return { status: 'failed', tracksCount: 0, tracksSaved: 0 };
+  }
+}
+
+async function _runScrapeProgram(db, { seriesContentId, programTitle, refresh = false, onProgress, isPaused, checkPause } = {}) {
   onProgress?.('log', `[Scraper] Starting scrape for "${programTitle}" (seriesId: ${seriesContentId})`);
 
   const now = new Date().toISOString();
-  executeSql(`
-    INSERT INTO programs (series_id, title, slug, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(series_id) DO UPDATE SET title = excluded.title, updated_at = excluded.updated_at
-  `, [String(seriesContentId), programTitle, programTitle.toLowerCase().replace(/[^a-z0-9]/g, '-'), now, now]);
-
-  const program = queryOne('SELECT id FROM programs WHERE series_id = ?', [String(seriesContentId)]);
-  const programId = program?.id;
+  const programId = upsertProgramRow(db, seriesContentId, programTitle);
 
   onProgress?.('log', `[Scraper] Streaming episodes from ERR archive API with parallel processing...`);
 
-  // For incremental (non-refresh) runs: stop discovery once we hit an already-parsed page
   const shouldStop = refresh
     ? undefined
     : (items) => items.some((item) => {
-        const row = queryOne('SELECT parse_status FROM episodes WHERE id = ?', [item.id]);
+        const rows = [];
+        db.exec({ sql: 'SELECT parse_status FROM episodes WHERE id = ?', bind: [item.id], rowMode: 'object', resultRows: rows });
+        const row = rows[0];
         return row && ['parsed', 'no_tracks'].includes(row.parse_status);
       });
 
   let discovered = 0, parsed = 0, tracksSaved = 0, failures = 0;
   let pageCount = 0;
+  const episodeCounter = { value: 0, increment() { return ++this.value; } };
 
-  // processSingleEpisode: fetch + parse + write one episode to SQLite
-  async function processSingleEpisode(item) {
-    if (typeof isPaused === 'function' && isPaused()) {
-      while (typeof isPaused === 'function' && isPaused()) await sleep(600);
-    }
-
-    // Skip already-done episodes on incremental runs
-    if (!refresh) {
-      const row = queryOne('SELECT parse_status FROM episodes WHERE id = ?', [item.id]);
-      if (row && ['parsed', 'no_tracks'].includes(row.parse_status)) return;
-    }
-
-    const scheduledAt = episodeDate(item);
-    const episodeUrl = item.url ?? `${ERR_BASE}/${item.id}`;
-    const episodeTitle = item.heading ?? item.title ?? item.name ?? String(item.id);
-    const episodeIdx = ++parsed; // approximate (discovery still in flight)
-
-    try {
-      executeSql('BEGIN');
-      executeSql(`
-        INSERT INTO episodes (id, program_id, url, title, scheduled_at, fetched_at, parse_status)
-        VALUES (?, ?, ?, ?, ?, ?, 'pending')
-        ON CONFLICT(id) DO UPDATE SET
-          program_id = COALESCE(excluded.program_id, episodes.program_id),
-          url = excluded.url,
-          title = excluded.title,
-          scheduled_at = excluded.scheduled_at,
-          fetched_at = excluded.fetched_at,
-          parse_status = 'pending'
-      `, [item.id, programId ?? null, episodeUrl, episodeTitle, scheduledAt ?? null, now]);
-      executeSql('COMMIT');
-
-      // Reuse prefetched HTML if the generator already fetched it (URL-mode)
-      const html = item._prefetchedHtml ?? await errFetch(episodeUrl, 'text');
-      const tracks = parseMusicListFromHtml(html);
-      const metadata = parseEpisodeMetadata(html);
-      const status = (tracks.length || metadata.fullText) ? 'parsed' : 'no_tracks';
-
-      executeSql('BEGIN');
-      if (tracks.length > 0) {
-        executeSql('DELETE FROM tracks WHERE episode_id = ?', [item.id]);
-        for (const track of tracks) {
-          const fp = makeFingerprint(track.artist, track.title, track.rawText);
-          let utId = null;
-          if (fp) {
-            const existing = queryOne('SELECT id FROM unique_tracks WHERE fingerprint = ?', [fp]);
-            if (existing) {
-              utId = existing.id;
-              executeSql(
-                'UPDATE unique_tracks SET play_count = play_count + 1, last_played_at = COALESCE(?, last_played_at), updated_at = ? WHERE id = ?',
-                [scheduledAt, now, utId]
-              );
-            } else {
-              executeSql(
-                'INSERT INTO unique_tracks (fingerprint, artist, title, play_count, first_played_at, last_played_at, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?, ?)',
-                [fp, track.artist ?? null, track.title ?? null, scheduledAt, scheduledAt, now, now]
-              );
-              const newUt = queryOne('SELECT id FROM unique_tracks WHERE fingerprint = ?', [fp]);
-              utId = newUt?.id ?? null;
-            }
-          }
-          executeSql(
-            'INSERT OR IGNORE INTO tracks (episode_id, unique_track_id, position, artist, title, raw_text) VALUES (?, ?, ?, ?, ?, ?)',
-            [item.id, utId, track.position, track.artist ?? null, track.title ?? null, track.rawText]
-          );
-          tracksSaved++;
-        }
-      }
-
-      if (metadata.description || metadata.fullText || metadata.summary) {
-        executeSql(`
-          INSERT INTO episode_metadata (episode_id, description, full_text, summary, keywords)
-          VALUES (?, ?, ?, ?, ?)
-          ON CONFLICT(episode_id) DO UPDATE SET
-            description = excluded.description, full_text = excluded.full_text,
-            summary = excluded.summary, keywords = excluded.keywords
-        `, [item.id, metadata.description ?? null, metadata.fullText ?? null, metadata.summary ?? null, null]);
-      }
-
-      executeSql('UPDATE episodes SET parse_status = ?, fetched_at = ? WHERE id = ?', [status, now, item.id]);
-      executeSql('COMMIT');
-
-      onProgress?.('episode', {
-        index: episodeIdx,
-        total: discovered, // live total grows as discovery proceeds
-        episodeId: item.id,
-        episodeTitle,
-        scheduledAt,
-        tracksCount: tracks.length,
-        status,
-      });
-    } catch (err) {
-      try { executeSql('ROLLBACK'); } catch (_) {}
-      failures++;
-      try { executeSql("UPDATE episodes SET parse_status = 'failed', parse_error = ? WHERE id = ?", [String(err), item.id]); } catch (_) {}
-      onProgress?.('log', `[Scraper] Failed ${episodeUrl}: ${err.message}`);
-    }
-  }
-
-  // Stream discovery and processing in parallel with a pool of 3 concurrent workers
   const episodeStream = streamEpisodes(seriesContentId, {
     shouldStop,
     onPage: (page, count) => {
@@ -519,7 +531,6 @@ async function _runScrapeProgram(db, { seriesContentId, programTitle, refresh = 
     onProgress,
   });
 
-  // Wrap the stream to count discovered items as they arrive
   async function* countingStream() {
     for await (const item of episodeStream) {
       discovered++;
@@ -528,8 +539,13 @@ async function _runScrapeProgram(db, { seriesContentId, programTitle, refresh = 
     }
   }
 
-  // CONCURRENCY = 3: discovery of archive pages + up to 3 episode HTML fetches run simultaneously
-  await pipelinePool(countingStream(), 3, processSingleEpisode);
+  await pipelinePool(countingStream(), 3, async (item) => {
+    const res = await processEpisodeItem(db, item, { programId, now, refresh, onProgress, isPaused, episodeCounter });
+    if (res) {
+      if (res.status === 'failed') failures++;
+      else { parsed++; tracksSaved += res.tracksSaved; }
+    }
+  });
 
   const result = { seriesContentId, programTitle, discovered, processed: discovered, parsed, tracksSaved, failures };
   onProgress?.('done', result);
