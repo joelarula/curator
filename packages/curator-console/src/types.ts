@@ -13,12 +13,30 @@ export interface CuratorConsoleAdapter {
   exportDatabase?: () => Promise<boolean | ArrayBuffer>;
   importDatabase?: (file: File) => Promise<boolean>;
   resetDatabase?: () => Promise<boolean>;
-  getStorageInfo?: () => Promise<{ usage: number; quota: number }>;
+  getStorageInfo?: () => Promise<{ usage: number; quota: number; storageEngine?: string; isOpfs?: boolean }>;
+  getDatabaseHealth?: () => Promise<CuratorDatabaseHealth>;
 
   requestGraphql: (query: string, variables?: any) => Promise<any>;
   triggerAgent?: (agentId: string, options?: any) => Promise<any>;
   onProgress?: (callback: (type: string, payload: any) => void) => () => void;
   onDatabaseChange?: (callback: (info: { tables: string[]; timestamp: number }) => void) => () => void;
+}
+
+export interface CuratorTableInfo {
+  name: string;
+  rowCount: number;
+}
+
+export interface CuratorDatabaseHealth {
+  storageEngine?: string;
+  isOpfs?: boolean;
+  tables?: CuratorTableInfo[];
+  requestsTotal?: number;
+  requestsCompleted?: number;
+  requestsFailed?: number;
+  requestsPending?: number;
+  agentsTotal?: number;
+  agentsActive?: number;
 }
 
 export interface CuratorLogEntry {
@@ -32,9 +50,8 @@ export interface CuratorAgentSummary {
   name: string;
   schedule?: string;
   isActive: boolean;
-  episodesCount?: number;
-  tracksCount?: number;
   lastRunAt?: string;
+  [key: string]: any;
 }
 
 export interface CuratorRequestSummary {

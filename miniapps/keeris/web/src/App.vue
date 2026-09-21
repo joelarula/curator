@@ -66,7 +66,7 @@
     </main>
 
     <!-- Curator AST Dev Console & Database Tools -->
-    <CuratorConsole v-model="drawerOpen" :adapter="keerisCuratorAdapter" />
+    <CuratorConsole v-model="drawerOpen" :adapter="keerisCuratorAdapter" :domain-metrics="stats" />
 
     <!-- Audio Playback Footer Bar -->
     <AudioBar :current-track="activeTrack" @close="activeTrack = null" />

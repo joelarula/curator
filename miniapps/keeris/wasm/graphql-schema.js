@@ -368,6 +368,53 @@ export async function executeInWorkerGraphql(db, query, variables = {}) {
         responses: [],
       };
     },
+
+    curatorDatabaseHealth() {
+      // 1. Dynamic table inspection across all non-system SQLite tables
+      const tableRows = queryAll(db, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name ASC");
+      const tables = tableRows.map(r => {
+        let count = 0;
+        try {
+          const res = queryOne(db, `SELECT COUNT(*) AS c FROM "${r.name}"`);
+          count = res?.c || 0;
+        } catch (_) {}
+        return { name: r.name, rowCount: count };
+      });
+
+      // 2. Curator AST Engine requests metrics
+      let requestsTotal = 0, requestsCompleted = 0, requestsFailed = 0, requestsPending = 0;
+      try {
+        const reqs = queryAll(db, 'SELECT status, COUNT(*) AS count FROM requests GROUP BY status');
+        for (const row of reqs) {
+          requestsTotal += row.count;
+          if (row.status === 'completed') requestsCompleted += row.count;
+          else if (row.status === 'failed') requestsFailed += row.count;
+          else if (row.status === 'pending' || row.status === 'running') requestsPending += row.count;
+        }
+      } catch (_) {}
+
+      // 3. Registered Curator Agents metrics
+      let agentsTotal = 0, agentsActive = 0;
+      try {
+        const agRes = queryAll(db, 'SELECT is_active, COUNT(*) AS count FROM agents GROUP BY is_active');
+        for (const row of agRes) {
+          agentsTotal += row.count;
+          if (row.is_active) agentsActive += row.count;
+        }
+      } catch (_) {}
+
+      return {
+        storageEngine: 'SQLite3 WASM (OPFS)',
+        isOpfs: true,
+        tables,
+        requestsTotal,
+        requestsCompleted,
+        requestsFailed,
+        requestsPending,
+        agentsTotal,
+        agentsActive,
+      };
+    },
   };
 
   return graphql({

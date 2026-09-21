@@ -81,12 +81,30 @@ export const typeDefs = `
     items: [PlaylistItem!]!
   }
 
+  type CuratorTableInfo {
+    name: String!
+    rowCount: Int!
+  }
+
+  type CuratorDatabaseHealth {
+    storageEngine: String
+    isOpfs: Boolean
+    tables: [CuratorTableInfo!]!
+    requestsTotal: Int
+    requestsCompleted: Int
+    requestsFailed: Int
+    requestsPending: Int
+    agentsTotal: Int
+    agentsActive: Int
+  }
+
   type Query {
     programs: [Program!]!,
     tracks(search: String, programId: ID, episodeId: ID, limit: Int, offset: Int): [Track!]!,
     uniqueTracks(search: String, programIds: [ID], limit: Int, offset: Int): [UniqueTrack!]!,
     episodes(search: String, programId: ID, limit: Int, offset: Int): [Episode!]!,
     stats: Stats!,
+    curatorDatabaseHealth: CuratorDatabaseHealth!,
     curatorAgents: [CuratorAgent!]!,
     curatorRequests(limit: Int): [CuratorRequest!]!,
     playlists: [Playlist!]!,

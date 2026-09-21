@@ -200,7 +200,7 @@
               <div class="ag-title">{{ ag.name }}</div>
               <div class="ag-sub" v-if="ag.schedule">
                 Cron: <code>{{ ag.schedule }}</code>
-                <span v-if="ag.episodesCount !== undefined"> • {{ ag.episodesCount }} eps</span>
+                <span v-if="ag.lastRunAt"> • Last run: {{ ag.lastRunAt }}</span>
               </div>
             </div>
             <button
@@ -248,6 +248,10 @@
       <div v-if="activeTab === 'storage'" class="tab-panel storage-panel">
         <div class="health-card">
           <h4>Curator Storage Environment</h4>
+          <div class="health-row">
+            <span>Storage Engine:</span>
+            <strong>{{ curatorHealth.storageEngine || 'SQLite3 WASM (OPFS)' }}</strong>
+          </div>
           <div class="health-row" v-if="storageInfo.usage">
             <span>Disk Usage:</span>
             <strong>{{ formatMB(storageInfo.usage) }}</strong>
@@ -257,15 +261,55 @@
             <strong>{{ formatMB(storageInfo.quota) }}</strong>
           </div>
           <div class="health-row">
-            <span>Status:</span>
-            <strong class="text-success">Connected</strong>
+            <span>Engine Status:</span>
+            <strong :class="isPaused ? 'text-warning' : 'text-success'">{{ isPaused ? 'Paused' : 'Active & Synced' }}</strong>
           </div>
         </div>
 
-        <div class="health-card mt-3" v-if="Object.keys(dbStats).length">
-          <h4>Database Metrics</h4>
+        <div class="health-card mt-3">
+          <h4>Curator Engine Health</h4>
           <div class="health-grid">
-            <div v-for="(val, key) in dbStats" :key="key" class="h-metric">
+            <div class="h-metric">
+              <span class="h-val">{{ curatorHealth.requestsTotal ?? requests.length }}</span>
+              <span class="h-lbl">Total AST Tasks</span>
+            </div>
+            <div class="h-metric">
+              <span class="h-val" style="color: #34d399;">{{ curatorHealth.requestsCompleted ?? 0 }}</span>
+              <span class="h-lbl">Completed Tasks</span>
+            </div>
+            <div class="h-metric">
+              <span class="h-val" style="color: #fbbf24;">{{ curatorHealth.requestsPending ?? 0 }}</span>
+              <span class="h-lbl">Pending / Running</span>
+            </div>
+            <div class="h-metric">
+              <span class="h-val" style="color: #a78bfa;">{{ curatorHealth.agentsTotal ?? agents.length }}</span>
+              <span class="h-lbl">Registered Agents</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="health-card mt-3" v-if="curatorHealth.tables && curatorHealth.tables.length">
+          <h4>Database Tables ({{ curatorHealth.tables.length }})</h4>
+          <table class="health-table">
+            <thead>
+              <tr>
+                <th>Table Name</th>
+                <th style="text-align: right;">Rows</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="tbl in curatorHealth.tables" :key="tbl.name">
+                <td><code>{{ tbl.name }}</code></td>
+                <td style="text-align: right;"><span class="table-count-badge">{{ tbl.rowCount.toLocaleString() }}</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="health-card mt-3" v-if="domainMetrics && Object.keys(domainMetrics).length">
+          <h4>Application Domain Metrics</h4>
+          <div class="health-grid">
+            <div v-for="(val, key) in domainMetrics" :key="key" class="h-metric">
               <span class="h-val">{{ typeof val === 'number' ? val.toLocaleString() : val }}</span>
               <span class="h-lbl">{{ key }}</span>
             </div>
@@ -309,6 +353,10 @@ const props = defineProps({
     type: String,
     default: 'Curator Dev Console',
   },
+  domainMetrics: {
+    type: Object,
+    default: () => ({}),
+  },
 });
 
 const emit = defineEmits(['update:modelValue']);
@@ -332,7 +380,17 @@ const agents = ref([]);
 const requests = ref([]);
 const runningAgents = ref(new Set());
 const storageInfo = ref({ usage: 0, quota: 0 });
-const dbStats = ref({});
+const curatorHealth = ref({
+  storageEngine: 'SQLite3 WASM (OPFS)',
+  isOpfs: true,
+  tables: [],
+  requestsTotal: 0,
+  requestsCompleted: 0,
+  requestsFailed: 0,
+  requestsPending: 0,
+  agentsTotal: 0,
+  agentsActive: 0,
+});
 
 let unsubProgress = null;
 let unsubDbChange = null;
@@ -462,8 +520,6 @@ async function fetchAgents() {
           name
           schedule
           isActive
-          episodesCount
-          tracksCount
           lastRunAt
         }
       }
@@ -499,26 +555,41 @@ async function fetchRequests() {
 }
 
 async function fetchStats() {
-  if (!props.adapter?.requestGraphql) return;
-  try {
-    const data = await props.adapter.requestGraphql(`
-      query GetConsoleStats {
-        stats {
-          episodes
-          tracks
-          uniqueTracks
-          programs
+  if (props.adapter?.getDatabaseHealth) {
+    try {
+      curatorHealth.value = await props.adapter.getDatabaseHealth();
+    } catch (_) {}
+  } else if (props.adapter?.requestGraphql) {
+    try {
+      const data = await props.adapter.requestGraphql(`
+        query GetCuratorHealth {
+          curatorDatabaseHealth {
+            storageEngine
+            isOpfs
+            tables {
+              name
+              rowCount
+            }
+            requestsTotal
+            requestsCompleted
+            requestsFailed
+            requestsPending
+            agentsTotal
+            agentsActive
+          }
         }
+      `);
+      if (data?.curatorDatabaseHealth) {
+        curatorHealth.value = data.curatorDatabaseHealth;
       }
-    `);
-    dbStats.value = data.stats || {};
-  } catch (_) {}
+    } catch (_) {}
+  }
 
   if (props.adapter?.getStorageInfo) {
     try {
       storageInfo.value = await props.adapter.getStorageInfo();
     } catch (_) {}
-  } else if (navigator.storage && navigator.storage.estimate) {
+  } else if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.estimate) {
     try {
       const est = await navigator.storage.estimate();
       storageInfo.value = { usage: est.usage || 0, quota: est.quota || 0 };
@@ -551,23 +622,23 @@ onMounted(async () => {
     unsubProgress = props.adapter.onProgress((type, payload) => {
       if (type === 'log') {
         addLog('info', payload?.message || String(payload));
-      } else if (type === 'episode_start' || type === 'step_start') {
+      } else if (type === 'step_start' || type === 'episode_start') {
         currentJob.value = payload;
-        addLog('info', `[Step] ${payload.title || payload.episodeTitle || 'Working...'}`);
-      } else if (type === 'episode') {
+        addLog('info', `[Step] ${payload.title || payload.name || payload.episodeTitle || 'Working...'}`);
+      } else if (type === 'step_progress' || type === 'episode') {
         currentJob.value = {
-          title: `Episode ${payload.index}/${payload.total}: ${payload.episodeTitle}`,
-          percent: Math.round((payload.index / payload.total) * 100),
+          title: payload.title || payload.episodeTitle || `Item ${payload.index || 1}/${payload.total || 1}`,
+          percent: payload.total ? Math.round(((payload.index || 1) / payload.total) * 100) : 0,
         };
-        addLog('ok', `[Episode ${payload.index}/${payload.total}] ${payload.episodeTitle} (${payload.tracksCount} tracks)`);
+        addLog('ok', `[Progress ${payload.index || 1}/${payload.total || 1}] ${payload.title || payload.episodeTitle || 'Processing'}`);
       } else if (type === 'stats') {
-        addLog('info', `[Scraper] ${payload.discovered} episodes discovered, ${payload.toProcess} to scrape`);
-      } else if (type === 'episode_done' || type === 'step_done') {
-        addLog('ok', `[Step Done] ${payload.tracksCount ? payload.tracksCount + ' tracks' : 'Completed'}`);
+        addLog('info', `[Job] ${payload.message || JSON.stringify(payload)}`);
+      } else if (type === 'step_done' || type === 'episode_done') {
+        addLog('ok', `[Step Done] ${payload.message || 'Completed'}`);
       } else if (type === 'done' || type === 'complete') {
         currentJob.value = null;
         runningAgents.value.clear();
-        addLog('ok', `[CuratorEngine] Task completed: ${payload?.programTitle || 'Done'} (${payload?.parsed ?? ''} parsed, ${payload?.tracksSaved ?? ''} tracks saved)`);
+        addLog('ok', `[CuratorEngine] Task completed: ${payload?.title || payload?.programTitle || 'Done'}`);
         fetchAgents();
         fetchStats();
         fetchRequests();
@@ -1153,4 +1224,34 @@ watch(
 .mt-3 { margin-top: 12px; }
 .mt-2 { margin-top: 8px; }
 .w-100 { width: 100%; justify-content: center; }
+
+.health-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.72rem;
+  margin-top: 6px;
+}
+.health-table th {
+  text-align: left;
+  color: #64748b;
+  padding: 4px 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-weight: 600;
+}
+.health-table td {
+  padding: 5px 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  color: #cbd5e1;
+}
+.health-table tr:hover td {
+  background: rgba(255, 255, 255, 0.02);
+}
+.table-count-badge {
+  color: #38bdf8;
+  font-family: ui-monospace, monospace;
+  font-weight: 600;
+}
+.text-warning {
+  color: #fbbf24;
+}
 </style>
