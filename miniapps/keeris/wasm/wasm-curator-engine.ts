@@ -9,57 +9,97 @@
  *  - Progress is emitted via self.postMessage({ type: 'AGENT_PROGRESS', ... })
  */
 
-import { scrapeProgram } from './err-scraper';
 import type {
   AstNode,
   SequenceNode,
   ToolTaskNode,
   ExecutionContext,
   WasmToolHandler,
+  WasmPlugin,
   ProgramManifest,
   ProgramManifestEntry,
   OpfsDatabase,
   ProgressCallback,
 } from './types';
+import { errRadioWasmPlugin, keerisDomainWasmPlugin, buildAgentAst } from './plugins';
+export { buildAgentAst };
 
-// ─── Program manifest (mirrors keeris-domain.js agents) ─────────────────────
-export const PROGRAM_MANIFEST: ProgramManifest = {
-  vikerraadio_kauamangiv_scrape: { seriesContentId: '1037846', programTitle: 'Kauamängiv' },
-  vikerraadio_originaal_ja_koopia_scrape: { seriesContentId: '1037950', programTitle: 'Originaal ja koopia' },
-  vikerraadio_kantri_alati_jaab_scrape: { seriesContentId: '1037843', programTitle: 'Kantri alati jääb' },
-  vikerraadio_kuldrandevuu_scrape: { seriesContentId: '1037864', programTitle: 'Kuldrandevüü' },
-  klassikaraadio_fantaasia_scrape: { seriesContentId: '1038126', programTitle: 'Fantaasia' },
-  klassikaraadio_kella_6_dzass_scrape: { seriesContentId: '1038156', programTitle: 'Kella-6-džäss' },
-  klassikaraadio_lihtsalt_nostalgia_scrape: {
-    seriesContentId: 'https://klassikaraadio.err.ee/1610109911/lihtsalt-nostalgia-kaisa-johvik',
-    programTitle: 'Lihtsalt nostalgia',
+// ─── WASM Engine Plugin & Tool Registries ───────────────────────────────────
+
+const _plugins: WasmPlugin[] = [];
+const _tools: Map<string, WasmToolHandler> = new Map();
+const _agents: Map<string, ProgramManifestEntry> = new Map();
+
+/**
+ * Register a WASM plugin containing tools and/or agent definitions.
+ */
+export function registerWasmPlugin(plugin: WasmPlugin): void {
+  _plugins.push(plugin);
+  if (plugin.tools) {
+    for (const [name, handler] of Object.entries(plugin.tools)) {
+      _tools.set(name, handler);
+    }
+  }
+  if (plugin.agents) {
+    for (const [name, def] of Object.entries(plugin.agents)) {
+      _agents.set(name, def);
+    }
+  }
+}
+
+// Register default Keeris domain plugins on engine module load
+registerWasmPlugin(errRadioWasmPlugin);
+registerWasmPlugin(keerisDomainWasmPlugin);
+
+/**
+ * Live proxy dictionary for WASM tools, preserving backwards compatibility.
+ */
+export const WASM_TOOLS: Record<string, WasmToolHandler> = new Proxy({} as Record<string, WasmToolHandler>, {
+  get(_, prop: string) {
+    return _tools.get(prop);
   },
-  vikerraadio_oomuusika_scrape: {
-    seriesContentId: 'https://vikerraadio.err.ee/1610113264/oomuusika',
-    programTitle: 'Öömuusika',
+  set(_, prop: string, value: WasmToolHandler) {
+    _tools.set(prop, value);
+    return true;
   },
-  klassikaraadio_helitrakk_scrape: {
-    seriesContentId: 'https://klassikaraadio.err.ee/1610105843/helitrakk',
-    programTitle: 'Heliträkk',
+  has(_, prop: string) {
+    return _tools.has(prop);
   },
-  klassikaraadio_folgialbum_scrape: { seriesContentId: '1038132', programTitle: 'Folgialbum' },
-  klassikaraadio_vanamuusikatund_scrape: { seriesContentId: '1038247', programTitle: 'Vanamuusikatund' },
-  klassikaraadio_tantsutund_scrape: { seriesContentId: '1038102', programTitle: 'Tantsutund' },
-  vikerraadio_heldur_karmo_aeg_scrape: { seriesContentId: '1610049724', programTitle: 'Heldur Karmo aeg' },
-  vikerraadio_muusika_noudlikule_maitsele_scrape: {
-    seriesContentId: '1608635380',
-    programTitle: 'Muusika nõudlikule maitsele',
+  ownKeys() {
+    return Array.from(_tools.keys());
   },
-  vikerraadio_jaak_joala_parimad_laulud_scrape: {
-    seriesContentId: 'https://vikerraadio.err.ee/1609719716/jaak-joala-parimad-laulud',
-    programTitle: 'Jaak Joala parimad laulud',
+  getOwnPropertyDescriptor(_, prop: string) {
+    if (_tools.has(prop)) {
+      return { configurable: true, enumerable: true, writable: true, value: _tools.get(prop) };
+    }
+    return undefined;
   },
-  vikerraadio_stuudios_on_jaan_elgula_scrape: {
-    seriesContentId: 'https://vikerraadio.err.ee/817942/stuudios-on-jaan-elgula-2-tund/818433',
-    programTitle: 'Stuudios on Jaan Elgula',
+});
+
+/**
+ * Live proxy dictionary for Program Manifest agents, preserving backwards compatibility.
+ */
+export const PROGRAM_MANIFEST: ProgramManifest = new Proxy({} as ProgramManifest, {
+  get(_, prop: string) {
+    return _agents.get(prop);
   },
-  vikerraadio_soovide_aeg_scrape: { seriesContentId: '1038019', programTitle: 'Soovide aeg' },
-};
+  set(_, prop: string, value: ProgramManifestEntry) {
+    _agents.set(prop, value);
+    return true;
+  },
+  has(_, prop: string) {
+    return _agents.has(prop);
+  },
+  ownKeys() {
+    return Array.from(_agents.keys());
+  },
+  getOwnPropertyDescriptor(_, prop: string) {
+    if (_agents.has(prop)) {
+      return { configurable: true, enumerable: true, writable: true, value: _agents.get(prop) };
+    }
+    return undefined;
+  },
+});
 
 /**
  * Resolve agent name from a human-readable programTitle.
@@ -83,26 +123,7 @@ export function resolveAgentByTitle(
   return null;
 }
 
-/**
- * Build the canonical agent AST for a program (mirrors createProgramScrapeAST).
- * Uses a single ToolTask for simplicity in WASM context.
- */
-export function buildAgentAst({ seriesContentId, programTitle }: ProgramManifestEntry): SequenceNode {
-  return {
-    id: `seq_scrape_${seriesContentId}`,
-    type: 'Sequence',
-    steps: [
-      {
-        id: `tool_scrape_${seriesContentId}`,
-        type: 'ToolTask',
-        tool: 'vikerraadio_scrape',
-        args: { seriesContentId: String(seriesContentId), programTitle },
-      },
-    ],
-  };
-}
-
-// ─── WASM Tool Registry ──────────────────────────────────────────────────────
+// ─── WASM Engine State & Lifecycle ──────────────────────────────────────────
 
 let _db: OpfsDatabase | null = null;
 let _onProgress: ProgressCallback | null = null;
@@ -125,40 +146,6 @@ export function isEngineBusy(): boolean {
   return _activeRequestsCount > 0;
 }
 
-export const WASM_TOOLS: Record<string, WasmToolHandler> = {
-  /**
-   * vikerraadio_scrape: Full scrape pipeline for any ERR series.
-   */
-  async vikerraadio_scrape({ args, isPaused, checkPause }) {
-    if (!_db) throw new Error('Database not initialized in WASM Curator Engine');
-    const seriesContentId = args?.seriesContentId ?? '1037846';
-    const programTitle = args?.programTitle ?? 'Unknown Program';
-    const refresh = args?.refresh === true;
-    return await scrapeProgram(_db, {
-      seriesContentId,
-      programTitle,
-      refresh,
-      onProgress: _onProgress,
-      isPaused: isPaused || (() => _isPaused),
-      checkPause,
-    });
-  },
-
-  /**
-   * keeris_scrape: Convenience wrapper for Kauamängiv.
-   */
-  async keeris_scrape({ args, isPaused, checkPause }) {
-    if (!_db) throw new Error('Database not initialized in WASM Curator Engine');
-    return await scrapeProgram(_db, {
-      seriesContentId: '1037846',
-      programTitle: 'Kauamängiv',
-      refresh: args?.refresh === true,
-      onProgress: _onProgress,
-      isPaused: isPaused || (() => _isPaused),
-      checkPause,
-    });
-  },
-};
 
 // ─── AST Executor ────────────────────────────────────────────────────────────
 
@@ -268,6 +255,7 @@ async function executeAstNode(
       const result = await tool({
         args: resolvedArgs,
         env,
+        db: _db ?? undefined,
         onProgress: _onProgress,
         isPaused: () => isRequestPaused(requestId),
         checkPause,

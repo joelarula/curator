@@ -59,6 +59,7 @@ export type ProgressCallback = (eventType: string, payload: any) => void;
 export interface ToolExecutionParams<TArgs = any> {
   args: TArgs;
   env?: ExecutionContext;
+  db?: OpfsDatabase;
   onProgress?: ProgressCallback | null;
   isPaused?: () => boolean;
   checkPause?: () => Promise<void>;
@@ -68,13 +69,25 @@ export type WasmToolHandler<TArgs = any, TResult = any> = (
   params: ToolExecutionParams<TArgs>
 ) => Promise<TResult>;
 
-// ─── Program Manifest ───────────────────────────────────────────────────────
+// ─── Program Manifest & Agents ──────────────────────────────────────────────
 export interface ProgramManifestEntry {
   seriesContentId: string;
   programTitle: string;
+  schedule?: string;
+  enabled?: boolean;
+  ast?: AstNode;
 }
 
 export type ProgramManifest = Record<string, ProgramManifestEntry>;
+
+export interface WasmAgentDefinition extends ProgramManifestEntry {}
+
+// ─── WASM Plugin Interface ─────────────────────────────────────────────────
+export interface WasmPlugin {
+  name: string;
+  tools?: Record<string, WasmToolHandler>;
+  agents?: Record<string, ProgramManifestEntry>;
+}
 
 // ─── SQLite WASM & OPFS Interfaces ──────────────────────────────────────────
 export interface Sqlite3Instance {
@@ -151,70 +164,23 @@ export interface WorkerOutboundMessage {
   error?: string;
 }
 
-// ─── Domain Models (scraper / WASM layer) ───────────────────────────────────
-export interface Track {
-  id: string;
-  artist: string;
-  title: string;
-  time?: string | null;
-  comment?: string | null;
-  episodeId: string;
-  episodeTitle?: string;
-  episodeDate?: string;
-  programTitle?: string;
-  audioUrl?: string | null;
-}
+// ─── Domain & GraphQL Models (canonical source of truth: src/types.ts) ───────
+export type {
+  Track,
+  Episode,
+  Program,
+  EpisodeMetadata,
+  UniqueTrack,
+  ProgramStat,
+  ProgramStat as ProgramBreakdown,
+  Stats,
+  PlaylistItem,
+  Playlist,
+  CuratorAgent,
+  CuratorRequest,
+  CuratorResponse,
+} from '../src/types';
 
-export interface Episode {
-  id: string;
-  title: string;
-  date?: string | null;
-  url: string;
-  audioUrl?: string | null;
-  seriesContentId?: string | null;
-  programTitle?: string | null;
-  trackCount?: number;
-  createdAt?: string;
-}
+// Backwards-compatible aliases
+export type { Episode as EpisodeGql, Track as EpisodeTrackGql } from '../src/types';
 
-export interface ProgramSummary {
-  name: string;
-  seriesContentId: string;
-  totalEpisodes: number;
-  totalTracks: number;
-  uniqueTracks: number;
-  lastScraped?: string | null;
-}
-
-// ─── GraphQL Response Models (shared between server resolvers & Vue frontend) ─
-
-/** Matches the `programBreakdown` entry returned by the `stats` GQL query. */
-export interface ProgramBreakdown {
-  programId: string | number;
-  programTitle: string;
-  episodes: number;
-  tracks: number;
-  uniqueTracks: number;
-}
-
-/** Matches the `episodes` GQL query response shape. */
-export interface EpisodeGql {
-  id: string;
-  url: string;
-  title: string;
-  scheduledAt?: string;
-  publishedAt?: string;
-  parseStatus?: string;
-  trackCount: number;
-  program?: { id: string; title: string };
-  metadata?: { summary?: string; description?: string };
-}
-
-/** Matches the `tracks` GQL query response shape (episode tracklist). */
-export interface EpisodeTrackGql {
-  id: string;
-  position: number;
-  artist?: string;
-  title?: string;
-  rawText?: string;
-}

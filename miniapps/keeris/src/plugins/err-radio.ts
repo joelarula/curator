@@ -3,39 +3,10 @@ import { scrape } from '../scrape.ts';
 import { parseMusicList, parseEpisodeText } from '../episode-parser.ts';
 import { saveProgramData } from '../db.ts';
 
-export interface CreateProgramScrapeASTOptions {
-  seriesContentId: string | number;
-  programTitle: string;
-  limit?: number;
-}
-
-export function createProgramScrapeAST({ seriesContentId, programTitle, limit = 50 }: CreateProgramScrapeASTOptions) {
-  return {
-    type: 'Sequence',
-    steps: [
-      {
-        type: 'ToolTask',
-        tool: 'vikerraadio_discover_episodes',
-        args: { seriesContentId: String(seriesContentId), limit },
-        as: 'discovery',
-      },
-      {
-        type: 'ForEach',
-        collection: '{{discovery.data}}',
-        iterator: 'episode',
-        body: {
-          type: 'ToolTask',
-          tool: 'vikerraadio_process_episode',
-          args: {
-            url: '{{episode.url}}',
-            episode: '{{episode}}',
-            program: { seriesId: String(seriesContentId), title: programTitle },
-          },
-        },
-      },
-    ],
-  };
-}
+export {
+  createProgramScrapeAST,
+  type CreateProgramScrapeASTOptions,
+} from './manifest.ts';
 
 export function createErrRadioPlugin(db: any) {
   const client = new ErrClient();

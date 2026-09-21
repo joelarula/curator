@@ -31,3 +31,11 @@ export { startCuratorRuntime } from './curator-runtime.ts';
 export { registerKeerisPlugins } from './plugins/index.ts';
 export { keerisDomainPlugin } from './plugins/keeris-domain.ts';
 export { createErrRadioPlugin, createProgramScrapeAST } from './plugins/err-radio.ts';
+export {
+  RADIO_PROGRAMS,
+  buildSingleScrapeAST,
+  buildPipelineScrapeAST,
+  buildAgentAst,
+  type RadioProgramDefinition,
+  type CreateProgramScrapeASTOptions,
+} from './plugins/manifest.ts';

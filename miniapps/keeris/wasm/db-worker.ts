@@ -7,11 +7,13 @@ import {
   importDatabaseFile,
 } from './sqlite-opfs';
 import { executeInWorkerGraphql } from './graphql-schema';
+import { registerKeerisWasmPlugins } from './plugins';
 import {
   startWasmRequestProcessor,
   enqueueScrapeRequest,
   PROGRAM_MANIFEST,
   setWasmEnginePaused,
+  registerWasmPlugin,
   type RequestProcessorHandle,
 } from './wasm-curator-engine';
 import type { OpfsDatabase } from './types';
@@ -80,6 +82,9 @@ async function bootstrap(): Promise<OpfsDatabase> {
           dbInstance.exec('CREATE INDEX IF NOT EXISTS idx_tracks_unique_track_id ON tracks(unique_track_id);');
           dbInstance.exec('CREATE INDEX IF NOT EXISTS idx_tracks_episode_id ON tracks(episode_id);');
         } catch (_) {}
+
+        // Register WASM plugins (tools & agents)
+        registerKeerisWasmPlugins({ registerPlugin: registerWasmPlugin });
 
         // Start the Curator Engine request processor
         processorInstance = startWasmRequestProcessor(dbInstance, {
