@@ -8,15 +8,12 @@ export interface KeerisAgentDefinition {
 
 export interface KeerisDomainPlugin {
   name: string;
-  scripts: Record<string, (args: any) => Promise<any>>;
+  scripts?: Record<string, any>;
   agents: Record<string, KeerisAgentDefinition>;
 }
 
 export const keerisDomainPlugin: KeerisDomainPlugin = {
   name: 'keeris-domain',
-  scripts: {
-    'keeris.search': async ({ query }: { query?: string }) => ({ query }),
-  },
   agents: Object.fromEntries(
     Object.entries(RADIO_PROGRAMS).map(([id, def]) => [
       id,

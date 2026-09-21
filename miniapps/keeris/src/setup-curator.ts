@@ -18,7 +18,8 @@ for (const [name, tool] of engine.tools) {
     create: { name, description: tool.description ?? '', version: '1.0.0' },
   });
 }
-for (const [name, definition] of engine.agents) {
+for (const [name, rawDef] of engine.agents) {
+  const definition = rawDef as any;
   const isAgentEnabled = definition.enabled === true;
   const ast = definition.ast ?? {
     type: definition.type || 'Curator_Tool',

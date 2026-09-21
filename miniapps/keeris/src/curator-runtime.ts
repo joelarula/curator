@@ -1,3 +1,4 @@
+import { provisionSqliteDb, CuratorRequestProcessor } from '@curator/agent-server';
 import { registerKeerisPlugins } from './plugins/index.ts';
 
 export interface StartCuratorRuntimeOptions {
@@ -19,7 +20,6 @@ export async function startCuratorRuntime({
     await registerKeerisPlugins({ db: keerisDb });
   }
 
-  const { provisionSqliteDb, CuratorRequestProcessor } = await import('@curator/agent-server');
   const prisma: any = await provisionSqliteDb(databaseName, false, {
     databasePath: process.env.CURATOR_DATABASE_PATH ?? 'data/curator.db',
   });
