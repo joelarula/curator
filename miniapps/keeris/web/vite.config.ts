@@ -14,6 +14,7 @@ export default defineConfig({
       vue: 'vue/dist/vue.esm-bundler.js',
       '@': fileURLToPath(new URL('./src', import.meta.url)),
       '@wasm': fileURLToPath(new URL('../wasm', import.meta.url)),
+      '@keeris': fileURLToPath(new URL('../src', import.meta.url)),
       '@curator/console': fileURLToPath(new URL('../../../packages/curator-console/src/index.ts', import.meta.url)),
       '@curator/ast': fileURLToPath(new URL('../../../server/src/services/ast/types.ts', import.meta.url)),
       '@curator/wasm-core': fileURLToPath(new URL('../../../server/src/wasm-core/types.ts', import.meta.url)),

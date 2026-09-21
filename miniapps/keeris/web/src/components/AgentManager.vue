@@ -68,7 +68,7 @@
           <label class="toggle-switch" :title="agent.isActive ? 'Click to disable' : 'Click to enable'">
             <input
               type="checkbox"
-              :checked="agent.isActive"
+              :checked="!!agent.isActive"
               :disabled="toggling[agent.id]"
               @change="toggleAgent(agent, !agent.isActive)"
             />
@@ -142,29 +142,7 @@ import {
   toggleEnginepause,
   getEngineState,
 } from '@wasm/graphql-client';
-
-interface EpisodeProgress {
-  index: number;
-  total: number;
-  episodeTitle: string;
-  tracksCount: number;
-  [key: string]: any;
-}
-
-interface CuratorAgent {
-  id: string;
-  name: string;
-  schedule: string;
-  isActive: boolean;
-  episodesCount?: number;
-  tracksCount?: number;
-  lastRunAt?: string;
-}
-
-interface ScraperLogEntry {
-  type: string;
-  text: string;
-}
+import type { CuratorAgent, EpisodeProgress, ScraperLogEntry } from '@keeris/types';
 
 const agents = ref<CuratorAgent[]>([]);
 const loading = ref(false);

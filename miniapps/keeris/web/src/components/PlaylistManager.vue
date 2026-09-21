@@ -73,8 +73,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { requestGraphql, onWorkerReady } from '@wasm/graphql-client';
+import type { Playlist } from '@keeris/types';
 
-const playlists = ref([]);
+const playlists = ref<Playlist[]>([]);
 const showCreateDialog = ref(false);
 const newTitle = ref('');
 const newDescription = ref('');

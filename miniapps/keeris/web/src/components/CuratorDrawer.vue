@@ -76,6 +76,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { requestGraphql, onWorkerReady } from '@wasm/graphql-client';
+import type { CuratorAgent, CuratorRequest, CuratorResponse } from '@keeris/types';
 
 defineProps<{
   modelValue?: boolean;
@@ -84,27 +85,6 @@ defineProps<{
 defineEmits<{
   (e: 'update:modelValue', value: boolean): void;
 }>();
-
-interface CuratorAgent {
-  id: string;
-  name: string;
-  schedule: string;
-  isActive: boolean;
-}
-
-interface CuratorResponse {
-  id: string;
-  content: string;
-  createdAt: string;
-}
-
-interface CuratorRequest {
-  id: string;
-  ast?: string;
-  status: string;
-  createdAt: string;
-  responses?: CuratorResponse[];
-}
 
 const agents = ref<CuratorAgent[]>([]);
 const requests = ref<CuratorRequest[]>([]);

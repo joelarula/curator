@@ -18,6 +18,7 @@
     "paths": {
       "@/*": ["./web/src/*"],
       "@wasm/*": ["./wasm/*"],
+      "@keeris/*": ["./src/*"],
       "@curator/console": ["../../packages/curator-console/src/index.ts"],
       "@curator/ast": ["../../server/src/services/ast/types.ts"],
       "@curator/wasm-core": ["../../server/src/wasm-core/types.ts"]
