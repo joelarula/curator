@@ -151,7 +151,7 @@ export interface WorkerOutboundMessage {
   error?: string;
 }
 
-// ─── Domain Models ──────────────────────────────────────────────────────────
+// ─── Domain Models (scraper / WASM layer) ───────────────────────────────────
 export interface Track {
   id: string;
   artist: string;
@@ -184,4 +184,37 @@ export interface ProgramSummary {
   totalTracks: number;
   uniqueTracks: number;
   lastScraped?: string | null;
+}
+
+// ─── GraphQL Response Models (shared between server resolvers & Vue frontend) ─
+
+/** Matches the `programBreakdown` entry returned by the `stats` GQL query. */
+export interface ProgramBreakdown {
+  programId: string | number;
+  programTitle: string;
+  episodes: number;
+  tracks: number;
+  uniqueTracks: number;
+}
+
+/** Matches the `episodes` GQL query response shape. */
+export interface EpisodeGql {
+  id: string;
+  url: string;
+  title: string;
+  scheduledAt?: string;
+  publishedAt?: string;
+  parseStatus?: string;
+  trackCount: number;
+  program?: { id: string; title: string };
+  metadata?: { summary?: string; description?: string };
+}
+
+/** Matches the `tracks` GQL query response shape (episode tracklist). */
+export interface EpisodeTrackGql {
+  id: string;
+  position: number;
+  artist?: string;
+  title?: string;
+  rawText?: string;
 }

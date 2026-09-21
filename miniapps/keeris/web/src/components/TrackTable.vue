@@ -6,7 +6,7 @@
         id="track-search"
         type="search"
         v-model="searchQuery"
-        autofocus=""
+        autofocus
         placeholder="Search unique song title, artist, or show notes (e.g. Remedium, Keeris, Kauamängiv)..."
         @input="onSearch"
       />
@@ -71,7 +71,7 @@
         <div class="song-header">
           <div class="song-title-group">
             <span class="play-count-badge episode-badge" v-if="String(song.id).startsWith('ep-')">Episode text match</span>
-            <span class="play-count-badge" v-else-if="song.playCount > 1">Played {{ song.playCount }}x</span>
+            <span class="play-count-badge" v-else-if="(song.playCount ?? 0) > 1">Played {{ song.playCount }}x</span>
             <span class="play-count-badge single" v-else>Played 1x</span>
             <h2 v-html="highlight(song.title || 'Untitled song', searchQuery)"></h2>
             <p class="artist" v-html="highlight(song.artist || 'Unknown artist', searchQuery)"></p>
@@ -80,7 +80,7 @@
         <div class="airings-section">
           <ul class="airings-list">
             <li
-              v-for="airing in (expandedSongs.has(song.id) ? song.airings : song.airings.slice(0, 1))"
+              v-for="airing in (expandedSongs.has(song.id) ? (song.airings ?? []) : (song.airings ?? []).slice(0, 1))"
               :key="airing.id"
               class="airing-item"
             >
@@ -91,7 +91,7 @@
                 <span v-if="airing.episodeTitle" class="episode-title">— <span><span v-html="highlight(airing.episodeTitle, searchQuery)"></span></span></span>
               </div>
               <p v-if="airing.episodeDescription" class="episode-desc" v-html="highlight(airing.episodeDescription, searchQuery)"></p>
-              <a :href="airing.episodeUrl" target="_blank" rel="noreferrer" class="open-link">
+              <a :href="airing.episodeUrl ?? undefined" target="_blank" rel="noreferrer" class="open-link">
                 Open episode <span aria-hidden="true">↗</span>
               </a>
             </li>
@@ -122,19 +122,55 @@ defineEmits<{
   (e: 'play-track', track: Track | any): void;
 }>();
 
+export interface ProgramBreakdownItem {
+  programId: string;
+  programTitle: string;
+  episodes: number;
+  tracks: number;
+  uniqueTracks?: number;
+}
+
+export interface AiringItem {
+  id: string | number;
+  position?: number | string | null;
+  date?: string | null;
+  episodeTitle?: string | null;
+  episodeUrl?: string | null;
+  programTitle?: string | null;
+  episodeDescription?: string | null;
+}
+
+export interface SongItem {
+  id: string | number;
+  artist?: string | null;
+  title?: string | null;
+  playCount?: number;
+  firstPlayedAt?: string | null;
+  lastPlayedAt?: string | null;
+  airings?: AiringItem[];
+}
+
+export interface CatalogStats {
+  episodes: number;
+  tracks: number;
+  uniqueTracks: number;
+  programs?: number;
+  programBreakdown?: ProgramBreakdownItem[];
+}
+
 const searchQuery = ref('');
-const songs = ref([]);
-const stats = ref({ episodes: 0, tracks: 0, uniqueTracks: 0 });
-const searchStats = ref(null);
-const programs = ref([]);
-const selectedPrograms = ref([]);
+const songs = ref<SongItem[]>([]);
+const stats = ref<CatalogStats>({ episodes: 0, tracks: 0, uniqueTracks: 0 });
+const searchStats = ref<CatalogStats | null>(null);
+const programs = ref<ProgramBreakdownItem[]>([]);
+const selectedPrograms = ref<string[]>([]);
 const filtersExpanded = ref(false);
 const loading = ref(false);
-const loadError = ref(null);
-const expandedSongs = ref(new Set());
-let debounceTimer = null;
-let liveRefreshTimer = null;
-let unsubDbChange = null;
+const loadError = ref<string | null>(null);
+const expandedSongs = ref<Set<string | number>>(new Set());
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+let liveRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let unsubDbChange: (() => void) | null = null;
 
 const isSearchActive = computed(() => {
   return Boolean(searchQuery.value && searchQuery.value.trim()) || selectedPrograms.value.length > 0;
@@ -151,10 +187,11 @@ const displayedStats = computed(() => {
   const uniqueSongs = songs.value.filter(s => !String(s.id).startsWith('ep-')).length;
   const epMatches = songs.value.filter(s => String(s.id).startsWith('ep-')).length;
   const totalAirings = songs.value.reduce((acc, s) => acc + (s.airings?.length || s.playCount || 1), 0);
-  const eps = new Set();
+  const eps = new Set<string>();
   for (const s of songs.value) {
     for (const a of s.airings || []) {
-      if (a.episodeUrl || a.episodeTitle) eps.add(a.episodeUrl || a.episodeTitle);
+      const ep = a.episodeUrl || a.episodeTitle;
+      if (ep) eps.add(ep);
     }
   }
   return {
@@ -164,14 +201,14 @@ const displayedStats = computed(() => {
   };
 });
 
-function toggleExpand(songId) {
+function toggleExpand(songId: string | number) {
   const copy = new Set(expandedSongs.value);
   if (copy.has(songId)) copy.delete(songId);
   else copy.add(songId);
   expandedSongs.value = copy;
 }
 
-function escapeHtml(str) {
+function escapeHtml(str: any) {
   return String(str ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -180,8 +217,8 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
-function makeDiacriticPattern(str) {
-  const diacritics = {
+function makeDiacriticPattern(str: string): string {
+  const diacritics: Record<string, string> = {
     a: '[aàáâãäåāăą]',
     c: '[cçćĉċč]',
     d: '[dďđ]',
@@ -207,7 +244,7 @@ function makeDiacriticPattern(str) {
     .join('');
 }
 
-function highlight(text, search) {
+function highlight(text?: string | null, search?: string | null): string {
   if (!text) return '';
   const escaped = escapeHtml(text);
   if (!search || !search.trim()) return escaped;
@@ -243,9 +280,9 @@ async function fetchInitialStats() {
         programs.value = data.stats.programBreakdown;
       }
     }
-  } catch (err) {
+  } catch (err: any) {
     console.error('[TrackTable] Failed to fetch stats:', err);
-    loadError.value = 'Failed to load catalog stats: ' + err.message;
+    loadError.value = 'Failed to load catalog stats: ' + (err?.message || String(err));
   }
 }
 
@@ -309,10 +346,18 @@ function onSearch() {
   }, 180);
 }
 
+function parseProgramIds(param: unknown): string[] {
+  if (!param) return [];
+  if (Array.isArray(param)) {
+    return param.filter((p): p is string => typeof p === 'string');
+  }
+  return [String(param)];
+}
+
 watch(() => route.query, (q) => {
-  if (q.search !== undefined) searchQuery.value = q.search || '';
+  if (q.search !== undefined) searchQuery.value = q.search ? String(q.search) : '';
   if (q.programId !== undefined) {
-    selectedPrograms.value = q.programId ? [q.programId] : [];
+    selectedPrograms.value = parseProgramIds(q.programId);
   }
   fetchData();
 });
@@ -322,7 +367,7 @@ onMounted(() => {
     searchQuery.value = String(route.query.search);
   }
   if (route.query.programId) {
-    selectedPrograms.value = [route.query.programId];
+    selectedPrograms.value = parseProgramIds(route.query.programId);
   }
 
   onWorkerReady(() => {

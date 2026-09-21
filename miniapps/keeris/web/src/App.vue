@@ -116,7 +116,7 @@ async function handleExportDatabase() {
   try {
     await exportDatabase();
   } catch (err) {
-    alert('Export failed: ' + err.message);
+    alert('Export failed: ' + (err instanceof Error ? err.message : String(err)));
   } finally {
     isExporting.value = false;
   }
@@ -138,7 +138,7 @@ async function handleFileSelected(e) {
     await importDatabase(file);
     setTimeout(() => window.location.reload(), 400);
   } catch (err) {
-    alert('Import failed: ' + err.message);
+    alert('Import failed: ' + (err instanceof Error ? err.message : String(err)));
     isImporting.value = false;
   }
 }
@@ -150,8 +150,8 @@ function handleKeyDown(e) {
   }
 }
 
-let unsubDbChange = null;
-let statsDebounceTimer = null;
+let unsubDbChange: (() => void) | null = null;
+let statsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 onMounted(() => {
   window.addEventListener('keydown', handleKeyDown);

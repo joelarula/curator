@@ -229,25 +229,26 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue';
+import { ref, computed, onMounted, onUnmounted, onActivated } from 'vue';
 import { requestGraphql, onWorkerReady, onAgentProgress, onDatabaseChange } from '@wasm/graphql-client';
+import type { ProgramBreakdown, EpisodeGql, EpisodeTrackGql } from '@wasm/types';
 
-const breakdown = ref([]);
+const breakdown = ref<ProgramBreakdown[]>([]);
 const totals = ref({ episodes: 0, tracks: 0, uniqueTracks: 0, programs: 0 });
 const loading = ref(false);
 
 const selectedProgramId = ref('');
 const episodeSearch = ref('');
-const episodes = ref([]);
+const episodes = ref<EpisodeGql[]>([]);
 const episodesLoading = ref(false);
-const expandedEpId = ref(null);
-const episodeTracks = ref([]);
+const expandedEpId = ref<string | null>(null);
+const episodeTracks = ref<EpisodeTrackGql[]>([]);
 const tracksLoading = ref(false);
 
-let searchDebounce = null;
-let unsubProgress = null;
-let unsubDbChange = null;
-let liveRefreshTimer = null;
+let searchDebounce: ReturnType<typeof setTimeout> | null = null;
+let unsubProgress: (() => void) | null = null;
+let unsubDbChange: (() => void) | null = null;
+let liveRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 const selectedProgramTitle = computed(() => {
   if (!selectedProgramId.value) return '';

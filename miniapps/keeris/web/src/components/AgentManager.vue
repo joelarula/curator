@@ -70,7 +70,7 @@
               type="checkbox"
               :checked="agent.isActive"
               :disabled="toggling[agent.id]"
-              @change="toggleAgent(agent, $event.target.checked)"
+              @change="toggleAgent(agent, !agent.isActive)"
             />
             <span class="toggle-slider"></span>
           </label>
@@ -143,32 +143,55 @@ import {
   getEngineState,
 } from '@wasm/graphql-client';
 
-const agents = ref([]);
+interface EpisodeProgress {
+  index: number;
+  total: number;
+  episodeTitle: string;
+  tracksCount: number;
+  [key: string]: any;
+}
+
+interface CuratorAgent {
+  id: string;
+  name: string;
+  schedule: string;
+  isActive: boolean;
+  episodesCount?: number;
+  tracksCount?: number;
+  lastRunAt?: string;
+}
+
+interface ScraperLogEntry {
+  type: string;
+  text: string;
+}
+
+const agents = ref<CuratorAgent[]>([]);
 const loading = ref(false);
-const toggling = ref({});
-const runningAgents = ref(new Set());
-const scraperLogs = ref([]);
-const currentEpisode = ref(null);
+const toggling = ref<Record<string, boolean>>({});
+const runningAgents = ref<Set<string>>(new Set());
+const scraperLogs = ref<ScraperLogEntry[]>([]);
+const currentEpisode = ref<EpisodeProgress | null>(null);
 const logBodyRef = ref<HTMLElement | null>(null);
 const isPaused = ref(false);
 const pauseToggling = ref(false);
-let unsubProgress = null;
-let unsubDbChange = null;
-let agentRefreshTimer = null;
+let unsubProgress: (() => void) | null = null;
+let unsubDbChange: (() => void) | null = null;
+let agentRefreshTimer: any = null;
 
 const GQL_AGENTS = 'query GetAgentsSummary { curatorAgents { id name schedule isActive episodesCount tracksCount lastRunAt } }';
 const GQL_TOGGLE = 'mutation ToggleAgent($id: ID!, $isActive: Boolean!) { toggleCuratorAgent(id: $id, isActive: $isActive) { id isActive } }';
 
-function isRunning(agent) {
+function isRunning(agent: CuratorAgent) {
   return runningAgents.value.has(agent.id) || runningAgents.value.has(agent.name);
 }
 
-function formatDate(isoStr) {
+function formatDate(isoStr?: string | null) {
   if (!isoStr || isoStr === 'Never') return 'Never run';
   try { return new Date(isoStr).toLocaleString(); } catch (_) { return isoStr; }
 }
 
-function addLog(type, text) {
+function addLog(type: string, text: string) {
   scraperLogs.value.push({ type, text: `[${new Date().toLocaleTimeString()}] ${text}` });
   if (scraperLogs.value.length > 250) scraperLogs.value.splice(0, scraperLogs.value.length - 250);
   nextTick(() => {
@@ -181,31 +204,31 @@ async function fetchAgents() {
   try {
     const data = await requestGraphql(GQL_AGENTS);
     agents.value = data.curatorAgents || [];
-  } catch (err) {
+  } catch (err: any) {
     console.error('[AgentManager] Failed to load agents:', err.message);
   } finally {
     loading.value = false;
   }
 }
 
-async function toggleAgent(agent, newStatus) {
+async function toggleAgent(agent: CuratorAgent, newStatus: boolean) {
   toggling.value[agent.id] = true;
   try {
     await requestGraphql(GQL_TOGGLE, { id: agent.id, isActive: newStatus });
     await fetchAgents();
-  } catch (err) {
+  } catch (err: any) {
     console.error('[AgentManager] Toggle failed:', err.message);
   } finally {
     toggling.value[agent.id] = false;
   }
 }
 
-async function runAgent(agent) {
+async function runAgent(agent: CuratorAgent) {
   runningAgents.value = new Set([...runningAgents.value, agent.id, agent.name]);
   addLog('info', `[CuratorEngine] Triggered: ${agent.name}`);
   try {
     await enqueueAgent(agent.id);
-  } catch (err) {
+  } catch (err: any) {
     addLog('error', `[CuratorEngine] Trigger failed: ${err.message}`);
     const next = new Set(runningAgents.value);
     next.delete(agent.id);
@@ -218,10 +241,10 @@ async function togglePause() {
   pauseToggling.value = true;
   try {
     const result = await toggleEnginepause();
-    isPaused.value = result?.isPaused ?? !isPaused.value;
+    isPaused.value = typeof result === 'boolean' ? result : !isPaused.value;
     addLog('info', `[CuratorEngine] Engine ${isPaused.value ? '⏸ Paused' : '▶ Resumed'}`);
-  } catch (err) {
-    addLog('error', `[CuratorEngine] Pause toggle failed: ${err.message}`);
+  } catch (err: any) {
+    addLog('error', `[CuratorEngine] Pause toggle failed: ${err?.message || String(err)}`);
   } finally {
     pauseToggling.value = false;
   }
@@ -232,7 +255,7 @@ onMounted(() => {
     fetchAgents();
     try {
       const state = await getEngineState();
-      isPaused.value = state?.isPaused ?? false;
+      isPaused.value = state ?? false;
     } catch (_) {}
   });
 

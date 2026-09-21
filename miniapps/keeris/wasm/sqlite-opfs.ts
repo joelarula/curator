@@ -1,5 +1,6 @@
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
 import { SCHEMA_DDL } from './generated-schema.js';
+import { PROGRAM_MANIFEST } from './wasm-curator-engine.ts';
 import type { Sqlite3Instance, OpfsDatabase } from './types';
 
 let sqlite3Instance: Sqlite3Instance | null = null;
@@ -61,8 +62,71 @@ async function openOpfsDbWithRetry(
   throw new Error(`Failed to open OPFS db after ${attempts} attempts`);
 }
 
+/**
+ * Seed baseline schema tables, users, projects, programs, scripts, and agents directly in code.
+ * Zero HTTP requests, fully offline-ready, and idempotent (uses INSERT OR IGNORE).
+ */
+export function seedBaselineData(db: OpfsDatabase | null): void {
+  if (!db) return;
+
+  // 1. Ensure DDL tables
+  db.exec(SCHEMA_DDL);
+
+  // 2. Default user, project, conversation
+  db.exec(`
+    INSERT OR IGNORE INTO users (id, name, email) VALUES ('1', 'System User', 'system@local');
+    INSERT OR IGNORE INTO projects (id, name, user_id) VALUES ('1', 'Keeris', '1');
+    INSERT OR IGNORE INTO conversations (id, user_id, project_id) VALUES ('1', '1', '1');
+  `);
+
+  // 3. Seed programs, scripts, and agents from PROGRAM_MANIFEST
+  for (const [agentId, def] of Object.entries(PROGRAM_MANIFEST)) {
+    const escapedSeriesId = String(def.seriesContentId).replace(/'/g, "''");
+    const escapedTitle = def.programTitle.replace(/'/g, "''");
+    const scriptId = `script_${agentId}`;
+    const scriptAst = JSON.stringify({
+      type: 'Sequence',
+      steps: [
+        {
+          type: 'ToolTask',
+          tool: 'vikerraadio_discover_episodes',
+          args: { seriesContentId: String(def.seriesContentId), limit: 50 },
+          as: 'discovery',
+        },
+        {
+          type: 'ForEach',
+          collection: '{{discovery.data}}',
+          iterator: 'episode',
+          body: {
+            type: 'ToolTask',
+            tool: 'vikerraadio_process_episode',
+            args: {
+              url: '{{episode.url}}',
+              episode: '{{episode}}',
+              program: { seriesId: String(def.seriesContentId), title: def.programTitle },
+            },
+          },
+        },
+      ],
+    }).replace(/'/g, "''");
+
+    db.exec(`
+      INSERT OR IGNORE INTO programs (series_id, title, created_at, updated_at)
+      VALUES ('${escapedSeriesId}', '${escapedTitle}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+      INSERT OR IGNORE INTO scripts (id, name, description, ast, created_at)
+      VALUES ('${scriptId}', '${escapedTitle} Workflow', 'Automated scraper for ${escapedTitle}', '${scriptAst}', CURRENT_TIMESTAMP);
+
+      INSERT OR IGNORE INTO agents (id, name, script_id, schedule, is_active, created_at)
+      VALUES ('${agentId}', '${escapedTitle}', '${scriptId}', '0 0 * * *', 0, CURRENT_TIMESTAMP);
+    `);
+  }
+
+  console.log('[SQLite WASM] Baseline schema, programs, and agents verified in code.');
+}
+
 export async function initSqliteOpfs({
-  seedUrl = '/data/keeris-seed.sqlite3',
+  seedUrl,
   dbFileName = 'keeris.sqlite3',
 }: InitSqliteOptions = {}): Promise<InitSqliteResult> {
   if (dbInstance && sqlite3Instance) {
@@ -97,21 +161,21 @@ export async function initSqliteOpfs({
     console.warn('[SQLite WASM] Failed to apply performance pragmas:', err?.message);
   }
 
-  // Ensure baseline tables exist
-  ensureBaselineTables(dbInstance);
+  // Ensure baseline tables and seed in code (zero network overhead, instant startup)
+  seedBaselineData(dbInstance);
 
-  // Check if seeded
-  let isSeeded = false;
-  try {
-    const res: any[] = [];
-    dbInstance.exec({ sql: 'SELECT COUNT(*) as count FROM programs', rowMode: 'object', resultRows: res } as any);
-    isSeeded = (res[0]?.count || 0) > 0;
-  } catch (_) {}
-
-  // Auto-hydrate from seed if empty
-  if (!isSeeded && seedUrl) {
-    console.log(`[SQLite WASM] OPFS database is unseeded. Auto-hydrating from seed snapshot (${seedUrl})...`);
-    await rehydrateFromSeed(seedUrl, dbFileName);
+  // Optional: only if explicit seedUrl is provided (e.g. for external snapshot restore)
+  if (seedUrl) {
+    let isSeeded = false;
+    try {
+      const res: any[] = [];
+      dbInstance.exec({ sql: 'SELECT COUNT(*) as count FROM episodes', rowMode: 'object', resultRows: res } as any);
+      isSeeded = (res[0]?.count || 0) > 0;
+    } catch (_) {}
+    if (!isSeeded) {
+      console.log(`[SQLite WASM] Restoring optional snapshot from ${seedUrl}...`);
+      await rehydrateFromSeed(seedUrl, dbFileName);
+    }
   }
 
   return { sqlite3: sqlite3Instance, db: dbInstance, isOpfs: true };
@@ -131,12 +195,19 @@ export function isOpfsActive(): boolean {
 }
 
 export async function rehydrateFromSeed(
-  seedUrl = '/data/keeris-seed.sqlite3',
+  seedUrl?: string,
   dbFileName = 'keeris.sqlite3'
 ): Promise<boolean> {
-  if (!sqlite3Instance) {
-    console.warn('[SQLite WASM] Cannot rehydrate, sqlite3 not initialized');
+  if (!dbInstance) {
+    console.warn('[SQLite WASM] Cannot rehydrate, db not initialized');
     return false;
+  }
+
+  // If no seedUrl provided, simply re-seed in code
+  if (!seedUrl) {
+    console.log('[SQLite WASM] Re-seeding database in code...');
+    seedBaselineData(dbInstance);
+    return true;
   }
 
   console.log(`[SQLite WASM] Hydrating OPFS database from seed URL: ${seedUrl}...`);
@@ -156,10 +227,10 @@ export async function rehydrateFromSeed(
     }
 
     const opfsPath = dbFileName.startsWith('/') ? dbFileName : `/${dbFileName}`;
-    await (sqlite3Instance.oo1.OpfsDb as any).importDb(opfsPath, new Uint8Array(arrayBuffer));
+    await (sqlite3Instance!.oo1.OpfsDb as any).importDb(opfsPath, new Uint8Array(arrayBuffer));
     dbInstance = await openOpfsDbWithRetry(opfsPath);
 
-    ensureBaselineTables(dbInstance);
+    seedBaselineData(dbInstance);
 
     const check: any[] = [];
     dbInstance.exec({
@@ -230,7 +301,7 @@ export async function importDatabaseFile(arrayBuffer: ArrayBuffer, dbFileName = 
 
   await (sqlite3Instance.oo1.OpfsDb as any).importDb(opfsPath, new Uint8Array(arrayBuffer));
   dbInstance = await openOpfsDbWithRetry(opfsPath);
-  ensureBaselineTables(dbInstance);
+  seedBaselineData(dbInstance);
 
   console.log('[SQLite WASM] OPFS database imported successfully.');
   return true;

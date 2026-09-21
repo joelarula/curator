@@ -85,9 +85,30 @@ defineEmits<{
   (e: 'update:modelValue', value: boolean): void;
 }>();
 
-const agents = ref([]);
-const requests = ref([]);
-const triggering = ref({});
+interface CuratorAgent {
+  id: string;
+  name: string;
+  schedule: string;
+  isActive: boolean;
+}
+
+interface CuratorResponse {
+  id: string;
+  content: string;
+  createdAt: string;
+}
+
+interface CuratorRequest {
+  id: string;
+  ast?: string;
+  status: string;
+  createdAt: string;
+  responses?: CuratorResponse[];
+}
+
+const agents = ref<CuratorAgent[]>([]);
+const requests = ref<CuratorRequest[]>([]);
+const triggering = ref<Record<string, boolean>>({});
 
 async function fetchAgents() {
   try {
@@ -130,7 +151,7 @@ async function fetchRequests() {
   }
 }
 
-async function triggerAgent(agentName) {
+async function triggerAgent(agentName: string) {
   triggering.value[agentName] = true;
   try {
     await requestGraphql(`
