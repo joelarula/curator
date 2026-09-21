@@ -1,16 +1,40 @@
-import { parseEpisodeDate } from './episode-parser.js';
+import { parseEpisodeDate } from './episode-parser.ts';
+import { ErrClient, type ErrArchiveBroadcast } from './err-client.ts';
 
-export async function discoverEpisodes(client, { seriesContentId = '1037846', onPage, shouldStop } = {}) {
-  const episodes = new Map();
+export interface DiscoveredEpisode {
+  id: number | string;
+  url: string;
+  scheduleStart: number | null;
+  publicStart?: number | null;
+  heading?: string;
+  [key: string]: unknown;
+}
+
+export interface DiscoverEpisodesOptions {
+  seriesContentId?: string | number;
+  onPage?: (pages: number, response?: unknown) => void;
+  shouldStop?: (items: any[]) => boolean;
+}
+
+export interface DiscoverEpisodesResult {
+  episodes: DiscoveredEpisode[];
+  pages: number;
+}
+
+export async function discoverEpisodes(
+  client: ErrClient,
+  { seriesContentId = '1037846', onPage, shouldStop }: DiscoverEpisodesOptions = {}
+): Promise<DiscoverEpisodesResult> {
+  const episodes = new Map<string | number, DiscoveredEpisode>();
   const isUrl = String(seriesContentId).startsWith('http://') || String(seriesContentId).startsWith('https://');
 
   if (isUrl) {
-    const visitedUrls = new Set();
+    const visitedUrls = new Set<string>();
     const queue = [String(seriesContentId)];
     let pages = 0;
 
     while (queue.length > 0) {
-      const url = queue.shift();
+      const url = queue.shift()!;
       if (visitedUrls.has(url)) continue;
       visitedUrls.add(url);
       pages += 1;
@@ -25,7 +49,7 @@ export async function discoverEpisodes(client, { seriesContentId = '1037846', on
         // Extract real broadcast date from the page
         const isoDate = parseEpisodeDate(html);
         const scheduleStart = isoDate ? Math.floor(new Date(isoDate).getTime() / 1000) : null;
-        const epObj = { id, url, scheduleStart };
+        const epObj: DiscoveredEpisode = { id, url, scheduleStart };
 
         episodes.set(id, epObj);
 
@@ -41,21 +65,21 @@ export async function discoverEpisodes(client, { seriesContentId = '1037846', on
             }
           }
         }
-      } catch (error) {
+      } catch (_error) {
         episodes.set(id, { id, url, scheduleStart: null });
       }
     }
     return { episodes: [...episodes.values()], pages };
   }
 
-  const cursors = new Set();
-  let params = { seriesContentId };
+  const cursors = new Set<string>();
+  let params: Record<string, unknown> = { seriesContentId };
   let pages = 0;
   while (true) {
     const response = await client.archive(params);
     pages += 1;
     onPage?.(pages, response);
-    const items = response.data ?? [];
+    const items = (response.data ?? []) as DiscoveredEpisode[];
     for (const episode of items) episodes.set(episode.id, episode);
     
     if (shouldStop?.(items)) break;
@@ -68,7 +92,7 @@ export async function discoverEpisodes(client, { seriesContentId = '1037846', on
   return { episodes: [...episodes.values()], pages };
 }
 
-export function episodeDate(episode) {
+export function episodeDate(episode: DiscoveredEpisode | Record<string, unknown>): string | null {
   const timestamp = Number(episode.scheduleStart ?? episode.publicStart);
   return Number.isFinite(timestamp) && timestamp > 0 ? new Date(timestamp * 1000).toISOString() : null;
 }

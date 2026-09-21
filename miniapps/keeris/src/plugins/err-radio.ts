@@ -1,9 +1,15 @@
-import { ErrClient } from '../err-client.js';
-import { scrape } from '../scrape.js';
-import { parseMusicList, parseEpisodeText } from '../episode-parser.js';
-import { saveProgramData } from '../db.js';
+import { ErrClient, type ErrArchiveBroadcast } from '../err-client.ts';
+import { scrape } from '../scrape.ts';
+import { parseMusicList, parseEpisodeText } from '../episode-parser.ts';
+import { saveProgramData } from '../db.ts';
 
-export function createProgramScrapeAST({ seriesContentId, programTitle, limit = 50 }) {
+export interface CreateProgramScrapeASTOptions {
+  seriesContentId: string | number;
+  programTitle: string;
+  limit?: number;
+}
+
+export function createProgramScrapeAST({ seriesContentId, programTitle, limit = 50 }: CreateProgramScrapeASTOptions) {
   return {
     type: 'Sequence',
     steps: [
@@ -31,7 +37,7 @@ export function createProgramScrapeAST({ seriesContentId, programTitle, limit = 
   };
 }
 
-export function createErrRadioPlugin(db) {
+export function createErrRadioPlugin(db: any) {
   const client = new ErrClient();
 
   return {
@@ -48,7 +54,7 @@ export function createErrRadioPlugin(db) {
             cursor: { type: 'string' },
           },
         },
-        async runAsync({ args } = {}) {
+        async runAsync({ args }: { args?: any } = {}) {
           const seriesContentId = args?.seriesContentId ?? '1037846';
           const response = await client.archive({ seriesContentId, limit: args?.limit ?? 50, cursor: args?.cursor });
           return response;
@@ -65,7 +71,7 @@ export function createErrRadioPlugin(db) {
           properties: { url: { type: 'string' } },
           required: ['url'],
         },
-        async runAsync({ args } = {}) {
+        async runAsync({ args }: { args?: any } = {}) {
           if (!args?.url) throw new Error('url parameter is required');
           const html = await client.episode(args.url);
           return { url: args.url, html };
@@ -82,7 +88,7 @@ export function createErrRadioPlugin(db) {
           properties: { html: { type: 'string' } },
           required: ['html'],
         },
-        async runAsync({ args } = {}) {
+        async runAsync({ args }: { args?: any } = {}) {
           const tracks = parseMusicList(args?.html ?? '');
           return { tracks, count: tracks.length };
         },
@@ -98,7 +104,7 @@ export function createErrRadioPlugin(db) {
           properties: { html: { type: 'string' } },
           required: ['html'],
         },
-        async runAsync({ args } = {}) {
+        async runAsync({ args }: { args?: any } = {}) {
           const metadata = parseEpisodeText(args?.html ?? '');
           return metadata;
         },
@@ -119,7 +125,7 @@ export function createErrRadioPlugin(db) {
           },
           required: ['episode'],
         },
-        async runAsync({ args } = {}) {
+        async runAsync({ args }: { args?: any } = {}) {
           if (!args?.episode) throw new Error('episode parameter is required');
           saveProgramData(db, {
             program: args.program ?? { seriesId: '1037846', title: 'Vikerraadio' },
@@ -145,7 +151,7 @@ export function createErrRadioPlugin(db) {
           },
           required: ['url'],
         },
-        async runAsync({ args } = {}) {
+        async runAsync({ args }: { args?: any } = {}) {
           const url = args?.url || args?.episode?.url;
           if (!url) throw new Error('url parameter is required');
           const html = await client.episode(url);
@@ -188,7 +194,7 @@ export function createErrRadioPlugin(db) {
           },
           required: ['url'],
         },
-        async runAsync({ args } = {}) {
+        async runAsync({ args }: { args?: any } = {}) {
           const inputUrl = args?.url;
           if (!inputUrl) throw new Error('url parameter is required');
 
@@ -199,7 +205,7 @@ export function createErrRadioPlugin(db) {
           const cleanHtml = html.replace(/\\"/g, '"').replace(/\\\//g, '/');
 
           // Extract direct .m4a / .mp3 audio file or .m3u8 stream
-          let audioUrl = null;
+          let audioUrl: string | null = null;
           const fileMatch = cleanHtml.match(/"file"\s*:\s*"(\/\/[^"]+\.(m4a|mp3))"/i)
             || cleanHtml.match(/https?:\/\/[^"'\s]*vod\.err\.ee[^"'\s]*\.(m4a|mp3)/i);
           if (fileMatch) {
@@ -239,7 +245,7 @@ export function createErrRadioPlugin(db) {
           }
 
           const fileStream = createWriteStream(destPath);
-          await pipeline(response.body, fileStream);
+          await pipeline(response.body as any, fileStream);
 
           const contentLength = response.headers.get('content-length');
           const fileSizeMB = contentLength ? (Number(contentLength) / (1024 * 1024)).toFixed(2) : 'unknown';
@@ -268,7 +274,7 @@ export function createErrRadioPlugin(db) {
             refresh: { type: 'boolean' },
           },
         },
-        async runAsync({ args } = {}) {
+        async runAsync({ args }: { args?: any } = {}) {
           const seriesId = args?.seriesContentId ?? '1037846';
           const title = args?.programTitle ?? (seriesId === '1037846' ? 'Kauamängiv' : 'Vikerraadio Saade');
           const result = await scrape({ client, db, seriesContentId: seriesId, programTitle: title, refresh: args?.refresh === true });
@@ -282,7 +288,7 @@ export function createErrRadioPlugin(db) {
         name: 'keeris_scrape',
         description: 'Convenience wrapper for scraping Kauamangiv (series ID 1037846).',
         parameters: { type: 'object', properties: { refresh: { type: 'boolean' } } },
-        async runAsync({ args } = {}) {
+        async runAsync({ args }: { args?: any } = {}) {
           const result = await scrape({ client, db, seriesContentId: '1037846', programTitle: 'Kauamängiv', refresh: args?.refresh === true });
           return result;
         },

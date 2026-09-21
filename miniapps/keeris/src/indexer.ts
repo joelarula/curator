@@ -1,8 +1,22 @@
-import { openDatabase } from './db.js';
-import { createErrRadioPlugin } from './plugins/err-radio.js';
-import { registerKeerisPlugins } from './plugins/index.js';
+import { openDatabase } from './db.ts';
+import { createErrRadioPlugin } from './plugins/err-radio.ts';
+import { registerKeerisPlugins } from './plugins/index.ts';
 
-export function startIndexer({ databasePath, curatorRuntime, intervalMs = 60_000, logger = console, runImmediate = true } = {}) {
+export interface StartIndexerOptions {
+  databasePath: string;
+  curatorRuntime?: any;
+  intervalMs?: number;
+  logger?: { log: (...args: any[]) => void; error: (...args: any[]) => void };
+  runImmediate?: boolean;
+}
+
+export function startIndexer({
+  databasePath,
+  curatorRuntime,
+  intervalMs = 60_000,
+  logger = console,
+  runImmediate = true,
+}: StartIndexerOptions) {
   const db = openDatabase(databasePath);
   const plugin = createErrRadioPlugin(db);
   let running = false;
@@ -20,22 +34,33 @@ export function startIndexer({ databasePath, curatorRuntime, intervalMs = 60_000
           logger.log(`[AgentScheduler] Created Request task for agent ${name} in Curator database.`);
         } else {
           const toolName = agent.toolName || 'keeris_scrape';
-          const tool = plugin.tools[toolName];
+          const tool = (plugin.tools as any)[toolName];
           if (tool) {
             const res = await tool.runAsync({ args: agent.args || {} });
-            logger.log(`[AgentScheduler] Agent ${name} completed: ${res.episodesParsed ?? 0} parsed, ${res.tracksSaved ?? 0} tracks saved`);
+            logger.log(`[AgentScheduler] Agent ${name} completed: ${res?.episodesParsed ?? 0} parsed, ${res?.tracksSaved ?? 0} tracks saved`);
           }
         }
       }
-    } catch (error) {
-      logger.error(`[AgentScheduler] Agent run failed: ${error.message}`);
+    } catch (error: any) {
+      logger.error(`[AgentScheduler] Agent run failed: ${error?.message}`);
     } finally {
       running = false;
     }
   };
 
+  if (runImmediate) {
+    runActiveAgents();
+  }
+
   // When Curator runtime is active, agent scheduling and AST Request execution are orchestrated natively.
   // In standalone fallback mode without Curator, run fallback timer.
   const timer = curatorRuntime ? null : setInterval(runActiveAgents, intervalMs);
-  return { db, run: runActiveAgents, stop: () => { if (timer) clearInterval(timer); db.close(); } };
+  return {
+    db,
+    run: runActiveAgents,
+    stop: () => {
+      if (timer) clearInterval(timer);
+      db.close();
+    },
+  };
 }

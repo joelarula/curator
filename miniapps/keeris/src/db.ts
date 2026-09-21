@@ -3,19 +3,19 @@ import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import pg from 'pg';
 
-export function normalizeText(text) {
+export function normalizeText(text: unknown): string {
   if (text == null) return '';
   return String(text).normalize('NFC').toLowerCase();
 }
 
-export function makeFingerprint(artist, title, rawText) {
+export function makeFingerprint(artist?: string | null, title?: string | null, rawText?: string | null): string {
   const normArtist = (artist ?? '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
   const normTitle = (title ?? '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
   if (normArtist || normTitle) return `${normArtist}___${normTitle}`;
   return (rawText ?? '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 }
 
-function convertSqlToPg(sql) {
+function convertSqlToPg(sql: string): string {
   let paramIndex = 1;
   return sql
     .replace(/\?/g, () => `$${paramIndex++}`)
@@ -24,7 +24,7 @@ function convertSqlToPg(sql) {
     .replace(/sqlite_master/gi, 'information_schema.tables');
 }
 
-export async function ensurePostgresSchema(pool) {
+export async function ensurePostgresSchema(pool: pg.Pool): Promise<void> {
   await pool.query(`
     CREATE EXTENSION IF NOT EXISTS unaccent;
     CREATE EXTENSION IF NOT EXISTS pg_trgm;
@@ -127,7 +127,7 @@ export async function ensurePostgresSchema(pool) {
   `);
 }
 
-export function ensureSchema(db) {
+export function ensureSchema(db: any): void {
   if (db.isPostgres) return;
   try {
     const hasTables = db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='episodes'").get();
@@ -223,7 +223,7 @@ export function ensureSchema(db) {
   } catch (_) {}
 }
 
-export function createPostgresAdapter(connectionString) {
+export function createPostgresAdapter(connectionString: string) {
   const pool = new pg.Pool({ connectionString });
   
   // Background ensure schema
@@ -234,20 +234,20 @@ export function createPostgresAdapter(connectionString) {
   const adapter = {
     isPostgres: true,
     pool,
-    prepare(sql) {
+    prepare(sql: string) {
       const pgSql = convertSqlToPg(sql);
       return {
-        async all(...params) {
+        async all(...params: any[]) {
           const flatParams = params.length === 1 && Array.isArray(params[0]) ? params[0] : params;
           const res = await pool.query(pgSql, flatParams);
           return res.rows;
         },
-        async get(...params) {
+        async get(...params: any[]) {
           const flatParams = params.length === 1 && Array.isArray(params[0]) ? params[0] : params;
           const res = await pool.query(pgSql, flatParams);
           return res.rows[0] || null;
         },
-        async run(...params) {
+        async run(...params: any[]) {
           const flatParams = params.length === 1 && Array.isArray(params[0]) ? params[0] : params;
           const res = await pool.query(pgSql, flatParams);
           return {
@@ -257,7 +257,7 @@ export function createPostgresAdapter(connectionString) {
         }
       };
     },
-    async exec(sql) {
+    async exec(sql: string) {
       return await pool.query(sql);
     },
     async close() {
@@ -268,18 +268,18 @@ export function createPostgresAdapter(connectionString) {
   return adapter;
 }
 
-export function openDatabase(filenameOrUrl) {
+export function openDatabase(filenameOrUrl: string): any {
   if (typeof filenameOrUrl === 'string' && (filenameOrUrl.startsWith('postgres://') || filenameOrUrl.startsWith('postgresql://'))) {
     return createPostgresAdapter(filenameOrUrl);
   }
 
   mkdirSync(dirname(filenameOrUrl), { recursive: true });
-  const db = new DatabaseSync(filenameOrUrl);
+  const db: any = new DatabaseSync(filenameOrUrl);
   db.isPostgres = false;
 
   try {
-    db.function('norm_text', (text) => normalizeText(text));
-    db.function('lower_utf', (text) => (text == null ? '' : String(text).toLocaleLowerCase('et-EE')));
+    db.function('norm_text', (text: unknown) => normalizeText(text));
+    db.function('lower_utf', (text: unknown) => (text == null ? '' : String(text).toLocaleLowerCase('et-EE')));
   } catch (_) {}
 
   try {
@@ -305,7 +305,13 @@ export function openDatabase(filenameOrUrl) {
   return db;
 }
 
-export async function ensureUniqueTrack(db, artist, title, rawText, playedAt = null) {
+export async function ensureUniqueTrack(
+  db: any,
+  artist?: string | null,
+  title?: string | null,
+  rawText?: string | null,
+  playedAt: string | null = null
+): Promise<number | null> {
   const fingerprint = makeFingerprint(artist, title, rawText);
   if (!fingerprint) return null;
 
@@ -335,7 +341,15 @@ export async function ensureUniqueTrack(db, artist, title, rawText, playedAt = n
   return Number(result.lastInsertRowid);
 }
 
-export async function ensureProgram(db, { seriesId, title, slug = null, description = null, url = null }) {
+export interface EnsureProgramInput {
+  seriesId: string;
+  title: string;
+  slug?: string | null;
+  description?: string | null;
+  url?: string | null;
+}
+
+export async function ensureProgram(db: any, { seriesId, title, slug = null, description = null, url = null }: EnsureProgramInput): Promise<any> {
   const now = new Date().toISOString();
   if (db.isPostgres) {
     const res = await db.pool.query(`
@@ -360,9 +374,46 @@ export async function ensureProgram(db, { seriesId, title, slug = null, descript
   return db.prepare('SELECT * FROM programs WHERE series_id = ?').get(seriesId);
 }
 
-export async function saveProgramData(db, { program, episode, tracks = [], metadata = {}, rawHash = null, status = 'parsed', error = null }) {
+export interface SaveProgramDataInput {
+  program?: {
+    seriesId: string;
+    title: string;
+    slug?: string | null;
+    description?: string | null;
+    url?: string | null;
+  };
+  episode: {
+    id: number | string;
+    programId?: number | null;
+    url: string;
+    heading?: string;
+    title?: string;
+    scheduledAt?: string | null;
+    publishedAt?: string | null;
+  };
+  tracks?: Array<{
+    position: number;
+    artist?: string | null;
+    title?: string | null;
+    rawText: string;
+  }>;
+  metadata?: {
+    description?: string | null;
+    fullText?: string | null;
+    summary?: string | null;
+    keywords?: string | null;
+  };
+  rawHash?: string | null;
+  status?: string;
+  error?: string | null;
+}
+
+export async function saveProgramData(
+  db: any,
+  { program, episode, tracks = [], metadata = {}, rawHash = null, status = 'parsed', error = null }: SaveProgramDataInput
+): Promise<void> {
   const now = new Date().toISOString();
-  let programRecord = null;
+  let programRecord: any = null;
   
   if (db.isPostgres) {
     const client = await db.pool.connect();
@@ -476,6 +527,6 @@ export async function saveProgramData(db, { program, episode, tracks = [], metad
   }
 }
 
-export function saveEpisode(db, episode, tracks, { rawHash = null, status = 'parsed', error = null } = {}) {
+export function saveEpisode(db: any, episode: any, tracks: any[], { rawHash = null, status = 'parsed', error = null }: { rawHash?: string | null; status?: string; error?: string | null } = {}) {
   return saveProgramData(db, { program: { seriesId: '1037846', title: 'Kauamängiv' }, episode, tracks, rawHash, status, error });
 }

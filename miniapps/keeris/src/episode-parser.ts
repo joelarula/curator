@@ -1,10 +1,26 @@
 import * as cheerio from 'cheerio';
 
-function clean(value) { return (value ?? '').replace(/\s+/g, ' ').trim(); }
+export interface ParsedTrack {
+  position: number;
+  artist: string | null;
+  title: string | null;
+  rawText: string;
+}
 
-export function parseMusicList(html) {
+export interface ParsedEpisodeText {
+  description: string | null;
+  fullText: string | null;
+  summary: string | null;
+  keywords: string | null;
+}
+
+function clean(value?: string | null): string {
+  return (value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+export function parseMusicList(html: string): ParsedTrack[] {
   const $ = cheerio.load(html);
-  const tracks = [];
+  const tracks: ParsedTrack[] = [];
 
   // 1. Try structured .music-list-item
   $('.music-list-item').each((index, element) => {
@@ -18,7 +34,7 @@ export function parseMusicList(html) {
   // 2. Fallback: Parse paragraphs/list-items containing numbered or hyphenated track lines
   if (tracks.length === 0) {
     let position = 1;
-    const isNav = (t) => /saated a-ü|etteütlus|по-русски|vaegkuuljatele|otse|ajakava|saatekava|e-post|kontakt|toimetaja:|saatejuht:|autor:|helioperaator:|foto:|pildi autor/i.test(t);
+    const isNav = (t: string) => /saated a-ü|etteütlus|по-русски|vaegkuuljatele|otse|ajakava|saatekava|e-post|kontakt|toimetaja:|saatejuht:|autor:|helioperaator:|foto:|pildi autor/i.test(t);
     $('.radio-article-body p, .radio-article p, article p, section p, .body-text p, .content p, .article-body p, li, p').each((_, el) => {
       const rawBlock = $(el).text();
       const lines = rawBlock.split('\n').map(clean).filter(Boolean);
@@ -74,10 +90,10 @@ export function parseMusicList(html) {
   return tracks;
 }
 
-export function parseEpisodeText(html) {
+export function parseEpisodeText(html: string): ParsedEpisodeText {
   const $ = cheerio.load(html);
   const description = clean($('.lead, .summary, meta[name="description"]').first().attr('content') ?? $('.lead, .summary').first().text());
-  const paragraphs = [];
+  const paragraphs: string[] = [];
   $('.radio-article-body p, .radio-article p, article p, section p, .body-text p, .content p').each((_, el) => {
     const text = clean($(el).text());
     if (text && text.length > 5) paragraphs.push(text);
@@ -96,11 +112,11 @@ export function parseEpisodeText(html) {
  * Tries JSON-LD structured data first, then meta tags, then visible time elements.
  * Returns an ISO 8601 string or null if not found.
  */
-export function parseEpisodeDate(html) {
+export function parseEpisodeDate(html: string): string | null {
   const $ = cheerio.load(html);
 
   // 1. JSON-LD structured data (most reliable)
-  let jsonLdDate = null;
+  let jsonLdDate: string | null = null;
   $('script[type="application/ld+json"]').each((_, el) => {
     if (jsonLdDate) return;
     try {
@@ -110,7 +126,7 @@ export function parseEpisodeDate(html) {
         const d = item.datePublished || item.startDate || item.dateCreated;
         if (d) { jsonLdDate = d; return; }
       }
-    } catch (e) {}
+    } catch (_e) {}
   });
   if (jsonLdDate) return new Date(jsonLdDate).toISOString();
 

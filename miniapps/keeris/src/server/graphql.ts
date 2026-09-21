@@ -1,6 +1,6 @@
-import { buildSchema, graphql } from 'graphql';
+import { buildSchema, graphql, type GraphQLSchema } from 'graphql';
 
-const schema = buildSchema(`
+export const schema: GraphQLSchema = buildSchema(`
   type Program { id: ID!, seriesId: String!, title: String!, slug: String, description: String, url: String }
   type EpisodeMetadata { id: ID!, description: String, fullText: String, summary: String, keywords: String }
   type Episode {
@@ -115,7 +115,7 @@ const schema = buildSchema(`
   }
 `);
 
-function cleanEpisodeDescription(desc, episodeTitle, programTitle) {
+function cleanEpisodeDescription(desc?: string | null, episodeTitle?: string | null, programTitle?: string | null): string | null {
   if (!desc) return null;
   let str = String(desc).trim();
   if (!str) return null;
@@ -134,7 +134,7 @@ function cleanEpisodeDescription(desc, episodeTitle, programTitle) {
   return str;
 }
 
-function rowToTrack(row) {
+function rowToTrack(row: any) {
   const epTitle = row.episodeTitle ?? row.episodetitle ?? row.episode_title;
   const progTitle = row.programTitle ?? row.programtitle ?? row.program_title ?? null;
   const rawDesc = row.episodeDescription ?? row.episodedescription ?? row.episode_description ?? null;
@@ -158,16 +158,16 @@ function rowToTrack(row) {
   };
 }
 
-function normalizeText(text) {
+function normalizeText(text: unknown): string {
   if (text == null) return '';
   return String(text).normalize('NFC').toLowerCase();
 }
 
-function resolvers(db, { curatorRuntime } = {}) {
+export function resolvers(db: any, { curatorRuntime }: { curatorRuntime?: any } = {}) {
   try {
     if (typeof db.function === 'function') {
-      db.function('norm_text', (text) => normalizeText(text));
-      db.function('lower_utf', (text) => (text == null ? '' : String(text).toLocaleLowerCase('et-EE')));
+      db.function('norm_text', (text: unknown) => normalizeText(text));
+      db.function('lower_utf', (text: unknown) => (text == null ? '' : String(text).toLocaleLowerCase('et-EE')));
     }
   } catch (_) {}
 
@@ -176,7 +176,7 @@ function resolvers(db, { curatorRuntime } = {}) {
       const rows = await db.prepare('SELECT id, series_id AS seriesId, title, slug, description, url FROM programs ORDER BY title').all();
       return rows;
     },
-    tracks: async ({ search = '', programId, limit = 100, offset = 0 }) => {
+    tracks: async ({ search = '', programId, limit = 100, offset = 0 }: any) => {
       const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
       const safeOffset = Math.max(Number(offset) || 0, 0);
       const cleanSearch = String(search || '').trim();
@@ -217,7 +217,7 @@ function resolvers(db, { curatorRuntime } = {}) {
         ORDER BY e.scheduled_at DESC, t.position LIMIT ? OFFSET ?`).all(...params);
       return rows.map(rowToTrack);
     },
-    uniqueTracks: async ({ search = '', programIds = null, limit = 100, offset = 0 }) => {
+    uniqueTracks: async ({ search = '', programIds = null, limit = 100, offset = 0 }: any) => {
       const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
       const safeOffset = Math.max(Number(offset) || 0, 0);
       const cleanSearch = String(search || '').trim();
@@ -227,7 +227,7 @@ function resolvers(db, { curatorRuntime } = {}) {
         : [];
 
       let progCondition = '';
-      let progParams = [];
+      let progParams: any[] = [];
 
       if (validProgramIds.length > 0) {
         const placeholders = validProgramIds.map(() => '?').join(',');
@@ -235,7 +235,7 @@ function resolvers(db, { curatorRuntime } = {}) {
         progParams = validProgramIds;
       }
 
-      let trackRows;
+      let trackRows: any[];
       if (cleanSearch.length > 0) {
         const needle = `%${normalizeText(cleanSearch)}%`;
         trackRows = await db.prepare(`SELECT ut.id, ut.fingerprint, ut.artist, ut.title, ut.play_count, ut.first_played_at, ut.last_played_at
@@ -260,7 +260,7 @@ function resolvers(db, { curatorRuntime } = {}) {
         lastPlayedAt: row.last_played_at,
         airings: async () => {
           let airProgCond = '';
-          let airParams = [row.id];
+          let airParams: any[] = [row.id];
           if (validProgramIds.length > 0) {
             const placeholders = validProgramIds.map(() => '?').join(',');
             airProgCond = `AND e.program_id IN (${placeholders})`;
@@ -344,11 +344,11 @@ function resolvers(db, { curatorRuntime } = {}) {
 
       return formatted;
     },
-    episodes: async ({ search = '', programId, limit = 100 }) => {
+    episodes: async ({ search = '', programId, limit = 100 }: any) => {
       const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 500);
       const cleanSearch = String(search || '').trim();
 
-      let rows;
+      let rows: any[];
       if (cleanSearch.length > 0) {
         const needle = `%${normalizeText(cleanSearch)}%`;
         const filterProgram = programId ? 'AND e.program_id = ?' : '';
@@ -394,7 +394,7 @@ function resolvers(db, { curatorRuntime } = {}) {
         metadata: (row.mid ?? row.mId) ? { id: row.mid ?? row.mId, description: row.mdesc ?? row.mDesc, fullText: row.mfulltext ?? row.mFullText, summary: row.msummary ?? row.mSummary } : null,
       }));
     },
-    stats: async ({ search = '', programIds = null } = {}) => {
+    stats: async ({ search = '', programIds = null }: any = {}) => {
       const cleanSearch = String(search || '').trim();
       const validProgramIds = Array.isArray(programIds)
         ? programIds.map((id) => Number(id)).filter((id) => !isNaN(id) && id > 0)
@@ -426,7 +426,7 @@ function resolvers(db, { curatorRuntime } = {}) {
           noTracks: Number(row.notracks || row.noTracks || 0),
           oldest: row.oldest,
           newest: row.newest,
-          programBreakdown: programBreakdown.map(p => ({
+          programBreakdown: programBreakdown.map((p: any) => ({
             programId: p.programid ?? p.programId,
             programTitle: p.programtitle ?? p.programTitle,
             episodes: Number(p.episodes || 0),
@@ -437,8 +437,8 @@ function resolvers(db, { curatorRuntime } = {}) {
       }
 
       // Filtered search totals
-      let utWhere = [];
-      let utParams = [];
+      let utWhere: string[] = [];
+      let utParams: any[] = [];
       if (cleanSearch) {
         const needle = `%${normalizeText(cleanSearch)}%`;
         utWhere.push("LOWER(coalesce(ut.artist, '') || ' ' || coalesce(ut.title, '')) LIKE LOWER(?)");
@@ -505,13 +505,13 @@ function resolvers(db, { curatorRuntime } = {}) {
       let runtime = curatorRuntime;
       let shouldStop = false;
       if (!runtime) {
-        const { startCuratorRuntime } = await import('../curator-runtime.js');
+        const { startCuratorRuntime } = await import('../curator-runtime.ts');
         runtime = await startCuratorRuntime({ databaseName: 'keeris', keerisDb: db });
         shouldStop = true;
       }
       const agents = await runtime.prisma.agent.findMany({ include: { script: true } });
       if (shouldStop) await runtime.stop();
-      return agents.map((a) => {
+      return agents.map((a: any) => {
         const astObj = typeof a.script?.ast === 'object' ? a.script.ast : JSON.parse(a.script?.ast || '{}');
         const isAgentEnabled = a.enabled ?? (astObj.enabled ?? astObj.isActive ?? false);
         return {
@@ -524,11 +524,11 @@ function resolvers(db, { curatorRuntime } = {}) {
         };
       });
     },
-    curatorRequests: async ({ limit = 20 }) => {
+    curatorRequests: async ({ limit = 20 }: { limit?: number } = {}) => {
       let runtime = curatorRuntime;
       let shouldStop = false;
       if (!runtime) {
-        const { startCuratorRuntime } = await import('../curator-runtime.js');
+        const { startCuratorRuntime } = await import('../curator-runtime.ts');
         runtime = await startCuratorRuntime({ databaseName: 'keeris', keerisDb: db });
         shouldStop = true;
       }
@@ -538,13 +538,13 @@ function resolvers(db, { curatorRuntime } = {}) {
         include: { responses: true, script: true },
       });
       if (shouldStop) await runtime.stop();
-      return requests.map((r) => ({
+      return requests.map((r: any) => ({
         id: r.id,
         scriptId: r.scriptId,
         agentName: r.script?.name ?? 'unknown',
         ast: JSON.stringify(r.ast),
         createdAt: r.createdAt ? r.createdAt.toISOString() : null,
-        responses: r.responses.map((res) => ({
+        responses: r.responses.map((res: any) => ({
           id: res.id,
           requestId: res.requestId,
           content: res.content,
@@ -552,20 +552,20 @@ function resolvers(db, { curatorRuntime } = {}) {
         })),
       }));
     },
-    triggerCuratorAgent: async ({ name, refresh = false }) => {
+    triggerCuratorAgent: async ({ name, refresh = false }: { name: string; refresh?: boolean }) => {
       let runtime = curatorRuntime;
       let shouldStop = false;
       if (!runtime) {
-        const { startCuratorRuntime } = await import('../curator-runtime.js');
+        const { startCuratorRuntime } = await import('../curator-runtime.ts');
         runtime = await startCuratorRuntime({ databaseName: 'keeris', keerisDb: db });
         shouldStop = true;
       }
-      const { createErrRadioPlugin } = await import('../plugins/err-radio.js');
+      const { createErrRadioPlugin } = await import('../plugins/err-radio.ts');
 
       const req = await runtime.triggerAgent(name, { refresh });
       const plugin = createErrRadioPlugin(db);
       const toolName = req.ast?.toolName ?? 'vikerraadio_scrape';
-      const tool = plugin.tools[toolName];
+      const tool = (plugin.tools as any)[toolName];
       if (!tool) throw new Error(`Tool '${toolName}' not found`);
 
       const result = await tool.runAsync({ args: req.ast?.args ?? {} });
@@ -584,15 +584,15 @@ function resolvers(db, { curatorRuntime } = {}) {
         createdAt: resp.createdAt ? resp.createdAt.toISOString() : new Date().toISOString(),
       };
     },
-    scrapeProgram: async ({ seriesContentId, programTitle, refresh = false }) => {
-      const { createErrRadioPlugin } = await import('../plugins/err-radio.js');
+    scrapeProgram: async ({ seriesContentId, programTitle, refresh = false }: { seriesContentId: string; programTitle: string; refresh?: boolean }) => {
+      const { createErrRadioPlugin } = await import('../plugins/err-radio.ts');
       const plugin = createErrRadioPlugin(db);
-      const result = await plugin.tools.vikerraadio_scrape.runAsync({
+      const result = await (plugin.tools as any).vikerraadio_scrape.runAsync({
         args: { seriesContentId, programTitle, refresh },
       });
       return result;
     },
-    updateEpisodeMetadata: async (args) => {
+    updateEpisodeMetadata: async (args: any) => {
       const { episodeId, url, description, fullText } = args || {};
       let epId = episodeId;
       if (!epId && url) {
@@ -620,10 +620,10 @@ function resolvers(db, { curatorRuntime } = {}) {
       const meta = await db.prepare('SELECT id, description, full_text AS fullText, summary FROM episode_metadata WHERE episode_id = ?').get(epId);
       return { id: meta.id, description: meta.description, fullText: meta.fullText, summary: meta.summary };
     },
-    downloadEpisode: async ({ url, fileName }) => {
-      const { createErrRadioPlugin } = await import('../plugins/err-radio.js');
+    downloadEpisode: async ({ url, fileName }: { url: string; fileName?: string }) => {
+      const { createErrRadioPlugin } = await import('../plugins/err-radio.ts');
       const plugin = createErrRadioPlugin(db);
-      const result = await plugin.tools.vikerraadio_download_episode.runAsync({
+      const result = await (plugin.tools as any).vikerraadio_download_episode.runAsync({
         args: { url, fileName },
       });
       return result;
@@ -636,7 +636,7 @@ function resolvers(db, { curatorRuntime } = {}) {
         GROUP BY p.id, p.title, p.description, p.created_at, p.updated_at
         ORDER BY p.updated_at DESC, p.id DESC`).all();
 
-      return rows.map((r) => ({
+      return rows.map((r: any) => ({
         id: r.id,
         title: r.title,
         description: r.description,
@@ -650,7 +650,7 @@ function resolvers(db, { curatorRuntime } = {}) {
             WHERE pi.playlist_id = ?
             ORDER BY pi.position ASC, pi.id ASC`).all(r.id);
 
-          return Promise.all(itemRows.map(async (item) => ({
+          return Promise.all(itemRows.map(async (item: any) => ({
             id: item.id,
             playlistId: item.playlistId,
             position: item.position,
@@ -663,7 +663,7 @@ function resolvers(db, { curatorRuntime } = {}) {
         }
       }));
     },
-    playlist: async ({ id }) => {
+    playlist: async ({ id }: { id: string | number }) => {
       const row = await db.prepare('SELECT id, title, description, created_at AS createdAt, updated_at AS updatedAt FROM playlists WHERE id = ?').get(id);
       if (!row) return null;
       const itemCountRow = await db.prepare('SELECT COUNT(*) AS count FROM playlist_items WHERE playlist_id = ?').get(id);
@@ -681,7 +681,7 @@ function resolvers(db, { curatorRuntime } = {}) {
             WHERE pi.playlist_id = ?
             ORDER BY pi.position ASC, pi.id ASC`).all(id);
 
-          return Promise.all(itemRows.map(async (item) => ({
+          return Promise.all(itemRows.map(async (item: any) => ({
             id: item.id,
             playlistId: item.playlistId,
             position: item.position,
@@ -694,13 +694,13 @@ function resolvers(db, { curatorRuntime } = {}) {
         }
       };
     },
-    episodesContainingPlaylist: async ({ playlistId }) => {
+    episodesContainingPlaylist: async ({ playlistId }: { playlistId: string | number }) => {
       const items = await db.prepare(`SELECT pi.unique_track_id, t.unique_track_id AS resolved_unique_id
         FROM playlist_items pi
         LEFT JOIN tracks t ON t.id = pi.track_id
         WHERE pi.playlist_id = ?`).all(playlistId);
 
-      const uniqueIds = new Set();
+      const uniqueIds = new Set<any>();
       for (const item of items) {
         const uId = item.unique_track_id || item.resolved_unique_id;
         if (uId) uniqueIds.add(uId);
@@ -725,7 +725,7 @@ function resolvers(db, { curatorRuntime } = {}) {
 
       const totalPlaylistTracks = idArray.length;
 
-      return epMatchRows.map((row) => {
+      return epMatchRows.map((row: any) => {
         const matchedTrackCount = Number(row.matchedTrackCount || row.matchedtrackcount || 1);
         const pct = Math.round((matchedTrackCount / totalPlaylistTracks) * 100);
         return {
@@ -746,7 +746,7 @@ function resolvers(db, { curatorRuntime } = {}) {
         };
       });
     },
-    createPlaylist: async ({ title, description }) => {
+    createPlaylist: async ({ title, description }: { title: string; description?: string }) => {
       const now = new Date().toISOString();
       const res = await db.prepare('INSERT INTO playlists (title, description, created_at, updated_at) VALUES (?, ?, ?, ?) RETURNING id')
         .run(title, description ?? null, now, now);
@@ -754,7 +754,7 @@ function resolvers(db, { curatorRuntime } = {}) {
       const row = await db.prepare('SELECT id, title, description, created_at AS createdAt, updated_at AS updatedAt FROM playlists WHERE id = ?').get(newId);
       return { id: row.id, title: row.title, description: row.description, createdAt: row.createdAt, updatedAt: row.updatedAt, itemCount: 0, items: [] };
     },
-    updatePlaylist: async ({ id, title, description }) => {
+    updatePlaylist: async ({ id, title, description }: { id: string | number; title?: string; description?: string }) => {
       const now = new Date().toISOString();
       await db.prepare('UPDATE playlists SET title = coalesce(?, title), description = coalesce(?, description), updated_at = ? WHERE id = ?')
         .run(title ?? null, description ?? null, now, id);
@@ -762,12 +762,12 @@ function resolvers(db, { curatorRuntime } = {}) {
       const countRow = await db.prepare('SELECT COUNT(*) AS count FROM playlist_items WHERE playlist_id = ?').get(id);
       return { id: row.id, title: row.title, description: row.description, createdAt: row.createdAt, updatedAt: row.updatedAt, itemCount: Number(countRow?.count || 0), items: [] };
     },
-    deletePlaylist: async ({ id }) => {
+    deletePlaylist: async ({ id }: { id: string | number }) => {
       await db.prepare('DELETE FROM playlist_items WHERE playlist_id = ?').run(id);
       await db.prepare('DELETE FROM playlists WHERE id = ?').run(id);
       return true;
     },
-    addItemToPlaylist: async ({ playlistId, uniqueTrackId, trackId, episodeId, notes }) => {
+    addItemToPlaylist: async ({ playlistId, uniqueTrackId, trackId, episodeId, notes }: any) => {
       const posRow = await db.prepare('SELECT MAX(position) AS maxPos FROM playlist_items WHERE playlist_id = ?').get(playlistId);
       const nextPos = (posRow?.maxPos || 0) + 1;
       const now = new Date().toISOString();
@@ -788,7 +788,7 @@ function resolvers(db, { curatorRuntime } = {}) {
         episode: item.episodeId ? (await db.prepare('SELECT id, url, title, scheduled_at AS scheduledAt, published_at AS publishedAt, parse_status AS parseStatus FROM episodes WHERE id = ?').get(item.episodeId)) : null,
       };
     },
-    removeItemFromPlaylist: async ({ itemId }) => {
+    removeItemFromPlaylist: async ({ itemId }: { itemId: string | number }) => {
       const item = await db.prepare('SELECT playlist_id FROM playlist_items WHERE id = ?').get(itemId);
       if (item) {
         await db.prepare('DELETE FROM playlist_items WHERE id = ?').run(itemId);
@@ -796,7 +796,7 @@ function resolvers(db, { curatorRuntime } = {}) {
       }
       return true;
     },
-    reorderPlaylistItems: async ({ playlistId, itemIds }) => {
+    reorderPlaylistItems: async ({ playlistId, itemIds }: { playlistId: string | number; itemIds: Array<string | number> }) => {
       const now = new Date().toISOString();
       for (let i = 0; i < itemIds.length; i++) {
         await db.prepare('UPDATE playlist_items SET position = ? WHERE id = ? AND playlist_id = ?').run(i + 1, Number(itemIds[i]), playlistId);
@@ -808,8 +808,6 @@ function resolvers(db, { curatorRuntime } = {}) {
   };
 }
 
-export async function executeGraphql(db, source, variables = {}, { curatorRuntime } = {}) {
+export async function executeGraphql(db: any, source: string, variables: Record<string, any> = {}, { curatorRuntime }: { curatorRuntime?: any } = {}) {
   return graphql({ schema, source, rootValue: resolvers(db, { curatorRuntime }), variableValues: variables });
 }
-
-export { schema, resolvers };

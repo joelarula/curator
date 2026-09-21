@@ -1,4 +1,15 @@
-export const config = {
+export interface KeerisConfig {
+  baseUrl: string;
+  seriesContentId: number;
+  archiveLimit: number;
+  requestTimeoutMs: number;
+  requestDelayMs: number;
+  maxRetries: number;
+  userAgent: string;
+  defaultDatabase: string;
+}
+
+export const config: KeerisConfig = {
   baseUrl: 'https://vikerraadio.err.ee',
   seriesContentId: 1037846,
   archiveLimit: 100,
@@ -9,7 +20,7 @@ export const config = {
   defaultDatabase: 'data/keeris.db'
 };
 
-export function parseDateOption(value) {
+export function parseDateOption(value?: string | null): string | undefined {
   if (!value) return undefined;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error(`Invalid date: ${value}; expected YYYY-MM-DD`);
   return value;

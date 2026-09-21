@@ -1,8 +1,8 @@
 import { Command } from 'commander';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { openDatabase } from './db.js';
-import { executeGraphql } from './server/graphql.js';
-import { config } from './config.js';
+import { openDatabase } from './db.ts';
+import { executeGraphql } from './server/graphql.ts';
+import { config } from './config.ts';
 
 const program = new Command();
 
@@ -36,7 +36,7 @@ program
       }
     }`);
     if (res.errors?.length) throw new Error(res.errors[0].message);
-    const stats = res.data.stats;
+    const stats = (res.data as any).stats;
     if (options.json) {
       console.log(JSON.stringify(stats, null, 2));
     } else {
@@ -85,7 +85,7 @@ program
       }
     }`, { search: queryTerm, limit: Number(options.limit) });
     if (res.errors?.length) throw new Error(res.errors[0].message);
-    console.log(JSON.stringify(res.data.uniqueTracks, null, 2));
+    console.log(JSON.stringify((res.data as any).uniqueTracks, null, 2));
     db.close();
   });
 
@@ -96,7 +96,7 @@ program
     const db = openDatabase(program.opts().db);
     const res = await executeGraphql(db, 'query { curatorAgents { id name ast schedule isActive enabled } }');
     if (res.errors?.length) throw new Error(res.errors[0].message);
-    console.log(JSON.stringify(res.data.curatorAgents, null, 2));
+    console.log(JSON.stringify((res.data as any).curatorAgents, null, 2));
     db.close();
   });
 
@@ -108,7 +108,7 @@ program
     const db = openDatabase(program.opts().db);
     const res = await executeGraphql(db, 'query($limit: Int) { curatorRequests(limit: $limit) { id agentName createdAt responses { id content createdAt } } }', { limit: Number(options.limit) });
     if (res.errors?.length) throw new Error(res.errors[0].message);
-    console.log(JSON.stringify(res.data.curatorRequests, null, 2));
+    console.log(JSON.stringify((res.data as any).curatorRequests, null, 2));
     db.close();
   });
 
@@ -122,7 +122,7 @@ program
     console.log(`[Curator CLI] Invoking triggerCuratorAgent mutation for '${options.agent}'...`);
     const res = await executeGraphql(db, 'mutation($name: String!, $refresh: Boolean) { triggerCuratorAgent(name: $name, refresh: $refresh) { id requestId content createdAt } }', { name: options.agent, refresh: !!options.refresh });
     if (res.errors?.length) throw new Error(res.errors[0].message);
-    console.log(JSON.stringify(res.data.triggerCuratorAgent, null, 2));
+    console.log(JSON.stringify((res.data as any).triggerCuratorAgent, null, 2));
     db.close();
   });
 
@@ -137,7 +137,7 @@ program
     console.log(`[Curator CLI] Invoking scrapeProgram mutation for series '${options.series}'...`);
     const res = await executeGraphql(db, 'mutation($series: String!, $program: String!, $refresh: Boolean) { scrapeProgram(seriesContentId: $series, programTitle: $program, refresh: $refresh) { seriesContentId programTitle episodesSeen episodesParsed tracksSaved failures } }', { series: options.series, program: options.program, refresh: !!options.refresh });
     if (res.errors?.length) throw new Error(res.errors[0].message);
-    console.log(JSON.stringify(res.data.scrapeProgram, null, 2));
+    console.log(JSON.stringify((res.data as any).scrapeProgram, null, 2));
     db.close();
   });
 
@@ -158,7 +158,7 @@ program
       }
     }`, { url: options.url, description: options.description, fullText: options.fullText });
     if (res.errors?.length) throw new Error(res.errors[0].message);
-    console.log(JSON.stringify(res.data.updateEpisodeMetadata, null, 2));
+    console.log(JSON.stringify((res.data as any).updateEpisodeMetadata, null, 2));
     db.close();
   });
 
@@ -170,8 +170,8 @@ program
     const db = openDatabase(program.opts().db);
     const rows = db.prepare(`SELECT e.scheduled_at AS date, e.url, t.position, t.artist, t.title, t.raw_text
       FROM tracks t JOIN episodes e ON e.id=t.episode_id ORDER BY e.scheduled_at, t.position`).all();
-    const csvValue = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
-    const csv = [['date', 'url', 'position', 'artist', 'title', 'raw_text'], ...rows.map((row) => [row.date, row.url, row.position, row.artist, row.title, row.raw_text])]
+    const csvValue = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+    const csv = [['date', 'url', 'position', 'artist', 'title', 'raw_text'], ...rows.map((row: any) => [row.date, row.url, row.position, row.artist, row.title, row.raw_text])]
       .map((row) => row.map(csvValue).join(',')).join('\n') + '\n';
     mkdirSync('data', { recursive: true });
     writeFileSync(options.output, csv, 'utf8');

@@ -1,9 +1,21 @@
-import { createProgramScrapeAST } from './err-radio.js';
+import { createProgramScrapeAST } from './err-radio.ts';
 
-export const keerisDomainPlugin = {
+export interface KeerisAgentDefinition {
+  ast: ReturnType<typeof createProgramScrapeAST>;
+  schedule: string;
+  enabled: boolean;
+}
+
+export interface KeerisDomainPlugin {
+  name: string;
+  scripts: Record<string, (args: any) => Promise<any>>;
+  agents: Record<string, KeerisAgentDefinition>;
+}
+
+export const keerisDomainPlugin: KeerisDomainPlugin = {
   name: 'keeris-domain',
   scripts: {
-    'keeris.search': async ({ query }) => ({ query }),
+    'keeris.search': async ({ query }: { query?: string }) => ({ query }),
   },
   agents: {
     vikerraadio_kauamangiv_scrape: {

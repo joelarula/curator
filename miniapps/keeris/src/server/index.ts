@@ -2,31 +2,35 @@ import express from 'express';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openDatabase } from '../db.js';
-import { config } from '../config.js';
-import { registerKeerisPlugins } from '../plugins/index.js';
-import { executeGraphql } from './graphql.js';
-import { startIndexer } from '../indexer.js';
-import { startCuratorRuntime } from '../curator-runtime.js';
+import { openDatabase } from '../db.ts';
+import { config } from '../config.ts';
+import { registerKeerisPlugins } from '../plugins/index.ts';
+import { executeGraphql } from './graphql.ts';
+import { startIndexer } from '../indexer.ts';
+import { startCuratorRuntime } from '../curator-runtime.ts';
 
 const root = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const port = Number(process.env.PORT ?? 4000);
 const databasePath = process.env.DATABASE_URL || process.env.DATABASE_PATH || config.defaultDatabase;
 const webRoot = join(root, 'web-dist');
+
 console.log('[Keeris Server] Initializing database...');
 const db = openDatabase(databasePath);
+
 console.log('[Keeris Server] Registering plugins...');
 const engine = await registerKeerisPlugins({ db });
-let curatorRuntime = null;
+let curatorRuntime: any = null;
 const curatorDbName = process.env.CURATOR_DATABASE_NAME ?? 'keeris';
+
 if (curatorDbName) {
   try {
     console.log(`[Keeris Server] Starting Curator runtime (${curatorDbName})...`);
     curatorRuntime = await startCuratorRuntime({ databaseName: curatorDbName });
-  } catch (error) {
-    console.error(`[Keeris] Curator runtime failed to start: ${error.message}`);
+  } catch (error: any) {
+    console.error(`[Keeris] Curator runtime failed to start: ${error?.message}`);
   }
 }
+
 console.log('[Keeris Server] Starting indexer...');
 const indexer = startIndexer({
   databasePath,
@@ -34,6 +38,7 @@ const indexer = startIndexer({
   intervalMs: Number(process.env.INDEX_INTERVAL_MS ?? 60_000),
   runImmediate: false,
 });
+
 console.log('[Keeris Server] Configuring Express...');
 const app = express();
 
@@ -57,11 +62,11 @@ app.get('/health', async (_request, response) => {
       status: 'ok',
       database: db.isPostgres ? 'postgresql' : 'sqlite',
       processor: curatorRuntime ? 'ready' : 'standalone',
-      plugins: engine.plugins.map((plugin) => plugin.name),
+      plugins: engine.plugins.map((plugin: any) => plugin.name),
       episodes: Number(stats?.episodes || 0)
     });
-  } catch (error) {
-    response.status(503).json({ status: 'error', database: 'unavailable', error: error.message });
+  } catch (error: any) {
+    response.status(503).json({ status: 'error', database: 'unavailable', error: error?.message });
   }
 });
 

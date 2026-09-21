@@ -1,6 +1,18 @@
-import { registerKeerisPlugins } from './plugins/index.js';
+import { registerKeerisPlugins } from './plugins/index.ts';
 
-export async function startCuratorRuntime({ databaseName = 'keeris', keerisDb, intervalMs = 1000, logger = console } = {}) {
+export interface StartCuratorRuntimeOptions {
+  databaseName?: string;
+  keerisDb?: any;
+  intervalMs?: number;
+  logger?: { log: (...args: any[]) => void; error: (...args: any[]) => void };
+}
+
+export async function startCuratorRuntime({
+  databaseName = 'keeris',
+  keerisDb,
+  intervalMs = 1000,
+  logger = console,
+}: StartCuratorRuntimeOptions = {}) {
   if (!databaseName) return null;
 
   if (keerisDb) {
@@ -8,7 +20,7 @@ export async function startCuratorRuntime({ databaseName = 'keeris', keerisDb, i
   }
 
   const { provisionSqliteDb, CuratorRequestProcessor } = await import('@curator/agent-server');
-  const prisma = await provisionSqliteDb(databaseName, false, {
+  const prisma: any = await provisionSqliteDb(databaseName, false, {
     databasePath: process.env.CURATOR_DATABASE_PATH ?? 'data/curator.db',
   });
 
@@ -27,7 +39,7 @@ export async function startCuratorRuntime({ databaseName = 'keeris', keerisDb, i
   return {
     prisma,
     processor,
-    async triggerAgent(name, context = {}) {
+    async triggerAgent(name: string, context: Record<string, any> = {}) {
       const script = await prisma.script.findFirst({ where: { name } });
       if (!script) throw new Error(`Curator script '${name}' not found`);
       return prisma.request.create({

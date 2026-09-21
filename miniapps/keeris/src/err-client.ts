@@ -1,14 +1,33 @@
-import { config } from './config.js';
+import { config, type KeerisConfig } from './config.ts';
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export interface ErrClientOptions extends Partial<KeerisConfig> {}
+
+export interface ErrArchiveBroadcast {
+  id: number | string;
+  url: string;
+  heading: string;
+  scheduleStart: number | string;
+  [key: string]: unknown;
+}
+
+export interface ErrArchiveResponse {
+  data: ErrArchiveBroadcast[];
+  previous?: string | null;
+  [key: string]: unknown;
+}
 
 export class ErrClient {
-  constructor(options = {}) {
+  public options: KeerisConfig;
+  private lastRequestAt: number;
+
+  constructor(options: ErrClientOptions = {}) {
     this.options = { ...config, ...options };
     this.lastRequestAt = 0;
   }
 
-  async request(path, responseType = 'json') {
+  async request<T = unknown>(path: string, responseType: 'json' | 'text' = 'json'): Promise<T> {
     for (let attempt = 0; attempt <= this.options.maxRetries; attempt += 1) {
       const wait = this.options.requestDelayMs - (Date.now() - this.lastRequestAt);
       if (wait > 0) await sleep(wait);
@@ -32,7 +51,7 @@ export class ErrClient {
           await sleep(500 * 2 ** attempt);
           continue;
         }
-        return responseType === 'json' ? response.json() : response.text();
+        return (responseType === 'json' ? response.json() : response.text()) as Promise<T>;
       } catch (error) {
         if (attempt === this.options.maxRetries) throw error;
         await sleep(500 * 2 ** attempt);
@@ -41,18 +60,20 @@ export class ErrClient {
     throw new Error('Unreachable request state');
   }
 
-  archive(params = {}) {
+  archive(params: Record<string, unknown> = {}): Promise<ErrArchiveResponse> {
     const query = new URLSearchParams({
-      seriesContentId: String(this.options.seriesContentId), radiomanUrl: '', limit: String(this.options.archiveLimit),
-      ...Object.fromEntries(Object.entries(params).filter(([, value]) => value !== undefined))
+      seriesContentId: String(this.options.seriesContentId),
+      radiomanUrl: '',
+      limit: String(this.options.archiveLimit),
+      ...Object.fromEntries(Object.entries(params).filter(([, value]) => value !== undefined).map(([k, v]) => [k, String(v)]))
     });
-    return this.request(`/api/broadcast/broadcasts?${query}`);
+    return this.request<ErrArchiveResponse>(`/api/broadcast/broadcasts?${query}`);
   }
 
-  episode(url) {
+  episode(url: string): Promise<string> {
     if (url.startsWith('http://') || url.startsWith('https://')) {
-      return this.request(url, 'text');
+      return this.request<string>(url, 'text');
     }
-    return this.request(new URL(url).pathname, 'text');
+    return this.request<string>(new URL(url).pathname, 'text');
   }
 }
