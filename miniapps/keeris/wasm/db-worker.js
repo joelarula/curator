@@ -66,6 +66,10 @@ async function bootstrap() {
         console.log('[Web Worker] Bootstrapping SQLite OPFS & Curator Engine...');
         const { sqlite3, db, isOpfs } = await initSqliteOpfs();
         dbInstance = db;
+        try {
+          dbInstance.exec('CREATE INDEX IF NOT EXISTS idx_tracks_unique_track_id ON tracks(unique_track_id);');
+          dbInstance.exec('CREATE INDEX IF NOT EXISTS idx_tracks_episode_id ON tracks(episode_id);');
+        } catch (_) {}
 
         // Start the Curator Engine request processor
         processorInstance = startWasmRequestProcessor(dbInstance, {

@@ -44,7 +44,13 @@
     <div class="stats-bar">
       <div v-if="loadError" class="stats-counter" style="color: #c0392b;">⚠ {{ loadError }}</div>
       <div v-else class="stats-counter">
-        {{ (stats.uniqueTracks || 0).toLocaleString() }} unique songs · {{ (stats.tracks || 0).toLocaleString() }} airings across {{ (stats.episodes || 0).toLocaleString() }} episodes
+        <template v-if="isSearchActive">
+          {{ (displayedStats.uniqueTracks || 0).toLocaleString() }} unique songs · {{ (displayedStats.tracks || 0).toLocaleString() }} airings across {{ (displayedStats.episodes || 0).toLocaleString() }} episodes
+          <span class="total-hint">(of {{ (stats.uniqueTracks || 0).toLocaleString() }} songs · {{ (stats.tracks || 0).toLocaleString() }} airings in catalog)</span>
+        </template>
+        <template v-else>
+          {{ (stats.uniqueTracks || 0).toLocaleString() }} unique songs · {{ (stats.tracks || 0).toLocaleString() }} airings across {{ (stats.episodes || 0).toLocaleString() }} episodes
+        </template>
       </div>
     </div>
 
@@ -64,6 +70,9 @@
       >
         <div class="song-header">
           <div class="song-title-group">
+            <span class="play-count-badge episode-badge" v-if="String(song.id).startsWith('ep-')">Episode text match</span>
+            <span class="play-count-badge" v-else-if="song.playCount > 1">Played {{ song.playCount }}x</span>
+            <span class="play-count-badge single" v-else>Played 1x</span>
             <h2 v-html="highlight(song.title || 'Untitled song', searchQuery)"></h2>
             <p class="artist" v-html="highlight(song.artist || 'Unknown artist', searchQuery)"></p>
           </div>
@@ -103,7 +112,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { requestGraphql, onWorkerReady, onDatabaseChange } from '@wasm/graphql-client.js';
 
@@ -113,6 +122,7 @@ defineEmits(['play-track']);
 const searchQuery = ref('');
 const songs = ref([]);
 const stats = ref({ episodes: 0, tracks: 0, uniqueTracks: 0 });
+const searchStats = ref(null);
 const programs = ref([]);
 const selectedPrograms = ref([]);
 const filtersExpanded = ref(false);
@@ -122,6 +132,34 @@ const expandedSongs = ref(new Set());
 let debounceTimer = null;
 let liveRefreshTimer = null;
 let unsubDbChange = null;
+
+const isSearchActive = computed(() => {
+  return Boolean(searchQuery.value && searchQuery.value.trim()) || selectedPrograms.value.length > 0;
+});
+
+const displayedStats = computed(() => {
+  if (!isSearchActive.value) {
+    return stats.value;
+  }
+  if (searchStats.value) {
+    return searchStats.value;
+  }
+  // Reactive client-side fallback
+  const uniqueSongs = songs.value.filter(s => !String(s.id).startsWith('ep-')).length;
+  const epMatches = songs.value.filter(s => String(s.id).startsWith('ep-')).length;
+  const totalAirings = songs.value.reduce((acc, s) => acc + (s.airings?.length || s.playCount || 1), 0);
+  const eps = new Set();
+  for (const s of songs.value) {
+    for (const a of s.airings || []) {
+      if (a.episodeUrl || a.episodeTitle) eps.add(a.episodeUrl || a.episodeTitle);
+    }
+  }
+  return {
+    uniqueTracks: uniqueSongs,
+    tracks: totalAirings,
+    episodes: epMatches > 0 ? (eps.size + epMatches) : eps.size,
+  };
+});
 
 function toggleExpand(songId) {
   const copy = new Set(expandedSongs.value);
@@ -213,8 +251,15 @@ async function fetchData() {
   // search/filter refetches update the results in place without flashing it.
   if (songs.value.length === 0) loading.value = true;
   try {
+    const isFiltered = Boolean(searchQuery.value && searchQuery.value.trim()) || selectedPrograms.value.length > 0;
     const data = await requestGraphql(`
       query GetUniqueTracks($search: String, $programIds: [ID]) {
+        stats(search: $search, programIds: $programIds) {
+          episodes
+          tracks
+          uniqueTracks
+          programs
+        }
         uniqueTracks(search: $search, programIds: $programIds, limit: 100) {
           id
           artist
@@ -239,6 +284,14 @@ async function fetchData() {
     });
 
     songs.value = data.uniqueTracks || [];
+    if (data.stats) {
+      if (isFiltered) {
+        searchStats.value = data.stats;
+      } else {
+        searchStats.value = null;
+        stats.value = data.stats;
+      }
+    }
   } catch (err) {
     console.error('[TrackTable] Failed to fetch tracks:', err);
   } finally {

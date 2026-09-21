@@ -131,7 +131,7 @@ export async function executeInWorkerGraphql(db, query, variables = {}) {
       params.push(limit, offset);
 
       const rows = queryAll(db, sql, params);
-      return rows.map((ut) => {
+      const formatted = rows.map((ut) => {
         let airingsSql = `
           SELECT t.id, t.position, e.scheduled_at AS date, e.title AS episodeTitle, e.url AS episodeUrl, p.title AS programTitle, COALESCE(NULLIF(m.description, ''), m.summary) AS episodeDescription
           FROM tracks t
@@ -155,43 +155,165 @@ export async function executeInWorkerGraphql(db, query, variables = {}) {
           airings,
         };
       });
+
+      if (search && search.trim()) {
+        const clean = search.trim();
+        let epWhere = ['(e.title LIKE ? OR m.description LIKE ? OR m.summary LIKE ?)'];
+        let epParams = [`%${clean}%`, `%${clean}%`, `%${clean}%`];
+        if (programIds && programIds.length > 0) {
+          const placeholders = programIds.map(() => '?').join(',');
+          epWhere.push(`e.program_id IN (${placeholders})`);
+          epParams.push(...programIds);
+        }
+        epParams.push(20);
+
+        const epRows = queryAll(db, `
+          SELECT e.id, e.title AS episodeTitle, e.url AS episodeUrl, e.scheduled_at AS date,
+                 p.title AS programTitle, COALESCE(NULLIF(m.description, ''), m.summary) AS episodeDescription
+          FROM episodes e
+          LEFT JOIN programs p ON p.id = e.program_id
+          LEFT JOIN episode_metadata m ON m.episode_id = e.id
+          WHERE ${epWhere.join(' AND ')}
+          ORDER BY e.scheduled_at DESC LIMIT ?
+        `, epParams);
+
+        for (const ep of epRows) {
+          const epTracks = queryAll(db, `
+            SELECT t.id, t.position, t.artist, t.title,
+                   e.scheduled_at AS date, e.title AS episodeTitle, e.url AS episodeUrl, p.title AS programTitle,
+                   COALESCE(NULLIF(m.description, ''), m.summary) AS episodeDescription
+            FROM tracks t
+            JOIN episodes e ON e.id = t.episode_id
+            LEFT JOIN programs p ON p.id = e.program_id
+            LEFT JOIN episode_metadata m ON m.episode_id = e.id
+            WHERE t.episode_id = ?
+            ORDER BY t.position
+          `, [ep.id]);
+
+          formatted.push({
+            id: `ep-${ep.id}`,
+            fingerprint: `ep-${ep.id}`,
+            artist: ep.programTitle || 'ERR Arhiiv',
+            title: ep.episodeTitle,
+            playCount: 1,
+            firstPlayedAt: ep.date,
+            lastPlayedAt: ep.date,
+            airings: epTracks.length > 0 ? epTracks : [{
+              id: `ep-air-${ep.id}`,
+              position: 1,
+              artist: ep.programTitle || 'ERR Arhiiv',
+              title: ep.episodeTitle,
+              date: ep.date,
+              episodeTitle: ep.episodeTitle,
+              episodeUrl: ep.episodeUrl,
+              programTitle: ep.programTitle,
+              episodeDescription: ep.episodeDescription,
+            }],
+          });
+        }
+      }
+
+      return formatted;
     },
 
-    stats() {
-      const epCount = queryOne(db, 'SELECT COUNT(*) as count FROM episodes')?.count || 0;
-      const trCount = queryOne(db, 'SELECT COUNT(*) as count FROM tracks')?.count || 0;
-      const utCount = queryOne(db, 'SELECT COUNT(*) as count FROM unique_tracks')?.count || 0;
-      const prCount = queryOne(db, 'SELECT COUNT(*) as count FROM programs')?.count || 0;
+    stats({ search, programIds } = {}) {
+      const cleanSearch = String(search || '').trim();
+      const hasProgramFilter = programIds && programIds.length > 0;
 
-      const programs = queryAll(db, 'SELECT id, title FROM programs');
-      const programBreakdown = programs.map(p => {
-        const pEps = queryOne(db, 'SELECT COUNT(*) as count FROM episodes WHERE program_id = ?', [p.id])?.count || 0;
-        const pTracks = queryOne(db, `
-          SELECT COUNT(*) as count FROM tracks t
-          JOIN episodes e ON t.episode_id = e.id
-          WHERE e.program_id = ?
-        `, [p.id])?.count || 0;
-        const pUnique = queryOne(db, `
-          SELECT COUNT(DISTINCT t.unique_track_id) as count FROM tracks t
-          JOIN episodes e ON t.episode_id = e.id
-          WHERE e.program_id = ? AND t.unique_track_id IS NOT NULL
-        `, [p.id])?.count || 0;
+      if (!cleanSearch && !hasProgramFilter) {
+        const epCount = queryOne(db, 'SELECT COUNT(*) as count FROM episodes')?.count || 0;
+        const trCount = queryOne(db, 'SELECT COUNT(*) as count FROM tracks')?.count || 0;
+        const utCount = queryOne(db, 'SELECT COUNT(*) as count FROM unique_tracks')?.count || 0;
+        const prCount = queryOne(db, 'SELECT COUNT(*) as count FROM programs')?.count || 0;
+
+        const programs = queryAll(db, 'SELECT id, title FROM programs');
+        const programBreakdown = programs.map(p => {
+          const pEps = queryOne(db, 'SELECT COUNT(*) as count FROM episodes WHERE program_id = ?', [p.id])?.count || 0;
+          const pTracks = queryOne(db, `
+            SELECT COUNT(*) as count FROM tracks t
+            JOIN episodes e ON t.episode_id = e.id
+            WHERE e.program_id = ?
+          `, [p.id])?.count || 0;
+          const pUnique = queryOne(db, `
+            SELECT COUNT(DISTINCT t.unique_track_id) as count FROM tracks t
+            JOIN episodes e ON t.episode_id = e.id
+            WHERE e.program_id = ? AND t.unique_track_id IS NOT NULL
+          `, [p.id])?.count || 0;
+
+          return {
+            programId: p.id,
+            programTitle: p.title,
+            episodes: pEps,
+            tracks: pTracks,
+            uniqueTracks: pUnique,
+          };
+        });
 
         return {
-          programId: p.id,
-          programTitle: p.title,
-          episodes: pEps,
-          tracks: pTracks,
-          uniqueTracks: pUnique,
+          episodes: epCount,
+          tracks: trCount,
+          uniqueTracks: utCount,
+          programs: prCount,
+          programBreakdown,
         };
-      });
+      }
+
+      // Filtered search totals
+      let utWhere = [];
+      let utParams = [];
+      if (cleanSearch) {
+        utWhere.push('(artist LIKE ? OR title LIKE ? OR fingerprint LIKE ?)');
+        utParams.push(`%${cleanSearch}%`, `%${cleanSearch}%`, `%${cleanSearch}%`);
+      }
+      if (hasProgramFilter) {
+        const ph = programIds.map(() => '?').join(',');
+        utWhere.push(`id IN (SELECT DISTINCT t.unique_track_id FROM tracks t JOIN episodes e ON t.episode_id = e.id WHERE e.program_id IN (${ph}))`);
+        utParams.push(...programIds);
+      }
+      const whereClause = utWhere.length > 0 ? ' WHERE ' + utWhere.join(' AND ') : '';
+
+      const utRows = queryAll(db, `SELECT id, play_count FROM unique_tracks ${whereClause}`, utParams);
+      const utCount = utRows.length;
+      let trCount = 0;
+      for (const r of utRows) trCount += (r.play_count || 0);
+
+      let epCount = 0;
+      if (utCount > 0) {
+        const idList = utRows.slice(0, 500).map(r => r.id);
+        const ph = idList.map(() => '?').join(',');
+        let epSql = `SELECT COUNT(DISTINCT episode_id) as count FROM tracks WHERE unique_track_id IN (${ph})`;
+        let epParams = [...idList];
+        if (hasProgramFilter) {
+          epSql += ` AND episode_id IN (SELECT id FROM episodes WHERE program_id IN (${programIds.map(() => '?').join(',')}))`;
+          epParams.push(...programIds);
+        }
+        epCount = queryOne(db, epSql, epParams)?.count || 0;
+      }
+
+      if (cleanSearch) {
+        let directEpSql = `SELECT COUNT(*) as count FROM episodes e LEFT JOIN episode_metadata m ON e.id = m.episode_id WHERE (e.title LIKE ? OR m.description LIKE ? OR m.summary LIKE ?)`;
+        let directEpParams = [`%${cleanSearch}%`, `%${cleanSearch}%`, `%${cleanSearch}%`];
+        if (hasProgramFilter) {
+          directEpSql += ` AND e.program_id IN (${programIds.map(() => '?').join(',')})`;
+          directEpParams.push(...programIds);
+        }
+        const directEpRow = queryOne(db, directEpSql, directEpParams);
+        epCount = Math.max(epCount, directEpRow?.count || 0);
+      }
+
+      let prCount = 0;
+      if (hasProgramFilter) {
+        prCount = programIds.length;
+      } else if (utCount > 0) {
+        prCount = 1;
+      }
 
       return {
         episodes: epCount,
         tracks: trCount,
         uniqueTracks: utCount,
         programs: prCount,
-        programBreakdown,
+        programBreakdown: [],
       };
     },
 

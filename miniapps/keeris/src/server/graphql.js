@@ -93,7 +93,7 @@ const schema = buildSchema(`
     tracks(search: String, programId: ID, limit: Int, offset: Int): [Track!]!,
     uniqueTracks(search: String, programIds: [ID!], limit: Int, offset: Int): [UniqueTrack!]!,
     episodes(search: String, programId: ID, limit: Int): [Episode!]!,
-    stats: Stats!,
+    stats(search: String, programIds: [ID]): Stats!,
     curatorAgents: [CuratorAgent!]!,
     curatorRequests(limit: Int): [CuratorRequest!]!,
     playlists: [Playlist!]!,
@@ -394,39 +394,111 @@ function resolvers(db, { curatorRuntime } = {}) {
         metadata: (row.mid ?? row.mId) ? { id: row.mid ?? row.mId, description: row.mdesc ?? row.mDesc, fullText: row.mfulltext ?? row.mFullText, summary: row.msummary ?? row.mSummary } : null,
       }));
     },
-    stats: async () => {
-      const row = await db.prepare(`SELECT COUNT(*) AS episodes,
-        (SELECT COUNT(*) FROM tracks) AS tracks,
-        (SELECT COUNT(*) FROM unique_tracks) AS uniqueTracks,
-        (SELECT COUNT(*) FROM programs) AS programs,
-        (SELECT COUNT(*) FROM episodes WHERE parse_status='no_tracks') AS noTracks,
-        MIN(scheduled_at) AS oldest, MAX(scheduled_at) AS newest FROM episodes`).get();
+    stats: async ({ search = '', programIds = null } = {}) => {
+      const cleanSearch = String(search || '').trim();
+      const validProgramIds = Array.isArray(programIds)
+        ? programIds.map((id) => Number(id)).filter((id) => !isNaN(id) && id > 0)
+        : [];
 
-      const programBreakdown = await db.prepare(`SELECT p.id AS programId, p.title AS programTitle,
-          COUNT(DISTINCT e.id) AS episodes,
-          COUNT(t.id) AS tracks,
-          COUNT(DISTINCT t.unique_track_id) AS uniqueTracks
-        FROM programs p
-        LEFT JOIN episodes e ON e.program_id = p.id
-        LEFT JOIN tracks t ON t.episode_id = e.id
-        GROUP BY p.id, p.title
-        ORDER BY uniqueTracks DESC, episodes DESC`).all();
+      if (!cleanSearch && validProgramIds.length === 0) {
+        const row = await db.prepare(`SELECT COUNT(*) AS episodes,
+          (SELECT COUNT(*) FROM tracks) AS tracks,
+          (SELECT COUNT(*) FROM unique_tracks) AS uniqueTracks,
+          (SELECT COUNT(*) FROM programs) AS programs,
+          (SELECT COUNT(*) FROM episodes WHERE parse_status='no_tracks') AS noTracks,
+          MIN(scheduled_at) AS oldest, MAX(scheduled_at) AS newest FROM episodes`).get();
+
+        const programBreakdown = await db.prepare(`SELECT p.id AS programId, p.title AS programTitle,
+            COUNT(DISTINCT e.id) AS episodes,
+            COUNT(t.id) AS tracks,
+            COUNT(DISTINCT t.unique_track_id) AS uniqueTracks
+          FROM programs p
+          LEFT JOIN episodes e ON e.program_id = p.id
+          LEFT JOIN tracks t ON t.episode_id = e.id
+          GROUP BY p.id, p.title
+          ORDER BY uniqueTracks DESC, episodes DESC`).all();
+
+        return {
+          episodes: Number(row.episodes || 0),
+          tracks: Number(row.tracks || 0),
+          uniqueTracks: Number(row.uniquetracks || row.uniqueTracks || 0),
+          programs: Number(row.programs || 0),
+          noTracks: Number(row.notracks || row.noTracks || 0),
+          oldest: row.oldest,
+          newest: row.newest,
+          programBreakdown: programBreakdown.map(p => ({
+            programId: p.programid ?? p.programId,
+            programTitle: p.programtitle ?? p.programTitle,
+            episodes: Number(p.episodes || 0),
+            tracks: Number(p.tracks || 0),
+            uniqueTracks: Number(p.uniquetracks ?? p.uniqueTracks ?? 0)
+          })),
+        };
+      }
+
+      // Filtered search totals
+      let utWhere = [];
+      let utParams = [];
+      if (cleanSearch) {
+        const needle = `%${normalizeText(cleanSearch)}%`;
+        utWhere.push("LOWER(coalesce(ut.artist, '') || ' ' || coalesce(ut.title, '')) LIKE LOWER(?)");
+        utParams.push(needle);
+      }
+      if (validProgramIds.length > 0) {
+        const ph = validProgramIds.map(() => '?').join(',');
+        utWhere.push(`ut.id IN (SELECT DISTINCT t.unique_track_id FROM tracks t JOIN episodes e ON e.id = t.episode_id WHERE e.program_id IN (${ph}))`);
+        utParams.push(...validProgramIds);
+      }
+      const whereClause = utWhere.length > 0 ? ' WHERE ' + utWhere.join(' AND ') : '';
+
+      const utRow = await db.prepare(`SELECT COUNT(*) as utCount, COALESCE(SUM(play_count), 0) as trCount FROM unique_tracks ut ${whereClause}`).get(...utParams);
+      const utCount = Number(utRow?.utCount || utRow?.utcount || 0);
+      const trCount = Number(utRow?.trCount || utRow?.trcount || 0);
+
+      let epCount = 0;
+      if (utCount > 0) {
+        let epSql = `SELECT COUNT(DISTINCT t.episode_id) as count FROM tracks t WHERE t.unique_track_id IN (SELECT ut.id FROM unique_tracks ut ${whereClause})`;
+        let epParams = [...utParams];
+        if (validProgramIds.length > 0) {
+          epSql += ` AND t.episode_id IN (SELECT id FROM episodes WHERE program_id IN (${validProgramIds.map(() => '?').join(',')}))`;
+        }
+        const epRow = await db.prepare(epSql).get(...epParams);
+        epCount = Number(epRow?.count || 0);
+      }
+
+      if (cleanSearch) {
+        const needle = `%${normalizeText(cleanSearch)}%`;
+        let directEpSql = `SELECT COUNT(*) as count FROM episodes e LEFT JOIN episode_metadata m ON m.episode_id = e.id
+          WHERE (LOWER(coalesce(e.title, '') || ' ' || coalesce(m.description, '') || ' ' || coalesce(m.full_text, '')) LIKE LOWER(?))`;
+        let directEpParams = [needle];
+        if (validProgramIds.length > 0) {
+          directEpSql += ` AND e.program_id IN (${validProgramIds.map(() => '?').join(',')})`;
+        }
+        const directEpRow = await db.prepare(directEpSql).get(...directEpParams);
+        const directCount = Number(directEpRow?.count || 0);
+        epCount = Math.max(epCount, directCount);
+      }
+
+      let prCount = 0;
+      if (utCount > 0) {
+        let prSql = `SELECT COUNT(DISTINCT e.program_id) as count FROM episodes e JOIN tracks t ON t.episode_id = e.id WHERE t.unique_track_id IN (SELECT ut.id FROM unique_tracks ut ${whereClause})`;
+        let prParams = [...utParams];
+        if (validProgramIds.length > 0) {
+          prSql += ` AND e.program_id IN (${validProgramIds.map(() => '?').join(',')})`;
+        }
+        const prRow = await db.prepare(prSql).get(...prParams);
+        prCount = Number(prRow?.count || 0);
+      }
 
       return {
-        episodes: Number(row.episodes || 0),
-        tracks: Number(row.tracks || 0),
-        uniqueTracks: Number(row.uniquetracks || row.uniqueTracks || 0),
-        programs: Number(row.programs || 0),
-        noTracks: Number(row.notracks || row.noTracks || 0),
-        oldest: row.oldest,
-        newest: row.newest,
-        programBreakdown: programBreakdown.map(p => ({
-          programId: p.programid ?? p.programId,
-          programTitle: p.programtitle ?? p.programTitle,
-          episodes: Number(p.episodes || 0),
-          tracks: Number(p.tracks || 0),
-          uniqueTracks: Number(p.uniquetracks ?? p.uniqueTracks ?? 0)
-        })),
+        episodes: epCount,
+        tracks: trCount,
+        uniqueTracks: utCount,
+        programs: prCount,
+        noTracks: 0,
+        oldest: null,
+        newest: null,
+        programBreakdown: [],
       };
     },
     curatorAgents: async () => {

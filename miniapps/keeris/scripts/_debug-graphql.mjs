@@ -20,6 +20,12 @@ const db = {
 
 const query = `
   query GetUniqueTracks($search: String, $programIds: [ID]) {
+    stats(search: $search, programIds: $programIds) {
+      episodes
+      tracks
+      uniqueTracks
+      programs
+    }
     uniqueTracks(search: $search, programIds: $programIds, limit: 100) {
       id
       artist
@@ -40,7 +46,10 @@ const query = `
   }
 `;
 
-const result = await executeInWorkerGraphql(db, query, { search: null, programIds: null });
+const result = await executeInWorkerGraphql(db, query, { search: 'Kauamängiv', programIds: null });
 console.log('errors:', JSON.stringify(result.errors, null, 2));
-console.log('data.uniqueTracks length:', result.data?.uniqueTracks?.length);
-console.log('first item:', JSON.stringify(result.data?.uniqueTracks?.[0], null, 2));
+console.log('stats:', JSON.stringify(result.data?.stats, null, 2));
+console.log('uniqueTracks count:', result.data?.uniqueTracks?.length);
+const epMatches = result.data?.uniqueTracks?.filter(t => String(t.id).startsWith('ep-'));
+console.log('episode matches count:', epMatches?.length);
+

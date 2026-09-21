@@ -112,6 +112,13 @@ h1 {
   border-radius: 12px;
 }
 
+.total-hint {
+  font-size: 0.82em;
+  color: #64756e;
+  margin-left: 6px;
+  font-weight: normal;
+}
+
 .search-panel {
   background: #17221f;
   color: #f6f4ed;

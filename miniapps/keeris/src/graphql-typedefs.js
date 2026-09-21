@@ -103,7 +103,7 @@ export const typeDefs = `
     tracks(search: String, programId: ID, episodeId: ID, limit: Int, offset: Int): [Track!]!,
     uniqueTracks(search: String, programIds: [ID], limit: Int, offset: Int): [UniqueTrack!]!,
     episodes(search: String, programId: ID, limit: Int, offset: Int): [Episode!]!,
-    stats: Stats!,
+    stats(search: String, programIds: [ID]): Stats!,
     curatorDatabaseHealth: CuratorDatabaseHealth!,
     curatorAgents: [CuratorAgent!]!,
     curatorRequests(limit: Int): [CuratorRequest!]!,
