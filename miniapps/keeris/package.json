@@ -38,7 +38,7 @@
   "dependencies": {
     "@curator/agent-server": "file:../../curator",
     "@curator/console": "file:../../packages/curator-console",
-    "@mdi/font": "^7.4.47",
+    "@mdi/js": "^7.4.47",
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.6.0",
     "@sqlite.org/sqlite-wasm": "^3.49.1-build1",

@@ -1,6 +1,20 @@
 import 'vuetify/styles';
-import '@mdi/font/css/materialdesignicons.css';
 import { createVuetify, type ThemeDefinition } from 'vuetify';
+import { aliases, mdi } from 'vuetify/iconsets/mdi-svg';
+import {
+  mdiMusic,
+  mdiPauseCircle,
+  mdiPlayCircle,
+  mdiClose,
+  mdiRecordPlayer,
+  mdiDatabaseCheck,
+  mdiDatabaseSync,
+  mdiRobot,
+  mdiPlaylistMusic,
+  mdiPlus,
+  mdiPlay,
+  mdiRefresh,
+} from '@mdi/js';
 
 const curatorDarkTheme: ThemeDefinition = {
   dark: true,
@@ -20,6 +34,27 @@ const curatorDarkTheme: ThemeDefinition = {
 };
 
 export default createVuetify({
+  icons: {
+    defaultSet: 'mdi',
+    aliases: {
+      ...aliases,
+      'mdi-music': mdiMusic,
+      'mdi-pause-circle': mdiPauseCircle,
+      'mdi-play-circle': mdiPlayCircle,
+      'mdi-close': mdiClose,
+      'mdi-record-player': mdiRecordPlayer,
+      'mdi-database-check': mdiDatabaseCheck,
+      'mdi-database-sync': mdiDatabaseSync,
+      'mdi-robot': mdiRobot,
+      'mdi-playlist-music': mdiPlaylistMusic,
+      'mdi-plus': mdiPlus,
+      'mdi-play': mdiPlay,
+      'mdi-refresh': mdiRefresh,
+    },
+    sets: {
+      mdi,
+    },
+  },
   theme: {
     defaultTheme: 'curatorDarkTheme',
     themes: {
