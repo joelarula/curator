@@ -1,0 +1,39 @@
+﻿# Server-only SDL — loaded on top of base.graphql for the Node.js server layer.
+# All shared domain model types live in base.graphql.
+
+type ScrapeResult { seriesContentId: String!, programTitle: String!, episodesSeen: Int!, episodesParsed: Int!, tracksSaved: Int!, failures: Int! }
+
+type EpisodeDownloadResult { downloaded: Boolean!, episodeUrl: String!, audioUrl: String!, filePath: String!, fileName: String!, fileSizeMB: String }
+
+type EpisodeMatch {
+  episode: Episode!
+  matchedTrackCount: Int!
+  totalPlaylistTracks: Int!
+  matchPercentage: Float!
+}
+
+type Query {
+  programs: [Program!]!
+  tracks(search: String, programId: ID, limit: Int, offset: Int): [Track!]!
+  uniqueTracks(search: String, programIds: [ID!], limit: Int, offset: Int): [UniqueTrack!]!
+  episodes(search: String, programId: ID, limit: Int): [Episode!]!
+  stats(search: String, programIds: [ID]): Stats!
+  curatorAgents: [CuratorAgent!]!
+  curatorRequests(limit: Int): [CuratorRequest!]!
+  playlists: [Playlist!]!
+  playlist(id: ID!): Playlist
+  episodesContainingPlaylist(playlistId: ID!): [EpisodeMatch!]!
+}
+
+type Mutation {
+  triggerCuratorAgent(name: String!, refresh: Boolean): CuratorResponse!
+  scrapeProgram(seriesContentId: String!, programTitle: String!, refresh: Boolean): ScrapeResult!
+  updateEpisodeMetadata(episodeId: ID, url: String, description: String, fullText: String): EpisodeMetadata!
+  downloadEpisode(url: String!, fileName: String): EpisodeDownloadResult!
+  createPlaylist(title: String!, description: String): Playlist!
+  updatePlaylist(id: ID!, title: String, description: String): Playlist!
+  deletePlaylist(id: ID!): Boolean!
+  addItemToPlaylist(playlistId: ID!, uniqueTrackId: ID, trackId: ID, episodeId: ID, notes: String): PlaylistItem!
+  removeItemFromPlaylist(itemId: ID!): Boolean!
+  reorderPlaylistItems(playlistId: ID!, itemIds: [ID!]!): Playlist!
+}

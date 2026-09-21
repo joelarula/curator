@@ -1,9 +1,9 @@
 import { buildSchema, graphql, type ExecutionResult } from 'graphql';
 import { PROGRAM_MANIFEST, resolveAgentByTitle } from './wasm-curator-engine';
-import { typeDefs } from '../src/graphql-typedefs';
+import { wasmTypeDefs } from '../src/schema/wasm';
 import type { OpfsDatabase, IGraphqlResult } from './types';
 
-const schema = buildSchema(typeDefs);
+const schema = buildSchema(wasmTypeDefs);
 
 function queryAll(db: OpfsDatabase, sql: string, params: any[] = []): any[] {
   const rows: any[] = [];

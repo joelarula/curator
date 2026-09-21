@@ -20,7 +20,9 @@ export { discoverEpisodes, episodeDate } from './archive.ts';
 
 // GraphQL & Server APIs
 export { executeGraphql, schema, resolvers } from './server/graphql.ts';
-export { typeDefs } from './graphql-typedefs.ts';
+export { serverTypeDefs } from './schema/server.ts';
+// Note: wasmTypeDefs is exported from ./schema/wasm.ts but uses Vite ?raw imports —
+// consume it directly in Vite-bundled contexts (wasm/ workers, web/).
 
 // Curator Engine Runtime & Agent Bootstrap
 export { startCuratorRuntime } from './curator-runtime.ts';

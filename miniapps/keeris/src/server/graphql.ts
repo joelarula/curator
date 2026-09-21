@@ -1,9 +1,7 @@
-import { readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
 import { buildSchema, graphql, type GraphQLSchema } from 'graphql';
+import { serverTypeDefs } from '../schema/server';
 
-const schemaPath = fileURLToPath(new URL('./schema.graphql', import.meta.url));
-export const schema: GraphQLSchema = buildSchema(readFileSync(schemaPath, 'utf-8'));
+export const schema: GraphQLSchema = buildSchema(serverTypeDefs);
 
 function cleanEpisodeDescription(desc?: string | null, episodeTitle?: string | null, programTitle?: string | null): string | null {
   if (!desc) return null;

@@ -1,0 +1,116 @@
+﻿# Shared domain model — all types common to both the Node.js server and WASM/browser layer.
+# Fields that only one layer populates are kept nullable so the other layer can omit them.
+# Layer-only types (ScrapeResult, CuratorDatabaseHealth, etc.) live in server.graphql / wasm.graphql.
+# Query and Mutation are layer-specific and defined in server.graphql / wasm.graphql.
+
+type Program { id: ID!, seriesId: String!, title: String!, slug: String, description: String, url: String }
+
+type EpisodeMetadata { id: ID!, description: String, fullText: String, summary: String, keywords: String }
+
+type Episode {
+  id: ID!
+  url: String!
+  title: String!
+  scheduledAt: String
+  publishedAt: String
+  parseStatus: String!
+  trackCount: Int!
+  program: Program
+  metadata: EpisodeMetadata
+}
+
+type UniqueTrack {
+  id: ID!
+  fingerprint: String!
+  artist: String
+  title: String
+  playCount: Int!
+  firstPlayedAt: String
+  lastPlayedAt: String
+  # Nullable so WASM resolvers can omit when not queried
+  airings: [Track!]
+}
+
+type Track {
+  id: ID!
+  position: Int!
+  artist: String
+  title: String
+  rawText: String!
+  date: String
+  episodeTitle: String!
+  episodeUrl: String!
+  programTitle: String
+  episodeDescription: String
+  uniqueTrack: UniqueTrack
+}
+
+type ProgramStat {
+  programId: ID!
+  programTitle: String!
+  episodes: Int!
+  tracks: Int!
+  uniqueTracks: Int!
+}
+
+type Stats {
+  episodes: Int!
+  tracks: Int!
+  uniqueTracks: Int!
+  programs: Int!
+  programBreakdown: [ProgramStat!]
+  # Server-only fields (null in WASM)
+  noTracks: Int
+  oldest: String
+  newest: String
+}
+
+type CuratorAgent {
+  id: ID!
+  name: String!
+  schedule: String
+  isActive: Boolean
+  # Server-only fields (null in WASM)
+  ast: String
+  enabled: Boolean
+  # WASM-only fields (null in server)
+  episodesCount: Int
+  tracksCount: Int
+  lastRunAt: String
+}
+
+type CuratorResponse { id: ID!, requestId: ID!, content: String, createdAt: String }
+
+type CuratorRequest {
+  id: ID!
+  scriptId: ID
+  ast: String
+  createdAt: String
+  responses: [CuratorResponse!]!
+  # Server-only field (null in WASM)
+  agentName: String
+  # WASM-only field (null in server)
+  status: String
+}
+
+type PlaylistItem {
+  id: ID!
+  playlistId: ID!
+  position: Int!
+  notes: String
+  createdAt: String
+  uniqueTrack: UniqueTrack
+  track: Track
+  episode: Episode
+}
+
+type Playlist {
+  id: ID!
+  title: String!
+  description: String
+  createdAt: String
+  itemCount: Int!
+  items: [PlaylistItem!]!
+  # Server-only field (null in WASM)
+  updatedAt: String
+}
