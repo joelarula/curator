@@ -73,20 +73,20 @@
   </v-app>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import { RouterLink, RouterView } from 'vue-router';
 import KeerisHeader from './components/KeerisHeader.vue';
 import { CuratorConsole } from '@curator/console';
-import { keerisCuratorAdapter } from './curator-adapter.js';
+import { keerisCuratorAdapter } from './curator-adapter';
 import AudioBar from './components/AudioBar.vue';
-import { requestGraphql, onWorkerReady, exportDatabase, importDatabase, onDatabaseChange } from '@wasm/graphql-client.js';
+import { requestGraphql, onWorkerReady, exportDatabase, importDatabase, onDatabaseChange } from '@wasm/graphql-client';
 
 const drawerOpen = ref(false);
 const activeTrack = ref(null);
 const isExporting = ref(false);
 const isImporting = ref(false);
-const fileInputRef = ref(null);
+const fileInputRef = ref<HTMLInputElement | null>(null);
 const stats = ref({ episodes: 0, tracks: 0, uniqueTracks: 0, programs: 0 });
 
 function handlePlayTrack(track) {

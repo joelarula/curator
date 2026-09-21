@@ -1,8 +1,8 @@
 import 'vuetify/styles';
 import '@mdi/font/css/materialdesignicons.css';
-import { createVuetify } from 'vuetify';
+import { createVuetify, type ThemeDefinition } from 'vuetify';
 
-const curatorDarkTheme = {
+const curatorDarkTheme: ThemeDefinition = {
   dark: true,
   colors: {
     background: '#121212',

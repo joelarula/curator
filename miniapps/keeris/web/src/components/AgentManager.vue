@@ -131,7 +131,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick } from 'vue';
 import { 
   requestGraphql, 
@@ -141,7 +141,7 @@ import {
   onDatabaseChange,
   toggleEnginepause,
   getEngineState,
-} from '@wasm/graphql-client.js';
+} from '@wasm/graphql-client';
 
 const agents = ref([]);
 const loading = ref(false);
@@ -149,7 +149,7 @@ const toggling = ref({});
 const runningAgents = ref(new Set());
 const scraperLogs = ref([]);
 const currentEpisode = ref(null);
-const logBodyRef = ref(null);
+const logBodyRef = ref<HTMLElement | null>(null);
 const isPaused = ref(false);
 const pauseToggling = ref(false);
 let unsubProgress = null;

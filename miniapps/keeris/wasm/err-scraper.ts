@@ -1,25 +1,72 @@
 /**
- * wasm/err-scraper.js
+ * wasm/err-scraper.ts
  * Browser-native ERR Radio scraper for the WASM Web Worker.
  * Uses fetch + cheerio (DOMParser is not available in Web Worker global scope).
  * Mirrors src/err-client.js + src/episode-parser.js + src/scrape.js logic.
  */
 
 import * as cheerio from 'cheerio';
+import type { OpfsDatabase, ProgressCallback } from './types';
 
 const ERR_BASE = 'https://vikerraadio.err.ee';
 const ARCHIVE_API = 'https://vikerraadio.err.ee/api/broadcast/broadcasts';
 const REQUEST_DELAY_MS = 400;
 
 let lastRequestAt = 0;
+let _activePauseChecker: (() => Promise<void>) | null = null;
 
-let _activePauseChecker = null;
+export interface ScrapeProgramOptions {
+  seriesContentId: string | number;
+  programTitle: string;
+  refresh?: boolean;
+  onProgress?: ProgressCallback | null;
+  isPaused?: () => boolean;
+  checkPause?: () => Promise<void>;
+}
 
-async function sleep(ms) {
+export interface ScrapeResult {
+  seriesContentId: string | number;
+  programTitle: string;
+  discovered: number;
+  processed: number;
+  parsed: number;
+  tracksSaved: number;
+  failures: number;
+}
+
+export interface ParsedTrack {
+  position: number;
+  artist: string | null;
+  title: string | null;
+  rawText: string;
+}
+
+export interface EpisodeMetadata {
+  description: string | null;
+  fullText: string | null;
+  summary: string | null;
+  keywords: string | null;
+}
+
+export interface EpisodeItem {
+  id: number | string;
+  url?: string;
+  heading?: string;
+  title?: string;
+  name?: string;
+  scheduledAt?: string | number;
+  publicStart?: string | number;
+  broadcastedOn?: string | number;
+  scheduleStart?: number | null;
+  _prefetchedHtml?: string;
+  [key: string]: any;
+}
+
+function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function errFetch(url, type = 'json') {
+async function errFetch(url: string, type: 'json' | 'text' = 'json'): Promise<any> {
   if (typeof _activePauseChecker === 'function') {
     await _activePauseChecker();
   }
@@ -30,7 +77,7 @@ async function errFetch(url, type = 'json') {
   }
   const res = await fetch(url, {
     headers: {
-      'Accept': type === 'json' ? 'application/json' : 'text/html,application/xhtml+xml,*/*;q=0.9',
+      Accept: type === 'json' ? 'application/json' : 'text/html,application/xhtml+xml,*/*;q=0.9',
       'Accept-Language': 'et-EE,et;q=0.9,en;q=0.7',
     },
   });
@@ -39,7 +86,11 @@ async function errFetch(url, type = 'json') {
   return type === 'json' ? res.json() : res.text();
 }
 
-async function fetchArchivePage(params) {
+async function fetchArchivePage(params: {
+  seriesContentId: string | number;
+  limit?: number;
+  unixTime?: string;
+}): Promise<any> {
   const query = new URLSearchParams({
     seriesContentId: String(params.seriesContentId),
     radiomanUrl: '',
@@ -50,10 +101,10 @@ async function fetchArchivePage(params) {
 }
 
 /** Extract the broadcast/publish date from an ERR episode HTML page (JSON-LD, meta tags, or <time>). */
-function parseEpisodeDateFromHtml(html) {
+function parseEpisodeDateFromHtml(html: string): string | null {
   const $ = cheerio.load(html);
 
-  let jsonLdDate = null;
+  let jsonLdDate: string | null = null;
   $('script[type="application/ld+json"]').each((_, el) => {
     if (jsonLdDate) return;
     try {
@@ -61,7 +112,10 @@ function parseEpisodeDateFromHtml(html) {
       const items = Array.isArray(data) ? data : [data];
       for (const item of items) {
         const d = item.datePublished || item.startDate || item.dateCreated;
-        if (d) { jsonLdDate = d; return; }
+        if (d) {
+          jsonLdDate = d;
+          return;
+        }
       }
     } catch (_) {}
   });
@@ -79,89 +133,13 @@ function parseEpisodeDateFromHtml(html) {
   return null;
 }
 
-async function discoverAllEpisodes(seriesContentId, { shouldStop, onPage, isPaused, onProgress } = {}) {
-  const episodes = new Map();
-  const isUrl = String(seriesContentId).startsWith('http://') || String(seriesContentId).startsWith('https://');
-
-  // Some manifest entries have no numeric series id, only a single episode page
-  // to crawl via its "carouselJsonStruct" related-episodes JSON-LD block.
-  if (isUrl) {
-    const visitedUrls = new Set();
-    const queue = [String(seriesContentId)];
-    let page = 0;
-    while (queue.length > 0) {
-      if (typeof isPaused === 'function' && isPaused()) {
-        onProgress?.('log', `[Scraper] ⏸ Scraper paused during discovery. Waiting to resume...`);
-        while (typeof isPaused === 'function' && isPaused()) {
-          await sleep(500);
-        }
-        onProgress?.('log', `[Scraper] ▶ Scraper resumed discovery`);
-      }
-      const url = queue.shift();
-      if (visitedUrls.has(url)) continue;
-      visitedUrls.add(url);
-      page++;
-      onPage?.(page);
-
-      const matches = [...url.matchAll(/\/(\d+)/g)];
-      const id = matches.length > 0 ? Number(matches[matches.length - 1][1]) : Date.now();
-
-      try {
-        const html = await errFetch(url, 'text');
-        const isoDate = parseEpisodeDateFromHtml(html);
-        const scheduleStart = isoDate ? Math.floor(new Date(isoDate).getTime() / 1000) : null;
-        const epObj = { id, url, scheduleStart };
-        episodes.set(id, epObj);
-
-        if (shouldStop?.([epObj])) break;
-
-        const jsonMatch = html.match(/<script id="carouselJsonStruct" type="application\/ld\+json">(.*?)<\/script>/s);
-        if (jsonMatch) {
-          const data = JSON.parse(jsonMatch[1]);
-          const items = data.itemListElement || [];
-          for (const item of items) {
-            if (item.url && !visitedUrls.has(item.url)) queue.push(item.url);
-          }
-        }
-      } catch (_) {
-        episodes.set(id, { id, url, scheduleStart: null });
-      }
-    }
-    return [...episodes.values()];
-  }
-
-  const cursors = new Set();
-  let params = { seriesContentId, limit: 50 };
-  let page = 0;
-  while (true) {
-    if (typeof isPaused === 'function' && isPaused()) {
-      onProgress?.('log', `[Scraper] ⏸ Scraper paused at archive page ${page + 1}. Waiting to resume...`);
-      while (typeof isPaused === 'function' && isPaused()) {
-        await sleep(500);
-      }
-      onProgress?.('log', `[Scraper] ▶ Scraper resumed at archive page ${page + 1}`);
-    }
-    page++;
-    const response = await fetchArchivePage(params);
-    onPage?.(page, response);
-    const items = response?.data ?? [];
-    for (const episode of items) episodes.set(episode.id, episode);
-
-    if (shouldStop?.(items)) break;
-
-    const cursor = response?.previous;
-    if (!cursor || cursors.has(cursor)) break;
-    cursors.add(cursor);
-    params = { seriesContentId, unixTime: cursor, limit: 50 };
-  }
-  return [...episodes.values()];
-}
-
-function parseMusicListFromHtml(html) {
+export function parseMusicListFromHtml(html: string): ParsedTrack[] {
   const $ = cheerio.load(html);
-  const tracks = [];
-  function clean(text) { return (text ?? '').replace(/\s+/g, ' ').trim(); }
-  const isNav = (t) =>
+  const tracks: ParsedTrack[] = [];
+  function clean(text: string | null | undefined): string {
+    return (text ?? '').replace(/\s+/g, ' ').trim();
+  }
+  const isNav = (t: string) =>
     /saated a-\u00fc|ettey?tlus|po-russki|vaegkuuljatele|otse|ajakava|saatekava|e-post|kontakt|toimetaja:|saatejuht:|autor:|helioperaator:|foto:|pildi autor/i.test(t);
 
   // 1. Try structured .music-list-item
@@ -170,7 +148,9 @@ function parseMusicListFromHtml(html) {
     const artist = clean(row.find('.music-artist').first().text());
     const title = clean(row.find('.music-title').first().text());
     const rawText = clean(row.text());
-    if (artist || title || rawText) tracks.push({ position: index + 1, artist: artist || null, title: title || null, rawText });
+    if (artist || title || rawText) {
+      tracks.push({ position: index + 1, artist: artist || null, title: title || null, rawText });
+    }
   });
   if (tracks.length > 0) return tracks;
 
@@ -184,7 +164,16 @@ function parseMusicListFromHtml(html) {
       if (match) {
         const artist = clean(match[1].replace(/^\d+[.)]\s*/, ''));
         const title = clean(match[2]);
-        if (artist && title && artist.length > 1 && artist.length < 100 && title.length > 1 && title.length < 150 && !isNav(artist) && !isNav(title)) {
+        if (
+          artist &&
+          title &&
+          artist.length > 1 &&
+          artist.length < 100 &&
+          title.length > 1 &&
+          title.length < 150 &&
+          !isNav(artist) &&
+          !isNav(title)
+        ) {
           tracks.push({ position: position++, artist, title, rawText: text });
         }
       }
@@ -193,17 +182,28 @@ function parseMusicListFromHtml(html) {
   if (tracks.length > 0) return tracks;
 
   // 3. Fallback: song titles after a colon in the lead/description text
-  const textSources = [
+  const textSources: string[] = [
     clean($('.lead, .summary, meta[name="description"]').first().attr('content') ?? $('.lead, .summary').first().text()),
-    ...$('.radio-article-body p, .radio-article p, article p, section p, .body-text p, .content p').map((_, el) => clean($(el).text())).get(),
+    ...$('.radio-article-body p, .radio-article p, article p, section p, .body-text p, .content p')
+      .map((_, el) => clean($(el).text()))
+      .get(),
   ].filter(Boolean);
 
   for (const text of textSources) {
     const colonIndex = text.indexOf(':');
     if (colonIndex > 0 && colonIndex < 100) {
-      const potentialArtist = clean(text.slice(0, colonIndex).replace(/.*[./|]\s*/, '').replace(/\d+\s*(eri|saade)?/i, '').trim());
+      const potentialArtist = clean(
+        text
+          .slice(0, colonIndex)
+          .replace(/.*[./|]\s*/, '')
+          .replace(/\d+\s*(eri|saade)?/i, '')
+          .trim()
+      );
       const listText = text.slice(colonIndex + 1);
-      const parts = listText.split(/[,;\n]+/).map(clean).filter((p) => p.length > 2 && p.length < 120 && !p.toLowerCase().startsWith('stuudios'));
+      const parts = listText
+        .split(/[,;\n]+/)
+        .map(clean)
+        .filter((p) => p.length > 2 && p.length < 120 && !p.toLowerCase().startsWith('stuudios'));
       if (parts.length >= 2) {
         let colonPosition = 1;
         for (const title of parts) {
@@ -221,11 +221,15 @@ function parseMusicListFromHtml(html) {
   return tracks;
 }
 
-function parseEpisodeMetadata(html) {
+export function parseEpisodeMetadata(html: string): EpisodeMetadata {
   const $ = cheerio.load(html);
-  function clean(text) { return (text ?? '').replace(/\s+/g, ' ').trim(); }
-  const description = clean($('.lead, .summary, meta[name="description"]').first().attr('content') ?? $('.lead, .summary').first().text());
-  const paragraphs = [];
+  function clean(text: string | null | undefined): string {
+    return (text ?? '').replace(/\s+/g, ' ').trim();
+  }
+  const description = clean(
+    $('.lead, .summary, meta[name="description"]').first().attr('content') ?? $('.lead, .summary').first().text()
+  );
+  const paragraphs: string[] = [];
   $('.radio-article-body p, .radio-article p, article p, section p, .body-text p, .content p').each((_, el) => {
     const text = clean($(el).text());
     if (text && text.length > 5) paragraphs.push(text);
@@ -234,19 +238,19 @@ function parseEpisodeMetadata(html) {
   return {
     description: description || null,
     fullText: fullText || null,
-    summary: description ? description.slice(0, 500) : (fullText ? fullText.slice(0, 500) : null),
+    summary: description ? description.slice(0, 500) : fullText ? fullText.slice(0, 500) : null,
     keywords: null,
   };
 }
 
-function episodeDate(item) {
+function episodeDate(item: EpisodeItem): string | null {
   const raw = item.scheduledAt ?? item.publicStart ?? item.broadcastedOn ?? null;
   if (!raw) return null;
   if (typeof raw === 'number') return new Date(raw * 1000).toISOString();
   return new Date(raw).toISOString();
 }
 
-function makeFingerprint(artist, title, rawText) {
+function makeFingerprint(artist: string | null | undefined, title: string | null | undefined, rawText: string | null | undefined): string | null {
   const normArtist = (artist ?? '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
   const normTitle = (title ?? '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
   if (normArtist || normTitle) return `${normArtist}___${normTitle}`;
@@ -254,57 +258,71 @@ function makeFingerprint(artist, title, rawText) {
   return raw || null;
 }
 
-export async function scrapeProgram(db, { seriesContentId, programTitle, refresh = false, onProgress, isPaused, checkPause } = {}) {
-  const effectiveCheckPause = checkPause || (async () => {
-    if (typeof isPaused === 'function' && isPaused()) {
-      onProgress?.('log', `[Scraper] ⏸ Scraper paused. Waiting to resume...`);
-      while (typeof isPaused === 'function' && isPaused()) {
-        await sleep(400);
+export async function scrapeProgram(
+  db: OpfsDatabase,
+  { seriesContentId, programTitle, refresh = false, onProgress, isPaused, checkPause }: ScrapeProgramOptions
+): Promise<ScrapeResult> {
+  const effectiveCheckPause =
+    checkPause ||
+    (async () => {
+      if (typeof isPaused === 'function' && isPaused()) {
+        onProgress?.('log', `[Scraper] ⏸ Scraper paused. Waiting to resume...`);
+        while (typeof isPaused === 'function' && isPaused()) {
+          await sleep(400);
+        }
+        onProgress?.('log', `[Scraper] ▶ Scraper resumed.`);
       }
-      onProgress?.('log', `[Scraper] ▶ Scraper resumed.`);
-    }
-  });
+    });
 
   _activePauseChecker = effectiveCheckPause;
   try {
-    return await _runScrapeProgram(db, { seriesContentId, programTitle, refresh, onProgress, isPaused, checkPause: effectiveCheckPause });
+    return await _runScrapeProgram(db, {
+      seriesContentId,
+      programTitle,
+      refresh,
+      onProgress,
+      isPaused,
+      checkPause: effectiveCheckPause,
+    });
   } finally {
     _activePauseChecker = null;
   }
 }
 
-/**
- * Run a bounded concurrency pool over an async-iterable source of work items.
- * Up to `concurrency` items are processed in parallel at any moment.
- * @param {AsyncIterable<T>} source - yields items as they are discovered
- * @param {number} concurrency - max parallel workers
- * @param {(item: T) => Promise<void>} worker - async function to process one item
- */
-async function pipelinePool(source, concurrency, worker) {
-  const active = new Set();
+async function pipelinePool<T>(
+  source: AsyncIterable<T>,
+  concurrency: number,
+  worker: (item: T) => Promise<void>
+): Promise<void> {
+  const active = new Set<Promise<void>>();
   for await (const item of source) {
     if (active.size >= concurrency) {
-      // Wait for the first settled slot to free up
       await Promise.race(active);
     }
-    const task = worker(item).finally(() => active.delete(task));
+    const task: Promise<void> = worker(item).finally(() => active.delete(task));
     active.add(task);
   }
-  // Drain remaining active tasks
   await Promise.all(active);
 }
 
-/**
- * Async generator that yields episode objects one archive API page at a time,
- * emitting each item as soon as its page lands — no blocking "collect all" phase.
- * For URL-based (non-series-id) programs it falls back to sequential page crawling.
- */
-export async function* streamEpisodes(seriesContentId, { shouldStop, onPage, isPaused, onProgress } = {}) {
+export async function* streamEpisodes(
+  seriesContentId: string | number,
+  {
+    shouldStop,
+    onPage,
+    isPaused,
+    onProgress,
+  }: {
+    shouldStop?: (items: EpisodeItem[]) => boolean;
+    onPage?: (page: number, count?: number) => void;
+    isPaused?: () => boolean;
+    onProgress?: ProgressCallback | null;
+  } = {}
+): AsyncGenerator<EpisodeItem> {
   const isUrl = String(seriesContentId).startsWith('http://') || String(seriesContentId).startsWith('https://');
 
   if (isUrl) {
-    // URL-based crawl: pages are HTML episodes linked via carouselJsonStruct
-    const visitedUrls = new Set();
+    const visitedUrls = new Set<string>();
     const queue = [String(seriesContentId)];
     let page = 0;
     while (queue.length > 0) {
@@ -313,7 +331,7 @@ export async function* streamEpisodes(seriesContentId, { shouldStop, onPage, isP
         while (typeof isPaused === 'function' && isPaused()) await sleep(500);
         onProgress?.('log', `[Scraper] ▶ Resumed discovery`);
       }
-      const url = queue.shift();
+      const url = queue.shift()!;
       if (visitedUrls.has(url)) continue;
       visitedUrls.add(url);
       page++;
@@ -324,13 +342,13 @@ export async function* streamEpisodes(seriesContentId, { shouldStop, onPage, isP
         const html = await errFetch(url, 'text');
         const isoDate = parseEpisodeDateFromHtml(html);
         const scheduleStart = isoDate ? Math.floor(new Date(isoDate).getTime() / 1000) : null;
-        const epObj = { id, url, scheduleStart, _prefetchedHtml: html };
+        const epObj: EpisodeItem = { id, url, scheduleStart, _prefetchedHtml: html };
         if (shouldStop?.([epObj])) return;
         yield epObj;
         const jsonMatch = html.match(/<script id="carouselJsonStruct" type="application\/ld\+json">(.*?)<\/script>/s);
         if (jsonMatch) {
           const data = JSON.parse(jsonMatch[1]);
-          for (const item of (data.itemListElement || [])) {
+          for (const item of data.itemListElement || []) {
             if (item.url && !visitedUrls.has(item.url)) queue.push(item.url);
           }
         }
@@ -341,11 +359,13 @@ export async function* streamEpisodes(seriesContentId, { shouldStop, onPage, isP
     return;
   }
 
-  // Series-id archive API: paginate and yield each episode as its page lands
-  const cursors = new Set();
-  let params = { seriesContentId, limit: 50 };
+  const cursors = new Set<string>();
+  let params: { seriesContentId: string | number; limit: number; unixTime?: string } = {
+    seriesContentId,
+    limit: 50,
+  };
   let page = 0;
-  const seenIds = new Set();
+  const seenIds = new Set<string | number>();
   while (true) {
     if (typeof isPaused === 'function' && isPaused()) {
       onProgress?.('log', `[Scraper] ⏸ Paused at archive page ${page + 1}. Waiting...`);
@@ -354,15 +374,17 @@ export async function* streamEpisodes(seriesContentId, { shouldStop, onPage, isP
     }
     page++;
     const response = await fetchArchivePage(params);
-    const items = response?.data ?? [];
+    const items: EpisodeItem[] = response?.data ?? [];
     onPage?.(page, items.length);
 
-    // Yield each new episode on this page immediately
     let stopEarly = false;
     for (const episode of items) {
       if (seenIds.has(episode.id)) continue;
       seenIds.add(episode.id);
-      if (shouldStop?.([episode])) { stopEarly = true; break; }
+      if (shouldStop?.([episode])) {
+        stopEarly = true;
+        break;
+      }
       yield episode;
     }
     if (stopEarly) break;
@@ -374,11 +396,7 @@ export async function* streamEpisodes(seriesContentId, { shouldStop, onPage, isP
   }
 }
 
-/**
- * Upsert a program row into SQLite and return its integer id.
- * Idempotent — safe to call multiple times for the same seriesContentId.
- */
-export function upsertProgramRow(db, seriesContentId, programTitle) {
+export function upsertProgramRow(db: OpfsDatabase, seriesContentId: string | number, programTitle: string): string | null {
   const now = new Date().toISOString();
   db.exec({
     sql: `
@@ -388,36 +406,48 @@ export function upsertProgramRow(db, seriesContentId, programTitle) {
     `,
     bind: [String(seriesContentId), programTitle, programTitle.toLowerCase().replace(/[^a-z0-9]/g, '-'), now, now],
   });
-  const rows = [];
-  db.exec({ sql: 'SELECT id FROM programs WHERE series_id = ?', bind: [String(seriesContentId)], rowMode: 'object', resultRows: rows });
+  const rows: any[] = [];
+  db.exec({
+    sql: 'SELECT id FROM programs WHERE series_id = ?',
+    bind: [String(seriesContentId)],
+    rowMode: 'object',
+    resultRows: rows,
+  } as any);
   return rows[0]?.id ?? null;
 }
 
-/**
- * Fetch + parse + write a single episode item into SQLite.
- * Returns { status, tracksCount } on success, null if skipped (already parsed).
- * This is the atomic unit that the AST engine's StreamForEach body calls.
- */
-export async function processEpisodeItem(db, item, {
-  programId = null,
-  now = new Date().toISOString(),
-  refresh = false,
-  onProgress = null,
-  isPaused = null,
-  episodeCounter = null,   // optional { get, increment } to track parsed count externally
-} = {}) {
-  function qOne(sql, params = []) {
-    const rows = [];
-    db.exec({ sql, bind: params, rowMode: 'object', resultRows: rows });
+export async function processEpisodeItem(
+  db: OpfsDatabase,
+  item: EpisodeItem,
+  {
+    programId = null,
+    now = new Date().toISOString(),
+    refresh = false,
+    onProgress = null,
+    isPaused = null,
+    episodeCounter = null,
+  }: {
+    programId?: string | null;
+    now?: string;
+    refresh?: boolean;
+    onProgress?: ProgressCallback | null;
+    isPaused?: (() => boolean) | null;
+    episodeCounter?: { value: number; increment: () => number } | null;
+  } = {}
+): Promise<{ status: string; tracksCount: number; tracksSaved: number } | null> {
+  function qOne(sql: string, params: any[] = []): any {
+    const rows: any[] = [];
+    db.exec({ sql, bind: params, rowMode: 'object', resultRows: rows } as any);
     return rows[0] ?? null;
   }
-  function exec(sql, params = []) { db.exec({ sql, bind: params }); }
+  function exec(sql: string, params: any[] = []) {
+    db.exec({ sql, bind: params });
+  }
 
   if (typeof isPaused === 'function' && isPaused()) {
     while (typeof isPaused === 'function' && isPaused()) await sleep(600);
   }
 
-  // Skip already-done episodes on incremental runs
   if (!refresh) {
     const row = qOne('SELECT parse_status FROM episodes WHERE id = ?', [item.id]);
     if (row && ['parsed', 'no_tracks'].includes(row.parse_status)) return null;
@@ -430,54 +460,71 @@ export async function processEpisodeItem(db, item, {
 
   try {
     exec('BEGIN');
-    exec(`
+    exec(
+      `
       INSERT INTO episodes (id, program_id, url, title, scheduled_at, fetched_at, parse_status)
       VALUES (?, ?, ?, ?, ?, ?, 'pending')
       ON CONFLICT(id) DO UPDATE SET
         program_id = COALESCE(excluded.program_id, episodes.program_id),
-        url = excluded.url, title = excluded.title,
-        scheduled_at = excluded.scheduled_at, fetched_at = excluded.fetched_at,
-        parse_status = 'pending'
-    `, [item.id, programId ?? null, episodeUrl, episodeTitle, scheduledAt ?? null, now]);
-    exec('COMMIT');
+        url = excluded.url,
+        title = excluded.title,
+        scheduled_at = COALESCE(excluded.scheduled_at, episodes.scheduled_at),
+        fetched_at = excluded.fetched_at
+    `,
+      [item.id, programId, episodeUrl, episodeTitle, scheduledAt, now]
+    );
 
-    const html = item._prefetchedHtml ?? await errFetch(episodeUrl, 'text');
+    let html: string;
+    if (item._prefetchedHtml) {
+      html = item._prefetchedHtml;
+    } else {
+      html = await errFetch(episodeUrl, 'text');
+    }
+
     const tracks = parseMusicListFromHtml(html);
     const metadata = parseEpisodeMetadata(html);
-    const status = (tracks.length || metadata.fullText) ? 'parsed' : 'no_tracks';
+    const status = tracks.length > 0 ? 'parsed' : 'no_tracks';
 
-    exec('BEGIN');
     if (tracks.length > 0) {
       exec('DELETE FROM tracks WHERE episode_id = ?', [item.id]);
       for (const track of tracks) {
         const fp = makeFingerprint(track.artist, track.title, track.rawText);
-        let utId = null;
+        let utId: string | null = null;
         if (fp) {
           const existing = qOne('SELECT id FROM unique_tracks WHERE fingerprint = ?', [fp]);
           if (existing) {
             utId = existing.id;
-            exec('UPDATE unique_tracks SET play_count = play_count + 1, last_played_at = COALESCE(?, last_played_at), updated_at = ? WHERE id = ?',
-              [scheduledAt, now, utId]);
+            exec(
+              'UPDATE unique_tracks SET play_count = play_count + 1, last_played_at = COALESCE(?, last_played_at), updated_at = ? WHERE id = ?',
+              [scheduledAt, now, utId]
+            );
           } else {
-            exec('INSERT INTO unique_tracks (fingerprint, artist, title, play_count, first_played_at, last_played_at, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?, ?)',
-              [fp, track.artist ?? null, track.title ?? null, scheduledAt, scheduledAt, now, now]);
+            exec(
+              'INSERT INTO unique_tracks (fingerprint, artist, title, play_count, first_played_at, last_played_at, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?, ?)',
+              [fp, track.artist ?? null, track.title ?? null, scheduledAt, scheduledAt, now, now]
+            );
             const newUt = qOne('SELECT id FROM unique_tracks WHERE fingerprint = ?', [fp]);
             utId = newUt?.id ?? null;
           }
         }
-        exec('INSERT OR IGNORE INTO tracks (episode_id, unique_track_id, position, artist, title, raw_text) VALUES (?, ?, ?, ?, ?, ?)',
-          [item.id, utId, track.position, track.artist ?? null, track.title ?? null, track.rawText]);
+        exec(
+          'INSERT OR IGNORE INTO tracks (episode_id, unique_track_id, position, artist, title, raw_text) VALUES (?, ?, ?, ?, ?, ?)',
+          [item.id, utId, track.position, track.artist ?? null, track.title ?? null, track.rawText]
+        );
         tracksSaved++;
       }
     }
     if (metadata.description || metadata.fullText || metadata.summary) {
-      exec(`
+      exec(
+        `
         INSERT INTO episode_metadata (episode_id, description, full_text, summary, keywords)
         VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(episode_id) DO UPDATE SET
           description = excluded.description, full_text = excluded.full_text,
           summary = excluded.summary, keywords = excluded.keywords
-      `, [item.id, metadata.description ?? null, metadata.fullText ?? null, metadata.summary ?? null, null]);
+      `,
+        [item.id, metadata.description ?? null, metadata.fullText ?? null, metadata.summary ?? null, null]
+      );
     }
     exec('UPDATE episodes SET parse_status = ?, fetched_at = ? WHERE id = ?', [status, now, item.id]);
     exec('COMMIT');
@@ -492,15 +539,28 @@ export async function processEpisodeItem(db, item, {
       status,
     });
     return { status, tracksCount: tracks.length, tracksSaved };
-  } catch (err) {
-    try { exec('ROLLBACK'); } catch (_) {}
-    try { exec("UPDATE episodes SET parse_status = 'failed', parse_error = ? WHERE id = ?", [String(err), item.id]); } catch (_) {}
-    onProgress?.('log', `[Scraper] Failed ${episodeUrl}: ${err.message}`);
+  } catch (err: any) {
+    try {
+      exec('ROLLBACK');
+    } catch (_) {}
+    try {
+      exec("UPDATE episodes SET parse_status = 'failed', parse_error = ? WHERE id = ?", [String(err), item.id]);
+    } catch (_) {}
+    onProgress?.('log', `[Scraper] Failed ${episodeUrl}: ${err?.message}`);
     return { status: 'failed', tracksCount: 0, tracksSaved: 0 };
   }
 }
 
-async function _runScrapeProgram(db, { seriesContentId, programTitle, refresh = false, onProgress, isPaused, checkPause } = {}) {
+async function _runScrapeProgram(
+  db: OpfsDatabase,
+  {
+    seriesContentId,
+    programTitle,
+    refresh = false,
+    onProgress,
+    isPaused,
+  }: ScrapeProgramOptions
+): Promise<ScrapeResult> {
   onProgress?.('log', `[Scraper] Starting scrape for "${programTitle}" (seriesId: ${seriesContentId})`);
 
   const now = new Date().toISOString();
@@ -510,20 +570,34 @@ async function _runScrapeProgram(db, { seriesContentId, programTitle, refresh = 
 
   const shouldStop = refresh
     ? undefined
-    : (items) => items.some((item) => {
-        const rows = [];
-        db.exec({ sql: 'SELECT parse_status FROM episodes WHERE id = ?', bind: [item.id], rowMode: 'object', resultRows: rows });
-        const row = rows[0];
-        return row && ['parsed', 'no_tracks'].includes(row.parse_status);
-      });
+    : (items: EpisodeItem[]) =>
+        items.some((item) => {
+          const rows: any[] = [];
+          db.exec({
+            sql: 'SELECT parse_status FROM episodes WHERE id = ?',
+            bind: [item.id],
+            rowMode: 'object',
+            resultRows: rows,
+          } as any);
+          const row = rows[0];
+          return row && ['parsed', 'no_tracks'].includes(row.parse_status);
+        });
 
-  let discovered = 0, parsed = 0, tracksSaved = 0, failures = 0;
+  let discovered = 0,
+    parsed = 0,
+    tracksSaved = 0,
+    failures = 0;
   let pageCount = 0;
-  const episodeCounter = { value: 0, increment() { return ++this.value; } };
+  const episodeCounter = {
+    value: 0,
+    increment() {
+      return ++this.value;
+    },
+  };
 
   const episodeStream = streamEpisodes(seriesContentId, {
     shouldStop,
-    onPage: (page, count) => {
+    onPage: (page: number, count?: number) => {
       pageCount = page;
       onProgress?.('log', `[Scraper] Archive page ${page}${count !== undefined ? ` (${count} episodes)` : ''}...`);
     },
@@ -540,16 +614,36 @@ async function _runScrapeProgram(db, { seriesContentId, programTitle, refresh = 
   }
 
   await pipelinePool(countingStream(), 3, async (item) => {
-    const res = await processEpisodeItem(db, item, { programId, now, refresh, onProgress, isPaused, episodeCounter });
+    const res = await processEpisodeItem(db, item, {
+      programId,
+      now,
+      refresh,
+      onProgress,
+      isPaused,
+      episodeCounter,
+    });
     if (res) {
       if (res.status === 'failed') failures++;
-      else { parsed++; tracksSaved += res.tracksSaved; }
+      else {
+        parsed++;
+        tracksSaved += res.tracksSaved;
+      }
     }
   });
 
-  const result = { seriesContentId, programTitle, discovered, processed: discovered, parsed, tracksSaved, failures };
+  const result: ScrapeResult = {
+    seriesContentId,
+    programTitle,
+    discovered,
+    processed: discovered,
+    parsed,
+    tracksSaved,
+    failures,
+  };
   onProgress?.('done', result);
-  onProgress?.('log', `[Scraper] Done! Parsed ${parsed} episodes (${pageCount} archive pages), saved ${tracksSaved} tracks, ${failures} failures.`);
+  onProgress?.(
+    'log',
+    `[Scraper] Done! Parsed ${parsed} episodes (${pageCount} archive pages), saved ${tracksSaved} tracks, ${failures} failures.`
+  );
   return result;
 }
-

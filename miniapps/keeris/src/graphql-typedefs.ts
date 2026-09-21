@@ -1,4 +1,4 @@
-export const typeDefs = `
+export const typeDefs: string = `
   type Program { id: ID!, seriesId: String!, title: String!, slug: String, description: String, url: String }
   type EpisodeMetadata { id: ID!, description: String, fullText: String, summary: String, keywords: String }
   type Episode {

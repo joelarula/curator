@@ -83,8 +83,17 @@ export class CuratorWasmCore {
             resolverList.push(config.customResolvers);
         }
 
+        const typeDefsList: any[] = [typeDefs];
+        if (config.customTypeDefs) {
+            if (Array.isArray(config.customTypeDefs)) {
+                typeDefsList.push(...config.customTypeDefs);
+            } else {
+                typeDefsList.push(config.customTypeDefs);
+            }
+        }
+
         this.schema = makeExecutableSchema({
-            typeDefs: [typeDefs],
+            typeDefs: typeDefsList,
             resolvers: resolverList,
         });
 

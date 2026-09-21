@@ -22,6 +22,7 @@ export interface ICuratorCoreConfig {
   onPersist?: () => Promise<void> | void;
   onLog?: (level: 'INFO' | 'WARN' | 'ERROR', type: string, message: string, detail?: any) => void;
   customResolvers?: any;
+  customTypeDefs?: any;
 }
 
 export interface IGraphqlRequest {

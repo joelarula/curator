@@ -37,9 +37,9 @@
   </v-app-bar>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref } from 'vue';
-import { rehydrateSeed } from '@wasm/graphql-client.js';
+import { rehydrateSeed } from '@wasm/graphql-client';
 
 const emit = defineEmits(['toggle-drawer', 'seed-synced']);
 const syncing = ref(false);

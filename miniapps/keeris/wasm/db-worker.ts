@@ -5,48 +5,58 @@ import {
   resetDatabase,
   exportDatabaseBlob,
   importDatabaseFile,
-  isOpfsActive,
-} from './sqlite-opfs.js';
-import { executeInWorkerGraphql } from './graphql-schema.js';
+} from './sqlite-opfs';
+import { executeInWorkerGraphql } from './graphql-schema';
 import {
   startWasmRequestProcessor,
   enqueueScrapeRequest,
-  resolveAgentByTitle,
   PROGRAM_MANIFEST,
   setWasmEnginePaused,
-} from './wasm-curator-engine.js';
+  type RequestProcessorHandle,
+} from './wasm-curator-engine';
+import type { OpfsDatabase } from './types';
 
-let dbInstance = null;
-let processorInstance = null;
-let bootstrapPromise = null;
+let dbInstance: OpfsDatabase | null = null;
+let processorInstance: RequestProcessorHandle | null = null;
+let bootstrapPromise: Promise<OpfsDatabase> | null = null;
 
-let dbChangeDebounceTimer = null;
-const pendingChangedTables = new Set();
+let dbChangeDebounceTimer: any = null;
+const pendingChangedTables = new Set<string>();
 
 /**
  * Emit a debounced database mutation event to the main UI thread.
  * This notifies Vue views to reactively refresh their data without blind polling.
  */
-function emitDatabaseChange(tables = ['all']) {
-  tables.forEach(t => pendingChangedTables.add(t));
+function emitDatabaseChange(tables: string[] = ['all']): void {
+  tables.forEach((t) => pendingChangedTables.add(t));
 
   if (dbChangeDebounceTimer) return;
   dbChangeDebounceTimer = setTimeout(() => {
     dbChangeDebounceTimer = null;
     const tableList = Array.from(pendingChangedTables);
     pendingChangedTables.clear();
-    console.log(`%c[db-worker TX ⬅] %cDATABASE_CHANGED`, 'color: #10b981; font-weight: bold;', 'color: #94a3b8;', tableList);
+    console.log(
+      `%c[db-worker TX ⬅] %cDATABASE_CHANGED`,
+      'color: #10b981; font-weight: bold;',
+      'color: #94a3b8;',
+      tableList
+    );
     self.postMessage({ type: 'DATABASE_CHANGED', tables: tableList, timestamp: Date.now() });
   }, 300);
 }
 
 /**
  * Emit an agent progress event back to the main thread.
- * The graphql-client.js listens for AGENT_PROGRESS messages
+ * The graphql-client.ts listens for AGENT_PROGRESS messages
  * and broadcasts them to Vue components.
  */
-function emitProgress(eventType, payload) {
-  console.log(`%c[db-worker TX ⬅] %cAGENT_PROGRESS:${eventType}`, 'color: #38bdf8; font-weight: bold;', 'color: #cbd5e1;', payload);
+function emitProgress(eventType: string, payload: any): void {
+  console.log(
+    `%c[db-worker TX ⬅] %cAGENT_PROGRESS:${eventType}`,
+    'color: #38bdf8; font-weight: bold;',
+    'color: #cbd5e1;',
+    payload
+  );
   self.postMessage({ type: 'AGENT_PROGRESS', eventType, payload });
 
   // Push DB invalidation to the UI on data commits
@@ -59,12 +69,12 @@ function emitProgress(eventType, payload) {
   }
 }
 
-async function bootstrap() {
+async function bootstrap(): Promise<OpfsDatabase> {
   if (!bootstrapPromise) {
     bootstrapPromise = (async () => {
       try {
         console.log('[Web Worker] Bootstrapping SQLite OPFS & Curator Engine...');
-        const { sqlite3, db, isOpfs } = await initSqliteOpfs();
+        const { sqlite3, db } = await initSqliteOpfs();
         dbInstance = db;
         try {
           dbInstance.exec('CREATE INDEX IF NOT EXISTS idx_tracks_unique_track_id ON tracks(unique_track_id);');
@@ -80,24 +90,28 @@ async function bootstrap() {
         console.log(`[Web Worker] SQLite Storage Mode: Persistent OPFS (Disk)`);
 
         // Expose debug utilities on self for developer console inspection
-        self.__debug = {
+        (self as any).__debug = {
           getDb: () => dbInstance,
-          query: (sql, params = []) => {
-            const rows = [];
-            dbInstance.exec({ sql, bind: params, rowMode: 'object', resultRows: rows });
+          query: (sql: string, params: any[] = []) => {
+            const rows: any[] = [];
+            dbInstance?.exec({ sql, bind: params, rowMode: 'object', resultRows: rows } as any);
             console.table(rows);
             return rows;
           },
           processor: () => processorInstance,
           manifest: PROGRAM_MANIFEST,
         };
-        console.log('%c[Web Worker] Debug console ready! Switch console context to worker and run: %c__debug.query("SELECT * FROM episodes LIMIT 5")', 'color: #38bdf8;', 'color: #f59e0b; font-weight: bold;');
+        console.log(
+          '%c[Web Worker] Debug console ready! Switch console context to worker and run: %c__debug.query("SELECT * FROM episodes LIMIT 5")',
+          'color: #38bdf8;',
+          'color: #f59e0b; font-weight: bold;'
+        );
 
         self.postMessage({ type: 'READY', payload: { version: sqlite3.version.libVersion, isOpfs: true } });
         return dbInstance;
-      } catch (error) {
+      } catch (error: any) {
         console.error('[Web Worker] Initialization failed:', error);
-        self.postMessage({ type: 'ERROR', payload: { message: error.message } });
+        self.postMessage({ type: 'ERROR', payload: { message: error?.message } });
         throw error;
       }
     })();
@@ -105,9 +119,14 @@ async function bootstrap() {
   return bootstrapPromise;
 }
 
-self.onmessage = async (event) => {
+self.onmessage = async (event: MessageEvent) => {
   const { id, type, query, variables, agentName, refresh, payload } = event.data || {};
-  console.log(`%c[db-worker RX ➔] %c${type || 'UNKNOWN'}`, 'color: #a855f7; font-weight: bold;', 'color: #cbd5e1;', event.data);
+  console.log(
+    `%c[db-worker RX ➔] %c${type || 'UNKNOWN'}`,
+    'color: #a855f7; font-weight: bold;',
+    'color: #cbd5e1;',
+    event.data
+  );
 
   if (type === 'GRAPHQL_REQUEST') {
     try {
@@ -117,8 +136,8 @@ self.onmessage = async (event) => {
       if (query && typeof query === 'string' && query.trim().startsWith('mutation')) {
         emitDatabaseChange(['mutations', 'all']);
       }
-    } catch (err) {
-      self.postMessage({ id, type: 'GRAPHQL_RESPONSE', errors: [{ message: err.message }] });
+    } catch (err: any) {
+      self.postMessage({ id, type: 'GRAPHQL_RESPONSE', errors: [{ message: err?.message }] });
     }
   }
 
@@ -128,9 +147,9 @@ self.onmessage = async (event) => {
       const enqueued = enqueueScrapeRequest(db, agentName, refresh === true);
       self.postMessage({ id, type: 'AGENT_ENQUEUED', payload: enqueued });
       emitProgress('log', '[Worker] Enqueued scrape for: ' + enqueued.programTitle);
-    } catch (err) {
-      self.postMessage({ id, type: 'AGENT_ENQUEUED', error: err.message });
-      emitProgress('error', '[Worker] Failed to enqueue: ' + err.message);
+    } catch (err: any) {
+      self.postMessage({ id, type: 'AGENT_ENQUEUED', error: err?.message });
+      emitProgress('error', '[Worker] Failed to enqueue: ' + err?.message);
     }
   }
 
@@ -140,10 +159,12 @@ self.onmessage = async (event) => {
     if (success) {
       processorInstance?.stop();
       dbInstance = getCurrentDb();
-      processorInstance = startWasmRequestProcessor(dbInstance, {
-        intervalMs: 1500,
-        onProgress: emitProgress,
-      });
+      if (dbInstance) {
+        processorInstance = startWasmRequestProcessor(dbInstance, {
+          intervalMs: 1500,
+          onProgress: emitProgress,
+        });
+      }
       emitDatabaseChange(['all', 'stats', 'episodes', 'tracks', 'unique_tracks']);
     }
     self.postMessage({ id, type: 'REHYDRATE_RESPONSE', success });
@@ -164,8 +185,8 @@ self.onmessage = async (event) => {
     try {
       const arrayBuffer = await exportDatabaseBlob();
       self.postMessage({ id, type: 'EXPORT_RESPONSE', payload: arrayBuffer }, [arrayBuffer]);
-    } catch (err) {
-      self.postMessage({ id, type: 'ERROR', payload: { message: err.message } });
+    } catch (err: any) {
+      self.postMessage({ id, type: 'ERROR', payload: { message: err?.message } });
     }
   }
 
@@ -175,21 +196,23 @@ self.onmessage = async (event) => {
     try {
       const success = await importDatabaseFile(payload.arrayBuffer);
       dbInstance = getCurrentDb();
-      processorInstance = startWasmRequestProcessor(dbInstance, {
-        intervalMs: 1500,
-        onProgress: emitProgress,
-      });
+      if (dbInstance) {
+        processorInstance = startWasmRequestProcessor(dbInstance, {
+          intervalMs: 1500,
+          onProgress: emitProgress,
+        });
+      }
       if (success) {
         emitDatabaseChange(['all', 'stats', 'episodes', 'tracks', 'unique_tracks']);
       }
       self.postMessage({ id, type: 'IMPORT_RESPONSE', success });
-    } catch (err) {
-      self.postMessage({ id, type: 'ERROR', payload: { message: err.message } });
+    } catch (err: any) {
+      self.postMessage({ id, type: 'ERROR', payload: { message: err?.message } });
     }
   }
 
   if (type === 'GET_STORAGE_INFO') {
-    let estimate = { usage: 0, quota: 0 };
+    let estimate: { usage?: number; quota?: number } = { usage: 0, quota: 0 };
     if (typeof navigator !== 'undefined' && navigator.storage?.estimate) {
       try {
         estimate = await navigator.storage.estimate();

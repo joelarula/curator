@@ -228,9 +228,9 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, onActivated, onDeactivated } from 'vue';
-import { requestGraphql, onWorkerReady, onAgentProgress, onDatabaseChange } from '@wasm/graphql-client.js';
+import { requestGraphql, onWorkerReady, onAgentProgress, onDatabaseChange } from '@wasm/graphql-client';
 
 const breakdown = ref([]);
 const totals = ref({ episodes: 0, tracks: 0, uniqueTracks: 0, programs: 0 });

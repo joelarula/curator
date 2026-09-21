@@ -73,15 +73,17 @@
   </v-navigation-drawer>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { requestGraphql, onWorkerReady } from '@wasm/graphql-client.js';
+import { requestGraphql, onWorkerReady } from '@wasm/graphql-client';
 
-defineProps({
-  modelValue: Boolean,
-});
+defineProps<{
+  modelValue?: boolean;
+}>();
 
-defineEmits(['update:modelValue']);
+defineEmits<{
+  (e: 'update:modelValue', value: boolean): void;
+}>();
 
 const agents = ref([]);
 const requests = ref([]);

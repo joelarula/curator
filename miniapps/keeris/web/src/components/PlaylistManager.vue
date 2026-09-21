@@ -70,9 +70,9 @@
   </v-card>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { requestGraphql, onWorkerReady } from '@wasm/graphql-client.js';
+import { requestGraphql, onWorkerReady } from '@wasm/graphql-client';
 
 const playlists = ref([]);
 const showCreateDialog = ref(false);

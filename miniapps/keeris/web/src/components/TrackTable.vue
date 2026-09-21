@@ -111,13 +111,16 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { requestGraphql, onWorkerReady, onDatabaseChange } from '@wasm/graphql-client.js';
+import { requestGraphql, onWorkerReady, onDatabaseChange } from '@wasm/graphql-client';
+import type { Track } from '@wasm/types';
 
 const route = useRoute();
-defineEmits(['play-track']);
+defineEmits<{
+  (e: 'play-track', track: Track | any): void;
+}>();
 
 const searchQuery = ref('');
 const songs = ref([]);

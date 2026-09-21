@@ -1,0 +1,40 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "noImplicitAny": false,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "paths": {
+      "@/*": ["./web/src/*"],
+      "@wasm/*": ["./wasm/*"],
+      "@curator/console": ["../../packages/curator-console/src/index.ts"],
+      "@curator/ast": ["../../server/src/services/ast/types.ts"],
+      "@curator/wasm-core": ["../../server/src/wasm-core/types.ts"]
+    },
+    "types": ["node"]
+  },
+  "include": [
+    "wasm/**/*.ts",
+    "wasm/**/*.js",
+    "web/src/**/*.ts",
+    "web/src/**/*.d.ts",
+    "web/src/**/*.tsx",
+    "web/src/**/*.vue",
+    "web/vite.config.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "web-dist"
+  ]
+}

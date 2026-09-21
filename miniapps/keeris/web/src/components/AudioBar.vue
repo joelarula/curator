@@ -38,16 +38,17 @@
   </v-footer>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, watch } from 'vue';
+import type { Track } from '@wasm/types';
 
-const props = defineProps({
-  currentTrack: Object,
-});
+const props = defineProps<{
+  currentTrack?: Track | any | null;
+}>();
 
 defineEmits(['close']);
 
-const audioRef = ref(null);
+const audioRef = ref<HTMLAudioElement | null>(null);
 const isPlaying = ref(false);
 const audioUrl = ref('');
 
