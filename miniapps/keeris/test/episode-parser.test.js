@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseMusicList } from '../src/episode-parser.js';
+import { parseMusicList } from '../src/episode-parser.ts';
 
 test('parses ordered ERR music list rows', () => {
   const html = `<section><div class="music-list-item"><span class="music-artist">ANSAMBEL Keeris</span> - <span class="music-title">Laul &amp; lugu*</span></div><div class="music-list-item"><span class="music-artist">KATE</span> - <span class="music-title">Verevend</span></div></section>`;

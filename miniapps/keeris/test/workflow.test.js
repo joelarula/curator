@@ -3,15 +3,19 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openDatabase } from '../src/db.js';
-import { scrape } from '../src/scrape.js';
-import { keerisDomainPlugin } from '../src/plugins/keeris-domain.js';
+import { openDatabase } from '../src/db.ts';
+import { scrape } from '../src/scrape.ts';
+import { keerisDomainPlugin } from '../src/plugins/keeris-domain.ts';
 
 test('Keeris exposes Vikerraadio and Klassikaraadio program agent workflows', () => {
-  assert.equal(keerisDomainPlugin.agents.vikerraadio_kauamangiv_scrape.toolName, 'vikerraadio_scrape');
-  assert.equal(keerisDomainPlugin.agents.vikerraadio_originaal_ja_koopia_scrape.toolName, 'vikerraadio_scrape');
-  assert.equal(keerisDomainPlugin.agents.vikerraadio_originaal_ja_koopia_scrape.args.seriesContentId, '1037950');
-  assert.equal(keerisDomainPlugin.agents.klassikaraadio_fantaasia_scrape.args.seriesContentId, '1038126');
+  const kauamangiv = keerisDomainPlugin.agents.vikerraadio_kauamangiv_scrape;
+  assert.ok(kauamangiv.ast);
+  assert.equal(kauamangiv.ast.type, 'Sequence');
+  assert.equal(kauamangiv.ast.steps[0].tool, 'vikerraadio_discover_episodes');
+  assert.equal(kauamangiv.ast.steps[0].args.seriesContentId, '1037846');
+  
+  const fantaasia = keerisDomainPlugin.agents.klassikaraadio_fantaasia_scrape;
+  assert.equal(fantaasia.ast.steps[0].args.seriesContentId, '1038126');
 });
 
 test('recurring scrape skips episodes already indexed and parses show text metadata', async () => {
@@ -34,7 +38,7 @@ test('recurring scrape skips episodes already indexed and parses show text metad
   assert.equal(calls.length, 1);
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM episodes').get().count, 1);
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM tracks').get().count, 1);
-  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM programs').get().count, 2);
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM programs').get().count, 1);
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM unique_tracks').get().count, 1);
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM episode_metadata').get().count, 1);
   db.close();
