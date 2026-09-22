@@ -1,4 +1,4 @@
-﻿# Shared domain model — all types common to both the Node.js server and WASM/browser layer.
+# Shared domain model — all types common to both the Node.js server and WASM/browser layer.
 # Fields that only one layer populates are kept nullable so the other layer can omit them.
 # Layer-only types (ScrapeResult, CuratorDatabaseHealth, etc.) live in server.graphql / wasm.graphql.
 # Query and Mutation are layer-specific and defined in server.graphql / wasm.graphql.
@@ -29,6 +29,7 @@ type UniqueTrack {
   lastPlayedAt: String
   # Nullable so WASM resolvers can omit when not queried
   airings: [Track!]
+  snippet: String
 }
 
 type Track {
@@ -38,6 +39,8 @@ type Track {
   title: String
   rawText: String!
   date: String
+  episodeId: ID
+  programId: ID
   episodeTitle: String!
   episodeUrl: String!
   programTitle: String
@@ -79,7 +82,7 @@ type CuratorAgent {
   lastRunAt: String
 }
 
-type CuratorResponse { id: ID!, requestId: ID!, content: String, createdAt: String }
+type CuratorResponse { id: ID!, requestId: ID!, content: String, createdAt: String, status: String }
 
 type CuratorRequest {
   id: ID!
@@ -91,26 +94,4 @@ type CuratorRequest {
   agentName: String
   # WASM-only field (null in server)
   status: String
-}
-
-type PlaylistItem {
-  id: ID!
-  playlistId: ID!
-  position: Int!
-  notes: String
-  createdAt: String
-  uniqueTrack: UniqueTrack
-  track: Track
-  episode: Episode
-}
-
-type Playlist {
-  id: ID!
-  title: String!
-  description: String
-  createdAt: String
-  itemCount: Int!
-  items: [PlaylistItem!]!
-  # Server-only field (null in WASM)
-  updatedAt: String
 }

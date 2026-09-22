@@ -15,36 +15,35 @@
           <RouterLink to="/playlists" custom v-slot="{ href, navigate, isActive }">
             <a :href="href" :class="{ active: isActive }" @click="navigate"> 📋 Playlists </a>
           </RouterLink>
-          <RouterLink to="/agents" custom v-slot="{ href, navigate, isActive }">
-            <a :href="href" :class="{ active: isActive }" @click="navigate"> 🤖 Program Agents </a>
-          </RouterLink>
         </nav>
         <div class="masthead-right">
-          <button
-            class="header-db-btn"
-            type="button"
-            :disabled="isExporting"
-            title="Export Keeris SQLite database (.sqlite3)"
-            @click="handleExportDatabase"
-          >
-            {{ isExporting ? '⏳ Exporting...' : '⬇ Export DB' }}
-          </button>
-          <button
-            class="header-db-btn"
-            type="button"
-            :disabled="isImporting"
-            title="Import Keeris SQLite database (.sqlite3)"
-            @click="triggerFileInput"
-          >
-            {{ isImporting ? '⏳ Importing...' : '⬆ Import DB' }}
-          </button>
-          <input
-            ref="fileInputRef"
-            type="file"
-            accept=".sqlite,.sqlite3,.db"
-            style="display: none"
-            @change="handleFileSelected"
-          />
+          <template v-if="appMode === 'wasm'">
+            <button
+              class="header-db-btn"
+              type="button"
+              :disabled="isExporting"
+              title="Export Keeris SQLite database (.sqlite3)"
+              @click="handleExportDatabase"
+            >
+              {{ isExporting ? '⏳ Exporting...' : '⬇ Export DB' }}
+            </button>
+            <button
+              class="header-db-btn"
+              type="button"
+              :disabled="isImporting"
+              title="Import Keeris SQLite database (.sqlite3)"
+              @click="triggerFileInput"
+            >
+              {{ isImporting ? '⏳ Importing...' : '⬆ Import DB' }}
+            </button>
+            <input
+              ref="fileInputRef"
+              type="file"
+              accept=".sqlite,.sqlite3,.db"
+              style="display: none"
+              @change="handleFileSelected"
+            />
+          </template>
           <button
             class="console-nav-pill"
             :class="{ active: drawerOpen }"
@@ -80,8 +79,9 @@ import KeerisHeader from './components/KeerisHeader.vue';
 import { CuratorConsole } from '@curator/console';
 import { keerisCuratorAdapter } from './curator-adapter';
 import AudioBar from './components/AudioBar.vue';
-import { requestGraphql, onWorkerReady, exportDatabase, importDatabase, onDatabaseChange } from '@wasm/graphql-client';
+import { requestGraphql, onWorkerReady, exportDatabase, importDatabase, onDatabaseChange, getAppMode, type AppMode } from '@wasm/graphql-client';
 
+const appMode = ref<AppMode>('server');
 const drawerOpen = ref(false);
 const activeTrack = ref(null);
 const isExporting = ref(false);
@@ -153,8 +153,11 @@ function handleKeyDown(e) {
 let unsubDbChange: (() => void) | null = null;
 let statsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener('keydown', handleKeyDown);
+  try {
+    appMode.value = await getAppMode();
+  } catch (_) {}
   onWorkerReady(() => {
     fetchStats();
   });

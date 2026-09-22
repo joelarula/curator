@@ -49,9 +49,15 @@
             <h3>{{ prog.programTitle }}</h3>
             <span class="text-caption text-medium-emphasis">Series ID: {{ prog.programId }}</span>
           </div>
-          <span class="view-chip" :class="{ active: selectedProgramId === String(prog.programId) }">
-            {{ selectedProgramId === String(prog.programId) ? '● Viewing Index' : 'Browse Index →' }}
-          </span>
+          <div class="d-flex align-center ga-1" @click.stop>
+            <router-link
+              :to="`/program/${prog.programId}`"
+              class="view-chip active"
+              title="Explore broadcast program archive"
+            >
+              Explore Program ➔
+            </router-link>
+          </div>
         </div>
 
         <div class="prog-metrics">
@@ -152,7 +158,11 @@
             </div>
           </div>
 
-          <h4 class="ep-title">{{ ep.title }}</h4>
+          <h4 class="ep-title">
+            <router-link :to="`/episode/${ep.id}`" class="ep-title-link">
+              {{ ep.title }}
+            </router-link>
+          </h4>
 
           <p v-if="ep.metadata?.summary || ep.metadata?.description" class="ep-desc">
             {{ ep.metadata?.summary || ep.metadata?.description }}
@@ -171,12 +181,12 @@
               <span class="arrow-icon">↗</span>
             </a>
 
-            <!-- Navigate to main catalog Songs & Airings view filtered by this episode -->
+            <!-- Dedicated Episode Page -->
             <router-link
-              :to="{ path: '/', query: { search: ep.title, programId: ep.program?.id } }"
+              :to="`/episode/${ep.id}`"
               class="ep-btn ep-btn-secondary"
             >
-              <span>Explore Songs in Catalog</span>
+              <span>Episode Page</span>
               <span class="arrow-icon">➔</span>
             </router-link>
 

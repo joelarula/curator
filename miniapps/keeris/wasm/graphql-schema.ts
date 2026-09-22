@@ -28,6 +28,34 @@ function executeSql(db: OpfsDatabase, sql: string, params: any[] = []): void {
   });
 }
 
+function extractMatchSnippet(text: string | null | undefined, search: string, padding = 65): string | null {
+  if (!text || !search) return null;
+  const cleanSearch = search.trim();
+  if (!cleanSearch) return null;
+
+  const lowerText = text.toLowerCase();
+  const lowerSearch = cleanSearch.toLowerCase();
+  const idx = lowerText.indexOf(lowerSearch);
+  if (idx === -1) return null;
+
+  let start = Math.max(0, idx - padding);
+  let end = Math.min(text.length, idx + cleanSearch.length + padding);
+
+  if (start > 0) {
+    const space = text.indexOf(' ', start);
+    if (space !== -1 && space < idx) start = space + 1;
+  }
+  if (end < text.length) {
+    const space = text.lastIndexOf(' ', end);
+    if (space !== -1 && space > idx + cleanSearch.length) end = space;
+  }
+
+  let snippet = text.slice(start, end).trim().replace(/\s+/g, ' ');
+  if (start > 0) snippet = '...' + snippet;
+  if (end < text.length) snippet = snippet + '...';
+  return snippet;
+}
+
 export async function executeInWorkerGraphql(
   db: OpfsDatabase,
   query: string,
@@ -38,6 +66,14 @@ export async function executeInWorkerGraphql(
       return queryAll(
         db,
         'SELECT id, series_id AS seriesId, title, slug, description, url FROM programs ORDER BY id ASC'
+      );
+    },
+
+    program({ id }: { id: string }) {
+      return queryOne(
+        db,
+        'SELECT id, series_id AS seriesId, title, slug, description, url FROM programs WHERE id = ? OR series_id = ?',
+        [id, id]
       );
     },
 
@@ -94,6 +130,34 @@ export async function executeInWorkerGraphql(
       });
     },
 
+    episode({ id }: { id: string }) {
+      const ep = queryOne(
+        db,
+        'SELECT id, program_id, url, title, scheduled_at AS scheduledAt, published_at AS publishedAt, parse_status AS parseStatus FROM episodes WHERE id = ?',
+        [id]
+      );
+      if (!ep) return null;
+      const countRes = queryOne(db, 'SELECT COUNT(*) as count FROM tracks WHERE episode_id = ?', [ep.id]);
+      const prog = ep.program_id
+        ? queryOne(
+            db,
+            'SELECT id, series_id AS seriesId, title, slug, description, url FROM programs WHERE id = ?',
+            [ep.program_id]
+          )
+        : null;
+      const meta = queryOne(
+        db,
+        'SELECT id, description, full_text AS fullText, summary, keywords FROM episode_metadata WHERE episode_id = ?',
+        [ep.id]
+      );
+      return {
+        ...ep,
+        trackCount: countRes?.count || 0,
+        program: prog,
+        metadata: meta,
+      };
+    },
+
     tracks({
       search,
       programId,
@@ -109,6 +173,7 @@ export async function executeInWorkerGraphql(
     }) {
       let sql = `
         SELECT t.id, t.position, t.artist, t.title, t.raw_text AS rawText, t.unique_track_id,
+               t.episode_id AS episodeId, e.program_id AS programId,
                e.title AS episodeTitle, e.url AS episodeUrl, e.scheduled_at AS date,
                p.title AS programTitle
         FROM tracks t
@@ -210,6 +275,7 @@ export async function executeInWorkerGraphql(
 
         return {
           ...ut,
+          snippet: null,
           airings,
         };
       });
@@ -229,7 +295,8 @@ export async function executeInWorkerGraphql(
           db,
           `
           SELECT e.id, e.title AS episodeTitle, e.url AS episodeUrl, e.scheduled_at AS date,
-                 p.title AS programTitle, COALESCE(NULLIF(m.description, ''), m.summary) AS episodeDescription
+                 p.title AS programTitle, COALESCE(NULLIF(m.description, ''), m.summary) AS episodeDescription,
+                 m.full_text AS episodeFullText, m.description AS rawDescription, m.summary AS rawSummary
           FROM episodes e
           LEFT JOIN programs p ON p.id = e.program_id
           LEFT JOIN episode_metadata m ON m.episode_id = e.id
@@ -256,6 +323,29 @@ export async function executeInWorkerGraphql(
             [ep.id]
           );
 
+          const searchCandidates = [
+            ep.episodeFullText,
+            ep.rawDescription,
+            ep.rawSummary,
+            ep.episodeDescription,
+            ep.episodeTitle,
+          ].filter(Boolean);
+
+          let epSnippet: string | null = null;
+          for (const cand of searchCandidates) {
+            epSnippet = extractMatchSnippet(cand, clean);
+            if (epSnippet) break;
+          }
+
+          if (epTracks.length > 0) {
+            const needleLower = clean.toLowerCase();
+            epTracks.sort((a: any, b: any) => {
+              const aMatch = (a.artist?.toLowerCase().includes(needleLower) || a.title?.toLowerCase().includes(needleLower)) ? 1 : 0;
+              const bMatch = (b.artist?.toLowerCase().includes(needleLower) || b.title?.toLowerCase().includes(needleLower)) ? 1 : 0;
+              return bMatch - aMatch;
+            });
+          }
+
           formatted.push({
             id: `ep-${ep.id}`,
             fingerprint: `ep-${ep.id}`,
@@ -264,6 +354,7 @@ export async function executeInWorkerGraphql(
             playCount: 1,
             firstPlayedAt: ep.date,
             lastPlayedAt: ep.date,
+            snippet: epSnippet,
             airings:
               epTracks.length > 0
                 ? epTracks
@@ -275,7 +366,7 @@ export async function executeInWorkerGraphql(
                       episodeTitle: ep.episodeTitle,
                       episodeUrl: ep.episodeUrl,
                       programTitle: ep.programTitle,
-                      episodeDescription: ep.episodeDescription,
+                      episodeDescription: epSnippet || ep.episodeDescription,
                     },
                   ],
           });
@@ -312,89 +403,6 @@ export async function executeInWorkerGraphql(
         programs: prRow?.count || 0,
         programBreakdown,
       };
-    },
-
-    playlists() {
-      const rows = queryAll(
-        db,
-        'SELECT id, title, description, created_at AS createdAt FROM playlists ORDER BY id DESC'
-      );
-      return rows.map((p) => {
-        const countRes = queryOne(db, 'SELECT COUNT(*) as count FROM playlist_items WHERE playlist_id = ?', [p.id]);
-        return {
-          ...p,
-          itemCount: countRes?.count || 0,
-          items: [],
-        };
-      });
-    },
-
-    playlist({ id }: { id: string }) {
-      const p = queryOne(
-        db,
-        'SELECT id, title, description, created_at AS createdAt FROM playlists WHERE id = ?',
-        [id]
-      );
-      if (!p) return null;
-      const countRes = queryOne(db, 'SELECT COUNT(*) as count FROM playlist_items WHERE playlist_id = ?', [p.id]);
-      const items = queryAll(
-        db,
-        'SELECT id, playlist_id AS playlistId, position, notes, created_at AS createdAt, unique_track_id AS uniqueTrackId, track_id AS trackId, episode_id AS episodeId FROM playlist_items WHERE playlist_id = ? ORDER BY position ASC',
-        [p.id]
-      );
-      return {
-        ...p,
-        itemCount: countRes?.count || 0,
-        items,
-      };
-    },
-
-    createPlaylist({ title, description }: { title: string; description?: string }) {
-      executeSql(
-        db,
-        'INSERT INTO playlists (title, description) VALUES (?, ?)',
-        [title, description || null]
-      );
-      const row = queryOne(
-        db,
-        'SELECT id, title, description, created_at AS createdAt FROM playlists WHERE title = ? ORDER BY id DESC LIMIT 1',
-        [title]
-      );
-      return {
-        ...row,
-        itemCount: 0,
-        items: [],
-      };
-    },
-
-    addPlaylistItem({
-      playlistId,
-      trackId,
-      uniqueTrackId,
-      notes,
-    }: {
-      playlistId: string;
-      trackId?: string;
-      uniqueTrackId?: string;
-      notes?: string;
-    }) {
-      const posRow = queryOne(
-        db,
-        'SELECT MAX(position) as maxPos FROM playlist_items WHERE playlist_id = ?',
-        [playlistId]
-      );
-      const nextPos = (posRow?.maxPos || 0) + 1;
-      executeSql(
-        db,
-        'INSERT INTO playlist_items (playlist_id, track_id, unique_track_id, position, notes) VALUES (?, ?, ?, ?, ?)',
-        [playlistId, trackId || null, uniqueTrackId || null, nextPos, notes || null]
-      );
-      const row = queryOne(
-        db,
-        'SELECT id, playlist_id AS playlistId, position, notes, created_at AS createdAt FROM playlist_items WHERE playlist_id = ? AND position = ?',
-        [playlistId, nextPos]
-      );
-      return row;
     },
 
     curatorAgents() {

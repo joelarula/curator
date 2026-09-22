@@ -1,4 +1,4 @@
-﻿# WASM-only SDL — loaded on top of base.graphql for the browser Web Worker layer.
+# WASM-only SDL — loaded on top of base.graphql for the browser Web Worker layer.
 # All shared domain model types live in base.graphql.
 # This file only defines types exclusive to the WASM layer.
 
@@ -21,20 +21,18 @@ type CuratorDatabaseHealth {
 
 type Query {
   programs: [Program!]!
+  program(id: ID!): Program
   tracks(search: String, programId: ID, episodeId: ID, limit: Int, offset: Int): [Track!]!
   uniqueTracks(search: String, programIds: [ID], limit: Int, offset: Int): [UniqueTrack!]!
   episodes(search: String, programId: ID, limit: Int, offset: Int): [Episode!]!
+  episode(id: ID!): Episode
   stats(search: String, programIds: [ID]): Stats!
   curatorDatabaseHealth: CuratorDatabaseHealth!
   curatorAgents: [CuratorAgent!]!
   curatorRequests(limit: Int): [CuratorRequest!]!
-  playlists: [Playlist!]!
-  playlist(id: ID!): Playlist
 }
 
 type Mutation {
-  createPlaylist(title: String!, description: String): Playlist!
-  addPlaylistItem(playlistId: ID!, trackId: ID, uniqueTrackId: ID, notes: String): PlaylistItem!
   triggerCuratorAgent(agentName: String!): CuratorRequest!
   toggleCuratorAgent(id: ID!, isActive: Boolean!): CuratorAgent!
 }

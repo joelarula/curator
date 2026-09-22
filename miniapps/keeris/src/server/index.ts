@@ -1,3 +1,7 @@
+try {
+  process.loadEnvFile?.();
+} catch {}
+
 import express from 'express';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -10,9 +14,11 @@ import { startIndexer } from '../indexer.ts';
 import { startCuratorRuntime } from '../curator-runtime.ts';
 
 const root = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
-const port = Number(process.env.PORT ?? 4000);
+const port = Number(process.env.PORT ?? 4001);
 const databasePath = process.env.DATABASE_URL || process.env.DATABASE_PATH || config.defaultDatabase;
-const webRoot = join(root, 'web-dist');
+const webRoot = existsSync(join(root, 'web-dist', 'server'))
+  ? join(root, 'web-dist', 'server')
+  : join(root, 'web-dist');
 
 console.log('[Keeris Server] Initializing database...');
 const db = openDatabase(databasePath);
@@ -44,8 +50,12 @@ const app = express();
 
 app.disable('x-powered-by');
 app.use((_req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
   res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+  if (_req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
 app.use(express.json({ limit: '256kb' }));
@@ -60,6 +70,8 @@ app.get('/health', async (_request, response) => {
     const stats = await db.prepare('SELECT COUNT(*) AS episodes FROM episodes').get();
     response.json({
       status: 'ok',
+      serverApi: true,
+      mode: 'express-graphql',
       database: db.isPostgres ? 'postgresql' : 'sqlite',
       processor: curatorRuntime ? 'ready' : 'standalone',
       plugins: engine.plugins.map((plugin: any) => plugin.name),
@@ -74,7 +86,7 @@ app.get('/graphql', (_request, response) => {
   response.type('html').send(`<!DOCTYPE html>
 <html>
 <head>
-  <title>Keeris WASM / GraphQL Explorer</title>
+  <title>Keeris GraphQL Explorer</title>
   <link rel="stylesheet" href="https://unpkg.com/graphiql@3/graphiql.min.css" />
   <style>body { height: 100vh; margin: 0; overflow: hidden; }</style>
 </head>
@@ -99,7 +111,7 @@ app.post('/graphql', async (request, response) => {
 });
 
 if (existsSync(webRoot)) {
-  console.log(`[Keeris Server] Serving static WebAssembly bundle from: ${webRoot}`);
+  console.log(`[Keeris Server] Serving static web frontend from: ${webRoot}`);
   app.use((req, res, next) => {
     if (req.path === '/' || req.path === '/index.html') {
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');

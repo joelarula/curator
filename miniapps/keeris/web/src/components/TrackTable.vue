@@ -70,11 +70,37 @@
       >
         <div class="song-header">
           <div class="song-title-group">
-            <span class="play-count-badge episode-badge" v-if="String(song.id).startsWith('ep-')">Episode text match</span>
-            <span class="play-count-badge" v-else-if="(song.playCount ?? 0) > 1">Played {{ song.playCount }}x</span>
-            <span class="play-count-badge single" v-else>Played 1x</span>
-            <h2 v-html="highlight(song.title || 'Untitled song', searchQuery)"></h2>
-            <p class="artist" v-html="highlight(song.artist || 'Unknown artist', searchQuery)"></p>
+            <div class="d-flex align-start justify-space-between flex-wrap ga-2">
+              <div class="song-heading">
+                <h2 v-html="highlight(song.title || 'Untitled song', searchQuery)"></h2>
+                <div class="artist-row d-flex align-center flex-wrap ga-2 mt-1">
+                  <span class="artist" v-html="highlight(song.artist || 'Unknown artist', searchQuery)"></span>
+                  <span class="play-count-badge episode-badge" v-if="String(song.id).startsWith('ep-')">Episode match</span>
+                  <router-link
+                    v-else-if="(song.playCount ?? 0) > 1 && song.airings?.[0]?.programId"
+                    :to="`/program/${song.airings[0].programId}`"
+                    class="play-count-badge play-count-link"
+                    title="View program archive for this show"
+                  >
+                    Played {{ song.playCount }}x ➔
+                  </router-link>
+                  <span class="play-count-badge" v-else-if="(song.playCount ?? 0) > 1">Played {{ song.playCount }}x</span>
+                  <span class="play-count-badge single" v-else>1x</span>
+                </div>
+              </div>
+              <button
+                class="add-playlist-btn"
+                type="button"
+                @click="openAddToPlaylist(song, (song.airings && song.airings[0]) || null)"
+                title="Add song to a playlist"
+              >
+                + Playlist
+              </button>
+            </div>
+            <div v-if="song.snippet" class="episode-match-snippet">
+              <span class="snippet-label">Match in episode notes:</span>
+              <span class="snippet-quote" v-html="highlight(song.snippet, searchQuery)"></span>
+            </div>
           </div>
         </div>
         <div class="airings-section">
@@ -85,15 +111,49 @@
               class="airing-item"
             >
               <div class="airing-meta">
-                <span v-if="airing.programTitle" class="program-badge">{{ airing.programTitle }}</span>
+                <router-link
+                  v-if="airing.programTitle && airing.programId"
+                  :to="`/program/${airing.programId}`"
+                  class="program-badge program-badge-link"
+                  title="View program broadcast archive"
+                >
+                  {{ airing.programTitle }}
+                </router-link>
+                <span v-else-if="airing.programTitle" class="program-badge">{{ airing.programTitle }}</span>
                 <span class="airing-date">{{ airing.date ? airing.date.slice(0, 10) : '' }}</span>
                 <span v-if="airing.position" class="airing-pos">Track {{ airing.position }}</span>
-                <span v-if="airing.episodeTitle" class="episode-title">— <span><span v-html="highlight(airing.episodeTitle, searchQuery)"></span></span></span>
+                <router-link
+                  v-if="airing.episodeId && airing.episodeTitle"
+                  :to="`/episode/${airing.episodeId}`"
+                  class="episode-title-link"
+                  title="Open dedicated episode page"
+                >
+                  — <span v-html="highlight(airing.episodeTitle, searchQuery)"></span>
+                </router-link>
+                <span v-else-if="airing.episodeTitle" class="episode-title">— <span><span v-html="highlight(airing.episodeTitle, searchQuery)"></span></span></span>
               </div>
               <p v-if="airing.episodeDescription" class="episode-desc" v-html="highlight(airing.episodeDescription, searchQuery)"></p>
-              <a :href="airing.episodeUrl ?? undefined" target="_blank" rel="noreferrer" class="open-link">
-                Open episode <span aria-hidden="true">↗</span>
-              </a>
+              <div class="d-flex align-center flex-wrap ga-2 mt-1">
+                <a :href="airing.episodeUrl ?? undefined" target="_blank" rel="noreferrer" class="open-link" title="Listen to broadcast audio on ERR">
+                  Listen <span aria-hidden="true">↗</span>
+                </a>
+                <router-link
+                  v-if="airing.episodeId"
+                  :to="`/episode/${airing.episodeId}`"
+                  class="open-link"
+                  title="View episode details and full tracklist"
+                >
+                  Episode Page ➔
+                </router-link>
+                <button
+                  class="airing-playlist-btn"
+                  type="button"
+                  @click="openAddToPlaylist(song, airing)"
+                  title="Add this episode airing to a playlist"
+                >
+                  + Playlist
+                </button>
+              </div>
             </li>
           </ul>
           <button
@@ -108,6 +168,17 @@
         </div>
       </article>
     </section>
+
+    <!-- Add to Playlist Dialog -->
+    <AddToPlaylistDialog
+      v-model="playlistDialogOpen"
+      :track="trackForPlaylist"
+      @added="onTrackAddedToPlaylist"
+    />
+
+    <v-snackbar v-model="snackbarVisible" timeout="3000" color="success" location="bottom right">
+      Added to "{{ lastAddedPlaylistTitle }}"!
+    </v-snackbar>
   </div>
 </template>
 
@@ -116,11 +187,38 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { requestGraphql, onWorkerReady, onDatabaseChange } from '@wasm/graphql-client';
 import type { Track } from '@wasm/types';
+import AddToPlaylistDialog from './AddToPlaylistDialog.vue';
+import type { PlaylistItem } from '../services/playlistStorage';
 
 const route = useRoute();
 defineEmits<{
   (e: 'play-track', track: Track | any): void;
 }>();
+
+const playlistDialogOpen = ref(false);
+const trackForPlaylist = ref<Partial<PlaylistItem> | null>(null);
+const snackbarVisible = ref(false);
+const lastAddedPlaylistTitle = ref('');
+
+function openAddToPlaylist(song: SongItem, airing?: AiringItem | null) {
+  trackForPlaylist.value = {
+    title: song.title || 'Untitled song',
+    artist: song.artist || 'Unknown artist',
+    uniqueTrackId: typeof song.id === 'number' ? song.id : null,
+    trackId: airing ? (typeof airing.id === 'number' ? airing.id : null) : null,
+    programTitle: airing?.programTitle || null,
+    episodeTitle: airing?.episodeTitle || null,
+    episodeUrl: airing?.episodeUrl || null,
+    airDate: airing?.date ? airing.date.slice(0, 10) : null,
+    position: airing?.position || null,
+  };
+  playlistDialogOpen.value = true;
+}
+
+function onTrackAddedToPlaylist({ playlistTitle }: { playlistTitle: string }) {
+  lastAddedPlaylistTitle.value = playlistTitle;
+  snackbarVisible.value = true;
+}
 
 export interface ProgramBreakdownItem {
   programId: string;
@@ -134,6 +232,8 @@ export interface AiringItem {
   id: string | number;
   position?: number | string | null;
   date?: string | null;
+  episodeId?: string | number | null;
+  programId?: string | number | null;
   episodeTitle?: string | null;
   episodeUrl?: string | null;
   programTitle?: string | null;
@@ -307,10 +407,13 @@ async function fetchData() {
           playCount
           firstPlayedAt
           lastPlayedAt
+          snippet
           airings {
             id
             position
             date
+            episodeId
+            programId
             episodeTitle
             episodeUrl
             programTitle
@@ -398,5 +501,104 @@ onUnmounted(() => {
   font-weight: bold;
   padding: 0 2px;
   border-radius: 2px;
+}
+
+.is-episode-match {
+  border-left: 4px solid #0284c7 !important;
+  background: #f8fafc;
+}
+
+.episode-badge {
+  background: #e0f2fe !important;
+  color: #0369a1 !important;
+  border: 1px solid #bae6fd !important;
+  font-weight: 600;
+}
+
+.episode-match-snippet {
+  margin: 8px 0 4px;
+  padding: 8px 12px;
+  background: #f0f9ff;
+  border-left: 3px solid #0284c7;
+  border-radius: 0 4px 4px 0;
+  font-size: 0.88rem;
+  color: #1e293b;
+  line-height: 1.45;
+}
+
+.snippet-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #0284c7;
+  margin-bottom: 2px;
+}
+
+.snippet-quote {
+  font-style: italic;
+  color: #334155;
+}
+
+.add-playlist-btn {
+  background: transparent;
+  border: 1px solid #10b981;
+  color: #047857;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.add-playlist-btn:hover {
+  background: #10b981;
+  color: #ffffff;
+}
+
+.airing-playlist-btn {
+  background: transparent;
+  border: 1px solid #94a3b8;
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.play-count-link {
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.play-count-link:hover {
+  background: rgba(23, 34, 31, 0.16);
+  color: #17221f;
+  border-color: rgba(23, 34, 31, 0.3);
+}
+
+.program-badge-link {
+  text-decoration: none;
+  transition: opacity 0.15s ease;
+}
+.program-badge-link:hover {
+  opacity: 0.85;
+}
+
+.episode-title-link {
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+.episode-title-link:hover {
+  color: #0284c7;
+  text-decoration: underline;
 }
 </style>

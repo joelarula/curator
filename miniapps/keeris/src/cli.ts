@@ -1,3 +1,7 @@
+try {
+  process.loadEnvFile?.();
+} catch {}
+
 import { Command } from 'commander';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { openDatabase } from './db.ts';
