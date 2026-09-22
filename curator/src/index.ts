@@ -21,6 +21,7 @@ export * from './tools/index.js';
 export * from './services/SemanticSchemaEngine.js';
 export * from './services/BrowserRelayService.js';
 export * from './db/sqliteProvisioner.js';
+export * from './db/mariadbProvisioner.js';
 
 // Built-in Plugins
 export * from './plugins/core/index.js';

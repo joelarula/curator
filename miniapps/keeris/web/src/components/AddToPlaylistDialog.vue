@@ -148,7 +148,7 @@ const statusType = ref<'success' | 'error'>('success');
 const playlistOptions = computed(() => {
   return playlists.value.map((p) => ({
     id: p.id,
-    title: `${p.title} (${p.items.length} tracks)`,
+    title: `${p.title} (${t('addToPlaylist.trackCount', { n: p.items.length })})`,
     raw: p,
   }));
 });

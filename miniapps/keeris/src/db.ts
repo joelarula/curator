@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import pg from 'pg';
+import mysql from 'mysql2/promise';
 
 export function normalizeText(text: unknown): string {
   if (text == null) return '';
@@ -268,14 +269,176 @@ export function createPostgresAdapter(connectionString: string) {
   return adapter;
 }
 
-export function openDatabase(filenameOrUrl: string): any {
-  if (typeof filenameOrUrl === 'string' && (filenameOrUrl.startsWith('postgres://') || filenameOrUrl.startsWith('postgresql://'))) {
-    return createPostgresAdapter(filenameOrUrl);
+export async function ensureMysqlSchema(pool: any): Promise<void> {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS programs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        series_id VARCHAR(255) NOT NULL UNIQUE,
+        title VARCHAR(500) NOT NULL,
+        slug VARCHAR(255) UNIQUE,
+        description TEXT,
+        url TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS episodes (
+        id INT PRIMARY KEY,
+        program_id INT,
+        url VARCHAR(500) NOT NULL UNIQUE,
+        title VARCHAR(500) NOT NULL,
+        scheduled_at VARCHAR(100),
+        published_at VARCHAR(100),
+        fetched_at VARCHAR(100) NOT NULL,
+        raw_hash VARCHAR(100),
+        parse_status VARCHAR(50) DEFAULT 'pending',
+        parse_error TEXT,
+        INDEX idx_episodes_scheduled_at (scheduled_at),
+        INDEX idx_episodes_program_id (program_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS unique_tracks (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        fingerprint VARCHAR(500) NOT NULL UNIQUE,
+        artist VARCHAR(500),
+        title VARCHAR(500),
+        play_count INT DEFAULT 1,
+        first_played_at VARCHAR(100),
+        last_played_at VARCHAR(100),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_unique_tracks_play_count (play_count),
+        INDEX idx_unique_tracks_artist (artist)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS tracks (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        episode_id INT NOT NULL,
+        unique_track_id INT,
+        position INT NOT NULL,
+        artist VARCHAR(500),
+        title VARCHAR(500),
+        raw_text TEXT NOT NULL,
+        UNIQUE KEY uq_tracks_ep_pos (episode_id, position),
+        INDEX idx_tracks_artist (artist),
+        INDEX idx_tracks_unique_track_id (unique_track_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS episode_metadata (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        episode_id INT NOT NULL UNIQUE,
+        description MEDIUMTEXT,
+        full_text LONGTEXT,
+        summary MEDIUMTEXT,
+        keywords TEXT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS playlists (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        description TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS playlist_items (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        playlist_id INT NOT NULL,
+        unique_track_id INT,
+        track_id INT,
+        episode_id INT,
+        position INT DEFAULT 1,
+        notes TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_playlist_items_pos (playlist_id, position)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+  } catch (err: any) {
+    console.warn('[MariaDB/MySQL] ensureMysqlSchema notice:', err?.message);
+  }
+}
+
+export function convertSqlToMysql(sql: string): string {
+  // Convert SQLite/Postgres string concatenation (expr || ' ' || expr) to MariaDB/MySQL CONCAT(...)
+  return sql.replace(/(coalesce\([^)]+\)|[a-zA-Z0-9_.]+|'[^']*')(?:\s*\|\|\s*(?:coalesce\([^)]+\)|[a-zA-Z0-9_.]+|'[^']*'))+/gi, (match) => {
+    const parts = match.split(/\s*\|\|\s*/);
+    return `CONCAT(${parts.join(', ')})`;
+  });
+}
+
+export function createMysqlAdapter(connectionString: string) {
+  const pool = mysql.createPool(connectionString);
+  pool.on('connection', (connection: any) => {
+    connection.query("SET sql_mode = CONCAT(@@sql_mode, ',PIPES_AS_CONCAT')");
+  });
+  ensureMysqlSchema(pool).catch(err => {
+    console.warn('[MariaDB/MySQL] Schema initialization notice:', err.message);
+  });
+
+  const adapter = {
+    isPostgres: false,
+    isMysql: true,
+    pool,
+    prepare(sql: string) {
+      const mysqlSql = convertSqlToMysql(sql);
+      return {
+        async all(...params: any[]) {
+          const flatParams = params.length === 1 && Array.isArray(params[0]) ? params[0] : params;
+          const [rows]: any = await pool.query(mysqlSql, flatParams);
+          return rows;
+        },
+        async get(...params: any[]) {
+          const flatParams = params.length === 1 && Array.isArray(params[0]) ? params[0] : params;
+          const [rows]: any = await pool.query(mysqlSql, flatParams);
+          return rows[0] || null;
+        },
+        async run(...params: any[]) {
+          const flatParams = params.length === 1 && Array.isArray(params[0]) ? params[0] : params;
+          const [res]: any = await pool.query(mysqlSql, flatParams);
+          return {
+            changes: res.affectedRows,
+            lastInsertRowid: res.insertId ?? null
+          };
+        }
+      };
+    },
+    async exec(sql: string) {
+      return await pool.query(sql);
+    },
+    async close() {
+      await pool.end();
+    }
+  };
+
+  return adapter;
+}
+
+export function openDatabase(filenameOrUrl?: string): any {
+  const target = filenameOrUrl || process.env.DATABASE_URL || 'mysql://curator:curator_secret@192.168.1.110:3306/keeris';
+  if (typeof target === 'string' && (target.startsWith('postgres://') || target.startsWith('postgresql://'))) {
+    return createPostgresAdapter(target);
+  }
+  if (typeof target === 'string' && (target.startsWith('mysql://') || target.startsWith('mariadb://'))) {
+    return createMysqlAdapter(target);
   }
 
-  mkdirSync(dirname(filenameOrUrl), { recursive: true });
-  const db: any = new DatabaseSync(filenameOrUrl);
+  mkdirSync(dirname(target), { recursive: true });
+  const db: any = new DatabaseSync(target);
   db.isPostgres = false;
+  db.isMysql = false;
 
   try {
     db.function('norm_text', (text: unknown) => normalizeText(text));
@@ -334,6 +497,12 @@ export async function ensureUniqueTrack(
       RETURNING id
     `, [fingerprint, artist ?? null, title ?? null, playedAt, playedAt, now, now]);
     return res.rows[0]?.id;
+  } else if (db.isMysql) {
+    const [res]: any = await db.pool.query(`
+      INSERT INTO unique_tracks (fingerprint, artist, title, play_count, first_played_at, last_played_at, created_at, updated_at)
+      VALUES (?, ?, ?, 1, ?, ?, NOW(), NOW())
+    `, [fingerprint, artist ?? null, title ?? null, playedAt, playedAt]);
+    return res.insertId;
   }
 
   const result = db.prepare(`INSERT INTO unique_tracks (fingerprint, artist, title, play_count, first_played_at, last_played_at, created_at, updated_at)
@@ -364,6 +533,19 @@ export async function ensureProgram(db: any, { seriesId, title, slug = null, des
       RETURNING *
     `, [seriesId, title, slug, description, url, now, now]);
     return res.rows[0];
+  } else if (db.isMysql) {
+    await db.pool.query(`
+      INSERT INTO programs (series_id, title, slug, description, url, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, NOW(), NOW())
+      ON DUPLICATE KEY UPDATE
+        title = VALUES(title),
+        slug = COALESCE(VALUES(slug), slug),
+        description = COALESCE(VALUES(description), description),
+        url = COALESCE(VALUES(url), url),
+        updated_at = NOW()
+    `, [seriesId, title, slug, description, url]);
+    const [rows]: any = await db.pool.query('SELECT * FROM programs WHERE series_id = ?', [seriesId]);
+    return rows[0];
   }
 
   db.prepare(`INSERT INTO programs (series_id, title, slug, description, url, created_at, updated_at)
@@ -481,6 +663,79 @@ export async function saveProgramData(
       throw err;
     } finally {
       client.release();
+    }
+    return;
+  } else if (db.isMysql) {
+    const conn = await db.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      if (program?.seriesId) {
+        await conn.query(`
+          INSERT INTO programs (series_id, title, slug, description, url, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, NOW(), NOW())
+          ON DUPLICATE KEY UPDATE
+            title = VALUES(title),
+            slug = COALESCE(VALUES(slug), slug),
+            description = COALESCE(VALUES(description), description),
+            url = COALESCE(VALUES(url), url),
+            updated_at = NOW()
+        `, [program.seriesId, program.title, program.slug ?? null, program.description ?? null, program.url ?? null]);
+        const [pRows]: any = await conn.query('SELECT id FROM programs WHERE series_id = ?', [program.seriesId]);
+        programRecord = pRows[0];
+      }
+
+      await conn.query(`
+        INSERT INTO episodes (id, program_id, url, title, scheduled_at, published_at, fetched_at, raw_hash, parse_status, parse_error)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          program_id = COALESCE(VALUES(program_id), program_id),
+          url = VALUES(url),
+          title = VALUES(title),
+          scheduled_at = VALUES(scheduled_at),
+          published_at = VALUES(published_at),
+          fetched_at = VALUES(fetched_at),
+          raw_hash = VALUES(raw_hash),
+          parse_status = VALUES(parse_status),
+          parse_error = VALUES(parse_error)
+      `, [
+        episode.id, programRecord?.id ?? episode.programId ?? null, episode.url, episode.heading ?? episode.title ?? 'Episode',
+        episode.scheduledAt ?? null, episode.publishedAt ?? null, now, rawHash, status, error
+      ]);
+
+      if (tracks && tracks.length > 0) {
+        await conn.query('DELETE FROM tracks WHERE episode_id = ?', [episode.id]);
+        for (const track of tracks) {
+          const uId = await ensureUniqueTrack(db, track.artist, track.title, track.rawText, episode.scheduledAt ?? null);
+          await conn.query(`
+            INSERT INTO tracks (episode_id, unique_track_id, position, artist, title, raw_text)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+              unique_track_id = VALUES(unique_track_id),
+              artist = VALUES(artist),
+              title = VALUES(title),
+              raw_text = VALUES(raw_text)
+          `, [episode.id, uId, track.position, track.artist ?? null, track.title ?? null, track.rawText]);
+        }
+      }
+
+      if (metadata && (metadata.description || metadata.fullText || metadata.summary || metadata.keywords)) {
+        await conn.query(`
+          INSERT INTO episode_metadata (episode_id, description, full_text, summary, keywords)
+          VALUES (?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE
+            description = VALUES(description),
+            full_text = VALUES(full_text),
+            summary = VALUES(summary),
+            keywords = VALUES(keywords)
+        `, [episode.id, metadata.description ?? null, metadata.fullText ?? null, metadata.summary ?? null, metadata.keywords ?? null]);
+      }
+
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
     }
     return;
   }

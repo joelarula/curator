@@ -30,6 +30,9 @@ import {
   mdiFileDocumentOutline,
   mdiOpenInNew,
   mdiMagnify,
+  mdiMenu,
+  mdiViewList,
+  mdiDotsVertical,
 } from '@mdi/js';
 
 const curatorLightTheme: ThemeDefinition = {
@@ -96,6 +99,9 @@ export default createVuetify({
       'mdi-file-document-outline': mdiFileDocumentOutline,
       'mdi-open-in-new': mdiOpenInNew,
       'mdi-magnify': mdiMagnify,
+      'mdi-menu': mdiMenu,
+      'mdi-view-list': mdiViewList,
+      'mdi-dots-vertical': mdiDotsVertical,
     },
     sets: {
       mdi,

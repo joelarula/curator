@@ -1,4 +1,5 @@
 import { provisionSqliteDb, CuratorRequestProcessor } from '@curator/agent-server';
+import { provisionMariadbDb } from '../../../curator/src/db/mariadbProvisioner.ts';
 import { registerKeerisPlugins } from './plugins/index.ts';
 
 export interface StartCuratorRuntimeOptions {
@@ -20,9 +21,15 @@ export async function startCuratorRuntime({
     await registerKeerisPlugins({ db: keerisDb });
   }
 
-  const prisma: any = await provisionSqliteDb(databaseName, false, {
-    databasePath: process.env.CURATOR_DATABASE_PATH ?? 'data/curator.db',
-  });
+  const curatorDbUrl = process.env.CURATOR_DATABASE_URL || 'mysql://curator:curator_secret@192.168.1.110:3306/curator';
+  let prisma: any;
+  if (curatorDbUrl && (curatorDbUrl.startsWith('mysql://') || curatorDbUrl.startsWith('mariadb://'))) {
+    prisma = await provisionMariadbDb(curatorDbUrl);
+  } else {
+    prisma = await provisionSqliteDb(databaseName, false, {
+      databasePath: process.env.CURATOR_DATABASE_PATH ?? 'data/curator.db',
+    });
+  }
 
   const user = await prisma.user.upsert({ where: { email: 'system@local' }, update: {}, create: { id: '1', name: 'System User', email: 'system@local' } });
   const project = await prisma.project.upsert({ where: { id: '1' }, update: {}, create: { id: '1', name: 'Keeris', userId: user.id } });

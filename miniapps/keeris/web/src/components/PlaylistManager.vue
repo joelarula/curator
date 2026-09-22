@@ -4,8 +4,8 @@
     <template v-if="activePlaylist">
       <v-card color="surface" variant="outlined" class="pa-4 rounded-lg">
         <!-- Detail Header -->
-        <div class="d-flex align-center justify-space-between flex-wrap ga-3 pb-3 border-b">
-          <div class="d-flex align-center ga-3">
+        <div class="d-flex flex-column flex-md-row align-start align-md-center justify-space-between ga-3 pb-3 border-b">
+          <div class="d-flex align-start align-sm-center ga-3 w-100 w-md-auto">
             <v-btn
               variant="tonal"
               size="small"
@@ -14,8 +14,8 @@
             >
               {{ t('playlistManager.allPlaylists') }}
             </v-btn>
-            <div>
-              <div class="d-flex align-center ga-2">
+            <div class="flex-grow-1 min-w-0">
+              <div class="d-flex align-center flex-wrap ga-2">
                 <h1 class="text-h5 font-weight-bold mb-0">{{ activePlaylist.title }}</h1>
                 <v-btn
                   icon="mdi-pencil"
@@ -35,30 +35,12 @@
           </div>
 
           <!-- Detail Action Buttons -->
-          <div class="d-flex align-center flex-wrap ga-2">
+          <div class="d-flex align-center flex-wrap ga-2 w-100 w-md-auto">
             <v-btn
               color="primary"
               variant="flat"
               size="small"
-              prepend-icon="mdi-content-copy"
-              @click="handleCopyMarkdown(activePlaylist)"
-            >
-              {{ copiedMarkdown ? t('playlistManager.copied') : t('playlistManager.copyMarkdown') }}
-            </v-btn>
-
-            <v-btn
-              color="secondary"
-              variant="tonal"
-              size="small"
-              prepend-icon="mdi-download"
-              @click="handleDownloadMarkdown(activePlaylist)"
-            >
-              {{ t('playlistManager.downloadMd') }}
-            </v-btn>
-
-            <v-btn
-              variant="outlined"
-              size="small"
+              class="flex-grow-1 flex-md-grow-0"
               prepend-icon="mdi-plus"
               @click="showAddTrackDialog = true"
             >
@@ -66,9 +48,31 @@
             </v-btn>
 
             <v-btn
+              color="secondary"
+              variant="tonal"
+              size="small"
+              class="flex-grow-1 flex-md-grow-0"
+              prepend-icon="mdi-content-copy"
+              @click="handleCopyMarkdown(activePlaylist)"
+            >
+              {{ copiedMarkdown ? t('playlistManager.copied') : t('playlistManager.copyMarkdown') }}
+            </v-btn>
+
+            <v-btn
+              variant="outlined"
+              size="small"
+              class="flex-grow-1 flex-md-grow-0"
+              prepend-icon="mdi-download"
+              @click="handleDownloadMarkdown(activePlaylist)"
+            >
+              {{ t('playlistManager.downloadMd') }}
+            </v-btn>
+
+            <v-btn
               color="error"
               variant="text"
               size="small"
+              class="flex-grow-1 flex-md-grow-0"
               prepend-icon="mdi-delete"
               @click="confirmDeletePlaylist(activePlaylist)"
             >
@@ -116,15 +120,15 @@
             <div
               v-for="(item, idx) in filteredItems"
               :key="item.id"
-              class="track-item d-flex align-center justify-space-between pa-3 mb-2 rounded"
+              class="track-item d-flex flex-column flex-sm-row align-start align-sm-center justify-space-between pa-3 mb-2 rounded ga-2"
             >
-              <div class="d-flex align-start ga-3 flex-grow-1">
+              <div class="d-flex align-start ga-3 flex-grow-1 w-100 min-w-0">
                 <!-- Position badge -->
-                <span class="track-number-badge font-weight-bold">
+                <span class="track-number-badge font-weight-bold flex-shrink-0">
                   #{{ getOriginalIndex(item) + 1 }}
                 </span>
 
-                <div class="flex-grow-1">
+                <div class="flex-grow-1 min-w-0">
                   <!-- Title & Artist -->
                   <div class="d-flex align-baseline flex-wrap ga-2">
                     <span class="font-weight-bold text-subtitle-1">{{ item.title }}</span>
@@ -180,13 +184,13 @@
               </div>
 
               <!-- Item Actions -->
-              <div class="d-flex align-center ga-1 ml-2">
+              <div class="d-flex align-center justify-end w-100 w-sm-auto ga-1 pt-1 pt-sm-0 border-t border-sm-0">
                 <v-btn
                   v-if="!item.notes"
                   icon="mdi-pencil"
                   variant="text"
                   size="small"
-                  density="compact"
+                  density="comfortable"
                   title="Add / edit notes"
                   @click="openEditNotesDialog(item)"
                 />
@@ -195,7 +199,7 @@
                   icon="mdi-arrow-up"
                   variant="text"
                   size="small"
-                  density="compact"
+                  density="comfortable"
                   :disabled="getOriginalIndex(item) === 0"
                   title="Move track up"
                   @click="moveTrack(getOriginalIndex(item), -1)"
@@ -205,7 +209,7 @@
                   icon="mdi-arrow-down"
                   variant="text"
                   size="small"
-                  density="compact"
+                  density="comfortable"
                   :disabled="getOriginalIndex(item) === activePlaylist.items.length - 1"
                   title="Move track down"
                   @click="moveTrack(getOriginalIndex(item), 1)"
@@ -216,7 +220,7 @@
                   color="error"
                   variant="text"
                   size="small"
-                  density="compact"
+                  density="comfortable"
                   title="Remove from playlist"
                   @click="removeTrack(item.id)"
                 />
@@ -241,11 +245,12 @@
             </div>
           </div>
 
-          <div class="d-flex align-center flex-wrap ga-2">
+          <div class="d-flex align-center flex-wrap ga-2 w-100 w-sm-auto">
             <v-btn
               color="primary"
               variant="flat"
               size="small"
+              class="flex-grow-1 flex-sm-grow-0"
               prepend-icon="mdi-plus"
               @click="showCreateDialog = true"
             >
@@ -257,6 +262,7 @@
               color="secondary"
               variant="tonal"
               size="small"
+              class="flex-grow-1 flex-sm-grow-0"
               prepend-icon="mdi-file-document-outline"
               @click="showExportAllModal = true"
             >
@@ -266,6 +272,7 @@
             <v-btn
               variant="outlined"
               size="small"
+              class="flex-grow-1 flex-sm-grow-0"
               prepend-icon="mdi-download"
               title="Backup all playlists to a JSON file"
               @click="handleBackupJson"
@@ -276,6 +283,7 @@
             <v-btn
               variant="outlined"
               size="small"
+              class="flex-grow-1 flex-sm-grow-0"
               prepend-icon="mdi-upload"
               title="Restore or import playlists from JSON"
               @click="showImportDialog = true"
@@ -299,8 +307,8 @@
           </div>
 
           <!-- Playlists Cards Grid -->
-          <v-row v-else>
-            <v-col v-for="pl in playlists" :key="pl.id" cols="12" md="6">
+          <v-row v-else dense>
+            <v-col v-for="pl in playlists" :key="pl.id" cols="12" sm="6">
               <v-card
                 variant="tonal"
                 color="surface-variant"

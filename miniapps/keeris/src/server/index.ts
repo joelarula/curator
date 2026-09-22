@@ -31,7 +31,7 @@ const curatorDbName = process.env.CURATOR_DATABASE_NAME ?? 'keeris';
 if (curatorDbName) {
   try {
     console.log(`[Keeris Server] Starting Curator runtime (${curatorDbName})...`);
-    curatorRuntime = await startCuratorRuntime({ databaseName: curatorDbName });
+    curatorRuntime = await startCuratorRuntime({ databaseName: curatorDbName, keerisDb: db });
   } catch (error: any) {
     console.error(`[Keeris] Curator runtime failed to start: ${error?.message}`);
   }
@@ -72,7 +72,7 @@ app.get('/health', async (_request, response) => {
       status: 'ok',
       serverApi: true,
       mode: 'express-graphql',
-      database: db.isPostgres ? 'postgresql' : 'sqlite',
+      database: db.isMysql ? 'mariadb' : db.isPostgres ? 'postgresql' : 'sqlite',
       processor: curatorRuntime ? 'ready' : 'standalone',
       plugins: engine.plugins.map((plugin: any) => plugin.name),
       episodes: Number(stats?.episodes || 0)

@@ -642,7 +642,7 @@ mark.highlight {
 }
 
 .summary-sub {
-  color: #60706a;
+  color: var(--text-secondary);
   font-size: 0.88rem;
   margin: 0 0 16px;
 }
@@ -868,26 +868,64 @@ mark.highlight {
   white-space: nowrap;
 }
 
-@media (max-width: 650px) {
+@media (max-width: 959px) {
   .shell {
-    padding-top: 24px;
     width: min(100% - 24px, 1050px);
+    padding: 14px 0 40px;
   }
   .masthead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: nowrap;
+    margin-bottom: 16px;
+  }
+  .masthead .brand h1 {
+    font-size: 1.15rem;
+  }
+  .masthead-right {
+    margin-left: auto;
+    padding-right: 0;
+  }
+}
+
+@media (max-width: 599px) {
+  .shell {
+    width: min(100% - 16px, 1050px);
+    padding: 12px 0 36px;
+  }
+  .masthead .brand h1 {
+    font-size: 1.05rem;
+  }
+  .song-card {
+    padding: 14px 14px;
+  }
+  .song-card h2 {
+    font-size: 1.05rem;
+  }
+  .filter-bar {
+    padding: 10px 12px;
+  }
+  .filter-bar-header {
     flex-direction: column;
     align-items: flex-start;
+    gap: 8px;
   }
-  .nav-tabs {
+  .filter-header-right {
     width: 100%;
-    justify-content: space-between;
+    justify-content: flex-end;
   }
-  .nav-tabs button,
-  .nav-tabs a {
-    flex: 1;
+  .collapse-toggle-btn {
+    width: 100%;
     text-align: center;
+    padding: 6px 12px;
   }
-  .program-grid {
-    grid-template-columns: 1fr;
+  .checkbox-chip {
+    padding: 6px 10px;
+    font-size: 0.76rem;
+  }
+  .airing-item {
+    padding: 8px 10px;
   }
 }
 

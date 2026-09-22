@@ -158,7 +158,7 @@ export class CuratorRequestProcessor {
           create: { id: '1', name: 'System Project', userId: user.id }
         });
 
-        const cleanAst = {
+        const cleanAst = (agentDef as any).ast || {
           type: (agentDef as any).type || 'Curator_Tool',
           toolName: (agentDef as any).toolName,
           args: (agentDef as any).args || {}

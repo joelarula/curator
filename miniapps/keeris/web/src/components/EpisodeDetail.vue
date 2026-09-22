@@ -48,7 +48,7 @@
               <span class="tracks-count-tag">🎵 {{ t('episodeDetail.tracksIndexed', { n: tracks.length }) }}</span>
             </div>
 
-            <h1 class="text-h4 font-weight-bold mb-2">{{ episode.title }}</h1>
+            <h1 class="text-h5 text-sm-h4 font-weight-bold mb-2">{{ episode.title }}</h1>
 
             <p v-if="episode.metadata?.summary || episode.metadata?.description" class="text-body-1 text-medium-emphasis mb-3 max-w-2xl">
               {{ episode.metadata?.summary || episode.metadata?.description }}
@@ -56,13 +56,13 @@
           </div>
 
           <!-- Actions -->
-          <div class="d-flex align-center flex-wrap ga-2">
+          <div class="d-flex align-center flex-wrap ga-2 w-100 w-sm-auto">
             <a
               v-if="episode.url"
               :href="episode.url"
               target="_blank"
               rel="noreferrer"
-              class="v-btn v-btn--density-default v-btn--size-small v-btn--variant-flat bg-secondary text-white"
+              class="detail-action-btn detail-primary-btn flex-grow-1 flex-sm-grow-0"
             >
               <span>{{ t('episodeDetail.listenOnErr') }}</span>
               <v-icon icon="mdi-open-in-new" size="x-small" class="ml-1" />
@@ -70,7 +70,7 @@
 
             <router-link
               :to="{ path: '/', query: { search: episode.title } }"
-              class="v-btn v-btn--density-default v-btn--size-small v-btn--variant-outlined"
+              class="detail-action-btn detail-outline-btn flex-grow-1 flex-sm-grow-0"
             >
               <span>{{ t('episodeDetail.searchInCatalog') }}</span>
             </router-link>
@@ -103,7 +103,8 @@
             {{ t('episodeDetail.noTracklist') }}
           </div>
           <div v-else class="tracklist-table-container">
-            <table class="episode-tracks-table">
+            <!-- Desktop / Tablet Table View -->
+            <table class="episode-tracks-table d-none d-sm-table">
               <thead>
                 <tr>
                    <th style="width: 50px;">#</th>
@@ -139,6 +140,38 @@
                 </tr>
               </tbody>
             </table>
+
+            <!-- Mobile Cards View for Small Screens -->
+            <div class="d-sm-none mobile-tracks-list px-2">
+              <div
+                v-for="t in tracks"
+                :key="t.id"
+                class="pa-3 mb-2 rounded border bg-surface"
+              >
+                <div class="d-flex align-start ga-2 mb-1">
+                  <span class="track-pos-col font-weight-bold">#{{ t.position }}</span>
+                  <div class="flex-grow-1 min-w-0">
+                    <div class="font-weight-bold text-subtitle-2">{{ t.title || t.rawText }}</div>
+                    <div class="text-caption text-medium-emphasis">{{ t.artist || '—' }}</div>
+                  </div>
+                </div>
+                <div class="d-flex align-center justify-end ga-2 mt-2 pt-2 border-t">
+                  <button
+                    class="track-playlist-btn"
+                    type="button"
+                    @click="openAddToPlaylist(t)"
+                  >
+                    {{ t('episodeDetail.addToPlaylist') }}
+                  </button>
+                  <router-link
+                    :to="{ path: '/', query: { search: t.title || t.artist || '' } }"
+                    class="track-search-btn"
+                  >
+                    {{ t('episodeDetail.search') }}
+                  </router-link>
+                </div>
+              </div>
+            </div>
           </div>
         </v-card-text>
       </v-card>
@@ -315,6 +348,11 @@ onMounted(() => {
   border-radius: 4px;
 }
 
+.tracklist-table-container {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .episode-tracks-table {
   width: 100%;
   border-collapse: collapse;
@@ -349,9 +387,10 @@ onMounted(() => {
   background: transparent;
   border: 1px solid var(--accent);
   color: var(--accent);
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 600;
-  padding: 2px 8px;
+  padding: 4px 10px;
+  min-height: 28px;
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -380,5 +419,36 @@ onMounted(() => {
 
 .max-w-2xl {
   max-width: 720px;
+}
+
+.detail-action-btn {
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 4px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.detail-primary-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+}
+.detail-primary-btn:hover {
+  background: var(--accent-hover);
+}
+
+.detail-outline-btn {
+  background: var(--stats-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+}
+.detail-outline-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 </style>

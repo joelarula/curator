@@ -32,19 +32,19 @@
               <span class="program-badge">{{ program.seriesId || 'ERR Program' }}</span>
               <span class="text-caption text-medium-emphasis">ID: {{ program.id }}</span>
             </div>
-            <h1 class="text-h4 font-weight-bold mb-2">{{ program.title }}</h1>
+            <h1 class="text-h5 text-sm-h4 font-weight-bold mb-2">{{ program.title }}</h1>
             <p v-if="program.description" class="text-body-1 text-medium-emphasis mb-3 max-w-2xl">
               {{ program.description }}
             </p>
           </div>
 
-          <div class="d-flex align-center flex-wrap ga-2">
+          <div class="d-flex align-center flex-wrap ga-2 w-100 w-sm-auto">
             <a
               v-if="program.url"
               :href="program.url"
               target="_blank"
               rel="noreferrer"
-              class="v-btn v-btn--density-default v-btn--size-small v-btn--variant-outlined primary-outline-btn"
+              class="ep-action-btn ghost-btn flex-grow-1 flex-sm-grow-0"
             >
               <span>{{ $t('programDetail.errArchivePage') }}</span>
               <v-icon icon="mdi-open-in-new" size="x-small" class="ml-1" />
@@ -52,7 +52,7 @@
 
             <router-link
               :to="{ path: '/', query: { programId: String(program.id) } }"
-              class="v-btn v-btn--density-default v-btn--size-small v-btn--variant-flat bg-primary text-white"
+              class="ep-action-btn primary-btn flex-grow-1 flex-sm-grow-0"
             >
               <span>{{ $t('programDetail.exploreSongs') }}</span>
             </router-link>
@@ -91,6 +91,7 @@
             prepend-inner-icon="mdi-magnify"
             hide-details
             clearable
+            class="w-100 w-sm-auto"
             style="max-width: 320px;"
           />
         </div>
@@ -109,10 +110,10 @@
             class="pa-4 mb-3 rounded-lg episode-card-item"
           >
             <div class="d-flex align-start justify-space-between flex-wrap ga-2">
-              <div>
+              <div class="flex-grow-1 min-w-0">
                 <div class="d-flex align-center flex-wrap ga-2 mb-1">
                   <span class="date-badge">📅 {{ formatDate(ep.scheduledAt || ep.publishedAt) }}</span>
-                  <span class="track-badge">🎵 {{ ep.trackCount || 0 }} tracks</span>
+                  <span class="track-badge">🎵 {{ $t('programDetail.tracksCount', { n: ep.trackCount || 0 }) }}</span>
                 </div>
                 <h3 class="text-subtitle-1 font-weight-bold mb-1">
                   <router-link :to="`/episode/${ep.id}`" class="episode-title-link">
@@ -125,13 +126,13 @@
               </div>
 
               <!-- Episode Action Buttons -->
-              <div class="d-flex align-center flex-wrap ga-2">
+              <div class="d-flex align-center flex-wrap ga-2 w-100 w-sm-auto">
                 <a
                   v-if="ep.url"
                   :href="ep.url"
                   target="_blank"
                   rel="noreferrer"
-                  class="ep-action-btn primary-btn"
+                  class="ep-action-btn primary-btn flex-grow-1 flex-sm-grow-0"
                   :title="$t('programDetail.listenOnErr')"
                 >
                   <span>{{ $t('programDetail.listenOnErr') }}</span>
@@ -140,14 +141,14 @@
 
                 <router-link
                   :to="`/episode/${ep.id}`"
-                  class="ep-action-btn secondary-btn"
+                  class="ep-action-btn secondary-btn flex-grow-1 flex-sm-grow-0"
                 >
                   <span>{{ $t('programDetail.episodePage') }}</span>
                 </router-link>
 
                 <button
                   type="button"
-                  class="ep-action-btn ghost-btn"
+                  class="ep-action-btn ghost-btn flex-grow-1 flex-sm-grow-0"
                   @click="toggleTracklist(ep.id)"
                 >
                   {{ expandedEpId === ep.id ? $t('programDetail.hideTracks') : $t('programDetail.showTracks') }}
@@ -170,7 +171,7 @@
                       <th style="width: 40px;">#</th>
                       <th>{{ $t('programDetail.thArtist') }}</th>
                       <th>{{ $t('programDetail.thTitle') }}</th>
-                      <th style="width: 150px;">{{ $t('programDetail.thActions') }}</th>
+                      <th style="width: 100px;">{{ $t('programDetail.thActions') }}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -179,22 +180,14 @@
                       <td><strong>{{ t.artist || '—' }}</strong></td>
                       <td>{{ t.title || t.rawText }}</td>
                       <td>
-                        <div class="d-flex align-center ga-1">
-                          <button
-                            class="tiny-playlist-btn"
-                            type="button"
-                            @click="openAddToPlaylist(t, ep)"
-                            :title="$t('programDetail.addToPlaylist')"
-                          >
-                            {{ $t('programDetail.addToPlaylist') }}
-                          </button>
-                          <router-link
-                            :to="{ path: '/', query: { search: t.title || t.artist || '' } }"
-                            class="tiny-search-link"
-                          >
-                            {{ $t('programDetail.search') }}
-                          </router-link>
-                        </div>
+                        <button
+                          class="tiny-playlist-btn"
+                          type="button"
+                          @click="openAddToPlaylist(t, ep)"
+                          :title="$t('programDetail.addToPlaylist')"
+                        >
+                          {{ $t('programDetail.addToPlaylist') }}
+                        </button>
                       </td>
                     </tr>
                   </tbody>
@@ -398,7 +391,7 @@ onMounted(() => {
 }
 
 .back-link {
-  color: #10b981;
+  color: var(--accent);
   text-decoration: none;
   font-weight: 600;
   display: inline-flex;
@@ -408,27 +401,22 @@ onMounted(() => {
 
 .back-link:hover {
   text-decoration: underline;
+  color: var(--accent-hover);
 }
 
 .program-badge {
-  background: #17221f;
-  color: #10b981;
+  background: var(--stats-bg);
+  color: var(--text-primary);
   font-size: 0.75rem;
   font-weight: 700;
   padding: 3px 8px;
   border-radius: 4px;
-  border: 1px solid rgba(16, 185, 129, 0.3);
-}
-
-.primary-outline-btn {
-  border: 1px solid #10b981 !important;
-  color: #10b981 !important;
-  text-decoration: none;
-  font-weight: 600;
+  border: 1px solid var(--border-default);
 }
 
 .metrics-strip {
   gap: 2rem;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .metric-item {
@@ -439,7 +427,7 @@ onMounted(() => {
 .metric-val {
   font-size: 1.5rem;
   font-weight: 700;
-  color: #10b981;
+  color: var(--accent);
   line-height: 1.2;
 }
 
@@ -447,39 +435,42 @@ onMounted(() => {
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--text-muted);
 }
 
 .date-badge {
   font-size: 0.72rem;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
   padding: 2px 6px;
   border-radius: 4px;
 }
 
 .track-badge {
   font-size: 0.72rem;
-  background: rgba(16, 185, 129, 0.12);
-  color: #10b981;
+  background: var(--stats-bg);
+  color: var(--accent);
+  border: 1px solid var(--border-default);
   padding: 2px 6px;
   border-radius: 4px;
 }
 
 .episode-title-link {
-  color: #f1f5f9;
+  color: var(--text-primary);
   text-decoration: none;
   transition: color 0.15s ease;
 }
 
 .episode-title-link:hover {
-  color: #38bdf8;
+  color: var(--accent);
   text-decoration: underline;
 }
 
 .ep-action-btn {
   font-size: 0.78rem;
   font-weight: 600;
-  padding: 4px 10px;
+  padding: 5px 12px;
   border-radius: 4px;
   text-decoration: none;
   display: inline-flex;
@@ -489,31 +480,37 @@ onMounted(() => {
 }
 
 .primary-btn {
-  background: #0284c7;
+  background: var(--accent);
   color: #fff;
   border: none;
 }
 .primary-btn:hover {
-  background: #0369a1;
+  background: var(--accent-hover);
 }
 
 .secondary-btn {
-  background: rgba(255, 255, 255, 0.08);
-  color: #f1f5f9;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--nav-active-bg);
+  color: var(--nav-active-text);
+  border: 1px solid var(--border-default);
 }
 .secondary-btn:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--accent);
+  color: #fff;
 }
 
 .ghost-btn {
-  background: transparent;
-  color: #94a3b8;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--stats-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
 }
 .ghost-btn:hover {
-  color: #f8fafc;
-  border-color: rgba(255, 255, 255, 0.3);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.tracklist-table-container {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .tracklist-table {
@@ -522,34 +519,35 @@ onMounted(() => {
   font-size: 0.85rem;
 }
 
-.tracklist-table th,
+.tracklist-table th {
+  text-align: left;
+  padding: 6px 10px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-default);
+  font-weight: 700;
+}
+
 .tracklist-table td {
   padding: 6px 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
 }
 
 .tiny-playlist-btn {
   background: transparent;
-  border: 1px solid #10b981;
-  color: #10b981;
-  font-size: 0.7rem;
-  padding: 1px 6px;
-  border-radius: 3px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  min-height: 28px;
+  border-radius: 4px;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 .tiny-playlist-btn:hover {
-  background: #10b981;
+  background: var(--accent);
   color: #fff;
-}
-
-.tiny-search-link {
-  color: #94a3b8;
-  font-size: 0.7rem;
-  text-decoration: none;
-}
-.tiny-search-link:hover {
-  color: #38bdf8;
-  text-decoration: underline;
 }
 
 .max-w-2xl {

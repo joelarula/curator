@@ -152,7 +152,47 @@ export class ServerClientAdapter implements CuratorClientAdapter {
       usage: 0,
       quota: 0,
       isOpfs: false,
-      storageEngine: 'Remote Server (Express + PostgreSQL)',
+      storageEngine: 'MariaDB 11.4 (Docker)',
+    };
+  }
+
+  async getDatabaseHealth(): Promise<any> {
+    try {
+      const data = await this.requestGraphql(`
+        query GetCuratorHealth {
+          curatorDatabaseHealth {
+            storageEngine
+            isOpfs
+            tables {
+              name
+              rowCount
+            }
+            requestsTotal
+            requestsCompleted
+            requestsFailed
+            requestsPending
+            agentsTotal
+            agentsActive
+          }
+        }
+      `);
+      if (data?.curatorDatabaseHealth) {
+        return data.curatorDatabaseHealth;
+      }
+    } catch (err: any) {
+      console.warn('[Server Adapter] getDatabaseHealth query failed:', err?.message);
+    }
+
+    return {
+      storageEngine: 'MariaDB 11.4 (Docker)',
+      isOpfs: false,
+      tables: [],
+      requestsTotal: 0,
+      requestsCompleted: 0,
+      requestsFailed: 0,
+      requestsPending: 0,
+      agentsTotal: 0,
+      agentsActive: 0,
     };
   }
 

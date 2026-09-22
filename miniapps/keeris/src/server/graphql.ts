@@ -490,6 +490,58 @@ export function resolvers(db: any, { curatorRuntime }: { curatorRuntime?: any } 
         programBreakdown: [],
       };
     },
+    curatorDatabaseHealth: async () => {
+      let runtime = curatorRuntime;
+      let shouldStop = false;
+      if (!runtime) {
+        const { startCuratorRuntime } = await import('../curator-runtime.ts');
+        runtime = await startCuratorRuntime({ databaseName: 'keeris', keerisDb: db });
+        shouldStop = true;
+      }
+
+      const storageEngine = db.isMysql ? 'MariaDB 11.4 (Docker)' : (db.isPostgres ? 'PostgreSQL' : 'SQLite3');
+      const tableNames = ['episodes', 'tracks', 'unique_tracks', 'programs', 'episode_metadata', 'playlists'];
+      const tables: { name: string; rowCount: number }[] = [];
+      for (const t of tableNames) {
+        try {
+          const row = await db.prepare(`SELECT COUNT(*) as cnt FROM ${t}`).get();
+          tables.push({ name: t, rowCount: Number(row?.cnt ?? 0) });
+        } catch (_) {}
+      }
+
+      let requestsTotal = 0;
+      let requestsCompleted = 0;
+      let requestsFailed = 0;
+      let requestsPending = 0;
+      let agentsTotal = 0;
+      let agentsActive = 0;
+
+      if (runtime?.prisma) {
+        try {
+          agentsTotal = await runtime.prisma.agent.count();
+          agentsActive = await runtime.prisma.agent.count({ where: { enabled: true } });
+          requestsTotal = await runtime.prisma.request.count();
+          requestsCompleted = await runtime.prisma.response.count();
+          requestsPending = Math.max(0, requestsTotal - requestsCompleted);
+        } catch (e) {
+          console.warn('[GraphQL] Could not count agents/requests:', e);
+        }
+      }
+
+      if (shouldStop) await runtime.stop();
+
+      return {
+        storageEngine,
+        isOpfs: false,
+        tables,
+        requestsTotal,
+        requestsCompleted,
+        requestsFailed,
+        requestsPending,
+        agentsTotal,
+        agentsActive,
+      };
+    },
     curatorAgents: async () => {
       let runtime = curatorRuntime;
       let shouldStop = false;

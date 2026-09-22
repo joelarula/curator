@@ -15,6 +15,25 @@ services:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-curator} -d ${POSTGRES_DB:-keeris}"]
       interval: 5s
       timeout: 5s
+      start_period: 5s
+
+  mariadb:
+    image: mariadb:11.4
+    container_name: keeris-mariadb
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-curator_root_secret}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-keeris}
+      MYSQL_USER: ${MYSQL_USER:-curator}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-curator_secret}
+    ports:
+      - "${MARIADB_PORT:-3306}:3306"
+    volumes:
+      - keeris-mariadb-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
       retries: 5
       start_period: 5s
 
@@ -52,4 +71,6 @@ volumes:
   keeris-data:
     driver: local
   keeris-postgres-data:
+    driver: local
+  keeris-mariadb-data:
     driver: local

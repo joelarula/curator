@@ -1,11 +1,97 @@
 <template>
   <v-app :theme="theme === 'dark' ? 'curatorDarkTheme' : 'curatorLightTheme'">
+    <!-- Navigation Drawer for Mobile & Tablet -->
+    <v-navigation-drawer
+      v-model="mobileDrawer"
+      temporary
+      location="left"
+      class="mobile-nav-drawer"
+    >
+      <div class="d-flex align-center justify-space-between pa-4 border-b">
+        <div class="brand">
+          <h2 class="text-subtitle-1 font-weight-bold mb-0">{{ $t('app.brand') }}</h2>
+        </div>
+        <v-btn icon="mdi-close" variant="text" size="small" @click="mobileDrawer = false" />
+      </div>
+
+      <v-list nav class="pa-2">
+        <v-list-item
+          to="/"
+          prepend-icon="mdi-music"
+          :title="$t('app.nav.songs')"
+          rounded="lg"
+          @click="mobileDrawer = false"
+        />
+        <v-list-item
+          to="/summary"
+          prepend-icon="mdi-playlist-music"
+          :title="$t('app.nav.summary')"
+          rounded="lg"
+          @click="mobileDrawer = false"
+        />
+        <v-list-item
+          to="/playlists"
+          prepend-icon="mdi-playlist-plus"
+          :title="$t('app.nav.playlists')"
+          rounded="lg"
+          @click="mobileDrawer = false"
+        />
+      </v-list>
+
+      <template v-if="appMode === 'wasm'">
+        <v-divider class="my-2" />
+        <div class="px-4 py-1 text-caption text-medium-emphasis font-weight-bold">
+          ANDMEBAAS
+        </div>
+        <v-list nav class="pa-2 pt-0">
+          <v-list-item
+            prepend-icon="mdi-download"
+            :title="isExporting ? $t('app.exportingDb') : $t('app.exportDb')"
+            :disabled="isExporting"
+            rounded="lg"
+            @click="handleExportDatabase(); mobileDrawer = false"
+          />
+          <v-list-item
+            prepend-icon="mdi-upload"
+            :title="isImporting ? $t('app.importingDb') : $t('app.importDb')"
+            :disabled="isImporting"
+            rounded="lg"
+            @click="triggerFileInput(); mobileDrawer = false"
+          />
+        </v-list>
+      </template>
+
+      <v-divider class="my-2" />
+      <v-list nav class="pa-2 pt-0">
+        <v-list-item
+          prepend-icon="mdi-robot"
+          :title="$t('app.devConsole')"
+          rounded="lg"
+          @click="drawerOpen = !drawerOpen; mobileDrawer = false"
+        >
+          <template #append>
+            <span class="pulse-indicator"></span>
+          </template>
+        </v-list-item>
+      </v-list>
+    </v-navigation-drawer>
+
     <main class="shell">
       <header class="masthead">
         <div class="brand">
+          <v-btn
+            class="d-md-none mr-1"
+            icon="mdi-menu"
+            variant="text"
+            size="small"
+            :aria-label="'Menu'"
+            @click="mobileDrawer = true"
+          />
           <h1>{{ $t('app.brand') }}</h1>
         </div>
-        <nav class="nav-tabs" aria-label="Main Navigation">
+
+        <!-- Desktop Navigation Tabs -->
+        <nav class="nav-tabs d-none d-md-flex" aria-label="Main Navigation">
           <RouterLink to="/" custom v-slot="{ href, navigate, isActive }">
             <a :href="href" :class="{ active: isActive }" @click="navigate"> {{ $t('app.nav.songs') }} </a>
           </RouterLink>
@@ -16,10 +102,12 @@
             <a :href="href" :class="{ active: isActive }" @click="navigate"> {{ $t('app.nav.playlists') }} </a>
           </RouterLink>
         </nav>
+
         <div class="masthead-right">
+          <!-- Desktop DB Actions -->
           <template v-if="appMode === 'wasm'">
             <button
-              class="header-db-btn"
+              class="header-db-btn d-none d-md-inline-flex"
               type="button"
               :disabled="isExporting"
               :title="$t('app.exportDb')"
@@ -28,7 +116,7 @@
               {{ isExporting ? $t('app.exportingDb') : $t('app.exportDb') }}
             </button>
             <button
-              class="header-db-btn"
+              class="header-db-btn d-none d-md-inline-flex"
               type="button"
               :disabled="isImporting"
               :title="$t('app.importDb')"
@@ -44,8 +132,10 @@
               @change="handleFileSelected"
             />
           </template>
+
+          <!-- Desktop Dev Console Pill -->
           <button
-            class="console-nav-pill"
+            class="console-nav-pill d-none d-md-inline-flex"
             :class="{ active: drawerOpen }"
             type="button"
             title="Open Curator Dev Console (Ctrl + `)"
@@ -54,6 +144,8 @@
             <span class="pulse-indicator"></span>
             {{ $t('app.devConsole') }}
           </button>
+
+          <!-- Theme Toggle (Visible everywhere, touch target friendly) -->
           <button
             class="theme-toggle-btn"
             type="button"
@@ -105,16 +197,13 @@
 
       <RouterView v-slot="{ Component }">
         <KeepAlive>
-          <component :is="Component" @play-track="handlePlayTrack" />
+          <component :is="Component" />
         </KeepAlive>
       </RouterView>
     </main>
 
     <!-- Curator AST Dev Console & Database Tools -->
     <CuratorConsole v-model="drawerOpen" :adapter="keerisCuratorAdapter" :domain-metrics="stats" />
-
-    <!-- Audio Playback Footer Bar -->
-    <AudioBar :current-track="activeTrack" @close="activeTrack = null" />
   </v-app>
 </template>
 
@@ -122,27 +211,24 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { RouterLink, RouterView } from 'vue-router';
+import { useDisplay } from 'vuetify';
 import KeerisHeader from './components/KeerisHeader.vue';
 import { CuratorConsole } from '@curator/console';
 import { keerisCuratorAdapter } from './curator-adapter';
-import AudioBar from './components/AudioBar.vue';
 import { requestGraphql, onWorkerReady, exportDatabase, importDatabase, onDatabaseChange, getAppMode, type AppMode } from '@wasm/graphql-client';
 import { useTheme } from './composables/useTheme';
 
 const { t } = useI18n();
 const { theme, toggleTheme } = useTheme();
+const { mdAndUp, smAndDown, mobile } = useDisplay();
 
+const mobileDrawer = ref(false);
 const appMode = ref<AppMode>('server');
 const drawerOpen = ref(false);
-const activeTrack = ref(null);
 const isExporting = ref(false);
 const isImporting = ref(false);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 const stats = ref({ episodes: 0, tracks: 0, uniqueTracks: 0, programs: 0 });
-
-function handlePlayTrack(track) {
-  activeTrack.value = track;
-}
 
 async function fetchStats() {
   try {

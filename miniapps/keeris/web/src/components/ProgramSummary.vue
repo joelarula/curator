@@ -5,28 +5,35 @@
       <p class="summary-sub">{{ $t('programSummary.subtext') }}</p>
     </div>
 
+    <!-- Hero Stats Row (Vuetify responsive grid: 2x2 on mobile, 4 in row on desktop) -->
+    <v-row class="mb-3" dense>
+      <v-col cols="6" sm="6" md="3">
+        <div class="stat-card accent h-100">
+          <div class="stat-num">{{ (totals.uniqueTracks || 0).toLocaleString() }}</div>
+          <div class="stat-lbl">{{ $t('programSummary.statUnique') }}</div>
+        </div>
+      </v-col>
+      <v-col cols="6" sm="6" md="3">
+        <div class="stat-card h-100">
+          <div class="stat-num">{{ (totals.tracks || 0).toLocaleString() }}</div>
+          <div class="stat-lbl">{{ $t('programSummary.statAirings') }}</div>
+        </div>
+      </v-col>
+      <v-col cols="6" sm="6" md="3">
+        <div class="stat-card h-100">
+          <div class="stat-num">{{ (totals.episodes || 0).toLocaleString() }}</div>
+          <div class="stat-lbl">{{ $t('programSummary.statEpisodes') }}</div>
+        </div>
+      </v-col>
+      <v-col cols="6" sm="6" md="3">
+        <div class="stat-card h-100">
+          <div class="stat-num">{{ (totals.programs || 0).toLocaleString() }}</div>
+          <div class="stat-lbl">{{ $t('programSummary.statPrograms') }}</div>
+        </div>
+      </v-col>
+    </v-row>
 
-    <!-- Hero Stats Row -->
-    <div class="summary-hero">
-      <div class="stat-card accent">
-        <div class="stat-num">{{ (totals.uniqueTracks || 0).toLocaleString() }}</div>
-        <div class="stat-lbl">{{ $t('programSummary.statUnique') }}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-num">{{ (totals.tracks || 0).toLocaleString() }}</div>
-        <div class="stat-lbl">{{ $t('programSummary.statAirings') }}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-num">{{ (totals.episodes || 0).toLocaleString() }}</div>
-        <div class="stat-lbl">{{ $t('programSummary.statEpisodes') }}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-num">{{ (totals.programs || 0).toLocaleString() }}</div>
-        <div class="stat-lbl">{{ $t('programSummary.statPrograms') }}</div>
-      </div>
-    </div>
-
-    <!-- Program Overview Cards Grid (No run controls, pure inspection & index navigation) -->
+    <!-- Program Overview Cards Grid (Vuetify responsive grid: 1 col on mobile, 2 on tablet, 3 on desktop) -->
     <div v-if="loading && breakdown.length === 0" class="text-center py-6 text-medium-emphasis">
       {{ $t('programSummary.loadingPrograms') }}
     </div>
@@ -35,52 +42,58 @@
       {{ $t('programSummary.noBreakdown') }}
     </div>
 
-    <div v-else class="program-grid">
-      <div 
-        v-for="prog in breakdown" 
-        :key="prog.programId" 
-        class="program-card clickable-card"
-        :class="{ 'is-selected': selectedProgramId === String(prog.programId) }"
-        @click="selectProgram(String(prog.programId))"
+    <v-row v-else dense>
+      <v-col
+        v-for="prog in breakdown"
+        :key="prog.programId"
+        cols="12"
+        sm="6"
+        md="4"
       >
-        <div class="prog-header">
-          <div>
-            <h3>{{ prog.programTitle }}</h3>
-           </div>
-          <div class="d-flex align-center ga-1" @click.stop>
-            <router-link
-              :to="`/program/${prog.programId}`"
-              class="view-chip active"
-              title="Explore broadcast program archive"
-            >
-              {{ $t('programSummary.exploreProgram') }}
-            </router-link>
+        <div 
+          class="program-card clickable-card h-100"
+          :class="{ 'is-selected': selectedProgramId === String(prog.programId) }"
+          @click="selectProgram(String(prog.programId))"
+        >
+          <div class="prog-header">
+            <div>
+              <h3>{{ prog.programTitle }}</h3>
+            </div>
+            <div class="d-flex align-center ga-1" @click.stop>
+              <router-link
+                :to="`/program/${prog.programId}`"
+                class="view-chip active"
+                title="Explore broadcast program archive"
+              >
+                {{ $t('programSummary.exploreProgram') }}
+              </router-link>
+            </div>
           </div>
-        </div>
 
-        <div class="prog-metrics">
-          <div class="metric">
-            <span class="m-val">{{ (prog.episodes || 0).toLocaleString() }}</span>
-            <span class="m-lbl">{{ $t('programSummary.statEpisodes') }}</span>
+          <div class="prog-metrics mt-3">
+            <div class="metric">
+              <span class="m-val">{{ (prog.episodes || 0).toLocaleString() }}</span>
+              <span class="m-lbl">{{ $t('programSummary.statEpisodes') }}</span>
+            </div>
+            <div class="metric">
+              <span class="m-val">{{ (prog.tracks || 0).toLocaleString() }}</span>
+              <span class="m-lbl">{{ $t('programSummary.statAirings') }}</span>
+            </div>
+            <div class="metric">
+              <span class="m-val">{{ (prog.uniqueTracks || 0).toLocaleString() }}</span>
+              <span class="m-lbl">{{ $t('programSummary.statUnique') }}</span>
+            </div>
           </div>
-          <div class="metric">
-            <span class="m-val">{{ (prog.tracks || 0).toLocaleString() }}</span>
-            <span class="m-lbl">{{ $t('programSummary.statAirings') }}</span>
-          </div>
-          <div class="metric">
-            <span class="m-val">{{ (prog.uniqueTracks || 0).toLocaleString() }}</span>
-            <span class="m-lbl">{{ $t('programSummary.statUnique') }}</span>
-          </div>
-        </div>
 
-        <div class="prog-progress">
-          <div class="prog-progress-bar">
-            <div class="prog-progress-fill" :style="{ width: getProgressPct(prog) + '%' }"></div>
+          <div class="prog-progress mt-3">
+            <div class="prog-progress-bar">
+              <div class="prog-progress-fill" :style="{ width: getProgressPct(prog) + '%' }"></div>
+            </div>
+            <span class="prog-pct">{{ $t('programSummary.uniqueDensity', { pct: getProgressPct(prog) }) }}</span>
           </div>
-          <span class="prog-pct">{{ $t('programSummary.uniqueDensity', { pct: getProgressPct(prog) }) }}</span>
         </div>
-      </div>
-    </div>
+      </v-col>
+    </v-row>
 
   </div>
 </template>
@@ -322,16 +335,25 @@ onActivated(() => {
 .view-chip {
   font-size: 0.72rem;
   font-weight: 700;
-  padding: 4px 8px;
+  padding: 4px 10px;
   border-radius: 4px;
   background: var(--stats-bg);
-  color: var(--text-secondary);
+  color: var(--text-primary);
+  text-decoration: none;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  transition: all 0.15s ease;
 }
 
 .view-chip.active {
   background: var(--accent);
-  color: #fff;
+  color: #fff !important;
+}
+
+.view-chip.active:hover {
+  background: var(--accent-hover);
+  color: #fff !important;
 }
 
 /* Episode Index Section */

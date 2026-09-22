@@ -70,8 +70,8 @@
       >
         <div class="song-header">
           <div class="song-title-group">
-            <div class="d-flex align-start justify-space-between flex-wrap ga-2">
-              <div class="song-heading">
+            <div class="d-flex flex-column flex-sm-row align-start justify-space-between ga-2">
+              <div class="song-heading flex-grow-1">
                 <h2 v-html="highlight(song.title || $t('trackTable.untitledSong'), searchQuery)"></h2>
                 <div class="artist-row d-flex align-center flex-wrap ga-2 mt-1">
                   <span class="artist" v-html="highlight(song.artist || $t('trackTable.unknownArtist'), searchQuery)"></span>
@@ -89,7 +89,7 @@
                 </div>
               </div>
               <button
-                class="add-playlist-btn"
+                class="add-playlist-btn flex-shrink-0"
                 type="button"
                 @click="openAddToPlaylist(song, (song.airings && song.airings[0]) || null)"
                 :title="$t('trackTable.addToPlaylist')"
@@ -145,14 +145,6 @@
                 >
                   {{ $t('trackTable.episodePage') }}
                 </router-link>
-                <button
-                  class="airing-playlist-btn"
-                  type="button"
-                  @click="openAddToPlaylist(song, airing)"
-                  :title="$t('trackTable.addToPlaylist')"
-                >
-                  {{ $t('trackTable.addToPlaylist') }}
-                </button>
               </div>
             </li>
           </ul>
@@ -193,10 +185,6 @@ import type { PlaylistItem } from '../services/playlistStorage';
 
 const route = useRoute();
 const { t } = useI18n();
-
-defineEmits<{
-  (e: 'play-track', track: Track | any): void;
-}>();
 
 const playlistDialogOpen = ref(false);
 const trackForPlaylist = ref<Partial<PlaylistItem> | null>(null);
@@ -547,9 +535,10 @@ onUnmounted(() => {
   background: transparent;
   border: 1px solid #10b981;
   color: #047857;
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 600;
-  padding: 2px 8px;
+  padding: 6px 12px;
+  min-height: 32px;
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -561,18 +550,6 @@ onUnmounted(() => {
 .add-playlist-btn:hover {
   background: #10b981;
   color: #ffffff;
-}
-
-.airing-playlist-btn {
-  background: transparent;
-  border: 1px solid #94a3b8;
-  color: #475569;
-  font-size: 0.72rem;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 3px;
-  cursor: pointer;
-  transition: all 0.15s ease;
 }
 
 .play-count-link {
