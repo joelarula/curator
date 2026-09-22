@@ -1,6 +1,7 @@
 {
   "name": "@curator/plugin-openapi",
   "version": "1.0.0",
+  "private": true,
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -12,9 +13,6 @@
   },
   "dependencies": {
     "yaml": "^2.7.0"
-  },
-  "peerDependencies": {
-    "@curator/agent-server": "*"
   },
   "devDependencies": {
     "typescript": "^5.6.2",
