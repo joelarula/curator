@@ -7,7 +7,7 @@
         type="search"
         v-model="searchQuery"
         autofocus
-        placeholder="Search unique song title, artist, or show notes (e.g. Remedium, Keeris, Kauamängiv)..."
+        :placeholder="$t('trackTable.searchPlaceholder')"
         @input="onSearch"
       />
     </section>
@@ -16,14 +16,14 @@
     <section class="filter-bar">
       <div class="filter-bar-header" @click="filtersExpanded = !filtersExpanded">
         <div class="filter-header-left">
-          <span class="filter-title">Filter by Program</span>
+          <span class="filter-title">{{ $t('trackTable.filterTitle') }}</span>
           <span class="filter-status">
-            {{ selectedPrograms.length === 0 ? `All ${programs.length} programs shown` : `${selectedPrograms.length} of ${programs.length} programs selected` }}
+            {{ selectedPrograms.length === 0 ? $t('trackTable.filterAll', { n: programs.length }) : $t('trackTable.filterSelected', { selected: selectedPrograms.length, total: programs.length }) }}
           </span>
         </div>
         <div class="filter-header-right">
           <button class="collapse-toggle-btn" type="button">
-            {{ filtersExpanded ? 'Collapse filters ▲' : 'Expand filters ▼' }}
+            {{ filtersExpanded ? $t('trackTable.collapseFilters') : $t('trackTable.expandFilters') }}
           </button>
         </div>
       </div>
@@ -36,7 +36,7 @@
             @change="fetchData"
           />
           <span class="chip-label">{{ prog.programTitle }}</span>
-          <span class="chip-count">{{ (prog.episodes || 0).toLocaleString() }} eps · {{ (prog.tracks || 0).toLocaleString() }} tracks</span>
+          <span class="chip-count">{{ $t('trackTable.chipCounts', { eps: (prog.episodes || 0).toLocaleString(), tracks: (prog.tracks || 0).toLocaleString() }) }}</span>
         </label>
       </div>
     </section>
@@ -45,21 +45,21 @@
       <div v-if="loadError" class="stats-counter" style="color: #c0392b;">⚠ {{ loadError }}</div>
       <div v-else class="stats-counter">
         <template v-if="isSearchActive">
-          {{ (displayedStats.uniqueTracks || 0).toLocaleString() }} unique songs · {{ (displayedStats.tracks || 0).toLocaleString() }} airings across {{ (displayedStats.episodes || 0).toLocaleString() }} episodes
-          <span class="total-hint">(of {{ (stats.uniqueTracks || 0).toLocaleString() }} songs · {{ (stats.tracks || 0).toLocaleString() }} airings in catalog)</span>
+          {{ $t('trackTable.statsSearch', { unique: (displayedStats.uniqueTracks || 0).toLocaleString(), airings: (displayedStats.tracks || 0).toLocaleString(), episodes: (displayedStats.episodes || 0).toLocaleString() }) }}
+          <span class="total-hint">{{ $t('trackTable.statsSearchHint', { totalUnique: (stats.uniqueTracks || 0).toLocaleString(), totalAirings: (stats.tracks || 0).toLocaleString() }) }}</span>
         </template>
         <template v-else>
-          {{ (stats.uniqueTracks || 0).toLocaleString() }} unique songs · {{ (stats.tracks || 0).toLocaleString() }} airings across {{ (stats.episodes || 0).toLocaleString() }} episodes
+          {{ $t('trackTable.statsAll', { unique: (stats.uniqueTracks || 0).toLocaleString(), airings: (stats.tracks || 0).toLocaleString(), episodes: (stats.episodes || 0).toLocaleString() }) }}
         </template>
       </div>
     </div>
 
     <!-- Results Section -->
     <div v-if="loading" class="text-center py-8 text-medium-emphasis">
-      Loading catalog...
+      {{ $t('trackTable.loading') }}
     </div>
     <div v-else-if="songs.length === 0" class="text-center py-8 text-medium-emphasis">
-      No matching songs found for "{{ searchQuery }}".
+      {{ $t('trackTable.noResults', { query: searchQuery }) }}
     </div>
     <section v-else class="results" aria-live="polite">
       <article
@@ -72,33 +72,33 @@
           <div class="song-title-group">
             <div class="d-flex align-start justify-space-between flex-wrap ga-2">
               <div class="song-heading">
-                <h2 v-html="highlight(song.title || 'Untitled song', searchQuery)"></h2>
+                <h2 v-html="highlight(song.title || $t('trackTable.untitledSong'), searchQuery)"></h2>
                 <div class="artist-row d-flex align-center flex-wrap ga-2 mt-1">
-                  <span class="artist" v-html="highlight(song.artist || 'Unknown artist', searchQuery)"></span>
-                  <span class="play-count-badge episode-badge" v-if="String(song.id).startsWith('ep-')">Episode match</span>
+                  <span class="artist" v-html="highlight(song.artist || $t('trackTable.unknownArtist'), searchQuery)"></span>
+                  <span class="play-count-badge episode-badge" v-if="String(song.id).startsWith('ep-')">{{ $t('trackTable.episodeMatch') }}</span>
                   <router-link
                     v-else-if="(song.playCount ?? 0) > 1 && song.airings?.[0]?.programId"
                     :to="`/program/${song.airings[0].programId}`"
                     class="play-count-badge play-count-link"
-                    title="View program archive for this show"
+                    :title="$t('trackTable.playedBadge', { n: song.playCount })"
                   >
-                    Played {{ song.playCount }}x ➔
+                    {{ $t('trackTable.playedBadge', { n: song.playCount }) }}
                   </router-link>
-                  <span class="play-count-badge" v-else-if="(song.playCount ?? 0) > 1">Played {{ song.playCount }}x</span>
-                  <span class="play-count-badge single" v-else>1x</span>
+                  <span class="play-count-badge" v-else-if="(song.playCount ?? 0) > 1">{{ $t('trackTable.playedBadgeNoLink', { n: song.playCount }) }}</span>
+                  <span class="play-count-badge single" v-else>{{ $t('trackTable.playedOnce') }}</span>
                 </div>
               </div>
               <button
                 class="add-playlist-btn"
                 type="button"
                 @click="openAddToPlaylist(song, (song.airings && song.airings[0]) || null)"
-                title="Add song to a playlist"
+                :title="$t('trackTable.addToPlaylist')"
               >
-                + Playlist
+                {{ $t('trackTable.addToPlaylist') }}
               </button>
             </div>
             <div v-if="song.snippet" class="episode-match-snippet">
-              <span class="snippet-label">Match in episode notes:</span>
+              <span class="snippet-label">{{ $t('trackTable.matchInNotes') }}</span>
               <span class="snippet-quote" v-html="highlight(song.snippet, searchQuery)"></span>
             </div>
           </div>
@@ -121,7 +121,7 @@
                 </router-link>
                 <span v-else-if="airing.programTitle" class="program-badge">{{ airing.programTitle }}</span>
                 <span class="airing-date">{{ airing.date ? airing.date.slice(0, 10) : '' }}</span>
-                <span v-if="airing.position" class="airing-pos">Track {{ airing.position }}</span>
+                <span v-if="airing.position" class="airing-pos">{{ $t('trackTable.trackPos', { pos: airing.position }) }}</span>
                 <router-link
                   v-if="airing.episodeId && airing.episodeTitle"
                   :to="`/episode/${airing.episodeId}`"
@@ -134,24 +134,24 @@
               </div>
               <p v-if="airing.episodeDescription" class="episode-desc" v-html="highlight(airing.episodeDescription, searchQuery)"></p>
               <div class="d-flex align-center flex-wrap ga-2 mt-1">
-                <a :href="airing.episodeUrl ?? undefined" target="_blank" rel="noreferrer" class="open-link" title="Listen to broadcast audio on ERR">
-                  Listen <span aria-hidden="true">↗</span>
+                <a :href="airing.episodeUrl ?? undefined" target="_blank" rel="noreferrer" class="open-link" :title="$t('trackTable.listen')">
+                  {{ $t('trackTable.listen') }} <span aria-hidden="true">↗</span>
                 </a>
                 <router-link
                   v-if="airing.episodeId"
                   :to="`/episode/${airing.episodeId}`"
                   class="open-link"
-                  title="View episode details and full tracklist"
+                  :title="$t('trackTable.episodePage')"
                 >
-                  Episode Page ➔
+                  {{ $t('trackTable.episodePage') }}
                 </router-link>
                 <button
                   class="airing-playlist-btn"
                   type="button"
                   @click="openAddToPlaylist(song, airing)"
-                  title="Add this episode airing to a playlist"
+                  :title="$t('trackTable.addToPlaylist')"
                 >
-                  + Playlist
+                  {{ $t('trackTable.addToPlaylist') }}
                 </button>
               </div>
             </li>
@@ -162,8 +162,8 @@
             type="button"
             @click="toggleExpand(song.id)"
           >
-            <span v-if="!expandedSongs.has(song.id)">+ {{ song.airings.length - 1 }} more episode {{ song.airings.length - 1 === 1 ? 'airing' : 'airings' }} ↓</span>
-            <span v-else>Show fewer episode airings ↑</span>
+            <span v-if="!expandedSongs.has(song.id)">{{ song.airings.length - 1 === 1 ? $t('trackTable.moreAiring', { n: song.airings.length - 1 }) : $t('trackTable.moreAirings', { n: song.airings.length - 1 }) }}</span>
+            <span v-else>{{ $t('trackTable.fewerAirings') }}</span>
           </button>
         </div>
       </article>
@@ -177,13 +177,14 @@
     />
 
     <v-snackbar v-model="snackbarVisible" timeout="3000" color="success" location="bottom right">
-      Added to "{{ lastAddedPlaylistTitle }}"!
+      {{ $t('trackTable.addedToPlaylist', { title: lastAddedPlaylistTitle }) }}
     </v-snackbar>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useRoute } from 'vue-router';
 import { requestGraphql, onWorkerReady, onDatabaseChange } from '@wasm/graphql-client';
 import type { Track } from '@wasm/types';
@@ -191,6 +192,8 @@ import AddToPlaylistDialog from './AddToPlaylistDialog.vue';
 import type { PlaylistItem } from '../services/playlistStorage';
 
 const route = useRoute();
+const { t } = useI18n();
+
 defineEmits<{
   (e: 'play-track', track: Track | any): void;
 }>();
@@ -202,8 +205,8 @@ const lastAddedPlaylistTitle = ref('');
 
 function openAddToPlaylist(song: SongItem, airing?: AiringItem | null) {
   trackForPlaylist.value = {
-    title: song.title || 'Untitled song',
-    artist: song.artist || 'Unknown artist',
+    title: song.title || t('trackTable.untitledSong'),
+    artist: song.artist || t('trackTable.unknownArtist'),
     uniqueTrackId: typeof song.id === 'number' ? song.id : null,
     trackId: airing ? (typeof airing.id === 'number' ? airing.id : null) : null,
     programTitle: airing?.programTitle || null,

@@ -1,39 +1,38 @@
 <template>
   <div class="summary-tab">
     <div class="summary-section">
-      <h2>📊 ERR Radio Program &amp; Episode Archive Index</h2>
-      <p class="summary-sub">
-        Explore ERR radio programs and browse catalogued broadcast episodes. Navigate directly into ERR broadcast audio, or inspect songs and airings.
-      </p>
+      <h2>{{ $t('programSummary.heading') }}</h2>
+      <p class="summary-sub">{{ $t('programSummary.subtext') }}</p>
     </div>
 
+cu
     <!-- Hero Stats Row -->
     <div class="summary-hero">
       <div class="stat-card accent">
         <div class="stat-num">{{ (totals.uniqueTracks || 0).toLocaleString() }}</div>
-        <div class="stat-lbl">Unique Songs</div>
+        <div class="stat-lbl">{{ $t('programSummary.statUnique') }}</div>
       </div>
       <div class="stat-card">
         <div class="stat-num">{{ (totals.tracks || 0).toLocaleString() }}</div>
-        <div class="stat-lbl">Total Airings</div>
+        <div class="stat-lbl">{{ $t('programSummary.statAirings') }}</div>
       </div>
       <div class="stat-card">
         <div class="stat-num">{{ (totals.episodes || 0).toLocaleString() }}</div>
-        <div class="stat-lbl">Episodes</div>
+        <div class="stat-lbl">{{ $t('programSummary.statEpisodes') }}</div>
       </div>
       <div class="stat-card">
         <div class="stat-num">{{ (totals.programs || 0).toLocaleString() }}</div>
-        <div class="stat-lbl">Programs</div>
+        <div class="stat-lbl">{{ $t('programSummary.statPrograms') }}</div>
       </div>
     </div>
 
     <!-- Program Overview Cards Grid (No run controls, pure inspection & index navigation) -->
     <div v-if="loading && breakdown.length === 0" class="text-center py-6 text-medium-emphasis">
-      Loading programs...
+      {{ $t('programSummary.loadingPrograms') }}
     </div>
 
     <div v-else-if="breakdown.length === 0" class="text-center text-medium-emphasis py-4">
-      No program breakdown available yet.
+      {{ $t('programSummary.noBreakdown') }}
     </div>
 
     <div v-else class="program-grid">
@@ -47,7 +46,7 @@
         <div class="prog-header">
           <div>
             <h3>{{ prog.programTitle }}</h3>
-            <span class="text-caption text-medium-emphasis">Series ID: {{ prog.programId }}</span>
+            <span class="text-caption text-medium-emphasis">{{ $t('programSummary.seriesId', { id: prog.programId }) }}</span>
           </div>
           <div class="d-flex align-center ga-1" @click.stop>
             <router-link
@@ -55,7 +54,7 @@
               class="view-chip active"
               title="Explore broadcast program archive"
             >
-              Explore Program ➔
+              {{ $t('programSummary.exploreProgram') }}
             </router-link>
           </div>
         </div>
@@ -63,15 +62,15 @@
         <div class="prog-metrics">
           <div class="metric">
             <span class="m-val">{{ (prog.episodes || 0).toLocaleString() }}</span>
-            <span class="m-lbl">Episodes</span>
+            <span class="m-lbl">{{ $t('programSummary.statEpisodes') }}</span>
           </div>
           <div class="metric">
             <span class="m-val">{{ (prog.tracks || 0).toLocaleString() }}</span>
-            <span class="m-lbl">Tracks</span>
+            <span class="m-lbl">{{ $t('programSummary.statAirings') }}</span>
           </div>
           <div class="metric">
             <span class="m-val">{{ (prog.uniqueTracks || 0).toLocaleString() }}</span>
-            <span class="m-lbl">Unique</span>
+            <span class="m-lbl">{{ $t('programSummary.statUnique') }}</span>
           </div>
         </div>
 
@@ -79,7 +78,7 @@
           <div class="prog-progress-bar">
             <div class="prog-progress-fill" :style="{ width: getProgressPct(prog) + '%' }"></div>
           </div>
-          <span class="prog-pct">{{ getProgressPct(prog) }}% unique density</span>
+          <span class="prog-pct">{{ $t('programSummary.uniqueDensity', { pct: getProgressPct(prog) }) }}</span>
         </div>
       </div>
     </div>
@@ -88,10 +87,8 @@
     <section class="episode-index-section" id="episode-index">
       <div class="episode-index-header">
         <div class="index-title-group">
-          <h3>📻 Episode Archive Index</h3>
-          <span class="index-subtitle">
-            Browse episodes, jump into official ERR broadcast streams, or examine parsed tracklists.
-          </span>
+          <h3>{{ $t('programSummary.episodeIndexTitle') }}</h3>
+          <span class="index-subtitle">{{ $t('programSummary.episodeIndexSub') }}</span>
         </div>
 
         <!-- Program Filter Selector -->
@@ -102,7 +99,7 @@
             :class="{ active: selectedProgramId === '' }"
             @click="selectProgram('')"
           >
-            All Shows ({{ (totals.episodes || 0).toLocaleString() }})
+            {{ $t('programSummary.allShows', { n: (totals.episodes || 0).toLocaleString() }) }}
           </button>
           <button
             v-for="prog in breakdown"
@@ -123,24 +120,28 @@
           type="search"
           v-model="episodeSearch"
           class="episode-search-input"
-          placeholder="Filter episodes by date (e.g. 2024-09), title, or keywords..."
+          :placeholder="$t('programSummary.filterEpisodesPlaceholder')"
           @input="onEpisodeSearchInput"
         />
         <div class="index-count-label">
-          Showing {{ episodes.length }} episode{{ episodes.length === 1 ? '' : 's' }}
-          <span v-if="selectedProgramTitle"> in <strong>{{ selectedProgramTitle }}</strong></span>
+          <template v-if="selectedProgramTitle">
+            {{ $t('programSummary.showingEpisodesIn', { n: episodes.length }) }} <strong>{{ selectedProgramTitle }}</strong>
+          </template>
+          <template v-else>
+            {{ $t('programSummary.showingEpisodes', { n: episodes.length }) }}
+          </template>
         </div>
       </div>
 
       <!-- Episode Cards / List -->
       <div v-if="episodesLoading" class="text-center py-6 text-medium-emphasis">
-        Loading episodes...
+        {{ $t('programSummary.loadingEpisodes') }}
       </div>
 
       <div v-else-if="episodes.length === 0" class="no-episodes-panel">
-        <p>No broadcast episodes found matching criteria.</p>
+        <p>{{ $t('programSummary.noEpisodes') }}</p>
         <button v-if="selectedProgramId || episodeSearch" class="reset-filter-btn" @click="resetFilters">
-          Reset filters
+          {{ $t('programSummary.resetFilters') }}
         </button>
       </div>
 
@@ -175,9 +176,9 @@
               target="_blank"
               rel="noreferrer"
               class="ep-btn ep-btn-primary"
-              title="Open broadcast on ERR Archive"
+              :title="$t('programSummary.listenOnErr')"
             >
-              <span>Listen on ERR Archive</span>
+              <span>{{ $t('programSummary.listenOnErr') }}</span>
               <span class="arrow-icon">↗</span>
             </a>
 
@@ -186,7 +187,7 @@
               :to="`/episode/${ep.id}`"
               class="ep-btn ep-btn-secondary"
             >
-              <span>Episode Page</span>
+              <span>{{ $t('programSummary.episodePage') }}</span>
               <span class="arrow-icon">➔</span>
             </router-link>
 
@@ -196,22 +197,22 @@
               class="ep-btn ep-btn-ghost"
               @click="toggleEpisodeTracks(ep.id)"
             >
-              <span>{{ expandedEpId === ep.id ? '▲ Hide Tracklist' : '▼ Inspect Tracklist' }}</span>
+              <span>{{ expandedEpId === ep.id ? $t('programSummary.hideTracklist') : $t('programSummary.inspectTracklist') }}</span>
             </button>
           </div>
 
           <!-- Inline Episode Tracklist -->
           <div v-if="expandedEpId === ep.id" class="inline-tracklist">
-            <div v-if="tracksLoading" class="tracklist-loading">Loading tracks for episode...</div>
-            <div v-else-if="episodeTracks.length === 0" class="tracklist-empty">No tracks indexed for this episode yet.</div>
+            <div v-if="tracksLoading" class="tracklist-loading">{{ $t('programSummary.loadingTracks') }}</div>
+            <div v-else-if="episodeTracks.length === 0" class="tracklist-empty">{{ $t('programSummary.noTracks') }}</div>
             <div v-else class="tracklist-table-wrap">
               <table class="tracklist-table">
                 <thead>
                   <tr>
                     <th style="width: 45px;">#</th>
-                    <th>Artist</th>
-                    <th>Song Title</th>
-                    <th style="width: 90px;">Action</th>
+                    <th>{{ $t('programSummary.thArtist') }}</th>
+                    <th>{{ $t('programSummary.thSongTitle') }}</th>
+                    <th style="width: 90px;">{{ $t('programSummary.thAction') }}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -224,7 +225,7 @@
                         :to="{ path: '/', query: { search: t.title || t.artist || '' } }"
                         class="track-find-link"
                       >
-                        Search ➔
+                        {{ $t('programSummary.searchLink') }}
                       </router-link>
                     </td>
                   </tr>
@@ -240,8 +241,11 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, onActivated } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { requestGraphql, onWorkerReady, onAgentProgress, onDatabaseChange } from '@wasm/graphql-client';
 import type { ProgramBreakdown, EpisodeGql, EpisodeTrackGql } from '@wasm/types';
+
+const { t: _t } = useI18n();
 
 const breakdown = ref<ProgramBreakdown[]>([]);
 const totals = ref({ episodes: 0, tracks: 0, uniqueTracks: 0, programs: 0 });

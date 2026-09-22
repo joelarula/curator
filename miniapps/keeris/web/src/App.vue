@@ -3,17 +3,17 @@
     <main class="shell">
       <header class="masthead">
         <div class="brand">
-          <h1>ERR Archive Index</h1>
+          <h1>{{ $t('app.brand') }}</h1>
         </div>
         <nav class="nav-tabs" aria-label="Main Navigation">
           <RouterLink to="/" custom v-slot="{ href, navigate, isActive }">
-            <a :href="href" :class="{ active: isActive }" @click="navigate"> 🎵 Songs &amp; Airings </a>
+            <a :href="href" :class="{ active: isActive }" @click="navigate"> {{ $t('app.nav.songs') }} </a>
           </RouterLink>
           <RouterLink to="/summary" custom v-slot="{ href, navigate, isActive }">
-            <a :href="href" :class="{ active: isActive }" @click="navigate"> 📊 Program Summary </a>
+            <a :href="href" :class="{ active: isActive }" @click="navigate"> {{ $t('app.nav.summary') }} </a>
           </RouterLink>
           <RouterLink to="/playlists" custom v-slot="{ href, navigate, isActive }">
-            <a :href="href" :class="{ active: isActive }" @click="navigate"> 📋 Playlists </a>
+            <a :href="href" :class="{ active: isActive }" @click="navigate"> {{ $t('app.nav.playlists') }} </a>
           </RouterLink>
         </nav>
         <div class="masthead-right">
@@ -22,19 +22,19 @@
               class="header-db-btn"
               type="button"
               :disabled="isExporting"
-              title="Export Keeris SQLite database (.sqlite3)"
+              :title="$t('app.exportDb')"
               @click="handleExportDatabase"
             >
-              {{ isExporting ? '⏳ Exporting...' : '⬇ Export DB' }}
+              {{ isExporting ? $t('app.exportingDb') : $t('app.exportDb') }}
             </button>
             <button
               class="header-db-btn"
               type="button"
               :disabled="isImporting"
-              title="Import Keeris SQLite database (.sqlite3)"
+              :title="$t('app.importDb')"
               @click="triggerFileInput"
             >
-              {{ isImporting ? '⏳ Importing...' : '⬆ Import DB' }}
+              {{ isImporting ? $t('app.importingDb') : $t('app.importDb') }}
             </button>
             <input
               ref="fileInputRef"
@@ -74,12 +74,15 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { RouterLink, RouterView } from 'vue-router';
 import KeerisHeader from './components/KeerisHeader.vue';
 import { CuratorConsole } from '@curator/console';
 import { keerisCuratorAdapter } from './curator-adapter';
 import AudioBar from './components/AudioBar.vue';
 import { requestGraphql, onWorkerReady, exportDatabase, importDatabase, onDatabaseChange, getAppMode, type AppMode } from '@wasm/graphql-client';
+
+const { t } = useI18n();
 
 const appMode = ref<AppMode>('server');
 const drawerOpen = ref(false);
@@ -116,7 +119,7 @@ async function handleExportDatabase() {
   try {
     await exportDatabase();
   } catch (err) {
-    alert('Export failed: ' + (err instanceof Error ? err.message : String(err)));
+    alert(t('app.exportError', { msg: err instanceof Error ? err.message : String(err) }));
   } finally {
     isExporting.value = false;
   }
@@ -129,7 +132,7 @@ function triggerFileInput() {
 async function handleFileSelected(e) {
   const file = e.target?.files?.[0];
   if (!file) return;
-  if (!confirm(`Import '${file.name}' (${(file.size / (1024 * 1024)).toFixed(2)} MB) into storage? This will replace the current database and reload.`)) {
+  if (!confirm(t('app.importConfirm', { name: file.name, size: (file.size / (1024 * 1024)).toFixed(2) }))) {
     e.target.value = '';
     return;
   }
@@ -138,7 +141,7 @@ async function handleFileSelected(e) {
     await importDatabase(file);
     setTimeout(() => window.location.reload(), 400);
   } catch (err) {
-    alert('Import failed: ' + (err instanceof Error ? err.message : String(err)));
+    alert(t('app.importError', { msg: err instanceof Error ? err.message : String(err) }));
     isImporting.value = false;
   }
 }
@@ -173,6 +176,8 @@ onUnmounted(() => {
   if (statsDebounceTimer) clearTimeout(statsDebounceTimer);
 });
 </script>
+
+
 
 <style scoped>
 .masthead-right {

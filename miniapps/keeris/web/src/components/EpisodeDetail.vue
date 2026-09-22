@@ -8,25 +8,25 @@
         class="back-link"
       >
         <v-icon icon="mdi-arrow-left" size="small" class="mr-1" />
-        Back to {{ episode.program.title }}
+        {{ t('episodeDetail.backToProgram', { title: episode.program.title }) }}
       </router-link>
       <router-link v-else to="/summary" class="back-link">
         <v-icon icon="mdi-arrow-left" size="small" class="mr-1" />
-        Back to Programs
+        {{ t('episodeDetail.backToPrograms') }}
       </router-link>
     </div>
 
     <!-- Loading State -->
     <div v-if="loading" class="text-center py-12 text-medium-emphasis">
-      Loading episode details...
+      {{ t('episodeDetail.loadingEpisode') }}
     </div>
 
     <!-- Error / Not Found -->
     <div v-else-if="!episode" class="text-center py-12 text-medium-emphasis">
-      <h3>Episode not found</h3>
-      <p class="text-caption mt-1">Unable to find episode with ID "{{ episodeId }}".</p>
+      <h3>{{ t('episodeDetail.episodeNotFound') }}</h3>
+      <p class="text-caption mt-1">{{ t('episodeDetail.episodeNotFoundDesc', { id: episodeId }) }}</p>
       <v-btn color="primary" variant="tonal" size="small" to="/summary" class="mt-4">
-        Return to Summary
+        {{ t('episodeDetail.returnToSummary') }}
       </v-btn>
     </div>
 
@@ -45,7 +45,7 @@
                 {{ episode.program.title }}
               </router-link>
               <span class="date-tag">📅 {{ formatDate(episode.scheduledAt || episode.publishedAt) }}</span>
-              <span class="tracks-count-tag">🎵 {{ tracks.length }} tracks indexed</span>
+              <span class="tracks-count-tag">🎵 {{ t('episodeDetail.tracksIndexed', { n: tracks.length }) }}</span>
             </div>
 
             <h1 class="text-h4 font-weight-bold mb-2">{{ episode.title }}</h1>
@@ -64,7 +64,7 @@
               rel="noreferrer"
               class="v-btn v-btn--density-default v-btn--size-small v-btn--variant-flat bg-secondary text-white"
             >
-              <span>Listen on ERR Archive</span>
+              <span>{{ t('episodeDetail.listenOnErr') }}</span>
               <v-icon icon="mdi-open-in-new" size="x-small" class="ml-1" />
             </a>
 
@@ -72,14 +72,14 @@
               :to="{ path: '/', query: { search: episode.title } }"
               class="v-btn v-btn--density-default v-btn--size-small v-btn--variant-outlined"
             >
-              <span>Search in Catalog</span>
+              <span>{{ t('episodeDetail.searchInCatalog') }}</span>
             </router-link>
           </div>
         </div>
 
         <!-- Full Notes / Text if present -->
         <div v-if="episode.metadata?.fullText" class="mt-4 pt-4 border-t">
-          <h4 class="text-subtitle-2 font-weight-bold text-medium-emphasis mb-1">Broadcast Notes:</h4>
+          <h4 class="text-subtitle-2 font-weight-bold text-medium-emphasis mb-1">{{ t('episodeDetail.broadcastNotes') }}</h4>
           <p class="text-body-2 text-medium-emphasis whitespace-pre-wrap">
             {{ episode.metadata.fullText }}
           </p>
@@ -91,25 +91,25 @@
         <v-card-title class="d-flex align-center justify-space-between pb-3">
           <div class="d-flex align-center ga-2">
             <v-icon icon="mdi-music" color="primary" />
-            <span class="text-h6 font-weight-bold">Episode Tracklist ({{ tracks.length }})</span>
+            <span class="text-h6 font-weight-bold">{{ t('episodeDetail.tracklistTitle', { n: tracks.length }) }}</span>
           </div>
         </v-card-title>
 
         <v-card-text class="px-0">
           <div v-if="tracksLoading" class="text-center py-6 text-medium-emphasis">
-            Loading tracks...
+            {{ t('episodeDetail.loadingTracks') }}
           </div>
           <div v-else-if="tracks.length === 0" class="text-center py-6 text-medium-emphasis">
-            No tracklist entries indexed for this broadcast.
+            {{ t('episodeDetail.noTracklist') }}
           </div>
           <div v-else class="tracklist-table-container">
             <table class="episode-tracks-table">
               <thead>
                 <tr>
-                  <th style="width: 50px;">#</th>
-                  <th>Artist / Performer</th>
-                  <th>Track Title</th>
-                  <th style="width: 170px;">Actions</th>
+                   <th style="width: 50px;">#</th>
+                   <th>{{ t('episodeDetail.thArtist') }}</th>
+                   <th>{{ t('episodeDetail.thTitle') }}</th>
+                   <th style="width: 170px;">{{ t('episodeDetail.thActions') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -125,14 +125,14 @@
                         @click="openAddToPlaylist(t)"
                         title="Add to playlist"
                       >
-                        + Playlist
+                        {{ t('episodeDetail.addToPlaylist') }}
                       </button>
                       <router-link
                         :to="{ path: '/', query: { search: t.title || t.artist || '' } }"
                         class="track-search-btn"
                         title="Search all airings in catalog"
                       >
-                        Search
+                        {{ t('episodeDetail.search') }}
                       </router-link>
                     </div>
                   </td>
@@ -152,18 +152,20 @@
     />
 
     <v-snackbar v-model="snackbarVisible" timeout="3000" color="success" location="bottom right">
-      Added to "{{ lastAddedPlaylistTitle }}"!
+      {{ t('episodeDetail.addedToPlaylist', { title: lastAddedPlaylistTitle }) }}
     </v-snackbar>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useRoute } from 'vue-router';
 import { requestGraphql, onWorkerReady } from '@wasm/graphql-client';
 import AddToPlaylistDialog from './AddToPlaylistDialog.vue';
 import type { PlaylistItem } from '../services/playlistStorage';
 
+const { t } = useI18n();
 const route = useRoute();
 const episodeId = computed(() => String(route.params.id || ''));
 

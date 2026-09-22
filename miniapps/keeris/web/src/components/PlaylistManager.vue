@@ -12,7 +12,7 @@
               prepend-icon="mdi-arrow-left"
               @click="activePlaylistId = null"
             >
-              All Playlists
+              {{ t('playlistManager.allPlaylists') }}
             </v-btn>
             <div>
               <div class="d-flex align-center ga-2">
@@ -29,7 +29,7 @@
                 {{ activePlaylist.description }}
               </p>
               <div class="text-caption text-disabled mt-1">
-                {{ activePlaylist.items.length }} tracks · Updated {{ formatDate(activePlaylist.updatedAt) }}
+                {{ t('playlistManager.tracksUpdated', { n: activePlaylist.items.length, date: formatDate(activePlaylist.updatedAt) }) }}
               </div>
             </div>
           </div>
@@ -43,7 +43,7 @@
               prepend-icon="mdi-content-copy"
               @click="handleCopyMarkdown(activePlaylist)"
             >
-              {{ copiedMarkdown ? 'Copied! ✔' : 'Copy Markdown' }}
+              {{ copiedMarkdown ? t('playlistManager.copied') : t('playlistManager.copyMarkdown') }}
             </v-btn>
 
             <v-btn
@@ -53,7 +53,7 @@
               prepend-icon="mdi-download"
               @click="handleDownloadMarkdown(activePlaylist)"
             >
-              Download .md
+              {{ t('playlistManager.downloadMd') }}
             </v-btn>
 
             <v-btn
@@ -62,7 +62,7 @@
               prepend-icon="mdi-plus"
               @click="showAddTrackDialog = true"
             >
-              Custom Track
+              {{ t('playlistManager.customTrack') }}
             </v-btn>
 
             <v-btn
@@ -72,7 +72,7 @@
               prepend-icon="mdi-delete"
               @click="confirmDeletePlaylist(activePlaylist)"
             >
-              Delete
+              {{ t('playlistManager.delete') }}
             </v-btn>
           </div>
         </div>
@@ -83,7 +83,7 @@
             v-model="trackSearchQuery"
             density="compact"
             variant="outlined"
-            placeholder="Filter tracks by title, artist, program, or notes..."
+            :placeholder="t('playlistManager.filterTracksPlaceholder')"
             prepend-inner-icon="mdi-magnify"
             hide-details
             clearable
@@ -93,10 +93,9 @@
         <!-- Tracks List -->
         <v-card-text class="px-0 pt-3">
           <div v-if="activePlaylist.items.length === 0" class="text-center py-8 text-medium-emphasis">
-            <p class="text-subtitle-1 mb-2">No tracks in this playlist yet.</p>
+            <p class="text-subtitle-1 mb-2">{{ t('playlistManager.noTracksYet') }}</p>
             <p class="text-caption mb-4">
-              Add songs while browsing <strong>Songs &amp; Airings</strong> with the "+ Playlist" button,
-              or click <strong>Custom Track</strong> to add manually.
+              {{ t('playlistManager.noTracksHint', { songsTab: t('playlistManager.songsTabName') }) }}
             </p>
             <v-btn
               color="primary"
@@ -105,12 +104,12 @@
               prepend-icon="mdi-plus"
               @click="showAddTrackDialog = true"
             >
-              Add Custom Track
+              {{ t('playlistManager.addCustomTrack') }}
             </v-btn>
           </div>
 
           <div v-else-if="filteredItems.length === 0" class="text-center py-6 text-medium-emphasis">
-            No tracks match "{{ trackSearchQuery }}".
+            {{ t('playlistManager.noTrackMatch', { q: trackSearchQuery }) }}
           </div>
 
           <div v-else class="tracks-list">
@@ -130,7 +129,7 @@
                   <div class="d-flex align-baseline flex-wrap ga-2">
                     <span class="font-weight-bold text-subtitle-1">{{ item.title }}</span>
                     <span class="text-body-2 text-medium-emphasis">
-                      {{ item.artist || 'Unknown Artist' }}
+                      {{ item.artist || t('playlistManager.unknownArtist') }}
                     </span>
                   </div>
 
@@ -142,7 +141,7 @@
 
                     <span v-if="item.airDate" class="text-caption text-medium-emphasis">
                       {{ item.airDate }}
-                      <span v-if="item.position">(Track #{{ item.position }})</span>
+                      <span v-if="item.position">{{ t('playlistManager.trackPos', { pos: item.position }) }}</span>
                     </span>
 
                     <a
@@ -153,7 +152,7 @@
                       class="episode-link"
                       title="Open source episode"
                     >
-                      <span>{{ item.episodeTitle || 'Source Episode' }}</span>
+                      <span>{{ item.episodeTitle || t('playlistManager.sourceEpisode') }}</span>
                       <v-icon icon="mdi-open-in-new" size="x-small" class="ml-1" />
                     </a>
                     <span v-else-if="item.episodeTitle" class="text-caption text-medium-emphasis">
@@ -165,7 +164,7 @@
                   <div v-if="item.notes" class="track-notes mt-2 pa-2 rounded">
                     <div class="d-flex align-center justify-space-between">
                       <span class="text-caption">
-                        <strong>Notes:</strong> {{ item.notes }}
+                        <strong>{{ t('playlistManager.notes') }}</strong> {{ item.notes }}
                       </span>
                       <v-btn
                         icon="mdi-pencil"
@@ -235,9 +234,9 @@
           <div class="d-flex align-center ga-2">
             <v-icon icon="mdi-playlist-music" color="secondary" />
             <div>
-              <span class="text-h6 font-weight-bold">Curated Playlists</span>
+              <span class="text-h6 font-weight-bold">{{ t('playlistManager.curatedPlaylists') }}</span>
               <span class="text-caption text-medium-emphasis ml-2">
-                ({{ playlists.length }} playlists · {{ totalSavedTracks }} tracks in LocalStorage)
+                {{ t('playlistManager.playlistCount', { n: playlists.length, tracks: totalSavedTracks }) }}
               </span>
             </div>
           </div>
@@ -250,7 +249,7 @@
               prepend-icon="mdi-plus"
               @click="showCreateDialog = true"
             >
-              New Playlist
+              {{ t('playlistManager.newPlaylist') }}
             </v-btn>
 
             <v-btn
@@ -261,7 +260,7 @@
               prepend-icon="mdi-file-document-outline"
               @click="showExportAllModal = true"
             >
-              Export All (MD)
+              {{ t('playlistManager.exportAll') }}
             </v-btn>
 
             <v-btn
@@ -271,7 +270,7 @@
               title="Backup all playlists to a JSON file"
               @click="handleBackupJson"
             >
-              Backup JSON
+              {{ t('playlistManager.backupJson') }}
             </v-btn>
 
             <v-btn
@@ -281,7 +280,7 @@
               title="Restore or import playlists from JSON"
               @click="showImportDialog = true"
             >
-              Import JSON
+              {{ t('playlistManager.importJson') }}
             </v-btn>
           </div>
         </v-card-title>
@@ -290,13 +289,12 @@
           <!-- Empty State -->
           <div v-if="playlists.length === 0" class="text-center py-8">
             <v-icon icon="mdi-playlist-music" size="64" color="medium-emphasis" class="mb-2" />
-            <div class="text-h6 font-weight-bold mb-1">No playlists yet</div>
+            <div class="text-h6 font-weight-bold mb-1">{{ t('playlistManager.noPlaylistsTitle') }}</div>
             <p class="text-body-2 text-medium-emphasis mb-4 max-w-md mx-auto">
-              Create a playlist to curate songs and track metadata from ERR archive broadcasts.
-              Playlists are stored locally in your browser and can be exported as structured Markdown files.
+              {{ t('playlistManager.noPlaylistsDesc') }}
             </p>
             <v-btn color="primary" variant="flat" prepend-icon="mdi-plus" @click="showCreateDialog = true">
-              Create First Playlist
+              {{ t('playlistManager.createFirstPlaylist') }}
             </v-btn>
           </div>
 
@@ -313,17 +311,17 @@
                   <div class="d-flex align-start justify-space-between ga-2 mb-2">
                     <div class="font-weight-bold text-h6 card-title">{{ pl.title }}</div>
                     <v-chip size="small" color="primary" variant="flat">
-                      {{ pl.items.length }} {{ pl.items.length === 1 ? 'track' : 'tracks' }}
+                      {{ pl.items.length }} {{ pl.items.length === 1 ? t('playlistManager.track') : t('playlistManager.tracks') }}
                     </v-chip>
                   </div>
                   <p class="text-body-2 text-medium-emphasis card-desc mb-3">
-                    {{ pl.description || 'No description provided.' }}
+                    {{ pl.description || t('playlistManager.noDescription') }}
                   </p>
                 </div>
 
                 <div class="card-footer d-flex align-center justify-space-between pt-2 border-t mt-2">
                   <span class="text-caption text-disabled">
-                    Updated {{ formatDate(pl.updatedAt) }}
+                    {{ t('playlistManager.updatedAt', { date: formatDate(pl.updatedAt) }) }}
                   </span>
                   <div class="d-flex align-center ga-1" @click.stop>
                     <v-btn
@@ -332,7 +330,7 @@
                       size="small"
                       @click="openPlaylist(pl.id)"
                     >
-                      Open &amp; Curate
+                      {{ t('playlistManager.openAndCurate') }}
                     </v-btn>
 
                     <v-btn
@@ -374,12 +372,12 @@
     <!-- DIALOG: Create Playlist -->
     <v-dialog v-model="showCreateDialog" max-width="480">
       <v-card color="surface" class="pa-3 rounded-lg">
-        <v-card-title class="font-weight-bold">Create New Playlist</v-card-title>
+        <v-card-title class="font-weight-bold">{{ t('playlistManager.createDialogTitle') }}</v-card-title>
         <v-card-text>
           <v-text-field
             v-model="newTitle"
-            label="Playlist Title"
-            placeholder="e.g. Estonian 80s Funk Selections"
+            :label="t('playlistManager.playlistTitleLabel')"
+            :placeholder="t('playlistManager.playlistTitlePlaceholder')"
             variant="outlined"
             density="compact"
             class="mb-3"
@@ -387,22 +385,22 @@
           />
           <v-textarea
             v-model="newDescription"
-            label="Description (optional)"
-            placeholder="e.g. Curated tracks from Keeris and Kauamängiv episodes"
+            :label="t('playlistManager.descLabel')"
+            :placeholder="t('playlistManager.descPlaceholder')"
             variant="outlined"
             density="compact"
             rows="3"
           />
         </v-card-text>
         <v-card-actions class="justify-end">
-          <v-btn variant="text" @click="showCreateDialog = false">Cancel</v-btn>
+          <v-btn variant="text" @click="showCreateDialog = false">{{ t('playlistManager.cancel') }}</v-btn>
           <v-btn
             color="primary"
             variant="flat"
             :disabled="!newTitle.trim()"
             @click="handleCreatePlaylist"
           >
-            Create
+            {{ t('playlistManager.create') }}
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -411,7 +409,7 @@
     <!-- DIALOG: Edit Playlist -->
     <v-dialog v-model="showEditDialog" max-width="480">
       <v-card color="surface" class="pa-3 rounded-lg">
-        <v-card-title class="font-weight-bold">Edit Playlist Details</v-card-title>
+        <v-card-title class="font-weight-bold">{{ t('playlistManager.editDialogTitle') }}</v-card-title>
         <v-card-text>
           <v-text-field
             v-model="editTitle"
@@ -423,21 +421,21 @@
           />
           <v-textarea
             v-model="editDescription"
-            label="Description"
+            :label="t('playlistManager.descLabel')"
             variant="outlined"
             density="compact"
             rows="3"
           />
         </v-card-text>
         <v-card-actions class="justify-end">
-          <v-btn variant="text" @click="showEditDialog = false">Cancel</v-btn>
+          <v-btn variant="text" @click="showEditDialog = false">{{ t('playlistManager.cancel') }}</v-btn>
           <v-btn
             color="primary"
             variant="flat"
             :disabled="!editTitle.trim()"
             @click="handleSaveEditPlaylist"
           >
-            Save Changes
+            {{ t('playlistManager.saveChanges') }}
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -446,12 +444,12 @@
     <!-- DIALOG: Add Custom Track -->
     <v-dialog v-model="showAddTrackDialog" max-width="500">
       <v-card color="surface" class="pa-3 rounded-lg">
-        <v-card-title class="font-weight-bold">Add Custom Track Entry</v-card-title>
+        <v-card-title class="font-weight-bold">{{ t('playlistManager.addCustomTrackTitle') }}</v-card-title>
         <v-card-text>
           <v-text-field
             v-model="customTrackTitle"
-            label="Song Title *"
-            placeholder="e.g. Virmalised"
+            :label="t('playlistManager.songTitleLabel')"
+            :placeholder="t('playlistManager.songTitlePlaceholder')"
             variant="outlined"
             density="compact"
             class="mb-3"
@@ -459,54 +457,54 @@
           />
           <v-text-field
             v-model="customTrackArtist"
-            label="Artist / Band"
-            placeholder="e.g. Keeris"
+            :label="t('playlistManager.artistLabel')"
+            :placeholder="t('playlistManager.artistPlaceholder')"
             variant="outlined"
             density="compact"
             class="mb-3"
           />
           <v-text-field
             v-model="customTrackProgram"
-            label="Program (optional)"
-            placeholder="e.g. Keeris or Kauamängiv"
+            :label="t('playlistManager.programLabel')"
+            :placeholder="t('playlistManager.programPlaceholder')"
             variant="outlined"
             density="compact"
             class="mb-3"
           />
           <v-text-field
             v-model="customTrackEpisodeTitle"
-            label="Episode Title (optional)"
-            placeholder="e.g. Keeris: 14.05.1982"
+            :label="t('playlistManager.episodeTitleLabel')"
+            :placeholder="t('playlistManager.episodeTitlePlaceholder')"
             variant="outlined"
             density="compact"
             class="mb-3"
           />
           <v-text-field
             v-model="customTrackEpisodeUrl"
-            label="Episode / Archive URL (optional)"
-            placeholder="https://arhiiv.err.ee/audio/vaata/..."
+            :label="t('playlistManager.episodeUrlLabel')"
+            :placeholder="t('playlistManager.episodeUrlPlaceholder')"
             variant="outlined"
             density="compact"
             class="mb-3"
           />
           <v-textarea
             v-model="customTrackNotes"
-            label="Notes / Commentary (optional)"
-            placeholder="Add notes, timestamp, or highlights"
+            :label="t('playlistManager.notesLabel')"
+            :placeholder="t('playlistManager.notesPlaceholder')"
             variant="outlined"
             density="compact"
             rows="2"
           />
         </v-card-text>
         <v-card-actions class="justify-end">
-          <v-btn variant="text" @click="showAddTrackDialog = false">Cancel</v-btn>
+          <v-btn variant="text" @click="showAddTrackDialog = false">{{ t('playlistManager.cancel') }}</v-btn>
           <v-btn
             color="primary"
             variant="flat"
             :disabled="!customTrackTitle.trim()"
             @click="handleAddCustomTrack"
           >
-            Add to Playlist
+            {{ t('playlistManager.addToPlaylistBtn') }}
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -515,15 +513,15 @@
     <!-- DIALOG: Edit Track Notes -->
     <v-dialog v-model="showEditNotesDialog" max-width="480">
       <v-card color="surface" class="pa-3 rounded-lg">
-        <v-card-title class="font-weight-bold">Edit Track Notes</v-card-title>
+        <v-card-title class="font-weight-bold">{{ t('playlistManager.editNotesTitle') }}</v-card-title>
         <v-card-text>
           <div v-if="editingItem" class="text-caption text-medium-emphasis mb-3">
             {{ editingItem.artist }} — {{ editingItem.title }}
           </div>
           <v-textarea
             v-model="editingNotes"
-            label="Notes / Commentary"
-            placeholder="Enter personal notes, groove description, or context"
+            :label="t('playlistManager.editNotesLabel')"
+            :placeholder="t('playlistManager.editNotesPlaceholder')"
             variant="outlined"
             density="compact"
             rows="3"
@@ -531,8 +529,8 @@
           />
         </v-card-text>
         <v-card-actions class="justify-end">
-          <v-btn variant="text" @click="showEditNotesDialog = false">Cancel</v-btn>
-          <v-btn color="primary" variant="flat" @click="handleSaveNotes">Save</v-btn>
+          <v-btn variant="text" @click="showEditNotesDialog = false">{{ t('playlistManager.cancel') }}</v-btn>
+          <v-btn color="primary" variant="flat" @click="handleSaveNotes">{{ t('playlistManager.save') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -540,14 +538,13 @@
     <!-- DIALOG: Confirm Delete Playlist -->
     <v-dialog v-model="showDeleteDialog" max-width="420">
       <v-card color="surface" class="pa-3 rounded-lg">
-        <v-card-title class="font-weight-bold text-error">Delete Playlist?</v-card-title>
+        <v-card-title class="font-weight-bold text-error">{{ t('playlistManager.deleteTitle') }}</v-card-title>
         <v-card-text>
-          Are you sure you want to delete <strong>"{{ deletingPlaylist?.title }}"</strong>?
-          This action will remove all {{ deletingPlaylist?.items.length }} curated tracks from LocalStorage.
+          {{ t('playlistManager.deleteConfirm', { title: deletingPlaylist?.title, n: deletingPlaylist?.items.length }) }}
         </v-card-text>
         <v-card-actions class="justify-end">
-          <v-btn variant="text" @click="showDeleteDialog = false">Cancel</v-btn>
-          <v-btn color="error" variant="flat" @click="handleConfirmDelete">Delete</v-btn>
+          <v-btn variant="text" @click="showDeleteDialog = false">{{ t('playlistManager.cancel') }}</v-btn>
+          <v-btn color="error" variant="flat" @click="handleConfirmDelete">{{ t('playlistManager.delete') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -556,12 +553,12 @@
     <v-dialog v-model="showExportAllModal" max-width="700">
       <v-card color="surface" class="pa-4 rounded-lg">
         <v-card-title class="d-flex align-center justify-space-between">
-          <span class="font-weight-bold">Export All Playlists (Markdown)</span>
+          <span class="font-weight-bold">{{ t('playlistManager.exportAllTitle') }}</span>
           <v-btn icon="mdi-close" variant="text" size="small" @click="showExportAllModal = false" />
         </v-card-title>
         <v-card-text>
           <p class="text-caption text-medium-emphasis mb-2">
-            Structured Markdown with clickable ERR archive links, air dates, and track metadata:
+            {{ t('playlistManager.exportAllDesc') }}
           </p>
           <v-textarea
             :model-value="allPlaylistsMarkdownText"
@@ -579,7 +576,7 @@
             prepend-icon="mdi-content-copy"
             @click="handleCopyAllMarkdown"
           >
-            {{ copiedAllMarkdown ? 'Copied! ✔' : 'Copy to Clipboard' }}
+            {{ copiedAllMarkdown ? t('playlistManager.copied') : t('playlistManager.copyToClipboard') }}
           </v-btn>
           <v-btn
             color="secondary"
@@ -596,14 +593,14 @@
     <!-- DIALOG: Import JSON -->
     <v-dialog v-model="showImportDialog" max-width="520">
       <v-card color="surface" class="pa-4 rounded-lg">
-        <v-card-title class="font-weight-bold">Import Playlists from JSON</v-card-title>
+        <v-card-title class="font-weight-bold">{{ t('playlistManager.importTitle') }}</v-card-title>
         <v-card-text>
           <p class="text-caption text-medium-emphasis mb-3">
-            Select a previously exported Keeris playlist backup JSON file or paste JSON below:
+            {{ t('playlistManager.importDesc') }}
           </p>
 
           <v-file-input
-            label="Upload JSON file"
+            :label="t('playlistManager.uploadJsonLabel')"
             accept=".json,application/json"
             variant="outlined"
             density="compact"
@@ -613,7 +610,7 @@
 
           <v-textarea
             v-model="importJsonText"
-            label="Or paste JSON directly"
+            :label="t('playlistManager.pasteJsonLabel')"
             rows="4"
             variant="outlined"
             density="compact"
@@ -621,8 +618,8 @@
           />
 
           <v-radio-group v-model="importMode" inline density="compact" hide-details>
-            <v-radio label="Merge with existing" value="merge" />
-            <v-radio label="Replace all existing" value="replace" />
+            <v-radio :label="t('playlistManager.mergeMode')" value="merge" />
+            <v-radio :label="t('playlistManager.replaceMode')" value="replace" />
           </v-radio-group>
 
           <v-alert v-if="importError" type="error" variant="tonal" density="compact" class="mt-3">
@@ -630,14 +627,14 @@
           </v-alert>
         </v-card-text>
         <v-card-actions class="justify-end">
-          <v-btn variant="text" @click="showImportDialog = false">Cancel</v-btn>
+          <v-btn variant="text" @click="showImportDialog = false">{{ t('playlistManager.cancel') }}</v-btn>
           <v-btn
             color="primary"
             variant="flat"
             :disabled="!importJsonText.trim()"
             @click="handleExecuteImport"
           >
-            Import
+            {{ t('playlistManager.import') }}
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -652,6 +649,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import {
   usePlaylists,
   type LocalPlaylist,
@@ -674,6 +672,8 @@ const {
   downloadFile,
   copyToClipboard,
 } = usePlaylists();
+
+const { t } = useI18n();
 
 // Active state
 const activePlaylistId = ref<string | null>(null);
@@ -771,7 +771,7 @@ function handleCreatePlaylist() {
   newDescription.value = '';
   showCreateDialog.value = false;
   activePlaylistId.value = created.id;
-  showToast(`Playlist "${created.title}" created!`);
+  showToast(t('playlistManager.toastCreated', { title: created.title }));
 }
 
 // Playlist Edit
@@ -789,7 +789,7 @@ function handleSaveEditPlaylist() {
     description: editDescription.value,
   });
   showEditDialog.value = false;
-  showToast('Playlist details updated');
+  showToast(t('playlistManager.toastUpdated'));
 }
 
 // Playlist Delete
@@ -807,7 +807,7 @@ function handleConfirmDelete() {
   }
   showDeleteDialog.value = false;
   deletingPlaylist.value = null;
-  showToast(`Playlist "${title}" deleted`);
+  showToast(t('playlistManager.toastDeleted', { title }));
 }
 
 // Custom Track
@@ -830,7 +830,7 @@ function handleAddCustomTrack() {
   customTrackEpisodeUrl.value = '';
   customTrackNotes.value = '';
   showAddTrackDialog.value = false;
-  showToast('Custom track added to playlist');
+  showToast(t('playlistManager.toastCustomAdded'));
 }
 
 // Edit Notes
@@ -847,7 +847,7 @@ function handleSaveNotes() {
   });
   showEditNotesDialog.value = false;
   editingItem.value = null;
-  showToast('Track notes updated');
+  showToast(t('playlistManager.toastNotesUpdated'));
 }
 
 // Reorder & Remove
@@ -860,7 +860,7 @@ function moveTrack(fromIdx: number, delta: number) {
 function removeTrack(itemId: string) {
   if (!activePlaylistId.value) return;
   removeTrackFromPlaylist(activePlaylistId.value, itemId);
-  showToast('Track removed from playlist');
+  showToast(t('playlistManager.toastTrackRemoved'));
 }
 
 // Markdown Export
@@ -869,12 +869,12 @@ async function handleCopyMarkdown(pl: LocalPlaylist) {
   const ok = await copyToClipboard(md);
   if (ok) {
     copiedMarkdown.value = true;
-    showToast(`Copied "${pl.title}" markdown to clipboard!`);
+    showToast(t('playlistManager.toastMarkdownCopied'));
     setTimeout(() => {
       copiedMarkdown.value = false;
     }, 2500);
   } else {
-    showToast('Failed to copy to clipboard', 'error');
+    showToast(t('playlistManager.toastImportFailed', { msg: '' }), 'error');
   }
 }
 
@@ -893,12 +893,12 @@ async function handleCopyAllMarkdown() {
   const ok = await copyToClipboard(allPlaylistsMarkdownText.value);
   if (ok) {
     copiedAllMarkdown.value = true;
-    showToast('Copied all playlists markdown to clipboard!');
+    showToast(t('playlistManager.toastMarkdownCopied'));
     setTimeout(() => {
       copiedAllMarkdown.value = false;
     }, 2500);
   } else {
-    showToast('Failed to copy to clipboard', 'error');
+    showToast(t('playlistManager.toastImportFailed', { msg: '' }), 'error');
   }
 }
 
@@ -933,9 +933,9 @@ function handleExecuteImport() {
   if (res.success) {
     showImportDialog.value = false;
     importJsonText.value = '';
-    showToast(`Successfully imported ${res.count} playlists!`);
+    showToast(t('playlistManager.toastImportedPlaylists', { n: res.count }));
   } else {
-    importError.value = res.error || 'Import failed.';
+    importError.value = res.error ? t('playlistManager.toastImportFailed', { msg: res.error }) : t('playlistManager.toastImportFailed', { msg: '' });
   }
 }
 </script>

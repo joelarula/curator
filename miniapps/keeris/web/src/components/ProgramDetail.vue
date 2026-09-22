@@ -4,21 +4,21 @@
     <div class="mb-3">
       <router-link to="/summary" class="back-link">
         <v-icon icon="mdi-arrow-left" size="small" class="mr-1" />
-        Back to Program Summary
+        {{ $t('programDetail.backToSummary') }}
       </router-link>
     </div>
 
     <!-- Loading State -->
     <div v-if="loading" class="text-center py-12 text-medium-emphasis">
-      Loading program details...
+      {{ $t('programDetail.loadingProgram') }}
     </div>
 
     <!-- Error / Not Found -->
     <div v-else-if="!program" class="text-center py-12 text-medium-emphasis">
-      <h3>Program not found</h3>
-      <p class="text-caption mt-1">Unable to locate program with ID "{{ programId }}".</p>
+      <h3>{{ $t('programDetail.programNotFound') }}</h3>
+      <p class="text-caption mt-1">{{ $t('programDetail.programNotFoundDesc', { id: programId }) }}</p>
       <v-btn color="primary" variant="tonal" size="small" to="/summary" class="mt-4">
-        Return to Summary
+        {{ $t('programDetail.returnToSummary') }}
       </v-btn>
     </div>
 
@@ -46,7 +46,7 @@
               rel="noreferrer"
               class="v-btn v-btn--density-default v-btn--size-small v-btn--variant-outlined primary-outline-btn"
             >
-              <span>ERR Archive Page</span>
+              <span>{{ $t('programDetail.errArchivePage') }}</span>
               <v-icon icon="mdi-open-in-new" size="x-small" class="ml-1" />
             </a>
 
@@ -54,7 +54,7 @@
               :to="{ path: '/', query: { programId: String(program.id) } }"
               class="v-btn v-btn--density-default v-btn--size-small v-btn--variant-flat bg-primary text-white"
             >
-              <span>Explore Songs in Catalog</span>
+              <span>{{ $t('programDetail.exploreSongs') }}</span>
             </router-link>
           </div>
         </div>
@@ -63,15 +63,15 @@
         <div class="metrics-strip d-flex align-center flex-wrap ga-4 pt-4 mt-4 border-t">
           <div class="metric-item">
             <span class="metric-val">{{ episodes.length }}</span>
-            <span class="metric-label">Episodes Indexed</span>
+            <span class="metric-label">{{ $t('programDetail.metricEpisodes') }}</span>
           </div>
           <div class="metric-item">
             <span class="metric-val">{{ totalTracks }}</span>
-            <span class="metric-label">Total Tracks</span>
+            <span class="metric-label">{{ $t('programDetail.metricTracks') }}</span>
           </div>
           <div class="metric-item">
             <span class="metric-val">{{ (progStat?.uniqueTracks || 0).toLocaleString() }}</span>
-            <span class="metric-label">Unique Songs</span>
+            <span class="metric-label">{{ $t('programDetail.metricUnique') }}</span>
           </div>
         </div>
       </v-card>
@@ -80,17 +80,15 @@
       <section class="episodes-section">
         <div class="d-flex align-center justify-space-between flex-wrap ga-3 mb-4">
           <div>
-            <h2 class="text-h6 font-weight-bold mb-0">Broadcast Episodes ({{ filteredEpisodes.length }})</h2>
-            <span class="text-caption text-medium-emphasis">
-              Permanent archive index of all broadcast episodes with audio stream links and tracklists.
-            </span>
+            <h2 class="text-h6 font-weight-bold mb-0">{{ $t('programDetail.broadcastEpisodes', { n: filteredEpisodes.length }) }}</h2>
+            <span class="text-caption text-medium-emphasis">{{ $t('programDetail.broadcastSubtext') }}</span>
           </div>
 
           <v-text-field
             v-model="searchQuery"
             density="compact"
             variant="outlined"
-            placeholder="Search episodes by date or title..."
+            :placeholder="$t('programDetail.searchEpisodesPlaceholder')"
             prepend-inner-icon="mdi-magnify"
             hide-details
             clearable
@@ -100,7 +98,7 @@
 
         <!-- Episodes List -->
         <div v-if="filteredEpisodes.length === 0" class="text-center py-8 text-medium-emphasis">
-          No episodes found matching "{{ searchQuery }}".
+          {{ $t('programDetail.noEpisodesFound', { query: searchQuery }) }}
         </div>
 
         <div v-else class="episode-cards">
@@ -135,9 +133,9 @@
                   target="_blank"
                   rel="noreferrer"
                   class="ep-action-btn primary-btn"
-                  title="Listen to official audio on ERR Archive"
+                  :title="$t('programDetail.listenOnErr')"
                 >
-                  <span>Listen on ERR Archive</span>
+                  <span>{{ $t('programDetail.listenOnErr') }}</span>
                   <v-icon icon="mdi-open-in-new" size="x-small" class="ml-1" />
                 </a>
 
@@ -145,7 +143,7 @@
                   :to="`/episode/${ep.id}`"
                   class="ep-action-btn secondary-btn"
                 >
-                  <span>Episode Page ➔</span>
+                  <span>{{ $t('programDetail.episodePage') }}</span>
                 </router-link>
 
                 <button
@@ -153,7 +151,7 @@
                   class="ep-action-btn ghost-btn"
                   @click="toggleTracklist(ep.id)"
                 >
-                  {{ expandedEpId === ep.id ? '▲ Hide Tracks' : '▼ View Tracks' }}
+                  {{ expandedEpId === ep.id ? $t('programDetail.hideTracks') : $t('programDetail.showTracks') }}
                 </button>
               </div>
             </div>
@@ -161,19 +159,19 @@
             <!-- Inline Tracklist -->
             <div v-if="expandedEpId === ep.id" class="inline-tracklist mt-3 pt-3 border-t">
               <div v-if="tracksLoading" class="text-caption text-medium-emphasis py-2">
-                Loading tracklist...
+                {{ $t('programDetail.loadingTracklist') }}
               </div>
               <div v-else-if="currentTracks.length === 0" class="text-caption text-medium-emphasis py-2">
-                No tracks indexed for this episode.
+                {{ $t('programDetail.noTracksIndexed') }}
               </div>
               <div v-else class="tracklist-table-container">
                 <table class="tracklist-table">
                   <thead>
                     <tr>
                       <th style="width: 40px;">#</th>
-                      <th>Artist</th>
-                      <th>Title</th>
-                      <th style="width: 150px;">Actions</th>
+                      <th>{{ $t('programDetail.thArtist') }}</th>
+                      <th>{{ $t('programDetail.thTitle') }}</th>
+                      <th style="width: 150px;">{{ $t('programDetail.thActions') }}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -187,15 +185,15 @@
                             class="tiny-playlist-btn"
                             type="button"
                             @click="openAddToPlaylist(t, ep)"
-                            title="Add track to playlist"
+                            :title="$t('programDetail.addToPlaylist')"
                           >
-                            + Playlist
+                            {{ $t('programDetail.addToPlaylist') }}
                           </button>
                           <router-link
                             :to="{ path: '/', query: { search: t.title || t.artist || '' } }"
                             class="tiny-search-link"
                           >
-                            Search
+                            {{ $t('programDetail.search') }}
                           </router-link>
                         </div>
                       </td>
@@ -217,19 +215,21 @@
     />
 
     <v-snackbar v-model="snackbarVisible" timeout="3000" color="success" location="bottom right">
-      Added to "{{ lastAddedPlaylistTitle }}"!
+      {{ $t('programDetail.addedToPlaylist', { title: lastAddedPlaylistTitle }) }}
     </v-snackbar>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { useRoute } from 'vue-router';
 import { requestGraphql, onWorkerReady } from '@wasm/graphql-client';
 import AddToPlaylistDialog from './AddToPlaylistDialog.vue';
 import type { PlaylistItem } from '../services/playlistStorage';
 
 const route = useRoute();
+const { t } = useI18n();
 const programId = computed(() => String(route.params.id || ''));
 
 const loading = ref(true);

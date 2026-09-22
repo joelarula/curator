@@ -4,7 +4,7 @@
       <v-card-title class="d-flex align-center justify-space-between pb-2">
         <div class="d-flex align-center">
           <v-icon icon="mdi-playlist-plus" color="secondary" class="mr-2" />
-          <span class="text-h6 font-weight-bold">Add to Playlist</span>
+          <span class="text-h6 font-weight-bold">{{ t('addToPlaylist.dialogTitle') }}</span>
         </div>
         <v-btn icon="mdi-close" variant="text" size="small" @click="close" />
       </v-card-title>
@@ -12,9 +12,9 @@
       <v-card-text class="pt-2">
         <!-- Target Track Summary -->
         <div v-if="track" class="track-summary pa-3 mb-4 rounded-md">
-          <div class="font-weight-bold text-subtitle-1">{{ track.title || 'Untitled Track' }}</div>
+          <div class="font-weight-bold text-subtitle-1">{{ track.title || t('addToPlaylist.untitledTrack') }}</div>
           <div class="text-caption text-medium-emphasis">
-            {{ track.artist || 'Unknown Artist' }}
+            {{ track.artist || t('addToPlaylist.unknownArtist') }}
             <span v-if="track.programTitle"> · {{ track.programTitle }}</span>
             <span v-if="track.episodeTitle"> — {{ track.episodeTitle }}</span>
           </div>
@@ -34,7 +34,7 @@
         <!-- Choose Existing Playlist -->
         <div v-if="playlists.length > 0">
           <label class="text-caption font-weight-bold text-medium-emphasis mb-1 d-block">
-            Select Target Playlist:
+            {{ t('addToPlaylist.selectLabel') }}
           </label>
           <v-select
             v-model="selectedPlaylistId"
@@ -43,18 +43,18 @@
             item-value="id"
             variant="outlined"
             density="comfortable"
-            placeholder="Choose a playlist..."
+            :placeholder="t('addToPlaylist.choosePlaceholder')"
             hide-details
             class="mb-3"
           >
             <template #item="{ props, item }">
-              <v-list-item v-bind="props" :subtitle="`${item.raw.items.length} tracks`" />
+              <v-list-item v-bind="props" :subtitle="`${item.raw.items.length} ${t('addToPlaylist.trackCount', { n: item.raw.items.length })}`" />
             </template>
           </v-select>
         </div>
 
         <div v-else class="text-caption text-medium-emphasis mb-3">
-          You don't have any playlists yet. Create one below to save this track!
+          {{ t('addToPlaylist.noPlaylists') }}
         </div>
 
         <!-- Inline Quick Create New Playlist -->
@@ -64,14 +64,14 @@
             @click="isCreatingNew = !isCreatingNew"
           >
             <v-icon :icon="isCreatingNew ? 'mdi-arrow-up' : 'mdi-plus'" size="small" class="mr-1" />
-            {{ isCreatingNew ? 'Use existing playlist' : '+ Create a new playlist' }}
+            {{ isCreatingNew ? t('addToPlaylist.useExisting') : t('addToPlaylist.createNew') }}
           </div>
 
           <div v-if="isCreatingNew || playlists.length === 0" class="mt-2 pa-3 new-playlist-box rounded">
             <v-text-field
               v-model="newPlaylistTitle"
-              label="New Playlist Title"
-              placeholder="e.g. My ERR Favorites"
+              :label="t('addToPlaylist.newTitleLabel')"
+              :placeholder="t('addToPlaylist.newTitlePlaceholder')"
               variant="outlined"
               density="compact"
               hide-details
@@ -80,8 +80,8 @@
             />
             <v-text-field
               v-model="newPlaylistDesc"
-              label="Description (optional)"
-              placeholder="e.g. Best tracks from 1980s radio"
+              :label="t('addToPlaylist.newDescLabel')"
+              :placeholder="t('addToPlaylist.newDescPlaceholder')"
               variant="outlined"
               density="compact"
               hide-details
@@ -92,8 +92,8 @@
         <!-- Track User Notes -->
         <v-textarea
           v-model="trackNotes"
-          label="Track Notes / Comment (optional)"
-          placeholder="e.g. Discovered in episode from 1982, great bassline"
+          :label="t('addToPlaylist.trackNotesLabel')"
+          :placeholder="t('addToPlaylist.trackNotesPlaceholder')"
           variant="outlined"
           density="compact"
           rows="2"
@@ -103,7 +103,7 @@
       </v-card-text>
 
       <v-card-actions class="justify-end pt-2">
-        <v-btn variant="text" @click="close">Cancel</v-btn>
+        <v-btn variant="text" @click="close">{{ t('addToPlaylist.cancel') }}</v-btn>
         <v-btn
           color="primary"
           variant="flat"
@@ -111,7 +111,7 @@
           :loading="saving"
           @click="save"
         >
-          Add Track
+          {{ t('addToPlaylist.addTrack') }}
         </v-btn>
       </v-card-actions>
     </v-card>
@@ -120,6 +120,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { usePlaylists, type PlaylistItem } from '../services/playlistStorage';
 
 const props = defineProps<{
@@ -132,6 +133,7 @@ const emit = defineEmits<{
   (e: 'added', payload: { playlistTitle: string }): void;
 }>();
 
+const { t } = useI18n();
 const { playlists, createPlaylist, addTrackToPlaylist } = usePlaylists();
 
 const selectedPlaylistId = ref<string>('');
@@ -212,7 +214,7 @@ function save() {
     });
 
     statusType.value = 'success';
-    statusMessage.value = `Added to "${targetTitle}"!`;
+    statusMessage.value = t('addToPlaylist.savedTo', { title: targetTitle });
     emit('added', { playlistTitle: targetTitle });
 
     setTimeout(() => {
@@ -222,7 +224,7 @@ function save() {
   } catch (err) {
     saving.value = false;
     statusType.value = 'error';
-    statusMessage.value = 'Failed to save to playlist';
+    statusMessage.value = t('addToPlaylist.saveFailed');
     console.error(err);
   }
 }

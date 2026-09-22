@@ -1,5 +1,8 @@
 import 'vuetify/styles';
 import { createVuetify, type ThemeDefinition } from 'vuetify';
+import { createVueI18nAdapter } from 'vuetify/locale/adapters/vue-i18n';
+import { useI18n } from 'vue-i18n';
+import i18n from './i18n';
 import { aliases, mdi } from 'vuetify/iconsets/mdi-svg';
 import {
   mdiMusic,
@@ -80,6 +83,9 @@ export default createVuetify({
     sets: {
       mdi,
     },
+  },
+  locale: {
+    adapter: createVueI18nAdapter({ i18n, useI18n }),
   },
   theme: {
     defaultTheme: 'curatorDarkTheme',
