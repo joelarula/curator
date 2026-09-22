@@ -150,8 +150,10 @@ export async function provisionMariadbDb(connectionUrl: string = process.env.CUR
   let PrismaMariaDb: any;
   let mariadbMod: any;
   try {
+    // @ts-ignore
     const adapterMod = await import('@prisma/adapter-mariadb');
     PrismaMariaDb = adapterMod.PrismaMariaDb || (adapterMod as any).default?.PrismaMariaDb;
+    // @ts-ignore
     mariadbMod = await import('mariadb');
   } catch (err: any) {
     throw new Error(`MariaDB adapter dependencies not found (@prisma/adapter-mariadb / mariadb): ${err?.message || err}`);
@@ -188,7 +190,7 @@ export async function provisionMariadbDb(connectionUrl: string = process.env.CUR
   }
   if (!MariadbPrismaClient) {
     const mod = await import('@prisma/client');
-    MariadbPrismaClient = mod.PrismaClient;
+    MariadbPrismaClient = (mod as any).PrismaClient;
   }
 
   const prisma = new (MariadbPrismaClient as any)({ adapter });

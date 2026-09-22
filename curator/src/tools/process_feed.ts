@@ -1,5 +1,4 @@
 import { defineTool } from './CuratorTool.js';
-import Parser from 'rss-parser';
 
 export const process_feed = defineTool({
   name: 'process_feed',
@@ -33,7 +32,14 @@ export const process_feed = defineTool({
       }
       console.log(`[process_feed] Fetching RSS feed: ${url}`);
       
-      const parser = new Parser();
+      let ParserClass: any;
+      try {
+        const mod = await import('rss-parser');
+        ParserClass = (mod as any).default || mod;
+      } catch {
+        throw new Error('[process_feed] rss-parser is not installed. Please load @curator/plugin-feeds or install rss-parser.');
+      }
+      const parser = new ParserClass();
       const feed = await parser.parseURL(url);
 
       const { curatorContext } = await import('../engine/CuratorContext.js');

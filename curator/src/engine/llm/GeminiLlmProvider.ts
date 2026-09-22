@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
+type GoogleGenAIType = any;
 import type {
   ILlmProvider,
   LlmRequest,
@@ -12,6 +12,16 @@ import type {
 } from './ILlmProvider.js';
 import { logger } from '../../utils/logger.js';
 
+async function getGoogleGenAI(apiKey: string): Promise<any> {
+  try {
+    const mod = await import('@google/genai');
+    const GenAIClass = (mod as any).GoogleGenAI || (mod as any).default?.GoogleGenAI || (mod as any).default;
+    return new GenAIClass({ apiKey });
+  } catch {
+    throw new Error('[GeminiLlmProvider] @google/genai is not installed. Please register the provider via @curator/plugin-llm-gemini or install @google/genai.');
+  }
+}
+
 export class GeminiLlmProvider implements ILlmProvider {
   public readonly providerName = 'gemini';
 
@@ -21,7 +31,7 @@ export class GeminiLlmProvider implements ILlmProvider {
       throw new Error('[GeminiLlmProvider] API key missing. Please set GOOGLE_API_KEY or GEMINI_API_KEY.');
     }
 
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = await getGoogleGenAI(apiKey);
     const model = req.model || 'gemini-2.5-flash';
 
     const config: any = {};
@@ -97,7 +107,7 @@ export class GeminiLlmProvider implements ILlmProvider {
       throw new Error('[GeminiLlmProvider] API key missing for embeddings. Please set GOOGLE_API_KEY or GEMINI_API_KEY.');
     }
 
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = await getGoogleGenAI(apiKey);
     const model = req.model || 'text-embedding-004';
     const texts = Array.isArray(req.text) ? req.text : [req.text];
 
@@ -139,7 +149,7 @@ export class GeminiLlmProvider implements ILlmProvider {
       throw new Error('[GeminiLlmProvider] API key missing for cache creation. Please set GOOGLE_API_KEY or GEMINI_API_KEY.');
     }
 
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = await getGoogleGenAI(apiKey);
     const model = req.model || 'gemini-2.5-flash';
     const ttl = `${req.ttlSeconds || 3600}s`;
 
@@ -182,7 +192,7 @@ export class GeminiLlmProvider implements ILlmProvider {
       throw new Error('[GeminiLlmProvider] API key missing for cache deletion.');
     }
 
-    const ai = new GoogleGenAI({ apiKey: key });
+    const ai = await getGoogleGenAI(key);
     await ai.caches.delete({ name });
     logger.info(`[GeminiLlmProvider] Deleted context cache: ${name}`);
   }

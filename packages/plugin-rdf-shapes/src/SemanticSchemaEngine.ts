@@ -65,7 +65,7 @@ export class SemanticSchemaEngine {
     }
 
     private async _createEntityInternal(
-        tx: Prisma.TransactionClient,
+        tx: any,
         shapeUri: string,
         subjectUri: string,
         data: Record<string, any>,
@@ -499,7 +499,7 @@ export class SemanticSchemaEngine {
 
     // Helper to lazily ensure a resource exists
     private async ensureResource(
-        tx: Prisma.TransactionClient,
+        tx: any,
         uri: string,
         title: string,
         userId: number,
@@ -513,7 +513,7 @@ export class SemanticSchemaEngine {
         });
     }
 
-    private async ensureDatatype(tx: Prisma.TransactionClient, name: string): Promise<number> {
+    private async ensureDatatype(tx: any, name: string): Promise<number> {
         if (this.datatypeCache[name]) return this.datatypeCache[name];
         const datatype = await tx.datatype.upsert({
             where: { name },
