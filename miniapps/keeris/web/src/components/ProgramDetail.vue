@@ -81,7 +81,6 @@
         <div class="d-flex align-center justify-space-between flex-wrap ga-3 mb-4">
           <div>
             <h2 class="text-h6 font-weight-bold mb-0">{{ $t('programDetail.broadcastEpisodes', { n: filteredEpisodes.length }) }}</h2>
-            <span class="text-caption text-medium-emphasis">{{ $t('programDetail.broadcastSubtext') }}</span>
           </div>
 
           <v-text-field
