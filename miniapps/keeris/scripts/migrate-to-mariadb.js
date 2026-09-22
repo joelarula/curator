@@ -7,9 +7,9 @@ const PG_CURATOR_URL = process.env.PG_CURATOR_URL || 'postgresql://curator:curat
 const MARIADB_CONFIG = {
   host: process.env.MARIADB_HOST || '185.169.68.23',
   port: Number(process.env.MARIADB_PORT || 3306),
-  user: process.env.MARIADB_USER || 'sepisedc_curator_keeris_admin',
-  password: process.env.MARIADB_PASSWORD || ',ijI]EQ-z6=H6aem',
-  database: process.env.MARIADB_DATABASE || 'sepisedc_curator_keeris',
+  user: process.env.MARIADB_USER || 'curator',
+  password: process.env.MARIADB_PASSWORD || 'curator_secret',
+  database: process.env.MARIADB_DATABASE || 'keeris',
   connectTimeout: 15000,
 };
 
