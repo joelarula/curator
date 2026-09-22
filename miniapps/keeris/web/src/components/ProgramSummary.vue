@@ -5,7 +5,7 @@
       <p class="summary-sub">{{ $t('programSummary.subtext') }}</p>
     </div>
 
-cu
+
     <!-- Hero Stats Row -->
     <div class="summary-hero">
       <div class="stat-card accent">
@@ -46,8 +46,7 @@ cu
         <div class="prog-header">
           <div>
             <h3>{{ prog.programTitle }}</h3>
-            <span class="text-caption text-medium-emphasis">{{ $t('programSummary.seriesId', { id: prog.programId }) }}</span>
-          </div>
+           </div>
           <div class="d-flex align-center ga-1" @click.stop>
             <router-link
               :to="`/program/${prog.programId}`"
@@ -83,159 +82,6 @@ cu
       </div>
     </div>
 
-    <!-- Episode Archive Index Feature -->
-    <section class="episode-index-section" id="episode-index">
-      <div class="episode-index-header">
-        <div class="index-title-group">
-          <h3>{{ $t('programSummary.episodeIndexTitle') }}</h3>
-          <span class="index-subtitle">{{ $t('programSummary.episodeIndexSub') }}</span>
-        </div>
-
-        <!-- Program Filter Selector -->
-        <div class="program-filter-chips">
-          <button
-            type="button"
-            class="filter-chip"
-            :class="{ active: selectedProgramId === '' }"
-            @click="selectProgram('')"
-          >
-            {{ $t('programSummary.allShows', { n: (totals.episodes || 0).toLocaleString() }) }}
-          </button>
-          <button
-            v-for="prog in breakdown"
-            :key="prog.programId"
-            type="button"
-            class="filter-chip"
-            :class="{ active: selectedProgramId === String(prog.programId) }"
-            @click="selectProgram(String(prog.programId))"
-          >
-            {{ prog.programTitle }} ({{ (prog.episodes || 0).toLocaleString() }})
-          </button>
-        </div>
-      </div>
-
-      <!-- Episode Search and Stats Bar -->
-      <div class="index-toolbar">
-        <input
-          type="search"
-          v-model="episodeSearch"
-          class="episode-search-input"
-          :placeholder="$t('programSummary.filterEpisodesPlaceholder')"
-          @input="onEpisodeSearchInput"
-        />
-        <div class="index-count-label">
-          <template v-if="selectedProgramTitle">
-            {{ $t('programSummary.showingEpisodesIn', { n: episodes.length }) }} <strong>{{ selectedProgramTitle }}</strong>
-          </template>
-          <template v-else>
-            {{ $t('programSummary.showingEpisodes', { n: episodes.length }) }}
-          </template>
-        </div>
-      </div>
-
-      <!-- Episode Cards / List -->
-      <div v-if="episodesLoading" class="text-center py-6 text-medium-emphasis">
-        {{ $t('programSummary.loadingEpisodes') }}
-      </div>
-
-      <div v-else-if="episodes.length === 0" class="no-episodes-panel">
-        <p>{{ $t('programSummary.noEpisodes') }}</p>
-        <button v-if="selectedProgramId || episodeSearch" class="reset-filter-btn" @click="resetFilters">
-          {{ $t('programSummary.resetFilters') }}
-        </button>
-      </div>
-
-      <div v-else class="episode-list">
-        <article
-          v-for="ep in episodes"
-          :key="ep.id"
-          class="episode-card"
-        >
-          <div class="ep-top-row">
-            <div class="ep-meta-badges">
-              <span v-if="ep.program?.title" class="badge program-tag">{{ ep.program.title }}</span>
-              <span class="badge date-tag">📅 {{ formatDate(ep.scheduledAt || ep.publishedAt) }}</span>
-              <span class="badge track-count-tag">🎵 {{ ep.trackCount }} track{{ ep.trackCount === 1 ? '' : 's' }}</span>
-            </div>
-          </div>
-
-          <h4 class="ep-title">
-            <router-link :to="`/episode/${ep.id}`" class="ep-title-link">
-              {{ ep.title }}
-            </router-link>
-          </h4>
-
-          <p v-if="ep.metadata?.summary || ep.metadata?.description" class="ep-desc">
-            {{ ep.metadata?.summary || ep.metadata?.description }}
-          </p>
-
-          <div class="ep-actions-row">
-            <!-- Direct external link to ERR broadcast episode audio -->
-            <a
-              :href="ep.url"
-              target="_blank"
-              rel="noreferrer"
-              class="ep-btn ep-btn-primary"
-              :title="$t('programSummary.listenOnErr')"
-            >
-              <span>{{ $t('programSummary.listenOnErr') }}</span>
-              <span class="arrow-icon">↗</span>
-            </a>
-
-            <!-- Dedicated Episode Page -->
-            <router-link
-              :to="`/episode/${ep.id}`"
-              class="ep-btn ep-btn-secondary"
-            >
-              <span>{{ $t('programSummary.episodePage') }}</span>
-              <span class="arrow-icon">➔</span>
-            </router-link>
-
-            <!-- Inline Tracklist Inspection Toggle -->
-            <button
-              type="button"
-              class="ep-btn ep-btn-ghost"
-              @click="toggleEpisodeTracks(ep.id)"
-            >
-              <span>{{ expandedEpId === ep.id ? $t('programSummary.hideTracklist') : $t('programSummary.inspectTracklist') }}</span>
-            </button>
-          </div>
-
-          <!-- Inline Episode Tracklist -->
-          <div v-if="expandedEpId === ep.id" class="inline-tracklist">
-            <div v-if="tracksLoading" class="tracklist-loading">{{ $t('programSummary.loadingTracks') }}</div>
-            <div v-else-if="episodeTracks.length === 0" class="tracklist-empty">{{ $t('programSummary.noTracks') }}</div>
-            <div v-else class="tracklist-table-wrap">
-              <table class="tracklist-table">
-                <thead>
-                  <tr>
-                    <th style="width: 45px;">#</th>
-                    <th>{{ $t('programSummary.thArtist') }}</th>
-                    <th>{{ $t('programSummary.thSongTitle') }}</th>
-                    <th style="width: 90px;">{{ $t('programSummary.thAction') }}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="t in episodeTracks" :key="t.id">
-                    <td class="track-num">{{ t.position }}</td>
-                    <td class="track-artist"><strong>{{ t.artist || '—' }}</strong></td>
-                    <td class="track-title">{{ t.title || t.rawText }}</td>
-                    <td>
-                      <router-link
-                        :to="{ path: '/', query: { search: t.title || t.artist || '' } }"
-                        class="track-find-link"
-                      >
-                        {{ $t('programSummary.searchLink') }}
-                      </router-link>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </article>
-      </div>
-    </section>
   </div>
 </template>
 

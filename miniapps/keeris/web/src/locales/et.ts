@@ -7,8 +7,8 @@ export const et = {
   app: {
     brand: 'ERR arhiivi otsing',
     nav: {
-      songs: 'Laulud & Saated',
-      summary: 'Saate tutvustus',
+      songs: 'Otsing',
+      summary: 'Saatesarjad',
       playlists: 'Esitusloendid',
     },
     exportDb: 'Ekspordi DB',
@@ -27,7 +27,7 @@ export const et = {
   // ── TrackTable.vue ───────────────────────────────────────────────────────
   trackTable: {
     searchPlaceholder: 'Otsi loo pealkirja, esitajat või saate teksti (nt Remedium, Keeris, Kauamängiv)...',
-    filterTitle: 'Filtreeri saate järgi',
+    filterTitle: 'Vali saatesarjad',
     filterAll: '{n} saadet',
     filterSelected: 'leitud {selected} / {total} saate seast',
     collapseFilters: 'Sulge filtrid ▲',
@@ -47,7 +47,7 @@ export const et = {
     matchInNotes: 'Leitud saate tekstist:',
     addToPlaylist: '+ Esitusloend',
     listen: 'Kuula',
-    episodePage: 'Saate leht ➔',
+    episodePage: 'Saade ➔',
     trackPos: 'Lugu {pos}',
     moreAirings: '+ veel {n} esitust ↓',
     moreAiring: '+ veel {n} esitust ↓',
@@ -57,17 +57,17 @@ export const et = {
 
   // ── ProgramSummary.vue ───────────────────────────────────────────────────
   programSummary: {
-    heading: 'ERR raadioahiivi otsing',
-    subtext: ' Otsi ERR raadiosaadeteid.',
-    statUnique: 'Unikaalset lugu',
-    statAirings: 'Esitusi kokku',
-    statEpisodes: 'Saateid',
-    statPrograms: 'Saatesarju',
+    heading: 'Saatesarjad',
+    subtext: 'Indekseeritud saatesarjade ülevaade',
+    statUnique: 'lugu',
+    statAirings: 'esitust',
+    statEpisodes: 'saadet',  
+    statPrograms: 'saatesarja',
     loadingPrograms: 'Laadin saateid...',
     noBreakdown: 'Saadete ülevaade pole veel saadaval.',
-    seriesId: 'Saatesarja ID: {id}',
-    exploreProgram: 'Tutvu saatesarjaga ➔',
-    uniqueDensity: '{pct}% unikaalseid lugusid',
+    seriesId: 'Saatesarja tunnus: {id}',
+    exploreProgram: 'Vaata lähemalt ➔',
+    uniqueDensity: 'unikaalsus: {pct}%',
     episodeIndexTitle: 'Saate Arhiivi Indeks',
     episodeIndexSub: 'Sirvi saateid, mine otse ERR eetrivoogu või vaata analüüsitud esitusloendit.',
     allShows: 'Kõik saated ({n})',
@@ -91,7 +91,7 @@ export const et = {
 
   // ── ProgramDetail.vue ────────────────────────────────────────────────────
   programDetail: {
-    backToSummary: 'Tagasi saadete ülevaatesse',
+    backToSummary: 'Tagasi saadete juurde',
     loadingProgram: 'Laadin saate andmeid...',
     programNotFound: 'Saadet ei leitud',
     programNotFoundDesc: 'Ei leia saadet ID-ga „{id}".',
