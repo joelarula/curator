@@ -289,7 +289,7 @@ export async function ensureMysqlSchema(pool: any): Promise<void> {
         url TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
     `);
 
     await pool.query(`
@@ -306,7 +306,7 @@ export async function ensureMysqlSchema(pool: any): Promise<void> {
         parse_error TEXT,
         INDEX idx_episodes_scheduled_at (scheduled_at),
         INDEX idx_episodes_program_id (program_id)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
     `);
 
     await pool.query(`
@@ -322,7 +322,7 @@ export async function ensureMysqlSchema(pool: any): Promise<void> {
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_unique_tracks_play_count (play_count),
         INDEX idx_unique_tracks_artist (artist)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
     `);
 
     await pool.query(`
@@ -337,7 +337,7 @@ export async function ensureMysqlSchema(pool: any): Promise<void> {
         UNIQUE KEY uq_tracks_ep_pos (episode_id, position),
         INDEX idx_tracks_artist (artist),
         INDEX idx_tracks_unique_track_id (unique_track_id)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
     `);
 
     await pool.query(`
@@ -348,7 +348,7 @@ export async function ensureMysqlSchema(pool: any): Promise<void> {
         full_text LONGTEXT,
         summary MEDIUMTEXT,
         keywords TEXT
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
     `);
 
     await pool.query(`
@@ -358,7 +358,7 @@ export async function ensureMysqlSchema(pool: any): Promise<void> {
         description TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
     `);
 
     await pool.query(`
@@ -372,7 +372,7 @@ export async function ensureMysqlSchema(pool: any): Promise<void> {
         notes TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_playlist_items_pos (playlist_id, position)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
     `);
 
     // Ensure Curator core engine tables exist in MariaDB
@@ -383,7 +383,7 @@ export async function ensureMysqlSchema(pool: any): Promise<void> {
         name VARCHAR(191),
         createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
     `);
 
     await pool.query(`
@@ -396,7 +396,7 @@ export async function ensureMysqlSchema(pool: any): Promise<void> {
         createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_project_user_existent (userId, existent)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
     `);
 
     await pool.query(`
@@ -406,7 +406,7 @@ export async function ensureMysqlSchema(pool: any): Promise<void> {
         description TEXT,
         createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
     `);
 
     await pool.query(`
@@ -416,7 +416,7 @@ export async function ensureMysqlSchema(pool: any): Promise<void> {
         createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (parentId, subRoleId)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
     `);
 
     await pool.query(`
@@ -432,7 +432,7 @@ export async function ensureMysqlSchema(pool: any): Promise<void> {
         createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_tool_existent (existent)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
     `);
 
     await pool.query(`
@@ -448,7 +448,7 @@ export async function ensureMysqlSchema(pool: any): Promise<void> {
         deletedAt DATETIME,
         createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_script_existent (existent)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
     `);
 
     await pool.query(`
@@ -466,7 +466,7 @@ export async function ensureMysqlSchema(pool: any): Promise<void> {
         createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_agent_existent (existent)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
     `);
 
     await pool.query(`
@@ -481,7 +481,7 @@ export async function ensureMysqlSchema(pool: any): Promise<void> {
         createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_conv_existent (existent)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
     `);
 
     await pool.query(`
@@ -508,7 +508,7 @@ export async function ensureMysqlSchema(pool: any): Promise<void> {
         parentId INT,
         existent BOOLEAN DEFAULT TRUE,
         INDEX idx_req_status_existent (status, existent)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
     `);
 
     await pool.query(`
@@ -522,7 +522,7 @@ export async function ensureMysqlSchema(pool: any): Promise<void> {
         existent BOOLEAN DEFAULT TRUE,
         createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_resp_existent (existent)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
     `);
 
     // Ensure default system user and project exist
@@ -532,6 +532,17 @@ export async function ensureMysqlSchema(pool: any): Promise<void> {
     await pool.query(`
       INSERT IGNORE INTO Project (id, name, userId) VALUES ('1', 'Keeris', '1');
     `);
+
+    // Migrate any legacy utf8mb4_unicode_ci tables to generic utf8mb4_0900_as_ci
+    try {
+      const [uCols]: any = await pool.query("SHOW FULL COLUMNS FROM unique_tracks WHERE Field = 'title'");
+      if (uCols?.[0]?.Collation && uCols[0].Collation === 'utf8mb4_unicode_ci') {
+        const tablesToConvert = ['unique_tracks', 'tracks', 'episodes', 'episode_metadata', 'programs', 'playlists', 'playlist_items'];
+        for (const t of tablesToConvert) {
+          await pool.query(`ALTER TABLE \`${t}\` CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_as_ci`).catch(() => {});
+        }
+      }
+    } catch (_) {}
 
     // Seed agents from manifest if Agent table is empty
     const [agentRows]: any = await pool.query('SELECT COUNT(*) as count FROM Agent');
@@ -571,6 +582,7 @@ export function createMysqlAdapter(connectionString: string) {
   const pool = mysql.createPool(connectionString);
   pool.on('connection', (connection: any) => {
     connection.query("SET sql_mode = CONCAT(@@sql_mode, ',PIPES_AS_CONCAT')");
+    connection.query("SET NAMES utf8mb4 COLLATE utf8mb4_0900_as_ci").catch?.(() => {});
   });
   ensureMysqlSchema(pool).catch(err => {
     console.warn('[MariaDB/MySQL] Schema initialization notice:', err.message);

@@ -12,7 +12,7 @@ async function ensureCuratorMariadbSchema(pool: any): Promise<void> {
       name VARCHAR(191),
       createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;`,
 
     `CREATE TABLE IF NOT EXISTS Project (
       id VARCHAR(191) PRIMARY KEY,
@@ -23,7 +23,7 @@ async function ensureCuratorMariadbSchema(pool: any): Promise<void> {
       createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX idx_project_user_existent (userId, existent)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;`,
 
     `CREATE TABLE IF NOT EXISTS Role (
       id VARCHAR(191) PRIMARY KEY,
@@ -31,7 +31,7 @@ async function ensureCuratorMariadbSchema(pool: any): Promise<void> {
       description TEXT,
       createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;`,
 
     `CREATE TABLE IF NOT EXISTS RoleInheritance (
       parentId VARCHAR(191) NOT NULL,
@@ -39,7 +39,7 @@ async function ensureCuratorMariadbSchema(pool: any): Promise<void> {
       createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (parentId, subRoleId)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;`,
 
     `CREATE TABLE IF NOT EXISTS Tool (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -53,7 +53,7 @@ async function ensureCuratorMariadbSchema(pool: any): Promise<void> {
       createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX idx_tool_existent (existent)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;`,
 
     `CREATE TABLE IF NOT EXISTS Script (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -67,7 +67,7 @@ async function ensureCuratorMariadbSchema(pool: any): Promise<void> {
       deletedAt DATETIME,
       createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_script_existent (existent)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;`,
 
     `CREATE TABLE IF NOT EXISTS Agent (
       id VARCHAR(191) PRIMARY KEY,
@@ -83,7 +83,7 @@ async function ensureCuratorMariadbSchema(pool: any): Promise<void> {
       createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX idx_agent_existent (existent)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;`,
 
     `CREATE TABLE IF NOT EXISTS Conversation (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -96,7 +96,7 @@ async function ensureCuratorMariadbSchema(pool: any): Promise<void> {
       createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX idx_conv_existent (existent)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;`,
 
     `CREATE TABLE IF NOT EXISTS Request (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -121,7 +121,7 @@ async function ensureCuratorMariadbSchema(pool: any): Promise<void> {
       parentId INT,
       existent BOOLEAN DEFAULT TRUE,
       INDEX idx_req_status_existent (status, existent)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;`,
 
     `CREATE TABLE IF NOT EXISTS Response (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -133,7 +133,7 @@ async function ensureCuratorMariadbSchema(pool: any): Promise<void> {
       existent BOOLEAN DEFAULT TRUE,
       createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_resp_existent (existent)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;`
   ];
 
   for (const sql of ddl) {
