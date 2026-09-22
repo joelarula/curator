@@ -499,33 +499,32 @@ onUnmounted(() => {
 
 <style scoped>
 :deep(mark.highlight) {
-  background-color: #ffe380;
-  color: #17221f;
-  font-weight: bold;
-  padding: 0 2px;
+  background-color: var(--highlight-bg);
+  color: var(--highlight-text);
+  font-weight: 600;
+  padding: 0 3px;
   border-radius: 2px;
 }
 
 .is-episode-match {
-  border-left: 4px solid #0284c7 !important;
-  background: #f8fafc;
+  background: var(--bg-surface);
 }
 
 .episode-badge {
-  background: #e0f2fe !important;
-  color: #0369a1 !important;
-  border: 1px solid #bae6fd !important;
+  background: var(--stats-bg) !important;
+  color: var(--accent) !important;
+  border: 1px solid var(--border-default) !important;
   font-weight: 600;
 }
 
 .episode-match-snippet {
   margin: 8px 0 4px;
   padding: 8px 12px;
-  background: #f0f9ff;
-  border-left: 3px solid #0284c7;
-  border-radius: 0 4px 4px 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
   font-size: 0.88rem;
-  color: #1e293b;
+  color: var(--text-secondary);
   line-height: 1.45;
 }
 

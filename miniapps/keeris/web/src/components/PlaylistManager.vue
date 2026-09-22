@@ -1013,8 +1013,7 @@ function handleExecuteImport() {
 
 .track-notes {
   background: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-  border-left: 3px solid var(--accent);
+  border: 1px solid var(--border-default);
 }
 
 .markdown-preview :deep(textarea) {

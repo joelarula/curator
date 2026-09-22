@@ -52,7 +52,7 @@
             @click="drawerOpen = !drawerOpen"
           >
             <span class="pulse-indicator"></span>
-            🤖 Dev Console
+            {{ $t('app.devConsole') }}
           </button>
           <button
             class="theme-toggle-btn"

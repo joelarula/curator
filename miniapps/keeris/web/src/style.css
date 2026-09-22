@@ -3,90 +3,90 @@
 /* ── Design tokens ─────────────────────────────────────────────────────── */
 :root,
 [data-theme="light"] {
-  /* Surface */
-  --bg-page:          #eef0eb;
-  --bg-surface:       #f7f5ee;
+  /* Surface — clean, elegant slate-grey with subtle violet undertone */
+  --bg-page:          #f3f4f8;
+  --bg-surface:       #ffffff;
   --bg-elevated:      #ffffff;
-  --bg-input:         #f7f5ee;
-  --bg-nav:           #dde5dc;
+  --bg-input:         #f8f9fc;
+  --bg-nav:           #e8eaf2;
   --bg-chip:          #ffffff;
 
-  /* Borders */
-  --border-default:   #d4ddd3;
-  --border-subtle:    #e2ece1;
-  --border-input:     #ef6a45;
+  /* Borders — soft, solid slate */
+  --border-default:   #d6d9e6;
+  --border-subtle:    #e8ebf4;
+  --border-input:     #6366f1;
 
-  /* Text */
-  --text-primary:     #17221f;
-  --text-secondary:   #50605a;
-  --text-muted:       #7d8f89;
-  --text-inverse:     #f6f4ed;
+  /* Text — deep, legible dark graphite-violet */
+  --text-primary:     #181829;
+  --text-secondary:   #5a5e74;
+  --text-muted:       #898ea6;
+  --text-inverse:     #ffffff;
 
-  /* Brand & accent */
-  --accent:           #ef6a45;
-  --accent-hover:     #c94f2c;
-  --brand-border:     #ef6a45;
+  /* Brand & accent — solid, refined violet */
+  --accent:           #6366f1;
+  --accent-hover:     #4f46e5;
+  --brand-border:     #6366f1;
 
   /* Component-specific */
-  --search-bg:        #17221f;
-  --search-text:      #f6f4ed;
-  --nav-active-bg:    #17221f;
-  --nav-active-text:  #f6f4ed;
-  --nav-text:         #50605a;
-  --program-badge-bg: #17221f;
-  --program-badge-text: #f6f4ed;
-  --stats-bg:         #dce5db;
-  --song-card-bg:     #f7f5ee;
-  --song-card-border: #17221f;
+  --search-bg:        #181829;
+  --search-text:      #f3f4f8;
+  --nav-active-bg:    #181829;
+  --nav-active-text:  #ffffff;
+  --nav-text:         #5a5e74;
+  --program-badge-bg: #181829;
+  --program-badge-text: #ffffff;
+  --stats-bg:         #e8eaf4;
+  --song-card-bg:     #ffffff;
+  --song-card-border: #6366f1;
   --airing-bg:        #ffffff;
-  --airing-border:    #e8eee6;
-  --highlight-bg:     #ffe380;
-  --highlight-text:   #17221f;
+  --airing-border:    #e8ebf4;
+  --highlight-bg:     #ede9fe;
+  --highlight-text:   #3730a3;
 
   /* Theme toggle icon */
   --toggle-icon: "☀";
 }
 
 [data-theme="dark"] {
-  /* Surface */
-  --bg-page:          #0f1512;
-  --bg-surface:       #171f1c;
-  --bg-elevated:      #1e2923;
-  --bg-input:         #1a2520;
-  --bg-nav:           #1a2520;
-  --bg-chip:          #1e2923;
+  /* Surface — deep, sleek midnight slate-violet */
+  --bg-page:          #0e0f17;
+  --bg-surface:       #151622;
+  --bg-elevated:      #1c1e2d;
+  --bg-input:         #1a1b2a;
+  --bg-nav:           #1a1b2a;
+  --bg-chip:          #1c1e2d;
 
   /* Borders */
-  --border-default:   #2e3f39;
-  --border-subtle:    #253530;
-  --border-input:     #ef6a45;
+  --border-default:   #2a2c3f;
+  --border-subtle:    #202233;
+  --border-input:     #818cf8;
 
   /* Text */
-  --text-primary:     #e8f0ec;
-  --text-secondary:   #8fa89f;
-  --text-muted:       #5f7870;
-  --text-inverse:     #17221f;
+  --text-primary:     #f0f2fa;
+  --text-secondary:   #9ca3bc;
+  --text-muted:       #6b7088;
+  --text-inverse:     #0e0f17;
 
-  /* Brand & accent */
-  --accent:           #f07c5a;
-  --accent-hover:     #ef6a45;
-  --brand-border:     #f07c5a;
+  /* Brand & accent — luminous, elegant periwinkle-violet */
+  --accent:           #818cf8;
+  --accent-hover:     #9aa3f9;
+  --brand-border:     #818cf8;
 
   /* Component-specific */
-  --search-bg:        #1e2923;
-  --search-text:      #e8f0ec;
-  --nav-active-bg:    #e8f0ec;
-  --nav-active-text:  #0f1512;
-  --nav-text:         #8fa89f;
-  --program-badge-bg: #2e3f39;
-  --program-badge-text: #e8f0ec;
-  --stats-bg:         #1a2520;
-  --song-card-bg:     #171f1c;
-  --song-card-border: #3d564e;
-  --airing-bg:        #1e2923;
-  --airing-border:    #2e3f39;
-  --highlight-bg:     #7a5c00;
-  --highlight-text:   #fef9e7;
+  --search-bg:        #181926;
+  --search-text:      #f0f2fa;
+  --nav-active-bg:    #f0f2fa;
+  --nav-active-text:  #0e0f17;
+  --nav-text:         #9ca3bc;
+  --program-badge-bg: #2a2c3f;
+  --program-badge-text: #f0f2fa;
+  --stats-bg:         #1c1e2d;
+  --song-card-bg:     #151622;
+  --song-card-border: #4f46e5;
+  --airing-bg:        #1c1e2d;
+  --airing-border:    #2a2c3f;
+  --highlight-bg:     #312e81;
+  --highlight-text:   #ede9fe;
 
   /* Theme toggle icon */
   --toggle-icon: "🌙";
@@ -133,7 +133,7 @@ body,
 .masthead,
 .nav-tabs,
 .nav-tabs a,
-.search-panel,
+input[type="search"],
 .filter-bar,
 .checkbox-chip,
 .song-card,
@@ -149,9 +149,7 @@ body,
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-left: 3px solid var(--brand-border);
-  padding-left: 14px;
-  margin-bottom: 18px;
+  margin-bottom: 20px;
   flex-wrap: wrap;
   gap: 12px;
 }
@@ -246,29 +244,32 @@ h1 {
 }
 
 .search-panel {
-  background: var(--search-bg);
-  color: var(--search-text);
-  margin: 0 0 14px;
-  padding: 10px 14px;
-  border-radius: 6px;
+  margin: 0 0 16px;
+  width: 100%;
 }
 
 input[type="search"] {
-  background: var(--bg-input);
-  border: 0;
-  border-bottom: 2px solid var(--border-input);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
   color: var(--text-primary);
   font: inherit;
-  font-size: 1rem;
+  font-size: 0.95rem;
   outline: none;
-  padding: 10px 12px;
+  padding: 12px 16px;
   width: 100%;
-  border-radius: 2px;
+  border-radius: 8px;
   letter-spacing: 0.01em;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 input[type="search"]:focus {
-  box-shadow: 0 0 0 2px var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+input[type="search"]::placeholder {
+  color: var(--text-muted);
 }
 
 .filter-bar {
@@ -427,9 +428,15 @@ button.text-btn:hover {
 
 .song-card {
   background: var(--song-card-bg);
-  border-left: 4px solid var(--song-card-border);
-  padding: 16px 20px;
-  border-radius: 4px;
+  border: 1px solid var(--border-default);
+  padding: 18px 20px;
+  border-radius: 6px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.song-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
 }
 
 .song-header {
@@ -538,8 +545,6 @@ h2 {
   font-size: 0.82rem;
   margin: 4px 0 0;
   line-height: 1.45;
-  border-left: 2px solid var(--accent);
-  padding-left: 8px;
 }
 
 a.open-link {
@@ -584,8 +589,8 @@ mark.highlight {
 }
 
 .song-card.is-episode-match {
-  border-left-color: #8c7853;
-  background: color-mix(in srgb, var(--bg-surface) 90%, #8c7853 10%);
+  border-color: var(--border-default);
+  background: var(--bg-surface);
 }
 
 .summary-tab {
@@ -611,7 +616,7 @@ mark.highlight {
 }
 
 .stat-card.accent {
-  border-left: 4px solid var(--accent);
+  border-color: var(--accent);
   background: var(--bg-elevated);
 }
 
