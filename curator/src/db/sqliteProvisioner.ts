@@ -2,8 +2,7 @@ import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { PrismaClient } from '@prisma/client';
-import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
+import type { PrismaClient } from '@prisma/client';
 import { DatabaseSync } from 'node:sqlite';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -101,6 +100,7 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
     SqlitePrismaClient = mod.PrismaClient;
   }
 
+  const { PrismaBetterSqlite3 } = await import('@prisma/adapter-better-sqlite3');
   const adapter = new PrismaBetterSqlite3({ url: dbUrl });
   const prisma = new SqlitePrismaClient({ adapter }) as any;
 

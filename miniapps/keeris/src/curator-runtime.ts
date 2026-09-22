@@ -1,4 +1,4 @@
-import { provisionSqliteDb, CuratorRequestProcessor } from '@curator/agent-server';
+import { CuratorRequestProcessor } from '@curator/agent-server';
 import { provisionMariadbDb } from '../../../curator/src/db/mariadbProvisioner.ts';
 import { registerKeerisPlugins } from './plugins/index.ts';
 
@@ -21,11 +21,12 @@ export async function startCuratorRuntime({
     await registerKeerisPlugins({ db: keerisDb });
   }
 
-  const curatorDbUrl = process.env.CURATOR_DATABASE_URL || 'mysql://curator:curator_secret@192.168.1.110:3306/curator';
+  const curatorDbUrl = process.env.CURATOR_DATABASE_URL || 'mysql://sepisedc_curator:curator_secret@localhost:3306/sepisedc_curator_keeris';
   let prisma: any;
   if (curatorDbUrl && (curatorDbUrl.startsWith('mysql://') || curatorDbUrl.startsWith('mariadb://'))) {
     prisma = await provisionMariadbDb(curatorDbUrl);
   } else {
+    const { provisionSqliteDb }: any = await import('../../../curator/src/db/sqliteProvisioner.ts');
     prisma = await provisionSqliteDb(databaseName, false, {
       databasePath: process.env.CURATOR_DATABASE_PATH ?? 'data/curator.db',
     });

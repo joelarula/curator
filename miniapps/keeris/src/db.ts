@@ -1,7 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import pg from 'pg';
 import mysql from 'mysql2/promise';
 
 export function normalizeText(text: unknown): string {
@@ -25,7 +24,7 @@ function convertSqlToPg(sql: string): string {
     .replace(/sqlite_master/gi, 'information_schema.tables');
 }
 
-export async function ensurePostgresSchema(pool: pg.Pool): Promise<void> {
+export async function ensurePostgresSchema(pool: any): Promise<void> {
   await pool.query(`
     CREATE EXTENSION IF NOT EXISTS unaccent;
     CREATE EXTENSION IF NOT EXISTS pg_trgm;
@@ -225,7 +224,15 @@ export function ensureSchema(db: any): void {
 }
 
 export function createPostgresAdapter(connectionString: string) {
-  const pool = new pg.Pool({ connectionString });
+  let pgModule: any;
+  try {
+    // Dynamic import to prevent crash when pg is not installed in production MariaDB
+    pgModule = (globalThis as any).__pg;
+    if (!pgModule) throw new Error("PostgreSQL requires 'pg' package. Please use MariaDB or install pg.");
+  } catch (err: any) {
+    throw new Error(err?.message || "PostgreSQL adapter unavailable.");
+  }
+  const pool = new pgModule.Pool({ connectionString });
   
   // Background ensure schema
   ensurePostgresSchema(pool).catch(err => {
@@ -427,7 +434,7 @@ export function createMysqlAdapter(connectionString: string) {
 }
 
 export function openDatabase(filenameOrUrl?: string): any {
-  const target = filenameOrUrl || process.env.DATABASE_URL || 'mysql://curator:curator_secret@192.168.1.110:3306/keeris';
+  const target = filenameOrUrl || process.env.DATABASE_URL || 'mysql://sepisedc_curator:curator_secret@localhost:3306/sepisedc_curator_keeris';
   if (typeof target === 'string' && (target.startsWith('postgres://') || target.startsWith('postgresql://'))) {
     return createPostgresAdapter(target);
   }

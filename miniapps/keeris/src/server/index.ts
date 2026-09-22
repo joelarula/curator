@@ -1,11 +1,31 @@
-try {
-  process.loadEnvFile?.();
-} catch {}
-
 import express from 'express';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+const currentDir = dirname(fileURLToPath(import.meta.url));
+const root = existsSync(join(currentDir, 'web-dist'))
+  ? currentDir
+  : existsSync(join(dirname(dirname(currentDir)), 'web-dist'))
+    ? dirname(dirname(currentDir))
+    : currentDir;
+
+const envCandidates = [
+  join(root, '.env'),
+  join(currentDir, '.env'),
+  join(process.cwd(), '.env'),
+  join(root, '.env.production')
+];
+for (const envPath of envCandidates) {
+  if (existsSync(envPath)) {
+    try {
+      process.loadEnvFile(envPath);
+      console.log(`[Keeris Server] Loaded environment from: ${envPath}`);
+      break;
+    } catch {}
+  }
+}
+
 import { openDatabase } from '../db.ts';
 import { config } from '../config.ts';
 import { registerKeerisPlugins } from '../plugins/index.ts';
@@ -13,28 +33,35 @@ import { executeGraphql } from './graphql.ts';
 import { startIndexer } from '../indexer.ts';
 import { startCuratorRuntime } from '../curator-runtime.ts';
 
-const root = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
-const port = Number(process.env.PORT ?? 4001);
+const port = process.env.PORT || 4001;
 const databasePath = process.env.DATABASE_URL || process.env.DATABASE_PATH || config.defaultDatabase;
 const webRoot = existsSync(join(root, 'web-dist', 'server'))
   ? join(root, 'web-dist', 'server')
   : join(root, 'web-dist');
 
 console.log('[Keeris Server] Initializing database...');
+console.log(`[Keeris Server] Database target: ${databasePath.replace(/:[^:@]+@/, ':****@')}`);
 const db = openDatabase(databasePath);
 
 console.log('[Keeris Server] Registering plugins...');
-const engine = await registerKeerisPlugins({ db });
+let engine: any = null;
+registerKeerisPlugins({ db })
+  .then(res => { engine = res; })
+  .catch(err => console.error('[Keeris Server] Plugin registration error:', err));
+
 let curatorRuntime: any = null;
 const curatorDbName = process.env.CURATOR_DATABASE_NAME ?? 'keeris';
 
 if (curatorDbName) {
-  try {
-    console.log(`[Keeris Server] Starting Curator runtime (${curatorDbName})...`);
-    curatorRuntime = await startCuratorRuntime({ databaseName: curatorDbName, keerisDb: db });
-  } catch (error: any) {
-    console.error(`[Keeris] Curator runtime failed to start: ${error?.message}`);
-  }
+  console.log(`[Keeris Server] Starting Curator runtime (${curatorDbName})...`);
+  startCuratorRuntime({ databaseName: curatorDbName, keerisDb: db })
+    .then(runtime => {
+      curatorRuntime = runtime;
+      console.log(`[Keeris Server] Curator runtime ready (${curatorDbName}).`);
+    })
+    .catch(error => {
+      console.error(`[Keeris] Curator runtime notice: ${error?.message}`);
+    });
 }
 
 console.log('[Keeris Server] Starting indexer...');
@@ -74,7 +101,7 @@ app.get('/health', async (_request, response) => {
       mode: 'express-graphql',
       database: db.isMysql ? 'mariadb' : db.isPostgres ? 'postgresql' : 'sqlite',
       processor: curatorRuntime ? 'ready' : 'standalone',
-      plugins: engine.plugins.map((plugin: any) => plugin.name),
+      plugins: engine?.plugins ? engine.plugins.map((plugin: any) => plugin.name) : ['core', 'keeris-domain', 'err-radio'],
       episodes: Number(stats?.episodes || 0)
     });
   } catch (error: any) {
@@ -139,3 +166,6 @@ function shutdown() {
 }
 process.once('SIGINT', shutdown);
 process.once('SIGTERM', shutdown);
+
+export default app;
+export { app, server };

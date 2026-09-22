@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma } from '@prisma/client';
+import type { PrismaClient, Prisma } from '@prisma/client';
 import crypto from 'node:crypto';
 
 export interface SemanticPropertyShape {
