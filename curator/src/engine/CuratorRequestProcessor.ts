@@ -1,7 +1,6 @@
 import * as vm from 'node:vm';
 import AjvModule from 'ajv';
 const Ajv = (AjvModule as any).default || AjvModule;
-import { GoogleGenAI } from '@google/genai';
 import { curatorEngine } from './CuratorEngine.js';
 import { curatorContext } from './CuratorContext.js';
 
@@ -11,11 +10,6 @@ import { validateCuratorAst } from './CuratorAstValidation.js';
 import type { Prisma } from '@prisma/client';
 import { LlmFactory } from './llm/LlmFactory.js';
 import type { LlmMessage, LlmToolDefinition, LlmRequest } from './llm/ILlmProvider.js';
-
-// Map GOOGLE_API_KEY for @google/genai if needed
-if (!process.env.GOOGLE_API_KEY && process.env.GEMINI_API_KEY) {
-  process.env.GOOGLE_API_KEY = process.env.GEMINI_API_KEY;
-}
 
 export class CuratorRequestProcessor {
   private prisma: any;

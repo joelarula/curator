@@ -1,5 +1,6 @@
 import { buildSchema, graphql, type GraphQLSchema } from 'graphql';
 import { serverTypeDefs } from '../schema/server.ts';
+import { RADIO_PROGRAMS } from '../plugins/manifest.ts';
 
 export const schema: GraphQLSchema = buildSchema(serverTypeDefs);
 
@@ -491,15 +492,8 @@ export function resolvers(db: any, { curatorRuntime }: { curatorRuntime?: any } 
       };
     },
     curatorDatabaseHealth: async () => {
-      let runtime = curatorRuntime;
-      let shouldStop = false;
-      if (!runtime) {
-        const { startCuratorRuntime } = await import('../curator-runtime.ts');
-        runtime = await startCuratorRuntime({ databaseName: 'keeris', keerisDb: db });
-        shouldStop = true;
-      }
-
-      const storageEngine = db.isMysql ? 'MariaDB 11.4 (Docker)' : (db.isPostgres ? 'PostgreSQL' : 'SQLite3');
+      const runtime = curatorRuntime;
+      const storageEngine = db.isMysql ? 'MariaDB (cPanel)' : (db.isPostgres ? 'PostgreSQL' : 'SQLite3');
       const tableNames = ['episodes', 'tracks', 'unique_tracks', 'programs', 'episode_metadata', 'playlists'];
       const tables: { name: string; rowCount: number }[] = [];
       for (const t of tableNames) {
@@ -524,11 +518,42 @@ export function resolvers(db: any, { curatorRuntime }: { curatorRuntime?: any } 
           requestsCompleted = await runtime.prisma.response.count();
           requestsPending = Math.max(0, requestsTotal - requestsCompleted);
         } catch (e) {
-          console.warn('[GraphQL] Could not count agents/requests:', e);
+          console.warn('[GraphQL] Could not count agents/requests via Prisma:', e);
+        }
+      } else {
+        // Fallback: Query MariaDB directly via db adapter if tables exist
+        try {
+          const agentRow = await db.prepare("SELECT COUNT(*) as cnt, SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) as act FROM Agent").get();
+          agentsTotal = Number(agentRow?.cnt || 0);
+          agentsActive = Number(agentRow?.act || 0);
+        } catch (_) {
+          try {
+            const agentRow = await db.prepare("SELECT COUNT(*) as cnt, SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) as act FROM agents").get();
+            agentsTotal = Number(agentRow?.cnt || 0);
+            agentsActive = Number(agentRow?.act || 0);
+          } catch (_) {}
+        }
+        try {
+          const reqRow = await db.prepare("SELECT COUNT(*) as total FROM Request").get();
+          requestsTotal = Number(reqRow?.total || 0);
+          const resRow = await db.prepare("SELECT COUNT(*) as completed FROM Response").get();
+          requestsCompleted = Number(resRow?.completed || 0);
+          requestsPending = Math.max(0, requestsTotal - requestsCompleted);
+        } catch (_) {
+          try {
+            const reqRow = await db.prepare("SELECT COUNT(*) as total FROM requests").get();
+            requestsTotal = Number(reqRow?.total || 0);
+            const resRow = await db.prepare("SELECT COUNT(*) as completed FROM responses").get();
+            requestsCompleted = Number(resRow?.completed || 0);
+            requestsPending = Math.max(0, requestsTotal - requestsCompleted);
+          } catch (_) {}
         }
       }
 
-      if (shouldStop) await runtime.stop();
+      if (agentsTotal === 0) {
+        agentsTotal = Object.keys(RADIO_PROGRAMS).length;
+        agentsActive = Object.values(RADIO_PROGRAMS).filter(p => p.enabled).length;
+      }
 
       return {
         storageEngine,
@@ -543,15 +568,37 @@ export function resolvers(db: any, { curatorRuntime }: { curatorRuntime?: any } 
       };
     },
     curatorAgents: async () => {
-      let runtime = curatorRuntime;
-      let shouldStop = false;
-      if (!runtime) {
-        const { startCuratorRuntime } = await import('../curator-runtime.ts');
-        runtime = await startCuratorRuntime({ databaseName: 'keeris', keerisDb: db });
-        shouldStop = true;
+      const runtime = curatorRuntime;
+      let agents: any[] = [];
+      if (runtime?.prisma) {
+        try {
+          agents = await runtime.prisma.agent.findMany({ include: { script: true } });
+        } catch (e: any) {
+          console.warn('[GraphQL] Error querying agents via Prisma:', e.message);
+        }
+      } else {
+        try {
+          agents = await db.prepare("SELECT id, name, schedule, enabled, ast FROM Agent").all();
+        } catch (_) {
+          try {
+            agents = await db.prepare("SELECT id, name, schedule, enabled, ast FROM agents").all();
+          } catch (_) {}
+        }
       }
-      const agents = await runtime.prisma.agent.findMany({ include: { script: true } });
-      if (shouldStop) await runtime.stop();
+
+      if (!agents || agents.length === 0) {
+        agents = Object.entries(RADIO_PROGRAMS).map(([id, def]) => ({
+          id,
+          name: def.programTitle,
+          schedule: def.schedule || '0 0 * * *',
+          enabled: def.enabled,
+          ast: JSON.stringify({
+            type: 'Curator_Tool',
+            toolName: 'vikerraadio_scrape',
+            args: { seriesContentId: String(def.seriesContentId), programTitle: def.programTitle },
+          }),
+        }));
+      }
 
       let titleMap = new Map<string, { episodes: number; tracks: number; lastRun: string | null }>();
       try {
@@ -580,8 +627,8 @@ export function resolvers(db: any, { curatorRuntime }: { curatorRuntime?: any } 
         console.warn('[GraphQL] Could not aggregate program stats for agents:', err);
       }
 
-      return agents.map((a: any) => {
-        const astObj = typeof a.script?.ast === 'object' ? a.script.ast : JSON.parse(a.script?.ast || '{}');
+      return (agents || []).map((a: any) => {
+        const astObj = typeof a.script?.ast === 'object' ? a.script.ast : JSON.parse(a.script?.ast || a.ast || '{}');
         const isAgentEnabled = a.enabled ?? (astObj.enabled ?? astObj.isActive ?? false);
         const nameKey = String(a.name || '').trim().toLowerCase();
 
@@ -596,7 +643,6 @@ export function resolvers(db: any, { curatorRuntime }: { curatorRuntime?: any } 
           for (const [key, val] of titleMap.entries()) {
             if (nameKey.includes(key) || key.includes(nameKey)) {
               matched = val;
-              break;
             }
           }
         }
@@ -617,30 +663,38 @@ export function resolvers(db: any, { curatorRuntime }: { curatorRuntime?: any } 
       });
     },
     curatorRequests: async ({ limit = 20 }: { limit?: number } = {}) => {
-      let runtime = curatorRuntime;
-      let shouldStop = false;
-      if (!runtime) {
-        const { startCuratorRuntime } = await import('../curator-runtime.ts');
-        runtime = await startCuratorRuntime({ databaseName: 'keeris', keerisDb: db });
-        shouldStop = true;
+      const runtime = curatorRuntime;
+      let requests: any[] = [];
+      if (runtime?.prisma) {
+        try {
+          requests = await runtime.prisma.request.findMany({
+            orderBy: { createdAt: 'desc' },
+            take: Math.min(Math.max(Number(limit) || 20, 1), 100),
+            include: { responses: true, script: true },
+          });
+        } catch (e: any) {
+          console.warn('[GraphQL] Error querying requests via Prisma:', e.message);
+        }
+      } else {
+        try {
+          requests = await db.prepare("SELECT id, scriptId, ast, createdAt FROM Request ORDER BY createdAt DESC LIMIT ?").all(Math.min(Math.max(Number(limit) || 20, 1), 100));
+        } catch (_) {
+          try {
+            requests = await db.prepare("SELECT id, scriptId, ast, createdAt FROM requests ORDER BY createdAt DESC LIMIT ?").all(Math.min(Math.max(Number(limit) || 20, 1), 100));
+          } catch (_) {}
+        }
       }
-      const requests = await runtime.prisma.request.findMany({
-        orderBy: { createdAt: 'desc' },
-        take: Math.min(Math.max(Number(limit) || 20, 1), 100),
-        include: { responses: true, script: true },
-      });
-      if (shouldStop) await runtime.stop();
       return requests.map((r: any) => ({
         id: r.id,
         scriptId: r.scriptId,
         agentName: r.script?.name ?? 'unknown',
         ast: JSON.stringify(r.ast),
-        createdAt: r.createdAt ? r.createdAt.toISOString() : null,
-        responses: r.responses.map((res: any) => ({
+        createdAt: r.createdAt ? (typeof r.createdAt === 'string' ? r.createdAt : r.createdAt.toISOString()) : null,
+        responses: (r.responses || []).map((res: any) => ({
           id: res.id,
           requestId: res.requestId,
           content: res.content,
-          createdAt: res.createdAt ? res.createdAt.toISOString() : null,
+          createdAt: res.createdAt ? (typeof res.createdAt === 'string' ? res.createdAt : res.createdAt.toISOString()) : null,
         })),
       }));
     },
@@ -648,11 +702,16 @@ export function resolvers(db: any, { curatorRuntime }: { curatorRuntime?: any } 
       let targetName = name || agentName;
       if (!targetName) throw new Error('Agent name is required');
       let runtime = curatorRuntime;
-      let shouldStop = false;
       if (!runtime) {
-        const { startCuratorRuntime } = await import('../curator-runtime.ts');
-        runtime = await startCuratorRuntime({ databaseName: 'keeris', keerisDb: db });
-        shouldStop = true;
+        try {
+          const { startCuratorRuntime } = await import('../curator-runtime.ts');
+          runtime = await startCuratorRuntime({ databaseName: 'keeris', keerisDb: db });
+        } catch (e: any) {
+          throw new Error(`Curator background runtime is unavailable: ${e.message}`);
+        }
+      }
+      if (!runtime?.prisma) {
+        throw new Error('Curator database connection is not active.');
       }
       const agentById = await runtime.prisma.agent.findFirst({
         where: { OR: [{ id: targetName }, { name: targetName }] },
@@ -676,7 +735,6 @@ export function resolvers(db: any, { curatorRuntime }: { curatorRuntime?: any } 
           content: `Indexed ${result.episodesParsed} episodes (${result.tracksSaved} tracks saved) for ${result.programTitle} successfully.`,
         },
       });
-      if (shouldStop) await runtime.stop();
       return {
         id: resp.id,
         requestId: req.id,
@@ -686,31 +744,37 @@ export function resolvers(db: any, { curatorRuntime }: { curatorRuntime?: any } 
       };
     },
     toggleCuratorAgent: async ({ id, isActive }: { id: string; isActive: boolean }) => {
-      let runtime = curatorRuntime;
-      let shouldStop = false;
-      if (!runtime) {
-        const { startCuratorRuntime } = await import('../curator-runtime.ts');
-        runtime = await startCuratorRuntime({ databaseName: 'keeris', keerisDb: db });
-        shouldStop = true;
+      const runtime = curatorRuntime;
+      if (runtime?.prisma) {
+        try {
+          const updated = await runtime.prisma.agent.update({
+            where: { id },
+            data: { enabled: isActive },
+            include: { script: true },
+          });
+          return {
+            id: updated.id,
+            name: updated.name,
+            schedule: updated.schedule,
+            isActive: updated.enabled,
+            enabled: updated.enabled,
+          };
+        } catch (err: any) {
+          console.warn('[GraphQL] Prisma update failed, trying direct SQL:', err.message);
+        }
       }
       try {
-        const updated = await runtime.prisma.agent.update({
-          where: { id },
-          data: { enabled: isActive },
-          include: { script: true },
-        });
-        if (shouldStop) await runtime.stop();
-        return {
-          id: updated.id,
-          name: updated.name,
-          schedule: updated.schedule,
-          isActive: updated.enabled,
-          enabled: updated.enabled,
-        };
-      } catch (err: any) {
-        if (shouldStop) await runtime.stop();
-        throw err;
+        await db.prepare("UPDATE Agent SET enabled = ? WHERE id = ?").run(isActive ? 1 : 0, id);
+      } catch (_) {
+        try {
+          await db.prepare("UPDATE agents SET enabled = ? WHERE id = ?").run(isActive ? 1 : 0, id);
+        } catch (_) {}
       }
+      return {
+        id,
+        isActive: !!isActive,
+        enabled: !!isActive,
+      };
     },
     scrapeProgram: async ({ seriesContentId, programTitle, refresh = false }: { seriesContentId: string; programTitle: string; refresh?: boolean }) => {
       const { createErrRadioPlugin } = await import('../plugins/err-radio.ts');

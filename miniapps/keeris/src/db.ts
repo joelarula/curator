@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import mysql from 'mysql2/promise';
+import { RADIO_PROGRAMS } from './plugins/manifest.ts';
 
 export function normalizeText(text: unknown): string {
   if (text == null) return '';
@@ -373,6 +374,186 @@ export async function ensureMysqlSchema(pool: any): Promise<void> {
         INDEX idx_playlist_items_pos (playlist_id, position)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    // Ensure Curator core engine tables exist in MariaDB
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS User (
+        id VARCHAR(191) PRIMARY KEY,
+        email VARCHAR(191) NOT NULL UNIQUE,
+        name VARCHAR(191),
+        createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS Project (
+        id VARCHAR(191) PRIMARY KEY,
+        name VARCHAR(191) NOT NULL,
+        userId VARCHAR(191) NOT NULL,
+        existent BOOLEAN DEFAULT TRUE,
+        deletedAt DATETIME,
+        createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_project_user_existent (userId, existent)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS Role (
+        id VARCHAR(191) PRIMARY KEY,
+        name VARCHAR(191) NOT NULL UNIQUE,
+        description TEXT,
+        createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS RoleInheritance (
+        parentId VARCHAR(191) NOT NULL,
+        subRoleId VARCHAR(191) NOT NULL,
+        createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (parentId, subRoleId)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS Tool (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(191) NOT NULL UNIQUE,
+        description TEXT,
+        version VARCHAR(191),
+        accessLevel VARCHAR(191) DEFAULT 'safe_write',
+        requiresConfirmation BOOLEAN DEFAULT FALSE,
+        enabled BOOLEAN DEFAULT TRUE,
+        existent BOOLEAN DEFAULT TRUE,
+        createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_tool_existent (existent)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS Script (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(191) NOT NULL UNIQUE,
+        body LONGTEXT,
+        toolCalls JSON,
+        ast JSON,
+        userId VARCHAR(191),
+        projectId VARCHAR(191),
+        existent BOOLEAN DEFAULT TRUE,
+        deletedAt DATETIME,
+        createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_script_existent (existent)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS Agent (
+        id VARCHAR(191) PRIMARY KEY,
+        name VARCHAR(191) NOT NULL UNIQUE,
+        scriptId INT,
+        schedule VARCHAR(191) DEFAULT '0 * * * *',
+        lastPolledAt DATETIME,
+        userId VARCHAR(191) NOT NULL,
+        projectId VARCHAR(191),
+        enabled BOOLEAN DEFAULT TRUE,
+        existent BOOLEAN DEFAULT TRUE,
+        deletedAt DATETIME,
+        createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_agent_existent (existent)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS Conversation (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        externalId VARCHAR(191) NOT NULL UNIQUE,
+        userId VARCHAR(191) NOT NULL,
+        projectId VARCHAR(191),
+        metadata JSON,
+        existent BOOLEAN DEFAULT TRUE,
+        deletedAt DATETIME,
+        createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_conv_existent (existent)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS Request (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        status VARCHAR(50) DEFAULT 'NEW',
+        toolName VARCHAR(191),
+        retryCount INT DEFAULT 0,
+        scriptId INT,
+        aiModelId INT,
+        userId VARCHAR(191) NOT NULL,
+        projectId VARCHAR(191),
+        ast JSON,
+        context JSON,
+        conversationId INT NOT NULL,
+        agentId VARCHAR(191),
+        scheduledAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        executionScheduled DATETIME DEFAULT CURRENT_TIMESTAMP,
+        lockedBy VARCHAR(191),
+        lockedAt DATETIME,
+        deletedAt DATETIME,
+        createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        parentId INT,
+        existent BOOLEAN DEFAULT TRUE,
+        INDEX idx_req_status_existent (status, existent)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS Response (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        requestId INT NOT NULL,
+        conversationId INT NOT NULL,
+        content LONGTEXT NOT NULL,
+        aiModelId INT,
+        projectId VARCHAR(191),
+        existent BOOLEAN DEFAULT TRUE,
+        createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_resp_existent (existent)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // Ensure default system user and project exist
+    await pool.query(`
+      INSERT IGNORE INTO User (id, email, name) VALUES ('1', 'system@local', 'System User');
+    `);
+    await pool.query(`
+      INSERT IGNORE INTO Project (id, name, userId) VALUES ('1', 'Keeris', '1');
+    `);
+
+    // Seed agents from manifest if Agent table is empty
+    const [agentRows]: any = await pool.query('SELECT COUNT(*) as count FROM Agent');
+    if (Number(agentRows[0]?.count || 0) === 0) {
+      for (const [id, def] of Object.entries(RADIO_PROGRAMS)) {
+        const ast = JSON.stringify({
+          type: 'Curator_Tool',
+          toolName: 'vikerraadio_scrape',
+          args: { seriesContentId: String(def.seriesContentId), programTitle: def.programTitle },
+        });
+        await pool.query(
+          'INSERT INTO Script (name, body, ast, userId, projectId) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE ast = VALUES(ast)',
+          [id, `// Workflow: ${def.programTitle}`, ast, '1', '1']
+        );
+        const [scriptRow]: any = await pool.query('SELECT id FROM Script WHERE name = ?', [id]);
+        const scriptId = scriptRow[0]?.id ?? null;
+        await pool.query(
+          'INSERT INTO Agent (id, name, scriptId, userId, projectId, schedule, enabled) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE schedule = VALUES(schedule)',
+          [id, def.programTitle, scriptId, '1', '1', def.schedule || '0 * * * *', def.enabled ? 1 : 0]
+        );
+      }
+    }
   } catch (err: any) {
     console.warn('[MariaDB/MySQL] ensureMysqlSchema notice:', err?.message);
   }
@@ -434,7 +615,7 @@ export function createMysqlAdapter(connectionString: string) {
 }
 
 export function openDatabase(filenameOrUrl?: string): any {
-  const target = filenameOrUrl || process.env.DATABASE_URL || 'mysql://sepisedc_curator:curator_secret@localhost:3306/sepisedc_curator_keeris';
+  const target = filenameOrUrl || process.env.DATABASE_URL || 'data/keeris.db';
   if (typeof target === 'string' && (target.startsWith('postgres://') || target.startsWith('postgresql://'))) {
     return createPostgresAdapter(target);
   }

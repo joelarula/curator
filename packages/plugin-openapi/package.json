@@ -1,0 +1,23 @@
+{
+  "name": "@curator/plugin-openapi",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "curator-openapi": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "yaml": "^2.7.0"
+  },
+  "peerDependencies": {
+    "@curator/agent-server": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.2",
+    "@types/node": "^22.19.1"
+  }
+}

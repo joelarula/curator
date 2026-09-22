@@ -35,6 +35,7 @@ export interface CuratorResponseRecord {
   conversationId: string;
   ast?: unknown;
   context?: CuratorExecutionContext | null;
+  content?: string | null;
   state?: JsonRecord | null;
   durationMs?: number | null;
   cost?: number | null;
@@ -65,12 +66,17 @@ export interface CuratorAgentDefinition {
 
 export interface CuratorPluginDefinition {
   name: string;
+  version?: string;
+  description?: string;
   tools?: Record<string, CuratorTool>;
   models?: SemanticNodeShape[];
   scripts?: Record<string, CuratorScriptDefinition>;
   agents?: Record<string, CuratorAgentDefinition | CuratorAstNode>;
+  llmProviders?: Record<string, any>;
+  onInit?: (context: any) => Promise<void> | void;
+  onDestroy?: () => Promise<void> | void;
 }
 
 export interface CuratorDatabaseContext {
-  prisma: PrismaClient;
+  prisma?: PrismaClient;
 }

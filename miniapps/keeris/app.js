@@ -47,6 +47,165 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
+// src/plugins/manifest.ts
+function buildPipelineScrapeAST({
+  seriesContentId,
+  programTitle,
+  limit = 50
+}) {
+  return {
+    type: "Sequence",
+    steps: [
+      {
+        type: "ToolTask",
+        tool: "vikerraadio_discover_episodes",
+        args: { seriesContentId: String(seriesContentId), limit },
+        as: "discovery"
+      },
+      {
+        type: "ForEach",
+        collection: "{{discovery.data}}",
+        iterator: "episode",
+        body: {
+          type: "ToolTask",
+          tool: "vikerraadio_process_episode",
+          args: {
+            url: "{{episode.url}}",
+            episode: "{{episode}}",
+            program: { seriesId: String(seriesContentId), title: programTitle }
+          }
+        }
+      }
+    ]
+  };
+}
+var RADIO_PROGRAMS, createProgramScrapeAST;
+var init_manifest = __esm({
+  "src/plugins/manifest.ts"() {
+    "use strict";
+    RADIO_PROGRAMS = {
+      vikerraadio_kauamangiv_scrape: {
+        seriesContentId: "1037846",
+        programTitle: "Kauam\xE4ngiv",
+        schedule: "0 14 * * 1-5",
+        // Mon-Fri at 14:00 (after 12:15-14:00 broadcast)
+        enabled: true
+      },
+      vikerraadio_originaal_ja_koopia_scrape: {
+        seriesContentId: "1037950",
+        programTitle: "Originaal ja koopia",
+        schedule: "0 15 * * 6",
+        // Saturdays at 15:00
+        enabled: true
+      },
+      vikerraadio_kantri_alati_jaab_scrape: {
+        seriesContentId: "1037843",
+        programTitle: "Kantri alati j\xE4\xE4b",
+        schedule: "0 21 * * 6",
+        // Saturdays at 21:00
+        enabled: true
+      },
+      vikerraadio_kuldrandevuu_scrape: {
+        seriesContentId: "1037864",
+        programTitle: "Kuldrandev\xFC\xFC",
+        schedule: "0 18 * * 0",
+        // Sundays at 18:00
+        enabled: true
+      },
+      klassikaraadio_fantaasia_scrape: {
+        seriesContentId: "1038126",
+        programTitle: "Fantaasia",
+        schedule: "0 2 * * *",
+        // Nightly at 02:00
+        enabled: true
+      },
+      klassikaraadio_kella_6_dzass_scrape: {
+        seriesContentId: "1038156",
+        programTitle: "Kella-6-d\u017E\xE4ss",
+        schedule: "0 19 * * 1-5",
+        // Mon-Fri at 19:00 (after 18:00 broadcast)
+        enabled: true
+      },
+      klassikaraadio_lihtsalt_nostalgia_scrape: {
+        seriesContentId: "https://klassikaraadio.err.ee/1610109911/lihtsalt-nostalgia-kaisa-johvik",
+        programTitle: "Lihtsalt nostalgia",
+        schedule: "0 16 * * 0",
+        // Sundays at 16:00
+        enabled: true
+      },
+      vikerraadio_oomuusika_scrape: {
+        seriesContentId: "https://vikerraadio.err.ee/1610113264/oomuusika",
+        programTitle: "\xD6\xF6muusika",
+        schedule: "0 6 * * *",
+        // Daily at 06:00 (after night broadcast)
+        enabled: true
+      },
+      klassikaraadio_helitrakk_scrape: {
+        seriesContentId: "https://klassikaraadio.err.ee/1610105843/helitrakk",
+        programTitle: "Helitr\xE4kk",
+        schedule: "0 11 * * 6",
+        // Saturdays at 11:00
+        enabled: true
+      },
+      klassikaraadio_folgialbum_scrape: {
+        seriesContentId: "1038132",
+        programTitle: "Folgialbum",
+        schedule: "0 11 * * 0",
+        // Sundays at 11:00 (after 10:05 broadcast)
+        enabled: true
+      },
+      klassikaraadio_vanamuusikatund_scrape: {
+        seriesContentId: "1038247",
+        programTitle: "Vanamuusikatund",
+        schedule: "0 15 * * 6",
+        // Saturdays at 15:00
+        enabled: true
+      },
+      klassikaraadio_tantsutund_scrape: {
+        seriesContentId: "1038102",
+        programTitle: "Tantsutund",
+        schedule: "0 14 * * 0",
+        // Sundays at 14:00
+        enabled: true
+      },
+      // Archived / Completed Series (on-demand triggerable via GraphQL)
+      vikerraadio_heldur_karmo_aeg_scrape: {
+        seriesContentId: "1610049724",
+        programTitle: "Heldur Karmo aeg",
+        schedule: "0 0 1 1 *",
+        enabled: false
+      },
+      vikerraadio_muusika_noudlikule_maitsele_scrape: {
+        seriesContentId: "1608635380",
+        programTitle: "Muusika n\xF5udlikule maitsele",
+        schedule: "0 0 1 1 *",
+        enabled: false
+      },
+      vikerraadio_jaak_joala_parimad_laulud_scrape: {
+        seriesContentId: "https://vikerraadio.err.ee/1609719716/jaak-joala-parimad-laulud",
+        programTitle: "Jaak Joala parimad laulud",
+        schedule: "0 0 1 1 *",
+        enabled: false
+      },
+      vikerraadio_stuudios_on_jaan_elgula_scrape: {
+        seriesContentId: "https://vikerraadio.err.ee/817942/stuudios-on-jaan-elgula-2-tund/818433",
+        programTitle: "Stuudios on Jaan Elgula",
+        schedule: "0 20 * * 5",
+        // Fridays at 20:00 (after 18:00-20:00 broadcast)
+        enabled: true
+      },
+      vikerraadio_soovide_aeg_scrape: {
+        seriesContentId: "1038019",
+        programTitle: "Soovide aeg",
+        schedule: "0 17 * * 6",
+        // Saturdays at 17:00 (after 15:05-17:00 broadcast)
+        enabled: true
+      }
+    };
+    createProgramScrapeAST = buildPipelineScrapeAST;
+  }
+});
+
 // src/db.ts
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -402,6 +561,171 @@ async function ensureMysqlSchema(pool) {
         INDEX idx_playlist_items_pos (playlist_id, position)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS User (
+        id VARCHAR(191) PRIMARY KEY,
+        email VARCHAR(191) NOT NULL UNIQUE,
+        name VARCHAR(191),
+        createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS Project (
+        id VARCHAR(191) PRIMARY KEY,
+        name VARCHAR(191) NOT NULL,
+        userId VARCHAR(191) NOT NULL,
+        existent BOOLEAN DEFAULT TRUE,
+        deletedAt DATETIME,
+        createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_project_user_existent (userId, existent)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS Role (
+        id VARCHAR(191) PRIMARY KEY,
+        name VARCHAR(191) NOT NULL UNIQUE,
+        description TEXT,
+        createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS RoleInheritance (
+        parentId VARCHAR(191) NOT NULL,
+        subRoleId VARCHAR(191) NOT NULL,
+        createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (parentId, subRoleId)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS Tool (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(191) NOT NULL UNIQUE,
+        description TEXT,
+        version VARCHAR(191),
+        accessLevel VARCHAR(191) DEFAULT 'safe_write',
+        requiresConfirmation BOOLEAN DEFAULT FALSE,
+        enabled BOOLEAN DEFAULT TRUE,
+        existent BOOLEAN DEFAULT TRUE,
+        createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_tool_existent (existent)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS Script (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(191) NOT NULL UNIQUE,
+        body LONGTEXT,
+        toolCalls JSON,
+        ast JSON,
+        userId VARCHAR(191),
+        projectId VARCHAR(191),
+        existent BOOLEAN DEFAULT TRUE,
+        deletedAt DATETIME,
+        createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_script_existent (existent)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS Agent (
+        id VARCHAR(191) PRIMARY KEY,
+        name VARCHAR(191) NOT NULL UNIQUE,
+        scriptId INT,
+        schedule VARCHAR(191) DEFAULT '0 * * * *',
+        lastPolledAt DATETIME,
+        userId VARCHAR(191) NOT NULL,
+        projectId VARCHAR(191),
+        enabled BOOLEAN DEFAULT TRUE,
+        existent BOOLEAN DEFAULT TRUE,
+        deletedAt DATETIME,
+        createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_agent_existent (existent)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS Conversation (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        externalId VARCHAR(191) NOT NULL UNIQUE,
+        userId VARCHAR(191) NOT NULL,
+        projectId VARCHAR(191),
+        metadata JSON,
+        existent BOOLEAN DEFAULT TRUE,
+        deletedAt DATETIME,
+        createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_conv_existent (existent)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS Request (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        status VARCHAR(50) DEFAULT 'NEW',
+        toolName VARCHAR(191),
+        retryCount INT DEFAULT 0,
+        scriptId INT,
+        aiModelId INT,
+        userId VARCHAR(191) NOT NULL,
+        projectId VARCHAR(191),
+        ast JSON,
+        context JSON,
+        conversationId INT NOT NULL,
+        agentId VARCHAR(191),
+        scheduledAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        executionScheduled DATETIME DEFAULT CURRENT_TIMESTAMP,
+        lockedBy VARCHAR(191),
+        lockedAt DATETIME,
+        deletedAt DATETIME,
+        createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        parentId INT,
+        existent BOOLEAN DEFAULT TRUE,
+        INDEX idx_req_status_existent (status, existent)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS Response (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        requestId INT NOT NULL,
+        conversationId INT NOT NULL,
+        content LONGTEXT NOT NULL,
+        aiModelId INT,
+        projectId VARCHAR(191),
+        existent BOOLEAN DEFAULT TRUE,
+        createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_resp_existent (existent)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    await pool.query(`
+      INSERT IGNORE INTO User (id, email, name) VALUES ('1', 'system@local', 'System User');
+    `);
+    await pool.query(`
+      INSERT IGNORE INTO Project (id, name, userId) VALUES ('1', 'Keeris', '1');
+    `);
+    const [agentRows] = await pool.query("SELECT COUNT(*) as count FROM Agent");
+    if (Number(agentRows[0]?.count || 0) === 0) {
+      for (const [id, def] of Object.entries(RADIO_PROGRAMS)) {
+        const ast = JSON.stringify({
+          type: "Curator_Tool",
+          toolName: "vikerraadio_scrape",
+          args: { seriesContentId: String(def.seriesContentId), programTitle: def.programTitle }
+        });
+        await pool.query(
+          "INSERT INTO Script (name, body, ast, userId, projectId) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE ast = VALUES(ast)",
+          [id, `// Workflow: ${def.programTitle}`, ast, "1", "1"]
+        );
+        const [scriptRow] = await pool.query("SELECT id FROM Script WHERE name = ?", [id]);
+        const scriptId = scriptRow[0]?.id ?? null;
+        await pool.query(
+          "INSERT INTO Agent (id, name, scriptId, userId, projectId, schedule, enabled) VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE schedule = VALUES(schedule)",
+          [id, def.programTitle, scriptId, "1", "1", def.schedule || "0 * * * *", def.enabled ? 1 : 0]
+        );
+      }
+    }
   } catch (err) {
     console.warn("[MariaDB/MySQL] ensureMysqlSchema notice:", err?.message);
   }
@@ -457,7 +781,7 @@ function createMysqlAdapter(connectionString) {
   return adapter;
 }
 function openDatabase(filenameOrUrl) {
-  const target = filenameOrUrl || process.env.DATABASE_URL || "mysql://sepisedc_curator:curator_secret@localhost:3306/sepisedc_curator_keeris";
+  const target = filenameOrUrl || process.env.DATABASE_URL || "data/keeris.db";
   if (typeof target === "string" && (target.startsWith("postgres://") || target.startsWith("postgresql://"))) {
     return createPostgresAdapter(target);
   }
@@ -764,6 +1088,7 @@ async function saveProgramData(db2, { program, episode, tracks = [], metadata = 
 var init_db = __esm({
   "src/db.ts"() {
     "use strict";
+    init_manifest();
   }
 });
 
@@ -780,7 +1105,7 @@ var init_config = __esm({
       requestDelayMs: Number(process.env.REQUEST_DELAY_MS ?? 1e3),
       maxRetries: 3,
       userAgent: "keeris-kauamangiv-scraper/1.0 (research use)",
-      defaultDatabase: process.env.DATABASE_URL || "mysql://sepisedc_curator:curator_secret@localhost:3306/sepisedc_curator_keeris"
+      defaultDatabase: process.env.DATABASE_URL || "data/keeris.db"
     };
   }
 });
@@ -89598,165 +89923,6 @@ var init_scrape = __esm({
   }
 });
 
-// src/plugins/manifest.ts
-function buildPipelineScrapeAST({
-  seriesContentId,
-  programTitle,
-  limit = 50
-}) {
-  return {
-    type: "Sequence",
-    steps: [
-      {
-        type: "ToolTask",
-        tool: "vikerraadio_discover_episodes",
-        args: { seriesContentId: String(seriesContentId), limit },
-        as: "discovery"
-      },
-      {
-        type: "ForEach",
-        collection: "{{discovery.data}}",
-        iterator: "episode",
-        body: {
-          type: "ToolTask",
-          tool: "vikerraadio_process_episode",
-          args: {
-            url: "{{episode.url}}",
-            episode: "{{episode}}",
-            program: { seriesId: String(seriesContentId), title: programTitle }
-          }
-        }
-      }
-    ]
-  };
-}
-var RADIO_PROGRAMS, createProgramScrapeAST;
-var init_manifest = __esm({
-  "src/plugins/manifest.ts"() {
-    "use strict";
-    RADIO_PROGRAMS = {
-      vikerraadio_kauamangiv_scrape: {
-        seriesContentId: "1037846",
-        programTitle: "Kauam\xE4ngiv",
-        schedule: "0 14 * * 1-5",
-        // Mon-Fri at 14:00 (after 12:15-14:00 broadcast)
-        enabled: true
-      },
-      vikerraadio_originaal_ja_koopia_scrape: {
-        seriesContentId: "1037950",
-        programTitle: "Originaal ja koopia",
-        schedule: "0 15 * * 6",
-        // Saturdays at 15:00
-        enabled: true
-      },
-      vikerraadio_kantri_alati_jaab_scrape: {
-        seriesContentId: "1037843",
-        programTitle: "Kantri alati j\xE4\xE4b",
-        schedule: "0 21 * * 6",
-        // Saturdays at 21:00
-        enabled: true
-      },
-      vikerraadio_kuldrandevuu_scrape: {
-        seriesContentId: "1037864",
-        programTitle: "Kuldrandev\xFC\xFC",
-        schedule: "0 18 * * 0",
-        // Sundays at 18:00
-        enabled: true
-      },
-      klassikaraadio_fantaasia_scrape: {
-        seriesContentId: "1038126",
-        programTitle: "Fantaasia",
-        schedule: "0 2 * * *",
-        // Nightly at 02:00
-        enabled: true
-      },
-      klassikaraadio_kella_6_dzass_scrape: {
-        seriesContentId: "1038156",
-        programTitle: "Kella-6-d\u017E\xE4ss",
-        schedule: "0 19 * * 1-5",
-        // Mon-Fri at 19:00 (after 18:00 broadcast)
-        enabled: true
-      },
-      klassikaraadio_lihtsalt_nostalgia_scrape: {
-        seriesContentId: "https://klassikaraadio.err.ee/1610109911/lihtsalt-nostalgia-kaisa-johvik",
-        programTitle: "Lihtsalt nostalgia",
-        schedule: "0 16 * * 0",
-        // Sundays at 16:00
-        enabled: true
-      },
-      vikerraadio_oomuusika_scrape: {
-        seriesContentId: "https://vikerraadio.err.ee/1610113264/oomuusika",
-        programTitle: "\xD6\xF6muusika",
-        schedule: "0 6 * * *",
-        // Daily at 06:00 (after night broadcast)
-        enabled: true
-      },
-      klassikaraadio_helitrakk_scrape: {
-        seriesContentId: "https://klassikaraadio.err.ee/1610105843/helitrakk",
-        programTitle: "Helitr\xE4kk",
-        schedule: "0 11 * * 6",
-        // Saturdays at 11:00
-        enabled: true
-      },
-      klassikaraadio_folgialbum_scrape: {
-        seriesContentId: "1038132",
-        programTitle: "Folgialbum",
-        schedule: "0 11 * * 0",
-        // Sundays at 11:00 (after 10:05 broadcast)
-        enabled: true
-      },
-      klassikaraadio_vanamuusikatund_scrape: {
-        seriesContentId: "1038247",
-        programTitle: "Vanamuusikatund",
-        schedule: "0 15 * * 6",
-        // Saturdays at 15:00
-        enabled: true
-      },
-      klassikaraadio_tantsutund_scrape: {
-        seriesContentId: "1038102",
-        programTitle: "Tantsutund",
-        schedule: "0 14 * * 0",
-        // Sundays at 14:00
-        enabled: true
-      },
-      // Archived / Completed Series (on-demand triggerable via GraphQL)
-      vikerraadio_heldur_karmo_aeg_scrape: {
-        seriesContentId: "1610049724",
-        programTitle: "Heldur Karmo aeg",
-        schedule: "0 0 1 1 *",
-        enabled: false
-      },
-      vikerraadio_muusika_noudlikule_maitsele_scrape: {
-        seriesContentId: "1608635380",
-        programTitle: "Muusika n\xF5udlikule maitsele",
-        schedule: "0 0 1 1 *",
-        enabled: false
-      },
-      vikerraadio_jaak_joala_parimad_laulud_scrape: {
-        seriesContentId: "https://vikerraadio.err.ee/1609719716/jaak-joala-parimad-laulud",
-        programTitle: "Jaak Joala parimad laulud",
-        schedule: "0 0 1 1 *",
-        enabled: false
-      },
-      vikerraadio_stuudios_on_jaan_elgula_scrape: {
-        seriesContentId: "https://vikerraadio.err.ee/817942/stuudios-on-jaan-elgula-2-tund/818433",
-        programTitle: "Stuudios on Jaan Elgula",
-        schedule: "0 20 * * 5",
-        // Fridays at 20:00 (after 18:00-20:00 broadcast)
-        enabled: true
-      },
-      vikerraadio_soovide_aeg_scrape: {
-        seriesContentId: "1038019",
-        programTitle: "Soovide aeg",
-        schedule: "0 17 * * 6",
-        // Saturdays at 17:00 (after 15:05-17:00 broadcast)
-        enabled: true
-      }
-    };
-    createProgramScrapeAST = buildPipelineScrapeAST;
-  }
-});
-
 // src/plugins/err-radio.ts
 var err_radio_exports = {};
 __export(err_radio_exports, {
@@ -90065,9 +90231,148 @@ var init_plugins = __esm({
 import fs5 from "node:fs";
 import path5 from "node:path";
 import { fileURLToPath as fileURLToPath4, pathToFileURL as pathToFileURL3 } from "node:url";
-async function provisionMariadbDb(connectionUrl = process.env.CURATOR_DATABASE_URL || "mysql://curator:curator_secret@192.168.1.110:3306/curator") {
-  const { PrismaMariaDb } = await import("@prisma/adapter-mariadb");
-  const mariadbMod = await import("mariadb");
+async function ensureCuratorMariadbSchema(pool) {
+  const ddl = [
+    `CREATE TABLE IF NOT EXISTS User (
+      id VARCHAR(191) PRIMARY KEY,
+      email VARCHAR(191) NOT NULL UNIQUE,
+      name VARCHAR(191),
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+    `CREATE TABLE IF NOT EXISTS Project (
+      id VARCHAR(191) PRIMARY KEY,
+      name VARCHAR(191) NOT NULL,
+      userId VARCHAR(191) NOT NULL,
+      existent BOOLEAN DEFAULT TRUE,
+      deletedAt DATETIME,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_project_user_existent (userId, existent)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+    `CREATE TABLE IF NOT EXISTS Role (
+      id VARCHAR(191) PRIMARY KEY,
+      name VARCHAR(191) NOT NULL UNIQUE,
+      description TEXT,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+    `CREATE TABLE IF NOT EXISTS RoleInheritance (
+      parentId VARCHAR(191) NOT NULL,
+      subRoleId VARCHAR(191) NOT NULL,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (parentId, subRoleId)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+    `CREATE TABLE IF NOT EXISTS Tool (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(191) NOT NULL UNIQUE,
+      description TEXT,
+      version VARCHAR(191),
+      accessLevel VARCHAR(191) DEFAULT 'safe_write',
+      requiresConfirmation BOOLEAN DEFAULT FALSE,
+      enabled BOOLEAN DEFAULT TRUE,
+      existent BOOLEAN DEFAULT TRUE,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_tool_existent (existent)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+    `CREATE TABLE IF NOT EXISTS Script (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(191) NOT NULL UNIQUE,
+      body LONGTEXT,
+      toolCalls JSON,
+      ast JSON,
+      userId VARCHAR(191),
+      projectId VARCHAR(191),
+      existent BOOLEAN DEFAULT TRUE,
+      deletedAt DATETIME,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_script_existent (existent)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+    `CREATE TABLE IF NOT EXISTS Agent (
+      id VARCHAR(191) PRIMARY KEY,
+      name VARCHAR(191) NOT NULL UNIQUE,
+      scriptId INT,
+      schedule VARCHAR(191) DEFAULT '0 * * * *',
+      lastPolledAt DATETIME,
+      userId VARCHAR(191) NOT NULL,
+      projectId VARCHAR(191),
+      enabled BOOLEAN DEFAULT TRUE,
+      existent BOOLEAN DEFAULT TRUE,
+      deletedAt DATETIME,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_agent_existent (existent)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+    `CREATE TABLE IF NOT EXISTS Conversation (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      externalId VARCHAR(191) NOT NULL UNIQUE,
+      userId VARCHAR(191) NOT NULL,
+      projectId VARCHAR(191),
+      metadata JSON,
+      existent BOOLEAN DEFAULT TRUE,
+      deletedAt DATETIME,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_conv_existent (existent)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+    `CREATE TABLE IF NOT EXISTS Request (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      status VARCHAR(50) DEFAULT 'NEW',
+      toolName VARCHAR(191),
+      retryCount INT DEFAULT 0,
+      scriptId INT,
+      aiModelId INT,
+      userId VARCHAR(191) NOT NULL,
+      projectId VARCHAR(191),
+      ast JSON,
+      context JSON,
+      conversationId INT NOT NULL,
+      agentId VARCHAR(191),
+      scheduledAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      executionScheduled DATETIME DEFAULT CURRENT_TIMESTAMP,
+      lockedBy VARCHAR(191),
+      lockedAt DATETIME,
+      deletedAt DATETIME,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      parentId INT,
+      existent BOOLEAN DEFAULT TRUE,
+      INDEX idx_req_status_existent (status, existent)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+    `CREATE TABLE IF NOT EXISTS Response (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      requestId INT NOT NULL,
+      conversationId INT NOT NULL,
+      content LONGTEXT NOT NULL,
+      aiModelId INT,
+      projectId VARCHAR(191),
+      existent BOOLEAN DEFAULT TRUE,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_resp_existent (existent)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`
+  ];
+  for (const sql of ddl) {
+    try {
+      await pool.query(sql);
+    } catch (_) {
+    }
+  }
+}
+async function provisionMariadbDb(connectionUrl = process.env.CURATOR_DATABASE_URL || process.env.DATABASE_URL || "") {
+  if (!connectionUrl) {
+    throw new Error("MariaDB connection URL is required (set CURATOR_DATABASE_URL or DATABASE_URL in environment)");
+  }
+  let PrismaMariaDb;
+  let mariadbMod;
+  try {
+    const adapterMod = await import("@prisma/adapter-mariadb");
+    PrismaMariaDb = adapterMod.PrismaMariaDb || adapterMod.default?.PrismaMariaDb;
+    mariadbMod = await import("mariadb");
+  } catch (err) {
+    throw new Error(`MariaDB adapter dependencies not found (@prisma/adapter-mariadb / mariadb): ${err?.message || err}`);
+  }
   const mariadb = mariadbMod.default || mariadbMod;
   const url = new URL(connectionUrl);
   const pool = mariadb.createPool({
@@ -90078,6 +90383,7 @@ async function provisionMariadbDb(connectionUrl = process.env.CURATOR_DATABASE_U
     database: url.pathname.replace(/^\//, ""),
     connectionLimit: 10
   });
+  await ensureCuratorMariadbSchema(pool);
   const adapter = new PrismaMariaDb(pool);
   let MariadbPrismaClient;
   const potentialPaths = [
@@ -96967,7 +97273,7 @@ async function startCuratorRuntime({
   if (keerisDb) {
     await registerKeerisPlugins({ db: keerisDb });
   }
-  const curatorDbUrl = process.env.CURATOR_DATABASE_URL || "mysql://sepisedc_curator:curator_secret@localhost:3306/sepisedc_curator_keeris";
+  const curatorDbUrl = process.env.CURATOR_DATABASE_URL || process.env.DATABASE_URL;
   let prisma;
   if (curatorDbUrl && (curatorDbUrl.startsWith("mysql://") || curatorDbUrl.startsWith("mariadb://"))) {
     prisma = await provisionMariadbDb(curatorDbUrl);
@@ -97169,6 +97475,7 @@ type Mutation {
 var serverTypeDefs = baseTypeDefs + "\n" + serverOnlyTypeDefs;
 
 // src/server/graphql.ts
+init_manifest();
 var schema2 = buildSchema(serverTypeDefs);
 function cleanEpisodeDescription(desc, episodeTitle, programTitle) {
   if (!desc) return null;
@@ -97609,14 +97916,8 @@ function resolvers(db2, { curatorRuntime: curatorRuntime2 } = {}) {
       };
     },
     curatorDatabaseHealth: async () => {
-      let runtime = curatorRuntime2;
-      let shouldStop = false;
-      if (!runtime) {
-        const { startCuratorRuntime: startCuratorRuntime2 } = await Promise.resolve().then(() => (init_curator_runtime(), curator_runtime_exports));
-        runtime = await startCuratorRuntime2({ databaseName: "keeris", keerisDb: db2 });
-        shouldStop = true;
-      }
-      const storageEngine = db2.isMysql ? "MariaDB 11.4 (Docker)" : db2.isPostgres ? "PostgreSQL" : "SQLite3";
+      const runtime = curatorRuntime2;
+      const storageEngine = db2.isMysql ? "MariaDB (cPanel)" : db2.isPostgres ? "PostgreSQL" : "SQLite3";
       const tableNames = ["episodes", "tracks", "unique_tracks", "programs", "episode_metadata", "playlists"];
       const tables = [];
       for (const t2 of tableNames) {
@@ -97640,10 +97941,42 @@ function resolvers(db2, { curatorRuntime: curatorRuntime2 } = {}) {
           requestsCompleted = await runtime.prisma.response.count();
           requestsPending = Math.max(0, requestsTotal - requestsCompleted);
         } catch (e2) {
-          console.warn("[GraphQL] Could not count agents/requests:", e2);
+          console.warn("[GraphQL] Could not count agents/requests via Prisma:", e2);
+        }
+      } else {
+        try {
+          const agentRow = await db2.prepare("SELECT COUNT(*) as cnt, SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) as act FROM Agent").get();
+          agentsTotal = Number(agentRow?.cnt || 0);
+          agentsActive = Number(agentRow?.act || 0);
+        } catch (_) {
+          try {
+            const agentRow = await db2.prepare("SELECT COUNT(*) as cnt, SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) as act FROM agents").get();
+            agentsTotal = Number(agentRow?.cnt || 0);
+            agentsActive = Number(agentRow?.act || 0);
+          } catch (_2) {
+          }
+        }
+        try {
+          const reqRow = await db2.prepare("SELECT COUNT(*) as total FROM Request").get();
+          requestsTotal = Number(reqRow?.total || 0);
+          const resRow = await db2.prepare("SELECT COUNT(*) as completed FROM Response").get();
+          requestsCompleted = Number(resRow?.completed || 0);
+          requestsPending = Math.max(0, requestsTotal - requestsCompleted);
+        } catch (_) {
+          try {
+            const reqRow = await db2.prepare("SELECT COUNT(*) as total FROM requests").get();
+            requestsTotal = Number(reqRow?.total || 0);
+            const resRow = await db2.prepare("SELECT COUNT(*) as completed FROM responses").get();
+            requestsCompleted = Number(resRow?.completed || 0);
+            requestsPending = Math.max(0, requestsTotal - requestsCompleted);
+          } catch (_2) {
+          }
         }
       }
-      if (shouldStop) await runtime.stop();
+      if (agentsTotal === 0) {
+        agentsTotal = Object.keys(RADIO_PROGRAMS).length;
+        agentsActive = Object.values(RADIO_PROGRAMS).filter((p) => p.enabled).length;
+      }
       return {
         storageEngine,
         isOpfs: false,
@@ -97657,15 +97990,37 @@ function resolvers(db2, { curatorRuntime: curatorRuntime2 } = {}) {
       };
     },
     curatorAgents: async () => {
-      let runtime = curatorRuntime2;
-      let shouldStop = false;
-      if (!runtime) {
-        const { startCuratorRuntime: startCuratorRuntime2 } = await Promise.resolve().then(() => (init_curator_runtime(), curator_runtime_exports));
-        runtime = await startCuratorRuntime2({ databaseName: "keeris", keerisDb: db2 });
-        shouldStop = true;
+      const runtime = curatorRuntime2;
+      let agents = [];
+      if (runtime?.prisma) {
+        try {
+          agents = await runtime.prisma.agent.findMany({ include: { script: true } });
+        } catch (e2) {
+          console.warn("[GraphQL] Error querying agents via Prisma:", e2.message);
+        }
+      } else {
+        try {
+          agents = await db2.prepare("SELECT id, name, schedule, enabled, ast FROM Agent").all();
+        } catch (_) {
+          try {
+            agents = await db2.prepare("SELECT id, name, schedule, enabled, ast FROM agents").all();
+          } catch (_2) {
+          }
+        }
       }
-      const agents = await runtime.prisma.agent.findMany({ include: { script: true } });
-      if (shouldStop) await runtime.stop();
+      if (!agents || agents.length === 0) {
+        agents = Object.entries(RADIO_PROGRAMS).map(([id, def]) => ({
+          id,
+          name: def.programTitle,
+          schedule: def.schedule || "0 0 * * *",
+          enabled: def.enabled,
+          ast: JSON.stringify({
+            type: "Curator_Tool",
+            toolName: "vikerraadio_scrape",
+            args: { seriesContentId: String(def.seriesContentId), programTitle: def.programTitle }
+          })
+        }));
+      }
       let titleMap = /* @__PURE__ */ new Map();
       try {
         const progStats = await db2.prepare(`
@@ -97691,8 +98046,8 @@ function resolvers(db2, { curatorRuntime: curatorRuntime2 } = {}) {
       } catch (err) {
         console.warn("[GraphQL] Could not aggregate program stats for agents:", err);
       }
-      return agents.map((a) => {
-        const astObj = typeof a.script?.ast === "object" ? a.script.ast : JSON.parse(a.script?.ast || "{}");
+      return (agents || []).map((a) => {
+        const astObj = typeof a.script?.ast === "object" ? a.script.ast : JSON.parse(a.script?.ast || a.ast || "{}");
         const isAgentEnabled = a.enabled ?? (astObj.enabled ?? astObj.isActive ?? false);
         const nameKey = String(a.name || "").trim().toLowerCase();
         let matched = titleMap.get(nameKey);
@@ -97706,7 +98061,6 @@ function resolvers(db2, { curatorRuntime: curatorRuntime2 } = {}) {
           for (const [key, val] of titleMap.entries()) {
             if (nameKey.includes(key) || key.includes(nameKey)) {
               matched = val;
-              break;
             }
           }
         }
@@ -97725,30 +98079,39 @@ function resolvers(db2, { curatorRuntime: curatorRuntime2 } = {}) {
       });
     },
     curatorRequests: async ({ limit = 20 } = {}) => {
-      let runtime = curatorRuntime2;
-      let shouldStop = false;
-      if (!runtime) {
-        const { startCuratorRuntime: startCuratorRuntime2 } = await Promise.resolve().then(() => (init_curator_runtime(), curator_runtime_exports));
-        runtime = await startCuratorRuntime2({ databaseName: "keeris", keerisDb: db2 });
-        shouldStop = true;
+      const runtime = curatorRuntime2;
+      let requests = [];
+      if (runtime?.prisma) {
+        try {
+          requests = await runtime.prisma.request.findMany({
+            orderBy: { createdAt: "desc" },
+            take: Math.min(Math.max(Number(limit) || 20, 1), 100),
+            include: { responses: true, script: true }
+          });
+        } catch (e2) {
+          console.warn("[GraphQL] Error querying requests via Prisma:", e2.message);
+        }
+      } else {
+        try {
+          requests = await db2.prepare("SELECT id, scriptId, ast, createdAt FROM Request ORDER BY createdAt DESC LIMIT ?").all(Math.min(Math.max(Number(limit) || 20, 1), 100));
+        } catch (_) {
+          try {
+            requests = await db2.prepare("SELECT id, scriptId, ast, createdAt FROM requests ORDER BY createdAt DESC LIMIT ?").all(Math.min(Math.max(Number(limit) || 20, 1), 100));
+          } catch (_2) {
+          }
+        }
       }
-      const requests = await runtime.prisma.request.findMany({
-        orderBy: { createdAt: "desc" },
-        take: Math.min(Math.max(Number(limit) || 20, 1), 100),
-        include: { responses: true, script: true }
-      });
-      if (shouldStop) await runtime.stop();
       return requests.map((r2) => ({
         id: r2.id,
         scriptId: r2.scriptId,
         agentName: r2.script?.name ?? "unknown",
         ast: JSON.stringify(r2.ast),
-        createdAt: r2.createdAt ? r2.createdAt.toISOString() : null,
-        responses: r2.responses.map((res) => ({
+        createdAt: r2.createdAt ? typeof r2.createdAt === "string" ? r2.createdAt : r2.createdAt.toISOString() : null,
+        responses: (r2.responses || []).map((res) => ({
           id: res.id,
           requestId: res.requestId,
           content: res.content,
-          createdAt: res.createdAt ? res.createdAt.toISOString() : null
+          createdAt: res.createdAt ? typeof res.createdAt === "string" ? res.createdAt : res.createdAt.toISOString() : null
         }))
       }));
     },
@@ -97756,11 +98119,16 @@ function resolvers(db2, { curatorRuntime: curatorRuntime2 } = {}) {
       let targetName = name || agentName;
       if (!targetName) throw new Error("Agent name is required");
       let runtime = curatorRuntime2;
-      let shouldStop = false;
       if (!runtime) {
-        const { startCuratorRuntime: startCuratorRuntime2 } = await Promise.resolve().then(() => (init_curator_runtime(), curator_runtime_exports));
-        runtime = await startCuratorRuntime2({ databaseName: "keeris", keerisDb: db2 });
-        shouldStop = true;
+        try {
+          const { startCuratorRuntime: startCuratorRuntime2 } = await Promise.resolve().then(() => (init_curator_runtime(), curator_runtime_exports));
+          runtime = await startCuratorRuntime2({ databaseName: "keeris", keerisDb: db2 });
+        } catch (e2) {
+          throw new Error(`Curator background runtime is unavailable: ${e2.message}`);
+        }
+      }
+      if (!runtime?.prisma) {
+        throw new Error("Curator database connection is not active.");
       }
       const agentById = await runtime.prisma.agent.findFirst({
         where: { OR: [{ id: targetName }, { name: targetName }] }
@@ -97782,7 +98150,6 @@ function resolvers(db2, { curatorRuntime: curatorRuntime2 } = {}) {
           content: `Indexed ${result.episodesParsed} episodes (${result.tracksSaved} tracks saved) for ${result.programTitle} successfully.`
         }
       });
-      if (shouldStop) await runtime.stop();
       return {
         id: resp.id,
         requestId: req.id,
@@ -97792,31 +98159,38 @@ function resolvers(db2, { curatorRuntime: curatorRuntime2 } = {}) {
       };
     },
     toggleCuratorAgent: async ({ id, isActive }) => {
-      let runtime = curatorRuntime2;
-      let shouldStop = false;
-      if (!runtime) {
-        const { startCuratorRuntime: startCuratorRuntime2 } = await Promise.resolve().then(() => (init_curator_runtime(), curator_runtime_exports));
-        runtime = await startCuratorRuntime2({ databaseName: "keeris", keerisDb: db2 });
-        shouldStop = true;
+      const runtime = curatorRuntime2;
+      if (runtime?.prisma) {
+        try {
+          const updated = await runtime.prisma.agent.update({
+            where: { id },
+            data: { enabled: isActive },
+            include: { script: true }
+          });
+          return {
+            id: updated.id,
+            name: updated.name,
+            schedule: updated.schedule,
+            isActive: updated.enabled,
+            enabled: updated.enabled
+          };
+        } catch (err) {
+          console.warn("[GraphQL] Prisma update failed, trying direct SQL:", err.message);
+        }
       }
       try {
-        const updated = await runtime.prisma.agent.update({
-          where: { id },
-          data: { enabled: isActive },
-          include: { script: true }
-        });
-        if (shouldStop) await runtime.stop();
-        return {
-          id: updated.id,
-          name: updated.name,
-          schedule: updated.schedule,
-          isActive: updated.enabled,
-          enabled: updated.enabled
-        };
-      } catch (err) {
-        if (shouldStop) await runtime.stop();
-        throw err;
+        await db2.prepare("UPDATE Agent SET enabled = ? WHERE id = ?").run(isActive ? 1 : 0, id);
+      } catch (_) {
+        try {
+          await db2.prepare("UPDATE agents SET enabled = ? WHERE id = ?").run(isActive ? 1 : 0, id);
+        } catch (_2) {
+        }
       }
+      return {
+        id,
+        isActive: !!isActive,
+        enabled: !!isActive
+      };
     },
     scrapeProgram: async ({ seriesContentId, programTitle, refresh = false }) => {
       const { createErrRadioPlugin: createErrRadioPlugin2 } = await Promise.resolve().then(() => (init_err_radio(), err_radio_exports));

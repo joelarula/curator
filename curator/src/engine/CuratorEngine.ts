@@ -37,6 +37,25 @@ export class CuratorEngine {
     if (plugin.agents) {
       Object.entries(plugin.agents).forEach(([k, v]) => this.agents.set(k, v));
     }
+    if (plugin.llmProviders) {
+      Object.entries(plugin.llmProviders).forEach(([k, v]) => {
+        LlmFactory.registerProvider(k, v);
+      });
+    }
+    if (typeof plugin.onInit === 'function') {
+      try {
+        const res = plugin.onInit({ engine: this });
+        if (res instanceof Promise) {
+          res.catch((err) => console.error(`[CuratorEngine] Error in plugin.onInit (${plugin.name}):`, err));
+        }
+      } catch (err) {
+        console.error(`[CuratorEngine] Error in plugin.onInit (${plugin.name}):`, err);
+      }
+    }
+  }
+
+  public registerLlmProvider(name: string, provider: any) {
+    LlmFactory.registerProvider(name, provider);
   }
 
   public registerTool(tool: CuratorTool) {

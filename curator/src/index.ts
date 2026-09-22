@@ -8,6 +8,9 @@ export * from './engine/CuratorBuilder.js';
 export * from './engine/CuratorAstValidation.js';
 export * from './engine/ScheduledAgentScheduler.js';
 
+// Storage SPI & Adapters
+export * from './storage/index.js';
+
 // LLM Provider Layer (Ports & Adapters)
 export * from './engine/llm/ILlmProvider.js';
 export * from './engine/llm/LlmFactory.js';

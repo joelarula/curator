@@ -1,15 +1,17 @@
 import type { ILlmProvider } from './ILlmProvider.js';
-import { GeminiLlmProvider } from './GeminiLlmProvider.js';
 import { OpenAiCompatibleLlmProvider } from './OpenAiCompatibleLlmProvider.js';
-import { AnthropicLlmProvider } from './AnthropicLlmProvider.js';
 
 export class LlmFactory {
   private static providers: Map<string, ILlmProvider> = new Map<string, ILlmProvider>([
-    ['gemini', new GeminiLlmProvider()],
     ['openai-compatible', new OpenAiCompatibleLlmProvider()],
     ['local', new OpenAiCompatibleLlmProvider()],
-    ['anthropic', new AnthropicLlmProvider()],
+    ['ollama', new OpenAiCompatibleLlmProvider()],
+    ['llamacpp', new OpenAiCompatibleLlmProvider()],
   ]);
+
+  public static registerProvider(name: string, provider: ILlmProvider): void {
+    this.providers.set(name.toLowerCase(), provider);
+  }
 
   public static getProvider(providerName?: string, baseUrl?: string): ILlmProvider {
     if (baseUrl || providerName === 'local' || providerName === 'ollama' || providerName === 'llamacpp') {
@@ -20,11 +22,16 @@ export class LlmFactory {
       return this.providers.get(providerName.toLowerCase())!;
     }
 
-    if (process.env.ANTHROPIC_API_KEY && providerName === 'anthropic') {
-      return this.providers.get('anthropic')!;
+    // If gemini was registered (e.g. via @curator/plugin-llm-gemini)
+    if (this.providers.has('gemini')) {
+      return this.providers.get('gemini')!;
     }
 
-    // Default to Gemini provider
-    return this.providers.get('gemini')!;
+    // Default to the zero-dependency openai-compatible provider
+    const fallback = this.providers.get('openai-compatible');
+    if (!fallback) {
+      throw new Error(`[LlmFactory] No LLM provider registered for "${providerName}". Please register a provider or load @curator/plugin-llm-gemini.`);
+    }
+    return fallback;
   }
 }

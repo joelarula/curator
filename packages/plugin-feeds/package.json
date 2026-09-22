@@ -1,0 +1,20 @@
+{
+  "name": "@curator/plugin-feeds",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "rss-parser": "^3.13.0"
+  },
+  "peerDependencies": {
+    "@curator/agent-server": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.2",
+    "@types/node": "^22.19.1"
+  }
+}

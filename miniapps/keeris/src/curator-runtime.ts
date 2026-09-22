@@ -21,7 +21,7 @@ export async function startCuratorRuntime({
     await registerKeerisPlugins({ db: keerisDb });
   }
 
-  const curatorDbUrl = process.env.CURATOR_DATABASE_URL || 'mysql://sepisedc_curator:curator_secret@localhost:3306/sepisedc_curator_keeris';
+  const curatorDbUrl = process.env.CURATOR_DATABASE_URL || process.env.DATABASE_URL;
   let prisma: any;
   if (curatorDbUrl && (curatorDbUrl.startsWith('mysql://') || curatorDbUrl.startsWith('mariadb://'))) {
     prisma = await provisionMariadbDb(curatorDbUrl);

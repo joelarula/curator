@@ -17,7 +17,7 @@ export const config: KeerisConfig = {
   requestDelayMs: Number(process.env.REQUEST_DELAY_MS ?? 1000),
   maxRetries: 3,
   userAgent: 'keeris-kauamangiv-scraper/1.0 (research use)',
-  defaultDatabase: process.env.DATABASE_URL || 'mysql://sepisedc_curator:curator_secret@localhost:3306/sepisedc_curator_keeris'
+  defaultDatabase: process.env.DATABASE_URL || 'data/keeris.db'
 };
 
 export function parseDateOption(value?: string | null): string | undefined {
