@@ -267,7 +267,7 @@ onMounted(() => {
 }
 
 .back-link {
-  color: #10b981;
+  color: var(--accent);
   text-decoration: none;
   font-weight: 600;
   display: inline-flex;
@@ -280,32 +280,37 @@ onMounted(() => {
 }
 
 .program-tag-link {
-  background: #17221f;
-  color: #10b981;
+  background: var(--stats-bg);
+  color: var(--text-primary);
   font-size: 0.75rem;
   font-weight: 700;
   padding: 3px 8px;
   border-radius: 4px;
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  border: 1px solid var(--border-default);
   text-decoration: none;
   display: inline-block;
+  transition: all 0.15s ease;
 }
 
 .program-tag-link:hover {
-  background: rgba(16, 185, 129, 0.2);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .date-tag {
   font-size: 0.72rem;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
   padding: 3px 8px;
   border-radius: 4px;
 }
 
 .tracks-count-tag {
   font-size: 0.72rem;
-  background: rgba(16, 185, 129, 0.12);
-  color: #10b981;
+  background: var(--bg-surface);
+  color: var(--accent);
+  border: 1px solid var(--border-default);
   padding: 3px 8px;
   border-radius: 4px;
 }
@@ -317,32 +322,33 @@ onMounted(() => {
 
 .episode-tracks-table th {
   padding: 8px 12px;
-  border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 2px solid var(--border-default);
   text-align: left;
   font-size: 0.8rem;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--text-muted);
 }
 
 .episode-tracks-table td {
   padding: 10px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--border-subtle);
   font-size: 0.9rem;
+  color: var(--text-primary);
 }
 
 .track-row:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-surface);
 }
 
 .track-pos-col {
   font-weight: 700;
-  color: #10b981;
+  color: var(--accent);
 }
 
 .track-playlist-btn {
   background: transparent;
-  border: 1px solid #10b981;
-  color: #10b981;
+  border: 1px solid var(--accent);
+  color: var(--accent);
   font-size: 0.72rem;
   font-weight: 600;
   padding: 2px 8px;
@@ -352,18 +358,18 @@ onMounted(() => {
 }
 
 .track-playlist-btn:hover {
-  background: #10b981;
+  background: var(--accent);
   color: #fff;
 }
 
 .track-search-btn {
-  color: #94a3b8;
+  color: var(--text-muted);
   font-size: 0.72rem;
   text-decoration: none;
 }
 
 .track-search-btn:hover {
-  color: #38bdf8;
+  color: var(--accent);
   text-decoration: underline;
 }
 

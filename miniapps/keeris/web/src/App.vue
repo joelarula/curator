@@ -1,5 +1,5 @@
 <template>
-  <v-app theme="light">
+  <v-app :theme="theme === 'dark' ? 'curatorDarkTheme' : 'curatorLightTheme'">
     <main class="shell">
       <header class="masthead">
         <div class="brand">
@@ -54,6 +54,52 @@
             <span class="pulse-indicator"></span>
             🤖 Dev Console
           </button>
+          <button
+            class="theme-toggle-btn"
+            type="button"
+            :title="theme === 'dark' ? $t('app.themeLight') : $t('app.themeDark')"
+            :aria-label="theme === 'dark' ? $t('app.themeLight') : $t('app.themeDark')"
+            @click="toggleTheme"
+          >
+            <!-- Sun icon when dark (click to switch to light) -->
+            <svg
+              v-if="theme === 'dark'"
+              class="theme-icon"
+              viewBox="0 0 24 24"
+              width="17"
+              height="17"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="12" cy="12" r="4" />
+              <line x1="12" y1="2" x2="12" y2="4" />
+              <line x1="12" y1="20" x2="12" y2="22" />
+              <line x1="4.93" y1="4.93" x2="6.34" y2="6.34" />
+              <line x1="17.66" y1="17.66" x2="19.07" y2="19.07" />
+              <line x1="2" y1="12" x2="4" y2="12" />
+              <line x1="20" y1="12" x2="22" y2="12" />
+              <line x1="4.93" y1="19.07" x2="6.34" y2="17.66" />
+              <line x1="17.66" y1="6.34" x2="19.07" y2="4.93" />
+            </svg>
+            <!-- Moon icon when light (click to switch to dark) -->
+            <svg
+              v-else
+              class="theme-icon"
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+            </svg>
+          </button>
         </div>
       </header>
 
@@ -81,8 +127,10 @@ import { CuratorConsole } from '@curator/console';
 import { keerisCuratorAdapter } from './curator-adapter';
 import AudioBar from './components/AudioBar.vue';
 import { requestGraphql, onWorkerReady, exportDatabase, importDatabase, onDatabaseChange, getAppMode, type AppMode } from '@wasm/graphql-client';
+import { useTheme } from './composables/useTheme';
 
 const { t } = useI18n();
+const { theme, toggleTheme } = useTheme();
 
 const appMode = ref<AppMode>('server');
 const drawerOpen = ref(false);
@@ -263,6 +311,44 @@ onUnmounted(() => {
   0% { transform: scale(0.95); opacity: 0.9; }
   50% { transform: scale(1.3); opacity: 0.4; }
   100% { transform: scale(0.95); opacity: 0.9; }
+}
+
+.theme-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: all 0.2s ease;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.theme-toggle-btn:hover {
+  background: var(--bg-elevated);
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.theme-toggle-btn:active {
+  transform: translateY(0);
+}
+
+.theme-icon {
+  display: block;
+  transition: transform 0.25s ease;
+}
+
+.theme-toggle-btn:hover .theme-icon {
+  transform: rotate(20deg);
 }
 </style>
 

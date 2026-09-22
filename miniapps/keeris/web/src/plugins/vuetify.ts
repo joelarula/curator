@@ -32,20 +32,37 @@ import {
   mdiMagnify,
 } from '@mdi/js';
 
+const curatorLightTheme: ThemeDefinition = {
+  dark: false,
+  colors: {
+    background: '#eef0eb',
+    surface: '#ffffff',
+    'surface-variant': '#f7f5ee',
+    primary: '#ef6a45',
+    'primary-darken-1': '#c94f2c',
+    secondary: '#50605a',
+    accent: '#ef6a45',
+    error: '#e05044',
+    info: '#0284c7',
+    success: '#10b981',
+    warning: '#f59e0b',
+  },
+};
+
 const curatorDarkTheme: ThemeDefinition = {
   dark: true,
   colors: {
-    background: '#121212',
-    surface: '#1E1E1E',
-    'surface-variant': '#2A2A2A',
-    primary: '#10B981',
-    'primary-darken-1': '#059669',
-    secondary: '#06B6D4',
-    accent: '#3B82F6',
-    error: '#EF4444',
-    info: '#3B82F6',
-    success: '#10B981',
-    warning: '#F59E0B',
+    background: '#0f1512',
+    surface: '#171f1c',
+    'surface-variant': '#1e2923',
+    primary: '#f07c5a',
+    'primary-darken-1': '#ef6a45',
+    secondary: '#8fa89f',
+    accent: '#f07c5a',
+    error: '#e05044',
+    info: '#38bdf8',
+    success: '#10b981',
+    warning: '#f59e0b',
   },
 };
 
@@ -88,8 +105,9 @@ export default createVuetify({
     adapter: createVueI18nAdapter({ i18n, useI18n }),
   },
   theme: {
-    defaultTheme: 'curatorDarkTheme',
+    defaultTheme: 'curatorLightTheme',
     themes: {
+      curatorLightTheme,
       curatorDarkTheme,
     },
   },

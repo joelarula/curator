@@ -456,20 +456,21 @@ onActivated(() => {
 <style scoped>
 .clickable-card {
   cursor: pointer;
-  border: 1px solid #d8e2d7;
+  border: 1px solid var(--border-default);
+  background: var(--bg-surface);
   transition: all 0.18s ease;
 }
 
 .clickable-card:hover {
   transform: translateY(-2px);
-  border-color: #ef6a45;
-  box-shadow: 0 4px 12px rgba(239, 106, 69, 0.12);
+  border-color: var(--accent);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .clickable-card.is-selected {
-  border-color: #ef6a45;
-  background: #fffcfb;
-  box-shadow: 0 0 0 2px rgba(239, 106, 69, 0.2);
+  border-color: var(--accent);
+  background: var(--bg-elevated);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
 .view-chip {
@@ -477,20 +478,20 @@ onActivated(() => {
   font-weight: 700;
   padding: 4px 8px;
   border-radius: 4px;
-  background: #f0f4f0;
-  color: #3b5049;
+  background: var(--stats-bg);
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 
 .view-chip.active {
-  background: #ef6a45;
+  background: var(--accent);
   color: #fff;
 }
 
 /* Episode Index Section */
 .episode-index-section {
   margin-top: 36px;
-  border-top: 2px solid #d8e2d7;
+  border-top: 1px solid var(--border-default);
   padding-top: 24px;
 }
 
@@ -503,12 +504,12 @@ onActivated(() => {
 
 .index-title-group h3 {
   font-size: 1.25rem;
-  color: #17221f;
+  color: var(--text-primary);
   margin-bottom: 4px;
 }
 
 .index-subtitle {
-  color: #60706a;
+  color: var(--text-secondary);
   font-size: 0.88rem;
 }
 
@@ -519,9 +520,9 @@ onActivated(() => {
 }
 
 .filter-chip {
-  border: 1px solid #c8d6c7;
-  background: #fff;
-  color: #3d4f48;
+  border: 1px solid var(--border-default);
+  background: var(--bg-chip);
+  color: var(--text-secondary);
   font-family: inherit;
   font-size: 0.82rem;
   font-weight: 600;
@@ -532,14 +533,14 @@ onActivated(() => {
 }
 
 .filter-chip:hover {
-  border-color: #17221f;
-  color: #17221f;
+  border-color: var(--accent);
+  color: var(--text-primary);
 }
 
 .filter-chip.active {
-  background: #17221f;
-  color: #f6f4ed;
-  border-color: #17221f;
+  background: var(--nav-active-bg);
+  color: var(--nav-active-text);
+  border-color: var(--nav-active-bg);
 }
 
 /* Index Toolbar */
@@ -555,8 +556,9 @@ onActivated(() => {
 .episode-search-input {
   flex: 1;
   min-width: 280px;
-  background: #fff;
-  border: 1px solid #c8d6c7;
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
   border-radius: 4px;
   padding: 8px 12px;
   font-family: inherit;
@@ -565,13 +567,13 @@ onActivated(() => {
 }
 
 .episode-search-input:focus {
-  border-color: #ef6a45;
-  box-shadow: 0 0 0 2px rgba(239, 106, 69, 0.15);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
 .index-count-label {
   font-size: 0.85rem;
-  color: #60706a;
+  color: var(--text-muted);
 }
 
 /* Episode List */
@@ -582,18 +584,19 @@ onActivated(() => {
 }
 
 .episode-card {
-  background: #fff;
-  border: 1px solid #d8e2d7;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
   border-radius: 6px;
   padding: 16px 18px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  transition: box-shadow 0.15s ease;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
 }
 
 .episode-card:hover {
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.05);
+  border-color: var(--accent);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.08);
 }
 
 .ep-meta-badges {
@@ -611,30 +614,32 @@ onActivated(() => {
 }
 
 .badge.program-tag {
-  background: #e3ebe2;
-  color: #2b4038;
+  background: var(--stats-bg);
+  color: var(--text-primary);
 }
 
 .badge.date-tag {
-  background: #f4f6f3;
-  color: #556660;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
 }
 
 .badge.track-count-tag {
-  background: #fdf2ec;
-  color: #bf4926;
+  background: var(--bg-elevated);
+  color: var(--accent);
+  border: 1px solid var(--border-subtle);
 }
 
 .ep-title {
   font-size: 1.05rem;
-  color: #17221f;
+  color: var(--text-primary);
   margin: 0;
   line-height: 1.35;
 }
 
 .ep-desc {
   font-size: 0.85rem;
-  color: #60706a;
+  color: var(--text-secondary);
   margin: 0;
   line-height: 1.45;
 }
@@ -662,31 +667,31 @@ onActivated(() => {
 }
 
 .ep-btn-primary {
-  background: #ef6a45;
+  background: var(--accent);
   color: #fff;
 }
 
 .ep-btn-primary:hover {
-  background: #d85532;
+  background: var(--accent-hover);
 }
 
 .ep-btn-secondary {
-  background: #17221f;
-  color: #f6f4ed;
+  background: var(--nav-active-bg);
+  color: var(--nav-active-text);
 }
 
 .ep-btn-secondary:hover {
-  background: #2b3b36;
+  background: var(--accent);
+  color: #fff;
 }
 
 .ep-btn-ghost {
-  background: #f0f4f0;
-  color: #3b5049;
+  background: var(--stats-bg);
+  color: var(--text-primary);
 }
 
 .ep-btn-ghost:hover {
-  background: #e0e8e0;
-  color: #17221f;
+  background: var(--border-default);
 }
 
 .arrow-icon {
@@ -697,15 +702,15 @@ onActivated(() => {
 .inline-tracklist {
   margin-top: 10px;
   padding: 12px;
-  background: #f8faf8;
-  border: 1px solid #e1e9e0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
   border-radius: 4px;
 }
 
 .tracklist-loading,
 .tracklist-empty {
   font-size: 0.85rem;
-  color: #6c7c76;
+  color: var(--text-muted);
   text-align: center;
   padding: 8px 0;
 }
@@ -723,26 +728,26 @@ onActivated(() => {
 .tracklist-table th {
   text-align: left;
   padding: 6px 8px;
-  color: #60706a;
-  border-bottom: 1px solid #d4dfd3;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-default);
   font-weight: 700;
 }
 
 .tracklist-table td {
   padding: 6px 8px;
-  border-bottom: 1px solid #e9efe8;
-  color: #17221f;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
 }
 
 .track-num {
   font-weight: 700;
-  color: #889992;
+  color: var(--text-muted);
 }
 
 .track-find-link {
   font-size: 0.75rem;
   font-weight: 700;
-  color: #ef6a45;
+  color: var(--accent);
   text-decoration: none;
 }
 
@@ -751,18 +756,18 @@ onActivated(() => {
 }
 
 .no-episodes-panel {
-  background: #fff;
-  border: 1px dashed #c8d6c7;
+  background: var(--bg-surface);
+  border: 1px dashed var(--border-default);
   padding: 30px;
   text-align: center;
-  color: #60706a;
+  color: var(--text-muted);
   border-radius: 6px;
 }
 
 .reset-filter-btn {
   margin-top: 8px;
-  background: #17221f;
-  color: #fff;
+  background: var(--nav-active-bg);
+  color: var(--nav-active-text);
   border: none;
   padding: 6px 12px;
   border-radius: 4px;

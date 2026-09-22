@@ -948,37 +948,39 @@ function handleExecuteImport() {
 
 .playlist-card {
   cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  border: 1px solid var(--border-default);
 }
 
 .playlist-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(16, 185, 129, 0.4);
+  border-color: var(--accent);
 }
 
 .card-title {
-  color: #10b981;
+  color: var(--text-primary);
 }
 
 .card-desc {
   min-height: 40px;
   line-height: 1.4;
+  color: var(--text-secondary);
 }
 
 .track-item {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  transition: background-color 0.15s ease;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
 .track-item:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-elevated);
+  border-color: var(--accent);
 }
 
 .track-number-badge {
-  background: rgba(16, 185, 129, 0.15);
-  color: #10b981;
+  background: var(--stats-bg);
+  color: var(--text-primary);
   font-size: 0.8rem;
   padding: 3px 8px;
   border-radius: 4px;
@@ -987,18 +989,18 @@ function handleExecuteImport() {
 }
 
 .program-tag {
-  background: #17221f;
-  color: #10b981;
+  background: var(--nav-active-bg);
+  color: var(--nav-active-text);
   font-size: 0.7rem;
   font-weight: 700;
   padding: 2px 7px;
   border-radius: 3px;
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  border: 1px solid var(--border-default);
 }
 
 .episode-link {
   font-size: 0.8rem;
-  color: #06b6d4;
+  color: var(--accent);
   text-decoration: none;
   display: inline-flex;
   align-items: center;
@@ -1006,16 +1008,17 @@ function handleExecuteImport() {
 
 .episode-link:hover {
   text-decoration: underline;
-  color: #38bdf8;
+  color: var(--accent-hover);
 }
 
 .track-notes {
-  background: rgba(0, 0, 0, 0.25);
-  border-left: 2px solid #06b6d4;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--accent);
 }
 
 .markdown-preview :deep(textarea) {
-  font-family: monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.85rem;
   line-height: 1.4;
 }
