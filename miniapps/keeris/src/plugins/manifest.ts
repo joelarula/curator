@@ -120,20 +120,27 @@ export const RADIO_PROGRAMS: Record<string, RadioProgramDefinition> = {
     schedule: '0 17 * * 6', // Saturdays at 17:00 (after 15:05-17:00 broadcast)
     enabled: true,
   },
+  err_rescrape_missing_episodes: {
+    seriesContentId: 'missing',
+    programTitle: 'Rescrape Missing Episodes',
+    schedule: '0 4 * * *', // Daily at 04:00 AM
+    enabled: true,
+  },
 };
 
+import type { CuratorSequentialNode } from '@curator/agent-server';
+
 /**
- * Single-step ToolTask AST (used in WASM/browser worker).
+ * Single-step ToolTask AST using formal Curator AST syntax.
  */
-export function buildSingleScrapeAST({ seriesContentId, programTitle }: { seriesContentId: string | number; programTitle: string }) {
+export function buildSingleScrapeAST({ seriesContentId, programTitle }: { seriesContentId: string | number; programTitle: string }): CuratorSequentialNode {
   return {
-    id: `seq_scrape_${seriesContentId}`,
-    type: 'Sequence' as const,
-    steps: [
+    type: 'Curator_Sequential',
+    name: `seq_scrape_${seriesContentId}`,
+    subAgents: [
       {
-        id: `tool_scrape_${seriesContentId}`,
-        type: 'ToolTask' as const,
-        tool: 'vikerraadio_scrape',
+        type: 'Curator_Tool',
+        toolName: 'vikerraadio_scrape',
         args: { seriesContentId: String(seriesContentId), programTitle },
       },
     ],
@@ -150,33 +157,69 @@ export interface CreateProgramScrapeASTOptions {
 }
 
 /**
- * Multi-step Pipeline AST (discover -> forEach process_episode, used on Server).
+ * Multi-step Pipeline AST using formal Curator AST syntax (discover -> forEach process_episode).
  */
 export function buildPipelineScrapeAST({
   seriesContentId,
   programTitle,
   limit = 50,
-}: CreateProgramScrapeASTOptions) {
+}: CreateProgramScrapeASTOptions): CuratorSequentialNode {
+  if (String(seriesContentId) === 'missing') {
+    return buildRescrapeMissingAST({ limit });
+  }
+
   return {
-    type: 'Sequence' as const,
-    steps: [
+    type: 'Curator_Sequential',
+    name: `pipeline_scrape_${seriesContentId}`,
+    subAgents: [
       {
-        type: 'ToolTask' as const,
-        tool: 'vikerraadio_discover_episodes',
+        type: 'Curator_Tool',
+        toolName: 'vikerraadio_discover_episodes',
         args: { seriesContentId: String(seriesContentId), limit },
-        as: 'discovery',
       },
       {
-        type: 'ForEach' as const,
-        collection: '{{discovery.data}}',
-        iterator: 'episode',
+        type: 'Curator_ForEach',
+        collectionExpression: '{{discovery.data}}',
+        iteratorName: 'episode',
         body: {
-          type: 'ToolTask' as const,
-          tool: 'vikerraadio_process_episode',
+          type: 'Curator_Tool',
+          toolName: 'vikerraadio_process_episode',
           args: {
             url: '{{episode.url}}',
             episode: '{{episode}}',
             program: { seriesId: String(seriesContentId), title: programTitle },
+          },
+        },
+      },
+    ],
+  };
+}
+
+/**
+ * Pipeline AST for discovering and re-scraping episodes currently missing tracks.
+ */
+export function buildRescrapeMissingAST(options: { limit?: number; programId?: number | string } = {}): CuratorSequentialNode {
+  return {
+    type: 'Curator_Sequential',
+    name: 'pipeline_rescrape_missing_episodes',
+    subAgents: [
+      {
+        type: 'Curator_Tool',
+        toolName: 'vikerraadio_discover_missing_episodes',
+        args: { limit: options.limit ?? 50, programId: options.programId },
+      },
+      {
+        type: 'Curator_ForEach',
+        collectionExpression: '{{discovery.data}}',
+        iteratorName: 'episode',
+        body: {
+          type: 'Curator_Tool',
+          toolName: 'vikerraadio_process_episode',
+          args: {
+            url: '{{episode.url}}',
+            episode: '{{episode}}',
+            program: { seriesId: '{{episode.seriesId}}', title: '{{episode.programTitle}}' },
+            refresh: true,
           },
         },
       },

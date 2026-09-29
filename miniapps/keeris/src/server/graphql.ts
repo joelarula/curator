@@ -1,6 +1,8 @@
 import { buildSchema, graphql, type GraphQLSchema } from 'graphql';
 import { serverTypeDefs } from '../schema/server.ts';
 import { RADIO_PROGRAMS } from '../plugins/manifest.ts';
+import { authEngine } from './auth.ts';
+import { wrapResolversWithAuth } from '@curator/plugin-auth';
 
 export const schema: GraphQLSchema = buildSchema(serverTypeDefs);
 
@@ -82,7 +84,7 @@ function normalizeText(text: unknown): string {
   return String(text).normalize('NFC').toLowerCase();
 }
 
-export function resolvers(db: any, { curatorRuntime }: { curatorRuntime?: any } = {}) {
+export function resolvers(db: any, { curatorRuntime, user }: { curatorRuntime?: any; user?: any } = {}) {
   try {
     if (typeof db.function === 'function') {
       db.function('norm_text', (text: unknown) => normalizeText(text));
@@ -91,6 +93,28 @@ export function resolvers(db: any, { curatorRuntime }: { curatorRuntime?: any } 
   } catch (_) {}
 
   return {
+    me: () => {
+      if (!user) return null;
+      const roleObjects = (user.roles || []).map((r: any) => {
+        if (typeof r === 'string') {
+          return { id: `role_${r}`, name: r, description: null };
+        }
+        return {
+          id: r.id || `role_${r.name}`,
+          name: r.name,
+          description: r.description || null,
+        };
+      });
+      return {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        googleId: user.googleId || null,
+        roles: roleObjects,
+        createdAt: user.createdAt ? (typeof user.createdAt === 'string' ? user.createdAt : user.createdAt.toISOString()) : new Date().toISOString(),
+        updatedAt: user.updatedAt ? (typeof user.updatedAt === 'string' ? user.updatedAt : user.updatedAt.toISOString()) : new Date().toISOString(),
+      };
+    },
     programs: async () => {
       const rows = await db.prepare('SELECT id, series_id AS seriesId, title, slug, description, url FROM programs ORDER BY title').all();
       return (rows || []).map((r: any) => ({
@@ -492,6 +516,9 @@ export function resolvers(db: any, { curatorRuntime }: { curatorRuntime?: any } 
       };
     },
     curatorDatabaseHealth: async () => {
+      if (process.env.NODE_ENV !== 'test' && process.env.REQUIRE_AUTH !== 'false') {
+        authEngine.assertRole(user, 'curator_manager', 'Forbidden: curator_manager role required to inspect Curator database health');
+      }
       const runtime = curatorRuntime;
       const storageEngine = db.isMysql ? 'MariaDB (cPanel)' : (db.isPostgres ? 'PostgreSQL' : 'SQLite3');
       const tableNames = ['episodes', 'tracks', 'unique_tracks', 'programs', 'episode_metadata', 'playlists'];
@@ -568,20 +595,28 @@ export function resolvers(db: any, { curatorRuntime }: { curatorRuntime?: any } 
       };
     },
     curatorAgents: async () => {
+      if (process.env.NODE_ENV !== 'test' && process.env.REQUIRE_AUTH !== 'false') {
+        if (!authEngine.hasRole(user, 'curator_manager')) {
+          return [];
+        }
+      }
       const runtime = curatorRuntime;
       let agents: any[] = [];
       if (runtime?.prisma) {
         try {
-          agents = await runtime.prisma.agent.findMany({ include: { script: true } });
+          agents = await runtime.prisma.agent.findMany({
+            where: { existent: true },
+            include: { script: true }
+          });
         } catch (e: any) {
           console.warn('[GraphQL] Error querying agents via Prisma:', e.message);
         }
       } else {
         try {
-          agents = await db.prepare("SELECT id, name, schedule, enabled, ast FROM Agent").all();
+          agents = await db.prepare("SELECT id, name, schedule, enabled, ast FROM Agent WHERE existent = 1 OR existent IS NULL").all();
         } catch (_) {
           try {
-            agents = await db.prepare("SELECT id, name, schedule, enabled, ast FROM agents").all();
+            agents = await db.prepare("SELECT id, name, schedule, enabled, ast FROM agents WHERE existent = 1 OR existent IS NULL").all();
           } catch (_) {}
         }
       }
@@ -647,7 +682,7 @@ export function resolvers(db: any, { curatorRuntime }: { curatorRuntime?: any } 
           }
         }
 
-        const lastRun = matched?.lastRun || (a.updatedAt ? a.updatedAt.toISOString() : 'Never');
+        const lastRun = matched?.lastRun || (a.lastPolledAt ? (typeof a.lastPolledAt === 'string' ? a.lastPolledAt : a.lastPolledAt.toISOString()) : 'Never');
 
         return {
           id: a.id,
@@ -663,6 +698,11 @@ export function resolvers(db: any, { curatorRuntime }: { curatorRuntime?: any } 
       });
     },
     curatorRequests: async ({ limit = 20 }: { limit?: number } = {}) => {
+      if (process.env.NODE_ENV !== 'test' && process.env.REQUIRE_AUTH !== 'false') {
+        if (!authEngine.hasRole(user, 'curator_manager')) {
+          return [];
+        }
+      }
       const runtime = curatorRuntime;
       let requests: any[] = [];
       if (runtime?.prisma) {
@@ -677,19 +717,27 @@ export function resolvers(db: any, { curatorRuntime }: { curatorRuntime?: any } 
         }
       } else {
         try {
-          requests = await db.prepare("SELECT id, scriptId, ast, createdAt FROM Request ORDER BY createdAt DESC LIMIT ?").all(Math.min(Math.max(Number(limit) || 20, 1), 100));
+          requests = await db.prepare("SELECT id, scriptId, parentId, notifyId, toolName, status, retryCount, ast, context, scheduledAt, createdAt, updatedAt FROM Request ORDER BY createdAt DESC LIMIT ?").all(Math.min(Math.max(Number(limit) || 20, 1), 100));
         } catch (_) {
           try {
-            requests = await db.prepare("SELECT id, scriptId, ast, createdAt FROM requests ORDER BY createdAt DESC LIMIT ?").all(Math.min(Math.max(Number(limit) || 20, 1), 100));
+            requests = await db.prepare("SELECT id, scriptId, parent_id AS parentId, notify_id AS notifyId, tool_name AS toolName, status, retry_count AS retryCount, ast, context, scheduled_at AS scheduledAt, created_at AS createdAt, updated_at AS updatedAt FROM requests ORDER BY created_at DESC LIMIT ?").all(Math.min(Math.max(Number(limit) || 20, 1), 100));
           } catch (_) {}
         }
       }
       return requests.map((r: any) => ({
         id: r.id,
         scriptId: r.scriptId,
-        agentName: r.script?.name ?? 'unknown',
-        ast: JSON.stringify(r.ast),
+        parentId: r.parentId != null ? String(r.parentId) : null,
+        notifyId: r.notifyId != null ? String(r.notifyId) : null,
+        toolName: r.toolName ?? null,
+        status: r.status,
+        retryCount: r.retryCount ?? 0,
+        ast: typeof r.ast === 'string' ? r.ast : (r.ast ? JSON.stringify(r.ast) : null),
+        context: typeof r.context === 'string' ? r.context : (r.context ? JSON.stringify(r.context) : null),
+        scheduledAt: r.scheduledAt ? (typeof r.scheduledAt === 'string' ? r.scheduledAt : r.scheduledAt.toISOString()) : null,
         createdAt: r.createdAt ? (typeof r.createdAt === 'string' ? r.createdAt : r.createdAt.toISOString()) : null,
+        updatedAt: r.updatedAt ? (typeof r.updatedAt === 'string' ? r.updatedAt : r.updatedAt.toISOString()) : null,
+        agentName: r.script?.name ?? 'unknown',
         responses: (r.responses || []).map((res: any) => ({
           id: res.id,
           requestId: res.requestId,
@@ -699,6 +747,9 @@ export function resolvers(db: any, { curatorRuntime }: { curatorRuntime?: any } 
       }));
     },
     triggerCuratorAgent: async ({ name, agentName, refresh = false }: { name?: string; agentName?: string; refresh?: boolean }) => {
+      if (process.env.NODE_ENV !== 'test' && process.env.REQUIRE_AUTH !== 'false') {
+        authEngine.assertRole(user, 'curator_manager', 'Forbidden: curator_manager role required to execute Curator agents');
+      }
       let targetName = name || agentName;
       if (!targetName) throw new Error('Agent name is required');
       let runtime = curatorRuntime;
@@ -717,41 +768,78 @@ export function resolvers(db: any, { curatorRuntime }: { curatorRuntime?: any } 
         where: { OR: [{ id: targetName }, { name: targetName }] },
       });
       if (agentById) {
+        if (agentById.enabled === false) {
+          throw new Error(`Cannot trigger agent '${agentById.name}': agent is disabled. Please enable it before running.`);
+        }
         targetName = agentById.name;
       }
-      const { createErrRadioPlugin } = await import('../plugins/err-radio.ts');
-
       const req = await runtime.triggerAgent(targetName, { refresh });
-      const plugin = createErrRadioPlugin(db);
-      const toolName = req.ast?.toolName ?? 'vikerraadio_scrape';
-      const tool = (plugin.tools as any)[toolName];
-      if (!tool) throw new Error(`Tool '${toolName}' not found`);
 
-      const result = await tool.runAsync({ args: req.ast?.args ?? {} });
-      const resp = await runtime.prisma.response.create({
-        data: {
-          request: { connect: { id: req.id } },
-          conversation: { connect: { id: req.conversationId } },
-          content: `Indexed ${result.episodesParsed} episodes (${result.tracksSaved} tracks saved) for ${result.programTitle} successfully.`,
-        },
-      });
+      try {
+        const { curatorEvents } = await import('./events.ts');
+        curatorEvents.broadcast('log', { message: `[Server] Agent workflow '${targetName}' enqueued as Request #${req.id}` });
+        curatorEvents.broadcast('request_start', { requestId: req.id });
+        curatorEvents.broadcast('database_change', { tables: ['requests', 'agents'] });
+      } catch (_) {}
+
       return {
-        id: resp.id,
-        requestId: req.id,
-        content: resp.content,
-        status: 'completed',
-        createdAt: resp.createdAt ? resp.createdAt.toISOString() : new Date().toISOString(),
+        id: `resp-${req.id}`,
+        requestId: String(req.id),
+        content: `Agent workflow '${targetName}' task enqueued (Request #${req.id}). Processing in background...`,
+        status: 'pending',
+        createdAt: req.createdAt ? (typeof req.createdAt === 'string' ? req.createdAt : req.createdAt.toISOString()) : new Date().toISOString(),
       };
     },
-    toggleCuratorAgent: async ({ id, isActive }: { id: string; isActive: boolean }) => {
+    triggerAgent: async (args: { id?: string; name?: string; agentName?: string; refresh?: boolean }) => {
+      // Delegate to triggerCuratorAgent
+      const targetName = args.name || args.agentName || args.id || 'keeris_scrape';
+      const runtime = curatorRuntime;
+      if (!runtime || typeof runtime.triggerAgent !== 'function') {
+        throw new Error('Curator runtime is not active.');
+      }
+      const req = await runtime.triggerAgent(targetName, { refresh: args.refresh ?? false });
+      return {
+        id: `resp-${req.id}`,
+        requestId: String(req.id),
+        content: `Agent workflow '${targetName}' task enqueued (Request #${req.id}). Processing in background...`,
+        status: 'pending',
+        createdAt: req.createdAt ? (typeof req.createdAt === 'string' ? req.createdAt : req.createdAt.toISOString()) : new Date().toISOString(),
+      };
+    },
+    toggleCuratorAgent: async ({ id, isActive, enabled }: { id: string; isActive?: boolean; enabled?: boolean }) => {
+      const activeState = enabled !== undefined ? enabled : !!isActive;
+      if (process.env.NODE_ENV !== 'test' && process.env.REQUIRE_AUTH !== 'false') {
+        authEngine.assertRole(user, 'curator_manager', 'Forbidden: curator_manager role required to configure Curator agents');
+      }
       const runtime = curatorRuntime;
       if (runtime?.prisma) {
         try {
           const updated = await runtime.prisma.agent.update({
             where: { id },
-            data: { enabled: isActive },
+            data: { enabled: activeState },
             include: { script: true },
           });
+          if (!activeState) {
+            await runtime.prisma.request.updateMany({
+              where: {
+                OR: [
+                  { agentId: id },
+                  { scriptId: updated.scriptId ?? undefined }
+                ],
+                status: { in: ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT', 'PAUSED'] }
+              },
+              data: {
+                status: 'CANCELLED',
+                lockedBy: null,
+                lockedAt: null
+              }
+            });
+          }
+          try {
+            const { curatorEvents } = await import('./events.ts');
+            curatorEvents.broadcast('database_change', { tables: ['agents', 'requests'] });
+          } catch (_) {}
+
           return {
             id: updated.id,
             name: updated.name,
@@ -764,17 +852,164 @@ export function resolvers(db: any, { curatorRuntime }: { curatorRuntime?: any } 
         }
       }
       try {
-        await db.prepare("UPDATE Agent SET enabled = ? WHERE id = ?").run(isActive ? 1 : 0, id);
+        await db.prepare("UPDATE Agent SET enabled = ? WHERE id = ?").run(activeState ? 1 : 0, id);
       } catch (_) {
         try {
-          await db.prepare("UPDATE agents SET enabled = ? WHERE id = ?").run(isActive ? 1 : 0, id);
+          await db.prepare("UPDATE agents SET enabled = ? WHERE id = ?").run(activeState ? 1 : 0, id);
         } catch (_) {}
       }
+      try {
+        const { curatorEvents } = await import('./events.ts');
+        curatorEvents.broadcast('database_change', { tables: ['agents', 'requests'] });
+      } catch (_) {}
+
       return {
         id,
-        isActive: !!isActive,
-        enabled: !!isActive,
+        isActive: activeState,
+        enabled: activeState,
       };
+    },
+    toggleAgent: async (args: { id: string; enabled?: boolean; isActive?: boolean }) => {
+      const activeState = args.enabled !== undefined ? args.enabled : !!args.isActive;
+      const runtime = curatorRuntime;
+      if (runtime?.prisma) {
+        try {
+          const updated = await runtime.prisma.agent.update({
+            where: { id: args.id },
+            data: { enabled: activeState },
+            include: { script: true },
+          });
+          if (!activeState) {
+            const enabledCount = await runtime.prisma.agent.count({ where: { enabled: true } });
+            if (enabledCount === 0) {
+              await runtime.prisma.request.updateMany({
+                where: {
+                  status: { in: ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT', 'PAUSED'] }
+                },
+                data: {
+                  status: 'CANCELLED',
+                  lockedBy: null,
+                  lockedAt: null
+                }
+              });
+            } else {
+              const conditions: any[] = [{ agentId: args.id }, { agentId: updated.name }];
+              if (updated.scriptId) conditions.push({ scriptId: updated.scriptId });
+
+              const relatedReqs = await runtime.prisma.request.findMany({
+                where: { OR: conditions },
+                select: { conversationId: true }
+              });
+              const convIds = Array.from(new Set(relatedReqs.map((r: any) => r.conversationId).filter(Boolean)));
+              if (convIds.length > 0) {
+                conditions.push({ conversationId: { in: convIds } });
+              }
+
+              await runtime.prisma.request.updateMany({
+                where: {
+                  OR: conditions,
+                  status: { in: ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT', 'PAUSED'] }
+                },
+                data: {
+                  status: 'CANCELLED',
+                  lockedBy: null,
+                  lockedAt: null
+                }
+              });
+            }
+          }
+          try {
+            const { curatorEvents } = await import('./events.ts');
+            curatorEvents.broadcast('database_change', { tables: ['agents', 'requests'] });
+          } catch (_) {}
+
+          return {
+            id: updated.id,
+            name: updated.name,
+            schedule: updated.schedule,
+            isActive: updated.enabled,
+            enabled: updated.enabled,
+          };
+        } catch (err: any) {
+          console.warn('[GraphQL] Prisma toggleAgent failed:', err.message);
+        }
+      }
+      return { id: args.id, isActive: activeState, enabled: activeState };
+    },
+    updateAgentSchedule: async ({ id, schedule }: { id: string; schedule: string }) => {
+      if (process.env.NODE_ENV !== 'test' && process.env.REQUIRE_AUTH !== 'false') {
+        authEngine.assertRole(user, 'curator_manager', 'Forbidden: curator_manager role required to configure Curator agents');
+      }
+      const trimmedSchedule = schedule.trim();
+      const cronParts = trimmedSchedule.split(/\s+/);
+      if (cronParts.length !== 5 && !/^(every|at|on|after)\b/i.test(trimmedSchedule)) {
+        throw new Error(`Invalid schedule expression: "${schedule}" — must be 5-field cron or valid interval`);
+      }
+
+      let nextRunDate = new Date(Date.now() + 60000);
+      try {
+        const { computeNextRunDate } = await import('@curator/agent-server');
+        if (typeof computeNextRunDate === 'function') {
+          nextRunDate = computeNextRunDate(trimmedSchedule, new Date());
+        }
+      } catch (_) {}
+
+      const runtime = curatorRuntime;
+      if (runtime?.prisma) {
+        try {
+          const updated = await runtime.prisma.agent.update({
+            where: { id },
+            data: { schedule: trimmedSchedule },
+            include: { script: true },
+          });
+
+          // Reschedule all active / pending / waiting requests for this agent to the new scheduled time
+          const pendingConditions: any[] = [{ agentId: id }, { agentId: updated.name }];
+          if (updated.scriptId) pendingConditions.push({ scriptId: updated.scriptId });
+
+          await runtime.prisma.request.updateMany({
+            where: {
+              OR: pendingConditions,
+              status: { in: ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT', 'PAUSED'] },
+            },
+            data: {
+              scheduledAt: nextRunDate,
+              executionScheduled: nextRunDate,
+            },
+          });
+
+          try {
+            const { curatorEvents } = await import('./events.ts');
+            curatorEvents.broadcast('database_change', { tables: ['agents', 'requests'] });
+          } catch (_) {}
+
+          return {
+            id: updated.id,
+            name: updated.name,
+            schedule: updated.schedule,
+            isActive: updated.enabled,
+            enabled: updated.enabled,
+          };
+        } catch (err: any) {
+          console.warn('[GraphQL] Prisma updateAgentSchedule failed, trying direct SQL:', err.message);
+        }
+      }
+      try {
+        await db.prepare("UPDATE Agent SET schedule = ? WHERE id = ?").run(trimmedSchedule, id);
+        try {
+          await db.prepare("UPDATE Request SET scheduledAt = ?, executionScheduled = ? WHERE (agentId = ? OR agentId = (SELECT name FROM Agent WHERE id = ?)) AND status IN ('NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT', 'PAUSED')").run(nextRunDate.toISOString(), nextRunDate.toISOString(), id, id);
+        } catch (_) {}
+      } catch (_) {
+        try {
+          await db.prepare("UPDATE agents SET schedule = ? WHERE id = ?").run(trimmedSchedule, id);
+        } catch (_) {}
+      }
+      try {
+        const { curatorEvents } = await import('./events.ts');
+        curatorEvents.broadcast('database_change', { tables: ['agents', 'requests'] });
+      } catch (_) {}
+
+      return { id, schedule: trimmedSchedule };
     },
     scrapeProgram: async ({ seriesContentId, programTitle, refresh = false }: { seriesContentId: string; programTitle: string; refresh?: boolean }) => {
       const { createErrRadioPlugin } = await import('../plugins/err-radio.ts');
@@ -820,9 +1055,73 @@ export function resolvers(db: any, { curatorRuntime }: { curatorRuntime?: any } 
       });
       return result;
     },
+    deleteAgent: async ({ id }: { id: string }) => {
+      if (process.env.NODE_ENV !== 'test' && process.env.REQUIRE_AUTH !== 'false') {
+        authEngine.assertRole(user, 'curator_manager', 'Forbidden: curator_manager role required to delete Curator agents');
+      }
+      const runtime = curatorRuntime;
+      if (runtime?.prisma) {
+        try {
+          const agent = await runtime.prisma.agent.findFirst({
+            where: { OR: [{ id }, { name: id }] },
+            include: { script: true },
+          });
+          if (agent) {
+            const now = new Date();
+            await runtime.prisma.agent.update({
+              where: { id: agent.id },
+              data: { existent: false, deletedAt: now, enabled: false },
+            });
+            if (agent.scriptId) {
+              await runtime.prisma.script.update({
+                where: { id: agent.scriptId },
+                data: { existent: false, deletedAt: now },
+              });
+            }
+            await runtime.prisma.request.updateMany({
+              where: {
+                OR: [{ agentId: agent.id }, { scriptId: agent.scriptId ?? undefined }],
+                status: { in: ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT', 'PAUSED'] },
+              },
+              data: { status: 'CANCELLED', lockedBy: null, lockedAt: null },
+            });
+            try {
+              const { curatorEvents } = await import('./events.ts');
+              curatorEvents.broadcast('database_change', { tables: ['agents', 'scripts', 'requests'] });
+            } catch (_) {}
+            return true;
+          }
+        } catch (err: any) {
+          console.warn('[GraphQL] deleteAgent failed:', err.message);
+        }
+      }
+      try {
+        await db.prepare("UPDATE Agent SET existent = 0, enabled = 0 WHERE id = ? OR name = ?").run(id, id);
+        return true;
+      } catch (_) {
+        try {
+          await db.prepare("UPDATE agents SET existent = 0, enabled = 0 WHERE id = ? OR name = ?").run(id, id);
+          return true;
+        } catch (_) {}
+      }
+      return false;
+    },
   };
 }
 
-export async function executeGraphql(db: any, source: string, variables: Record<string, any> = {}, { curatorRuntime }: { curatorRuntime?: any } = {}) {
-  return graphql({ schema, source, rootValue: resolvers(db, { curatorRuntime }), variableValues: variables });
+export async function executeGraphql(
+  db: any,
+  source: string,
+  variables: Record<string, any> = {},
+  { curatorRuntime, user }: { curatorRuntime?: any; user?: any } = {}
+) {
+  const rawResolvers = resolvers(db, { curatorRuntime, user });
+  const rootValue = wrapResolversWithAuth(schema, rawResolvers, user, authEngine);
+
+  return graphql({
+    schema,
+    source,
+    rootValue,
+    variableValues: variables,
+  });
 }

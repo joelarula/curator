@@ -22,70 +22,62 @@ export function parseMusicList(html: string): ParsedTrack[] {
   const $ = cheerio.load(html);
   const tracks: ParsedTrack[] = [];
 
-  // 1. Try structured .music-list-item
+  // 1. Primary: Structured .music-list-item (modern ERR format across Vikerraadio & Klassikaraadio)
   $('.music-list-item').each((index, element) => {
     const row = $(element);
     const artist = clean(row.find('.music-artist').first().text());
     const title = clean(row.find('.music-title').first().text());
     const rawText = clean(row.text());
-    if (artist || title || rawText) tracks.push({ position: index + 1, artist: artist || null, title: title || null, rawText });
+    if (artist || title || rawText) {
+      tracks.push({
+        position: index + 1,
+        artist: artist || null,
+        title: title || null,
+        rawText: rawText || (artist && title ? `${artist} - ${title}` : (artist || title || ''))
+      });
+    }
   });
 
-  // 2. Fallback: Parse paragraphs/list-items containing numbered or hyphenated track lines
-  if (tracks.length === 0) {
-    let position = 1;
-    const isNav = (t: string) => /saated a-ü|etteütlus|по-русски|vaegkuuljatele|otse|ajakava|saatekava|e-post|kontakt|toimetaja:|saatejuht:|autor:|helioperaator:|foto:|pildi autor/i.test(t);
-    $('.radio-article-body p, .radio-article p, article p, section p, .body-text p, .content p, .article-body p, li, p').each((_, el) => {
-      const rawBlock = $(el).text();
-      const lines = rawBlock.split('\n').map(clean).filter(Boolean);
-      for (const text of lines) {
-        if (isNav(text)) continue;
-        const match = text.match(/^(?:\d+[\.\)]\s*)?([^-–—]+)\s*[-–—]\s*(.+)$/);
-        if (match) {
-          const artist = clean(match[1].replace(/^\d+[\.\)]\s*/, ''));
-          const title = clean(match[2]);
-          if (
-            artist && title &&
-            artist.length > 1 && artist.length < 100 &&
-            title.length > 1 && title.length < 150 &&
-            !isNav(artist) && !isNav(title) &&
-            !/^(saade|esmaspäev|teisipäev|kolmapäev|neljapäev|reede|laupäev|pühapäev)\b/i.test(artist)
-          ) {
-            tracks.push({ position: position++, artist, title, rawText: text });
-          }
-        }
-      }
-    });
+  if (tracks.length > 0) {
+    return tracks;
   }
 
-  // 3. Fallback: Extract song titles after colon from lead/description text if colon & commas are present
-  if (tracks.length === 0) {
-    const textSources = [
-      clean($('.lead, .summary, meta[name="description"]').first().attr('content') ?? $('.lead, .summary').first().text()),
-      ...$('.radio-article-body p, .radio-article p, article p, section p, .body-text p, .content p').map((_, el) => clean($(el).text())).get()
-    ].filter(Boolean);
+  // 2. Fallback: Parse paragraphs strictly from the article body container (never whole page / footer)
+  const isNavOrProse = (t: string) => {
+    return /saated a-ü|etteütlus|по-русски|vaegkuuljatele|otse|ajakava|saatekava|e-post|e-viktoriin|kontakt|toimetaja:|saatejuht:|autor:|helioperaator:|foto:|pildi autor|stuudios on|tutvu siin|toimub|tähistatakse|käsitlemisel|alates \d|unustasid salasõna|järgmisena mängib/i.test(t)
+      || /\b(kell\s+\d{1,2}[\.:]\d{2}|\d{1,2}[\.:]\d{2}\s*[-–—]\s*\d{1,2}[\.:]\d{2})\b/i.test(t)
+      || /^(esmaspäev|teisipäev|kolmapäev|neljapäev|reede|laupäev|pühapäev)\b/i.test(t);
+  };
 
-    for (const text of textSources) {
-      const colonIndex = text.indexOf(':');
-      if (colonIndex > 0 && colonIndex < 100) {
-        const potentialArtist = clean(text.slice(0, colonIndex).replace(/.*[.\/|]\s*/, '').replace(/\d+\s*(eri|saade)?/i, '').trim());
-        const listText = text.slice(colonIndex + 1);
-        const parts = listText.split(/[,;\n]+/).map(clean).filter((p) => p.length > 2 && p.length < 120 && !p.toLowerCase().startsWith('stuudios'));
-        if (parts.length >= 2) {
-          let position = 1;
-          for (const title of parts) {
-            tracks.push({
-              position: position++,
-              artist: potentialArtist || null,
-              title,
-              rawText: potentialArtist ? `${potentialArtist} - ${title}` : title,
-            });
-          }
-          break;
+  const bodyContainers = $('.radio-article-body, .article-body, .main-content .body, .content-body, .lead-body, article .body, .radio-article');
+  
+  let position = 1;
+  bodyContainers.find('p, li, div.track-row, div.playlist-row').each((_, el) => {
+    const rawBlock = $(el).text();
+    const lines = rawBlock.split('\n').map(clean).filter(Boolean);
+    for (const text of lines) {
+      if (text.length > 150 || text.length < 5 || isNavOrProse(text)) continue;
+      
+      // Match lines like "Artist - Title" or "1. Artist - Title" or "Artist – Title"
+      const match = text.match(/^(?:\d+[\.\)]\s*)?([^-–—]+?)\s*[-–—]\s*(.+)$/);
+      if (match) {
+        const artist = clean(match[1].replace(/^\d+[\.\)]\s*/, ''));
+        const title = clean(match[2]);
+        
+        // Ensure artist and title look like names/titles, not sentences or times
+        if (
+          artist && title &&
+          artist.length >= 2 && artist.length < 80 &&
+          title.length >= 2 && title.length < 100 &&
+          !isNavOrProse(artist) && !isNavOrProse(title) &&
+          !/\.\s+[A-ZÕÄÖÜ]/.test(title) &&
+          !/^\w\b/.test(title)
+        ) {
+          tracks.push({ position: position++, artist, title, rawText: text });
         }
       }
     }
-  }
+  });
 
   return tracks;
 }

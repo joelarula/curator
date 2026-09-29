@@ -26,7 +26,8 @@ export default defineConfig(({ mode }) => {
         { find: '@wasm', replacement: fileURLToPath(new URL('../wasm', import.meta.url)) },
         { find: '@keeris', replacement: fileURLToPath(new URL('../src', import.meta.url)) },
         { find: '@curator/console', replacement: fileURLToPath(new URL('../../../packages/curator-console/src/index.ts', import.meta.url)) },
-        { find: '@curator/ast', replacement: fileURLToPath(new URL('../../../server/src/services/ast/types.ts', import.meta.url)) },
+        { find: '@curator/agent-server', replacement: fileURLToPath(new URL('../../../curator/src/index.ts', import.meta.url)) },
+        { find: '@curator/ast', replacement: fileURLToPath(new URL('../../../curator/src/engine/CuratorAst.ts', import.meta.url)) },
         { find: '@curator/wasm-core', replacement: fileURLToPath(new URL('../../../server/src/wasm-core/types.ts', import.meta.url)) },
         ...(isWasm
           ? []
@@ -55,6 +56,15 @@ export default defineConfig(({ mode }) => {
         'Cross-Origin-Embedder-Policy': 'require-corp',
       },
       proxy: {
+        '/api/curator/ws': {
+          target: process.env.VITE_BACKEND_URL || 'http://localhost:4001',
+          ws: true,
+          changeOrigin: true,
+        },
+        '/api/curator': {
+          target: process.env.VITE_BACKEND_URL || 'http://localhost:4001',
+          changeOrigin: true,
+        },
         '/graphql': {
           target: process.env.VITE_BACKEND_URL || 'http://localhost:4001',
           changeOrigin: true,

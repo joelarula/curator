@@ -19,6 +19,9 @@ export class WasmWorkerAdapter implements CuratorClientAdapter {
   async toggleAgent(): Promise<any> {
     throw new Error('WASM mode is disabled in server-only build');
   }
+  async deleteAgent(): Promise<boolean> {
+    throw new Error('WASM mode is disabled in server-only build');
+  }
   async togglePause(): Promise<boolean> {
     return false;
   }

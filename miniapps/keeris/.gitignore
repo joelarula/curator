@@ -4,3 +4,5 @@ data/
 *.sqlite*
 logs/
 web-dist/
+deploy/    
+keeris-cpanel.zip

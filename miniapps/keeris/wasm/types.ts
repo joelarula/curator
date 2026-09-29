@@ -2,28 +2,53 @@
  * wasm/types.ts
  * Types for the WASM Curator Engine and In-Worker Architecture.
  * Reuses and imports canonical types from Curator core modules:
- * - @curator/ast (server/src/services/ast/types.ts)
+ * - @curator/agent-server (curator/src/engine/CuratorAst.ts) - Formal Execution AST
  * - @curator/console (packages/curator-console/src/types.ts)
  * - @curator/wasm-core (server/src/wasm-core/types.ts)
  */
 
-// ─── Import & Re-export from Curator Core AST ────────────────────────────────
+// ─── Import & Re-export from Curator Formal AST Contract ──────────────────────
 export type {
-  ASTNode,
-  SequenceNode,
-  ToolNode as ToolTaskNode,
-  ForEachNode,
-  IfNode as IfElseNode,
-  ParallelNode,
-  WhileNode,
-  SpawnNode,
-  BaseNode,
-} from '@curator/ast';
+  CuratorAstNode,
+  CuratorSequentialNode,
+  CuratorToolNode,
+  CuratorForEachNode,
+  CuratorIfElseNode,
+  CuratorParallelNode,
+  CuratorWhileNode,
+  CuratorAgentNode,
+  CuratorJoinNode,
+  CuratorRouteNode,
+  CuratorLoopNode,
+  CuratorScriptNode,
+  CuratorGraphNode,
+  CuratorHumanInputNode,
+  CuratorAgentRefNode,
+  CuratorSetStateNode,
+  CuratorEmitEventNode,
+  CuratorInterruptNode,
+  CuratorAssignNode,
+  CuratorWaitEventNode,
+} from '@curator/agent-server';
 
-import type { ASTNode } from '@curator/ast';
+import type {
+  CuratorAstNode,
+  CuratorSequentialNode,
+  CuratorToolNode,
+  CuratorForEachNode,
+  CuratorIfElseNode,
+  CuratorParallelNode,
+  CuratorWhileNode,
+} from '@curator/agent-server';
 
-// Canonical ASTNode alias for backwards compatibility
-export type AstNode = ASTNode;
+// Canonical formal AST aliases for full cross-module compatibility
+export type AstNode = CuratorAstNode;
+export type SequenceNode = CuratorSequentialNode;
+export type ToolTaskNode = CuratorToolNode;
+export type ForEachNode = CuratorForEachNode;
+export type IfElseNode = CuratorIfElseNode;
+export type ParallelNode = CuratorParallelNode;
+export type WhileNode = CuratorWhileNode;
 
 // ─── Import & Re-export from Curator Console ────────────────────────────────
 export type {

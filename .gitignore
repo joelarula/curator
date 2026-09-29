@@ -4,13 +4,29 @@
 
 # Environment files
 .env
-.env.local
-.env.*.local
+.env.*
+**/.env
+**/.env.*
+**/.env.local
+**/.env.*.local
+!**/.env.example
 
 # Build outputs
 dist/
 **/dist/
+**/dist-*/
 build/
+**/build/
+deploy/
+**/deploy/
+web-dist/
+**/web-dist/
+wasm-dist/
+**/wasm-dist/
+miniapps/*/app.js
+miniapps/*/app-readonly.js
+miniapps/*/app*.js
+*.zip
 .next/
 out/
 /server/dist
@@ -69,3 +85,4 @@ coverage/
 /target
 /curator/target/
 **/target/
+miniapps/keeris/keeris-cpanel.zip

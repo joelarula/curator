@@ -7,7 +7,8 @@
     >
       <aside
         class="curator-console-drawer"
-        :style="{ width: drawerWidth + 'px' }"
+        :class="{ 'is-fullscreen': isExpanded }"
+        :style="isExpanded ? { width: '100vw', maxWidth: '100vw' } : { width: drawerWidth + 'px' }"
         role="dialog"
         aria-label="Curator Dev Console"
       >
@@ -24,8 +25,12 @@
         <div class="console-subtitle">Curator AST Engine &amp; SQLite Storage Debugger</div>
       </div>
       <div class="console-header-actions">
-        <button class="icon-action-btn" title="Toggle full width" @click="toggleExpanded">
-          {{ isExpanded ? '🗗' : '🗖' }}
+        <button 
+          class="icon-action-btn" 
+          :title="isExpanded ? 'Restore side drawer view' : 'Maximize to full page view'" 
+          @click="toggleExpanded"
+        >
+          {{ isExpanded ? '🗗' : '⛶' }}
         </button>
         <button class="icon-action-btn" title="Close console (Esc or Ctrl+`)" @click="$emit('update:modelValue', false)">
           ✕
@@ -189,58 +194,171 @@
       <!-- 2. AGENTS & WORKFLOWS TAB -->
       <div v-if="activeTab === 'agents'" class="tab-panel agents-panel">
         <div class="panel-desc">
-          Trigger any Curator Agent workflow directly into the AST execution queue:
+          Manage and trigger Curator Agent workflows. Disabled agents will not run on schedule.
         </div>
         <div v-if="agents.length === 0" class="log-empty">
           No registered Curator agents found.
         </div>
         <div v-else class="agents-grid">
-          <div v-for="ag in agents" :key="ag.id" class="agent-compact-card">
-            <div class="ag-meta">
-              <div class="ag-title">{{ ag.name }}</div>
-              <div class="ag-sub" v-if="ag.schedule">
-                Cron: <code>{{ ag.schedule }}</code>
-                <span v-if="ag.lastRunAt"> • Last run: {{ ag.lastRunAt }}</span>
+          <div
+            v-for="ag in agents"
+            :key="ag.id"
+            class="agent-compact-card"
+            :class="{ 'agent-disabled': !ag.isActive && !ag.enabled }"
+          >
+            <!-- Header row: name + enabled badge -->
+            <div class="ag-header-row">
+              <div class="ag-title">
+                {{ ag.name }}
+                <span class="ag-status-badge" :class="(ag.isActive || ag.enabled) ? 'badge-enabled' : 'badge-disabled'">
+                  {{ (ag.isActive || ag.enabled) ? '● ON' : '○ OFF' }}
+                </span>
               </div>
             </div>
-            <button
-              v-if="adapter?.triggerAgent"
-              class="ag-run-btn"
-              :disabled="runningAgents.has(ag.id)"
-              @click="triggerAgent(ag)"
-            >
-              {{ runningAgents.has(ag.id) ? '⚙ Running...' : '▶ Run' }}
-            </button>
+
+            <!-- Cron schedule row (editable) -->
+            <div class="ag-cron-row" v-if="ag.schedule !== undefined">
+              <span class="ag-cron-label">Cron:</span>
+              <input
+                class="ag-cron-input"
+                :value="editingSchedule[ag.id] ?? ag.schedule"
+                :title="'Edit cron expression (5 fields). Press Enter to save.'"
+                @input="editingSchedule[ag.id] = $event.target.value"
+                @keydown.enter.prevent="saveSchedule(ag)"
+                @blur="saveSchedule(ag)"
+              />
+              <span v-if="ag.lastRunAt" class="ag-last-run">Last: {{ formatRelativeTime(ag.lastRunAt) }}</span>
+            </div>
+
+            <!-- Action buttons row -->
+            <div class="ag-actions-row">
+              <!-- Enable / Disable toggle -->
+              <button
+                class="ag-toggle-btn"
+                :class="(ag.isActive || ag.enabled) ? 'ag-btn-disable' : 'ag-btn-enable'"
+                :disabled="togglingAgents.has(ag.id)"
+                @click="toggleAgent(ag)"
+              >
+                {{ togglingAgents.has(ag.id) ? '...' : (ag.isActive || ag.enabled) ? '⏸ Disable' : '▶ Enable' }}
+              </button>
+
+              <!-- Run Now -->
+              <button
+                v-if="adapter?.triggerAgent"
+                class="ag-run-btn"
+                :disabled="runningAgents.has(ag.id) || (!ag.isActive && !ag.enabled)"
+                :title="(!ag.isActive && !ag.enabled) ? 'Agent is disabled. Enable agent first to run.' : 'Run now'"
+                @click="triggerAgent(ag)"
+              >
+                {{ runningAgents.has(ag.id) ? '⚙ Running...' : '⚡ Run Now' }}
+              </button>
+
+              <!-- Soft Delete -->
+              <button
+                class="ag-delete-btn"
+                :disabled="deletingAgents.has(ag.id)"
+                title="Soft delete agent along with its script"
+                @click="deleteAgent(ag)"
+              >
+                {{ deletingAgents.has(ag.id) ? '...' : '🗑 Delete' }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- 3. AST REQUESTS TAB -->
+      <!-- 3. AST REQUESTS TAB (Hierarchical Tree View) -->
       <div v-if="activeTab === 'requests'" class="tab-panel requests-panel">
-        <div class="d-flex align-center justify-space-between mb-2">
-          <span class="panel-desc">Processed AST tasks in Curator requests table:</span>
-          <button class="sub-btn" @click="fetchRequests">↻ Refresh</button>
+        <!-- Toolbar / Search / Filters -->
+        <div class="requests-toolbar">
+          <div class="req-search-group">
+            <input
+              v-model="requestSearchQuery"
+              type="text"
+              class="req-search-input"
+              placeholder="Search tasks, agents, tools, IDs..."
+            />
+            <button
+              v-if="requestSearchQuery"
+              class="clear-search-btn"
+              title="Clear search"
+              @click="requestSearchQuery = ''"
+            >✕</button>
+          </div>
+
+          <div class="req-status-filters">
+            <button
+              class="filter-pill"
+              :class="{ active: requestStatusFilter === 'all' }"
+              @click="requestStatusFilter = 'all'"
+            >
+              All ({{ requests.length }})
+            </button>
+            <button
+              class="filter-pill status-pill-active"
+              :class="{ active: requestStatusFilter === 'active' }"
+              @click="requestStatusFilter = 'active'"
+            >
+              Active / Pending
+            </button>
+            <button
+              class="filter-pill status-pill-completed"
+              :class="{ active: requestStatusFilter === 'completed' }"
+              @click="requestStatusFilter = 'completed'"
+            >
+              Completed
+            </button>
+            <button
+              class="filter-pill status-pill-failed"
+              :class="{ active: requestStatusFilter === 'failed' }"
+              @click="requestStatusFilter = 'failed'"
+            >
+              Failed
+            </button>
+          </div>
+
+          <div class="req-actions-group">
+            <button
+              class="sub-btn"
+              title="Expand all tree nodes"
+              @click="expandAllRequestNodes"
+            >
+              ⊞ Expand
+            </button>
+            <button
+              class="sub-btn"
+              title="Collapse all tree nodes"
+              @click="collapseAllRequestNodes"
+            >
+              ⊟ Collapse
+            </button>
+            <button
+              class="sub-btn primary-sub-btn"
+              :disabled="loadingRequests"
+              @click="fetchRequests"
+            >
+              {{ loadingRequests ? '...' : '↻ Refresh' }}
+            </button>
+          </div>
         </div>
+
         <div v-if="requests.length === 0" class="log-empty">
           No AST workflow execution requests logged yet.
         </div>
-        <div v-else class="requests-list">
-          <div v-for="req in requests" :key="req.id" class="request-card">
-            <div class="req-header">
-              <span class="req-id">{{ req.id }}</span>
-              <span class="req-status" :class="'status-' + req.status">{{ req.status }}</span>
-            </div>
-            <div class="req-date">{{ req.createdAt }}</div>
-            <details class="req-ast-details">
-              <summary>AST Node</summary>
-              <pre class="ast-json">{{ formatJson(req.ast) }}</pre>
-            </details>
-            <div v-if="req.responses && req.responses.length" class="req-responses">
-              <div v-for="resp in req.responses" :key="resp.id" class="resp-box">
-                {{ resp.content }}
-              </div>
-            </div>
-          </div>
+        <div v-else-if="requestTree.length === 0" class="log-empty">
+          No tasks match the active search or filter criteria.
+        </div>
+        <div v-else class="requests-tree-view">
+          <RequestTreeNode
+            v-for="node in requestTree"
+            :key="node.id"
+            :node="node"
+            :depth="0"
+            :collapsed-nodes="collapsedRequestNodes"
+            :selected-node-id="selectedRequestNodeId"
+            @toggle-collapse="toggleRequestNodeCollapse"
+            @select-node="selectedRequestNodeId = $event.id"
+          />
         </div>
       </div>
 
@@ -339,6 +457,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue';
+import RequestTreeNode from './RequestTreeNode.vue';
 
 const props = defineProps({
   modelValue: {
@@ -379,6 +498,9 @@ const fileInputRef = ref(null);
 const agents = ref([]);
 const requests = ref([]);
 const runningAgents = ref(new Set());
+const togglingAgents = ref(new Set());
+const deletingAgents = ref(new Set());
+const editingSchedule = ref({});
 const storageInfo = ref({ usage: 0, quota: 0 });
 const curatorHealth = ref({
   storageEngine: 'SQLite3 WASM (OPFS)',
@@ -392,11 +514,20 @@ const curatorHealth = ref({
   agentsActive: 0,
 });
 
+// AST Task Tree View State
+const requestSearchQuery = ref('');
+const requestStatusFilter = ref('all');
+const requestLimit = ref(60);
+const loadingRequests = ref(false);
+const collapsedRequestNodes = ref(new Set());
+const selectedRequestNodeId = ref(null);
+
 let unsubProgress = null;
 let unsubDbChange = null;
 
 const drawerWidth = computed(() => {
-  if (isExpanded.value) return Math.min(window.innerWidth - 40, 960);
+  if (typeof window === 'undefined') return 560;
+  if (isExpanded.value) return window.innerWidth;
   return Math.min(window.innerWidth, 560);
 });
 
@@ -520,7 +651,10 @@ async function fetchAgents() {
           name
           schedule
           isActive
+          enabled
           lastRunAt
+          episodesCount
+          tracksCount
         }
       }
     `);
@@ -532,27 +666,235 @@ async function fetchAgents() {
 
 async function fetchRequests() {
   if (!props.adapter?.requestGraphql) return;
+  loadingRequests.value = true;
   try {
     const data = await props.adapter.requestGraphql(`
-      query GetCuratorRequestsSummary {
-        curatorRequests(limit: 20) {
+      query GetCuratorRequestsSummary($limit: Int) {
+        curatorRequests(limit: $limit) {
           id
-          ast
+          scriptId
+          parentId
+          notifyId
+          toolName
           status
+          retryCount
+          ast
+          context
+          scheduledAt
           createdAt
+          updatedAt
+          agentName
           responses {
             id
+            requestId
             content
             createdAt
           }
         }
       }
-    `);
+    `, { limit: requestLimit.value });
     requests.value = data.curatorRequests || [];
   } catch (err) {
     console.warn('[Console] Failed to fetch requests:', err.message);
+  } finally {
+    loadingRequests.value = false;
   }
 }
+
+function toggleRequestNodeCollapse(id) {
+  const next = new Set(collapsedRequestNodes.value);
+  if (next.has(id)) {
+    next.delete(id);
+  } else {
+    next.add(id);
+  }
+  collapsedRequestNodes.value = next;
+}
+
+function expandAllRequestNodes() {
+  collapsedRequestNodes.value = new Set();
+}
+
+function collapseAllRequestNodes() {
+  const ids = new Set();
+  for (const req of requests.value) {
+    if (req.id) ids.add(String(req.id));
+  }
+  collapsedRequestNodes.value = ids;
+}
+
+function parseAstNodeInfo(rawAst) {
+  let astObj = null;
+  let astJson = '';
+  if (typeof rawAst === 'string') {
+    astJson = rawAst;
+    try {
+      astObj = JSON.parse(rawAst);
+    } catch {
+      astObj = { raw: rawAst };
+    }
+  } else if (rawAst && typeof rawAst === 'object') {
+    astObj = rawAst;
+    try {
+      astJson = JSON.stringify(rawAst, null, 2);
+    } catch {
+      astJson = String(rawAst);
+    }
+  }
+
+  const nodeType = astObj?.type || 'AST Task';
+  const toolName = astObj?.toolName || astObj?.name;
+  let summary = '';
+
+  if (astObj?.args) {
+    const a = astObj.args;
+    if (a.url) summary = a.url;
+    else if (a.program?.title) summary = `Program: ${a.program.title}`;
+    else if (a.episode?.title) summary = `Episode: ${a.episode.title}`;
+    else if (a.seriesId) summary = `Series #${a.seriesId}`;
+    else if (a.query) summary = `Query: ${a.query}`;
+    else {
+      const keys = Object.keys(a);
+      if (keys.length > 0) {
+        summary = keys.map(k => `${k}: ${typeof a[k] === 'object' ? '{...}' : a[k]}`).slice(0, 3).join(', ');
+      }
+    }
+  } else if (astObj?.iterator) {
+    summary = `Iterate over: ${astObj.iterator}`;
+  } else if (astObj?.steps && Array.isArray(astObj.steps)) {
+    summary = `${astObj.steps.length} sequence steps`;
+  }
+
+  return {
+    nodeType,
+    toolName,
+    summary,
+    astJson: astJson || (astObj ? JSON.stringify(astObj, null, 2) : '{}'),
+  };
+}
+
+const requestTree = computed(() => {
+  if (!requests.value || requests.value.length === 0) return [];
+
+  const nodeMap = new Map();
+
+  for (const raw of requests.value) {
+    const idStr = String(raw.id);
+    const { nodeType, toolName, summary, astJson } = parseAstNodeInfo(raw.ast);
+    let contextJson = null;
+    if (raw.context) {
+      contextJson = typeof raw.context === 'string' ? raw.context : JSON.stringify(raw.context, null, 2);
+    }
+
+    let durationMs = null;
+    if (raw.createdAt && raw.updatedAt) {
+      const created = new Date(raw.createdAt).getTime();
+      const updated = new Date(raw.updatedAt).getTime();
+      if (updated >= created) {
+        durationMs = updated - created;
+      }
+    }
+
+    const node = {
+      id: idStr,
+      raw,
+      parentId: raw.parentId ? String(raw.parentId) : null,
+      notifyId: raw.notifyId ? String(raw.notifyId) : null,
+      agentName: raw.agentName || 'unknown',
+      status: raw.status || 'pending',
+      nodeType,
+      toolName: toolName || raw.toolName,
+      summary,
+      astJson,
+      contextJson,
+      createdAt: raw.createdAt,
+      scheduledAt: raw.scheduledAt,
+      updatedAt: raw.updatedAt,
+      durationMs,
+      retryCount: raw.retryCount || 0,
+      depth: 0,
+      children: [],
+    };
+    nodeMap.set(idStr, node);
+  }
+
+  const rootNodes = [];
+
+  for (const [idStr, node] of nodeMap) {
+    const directParent = node.parentId && nodeMap.has(node.parentId) && node.parentId !== idStr
+      ? nodeMap.get(node.parentId)
+      : null;
+    const notifyParent = !directParent && node.notifyId && nodeMap.has(node.notifyId) && node.notifyId !== idStr
+      ? nodeMap.get(node.notifyId)
+      : null;
+    const parent = directParent || notifyParent;
+
+    if (parent) {
+      parent.children.push(node);
+    } else {
+      rootNodes.push(node);
+    }
+  }
+
+  function setupDepthAndSort(nodes, depth = 0) {
+    for (const n of nodes) {
+      n.depth = depth;
+      if (n.children.length > 0) {
+        n.children.sort((a, b) => {
+          const tA = a.createdAt ? new Date(a.createdAt).getTime() : Number(a.id) || 0;
+          const tB = b.createdAt ? new Date(b.createdAt).getTime() : Number(b.id) || 0;
+          return tA - tB;
+        });
+        setupDepthAndSort(n.children, depth + 1);
+      }
+    }
+  }
+
+  setupDepthAndSort(rootNodes, 0);
+
+  const q = requestSearchQuery.value.trim().toLowerCase();
+  const statusFilter = requestStatusFilter.value;
+
+  if (!q && statusFilter === 'all') {
+    return rootNodes;
+  }
+
+  function matchesFilter(node) {
+    const matchesQuery = !q || (
+      node.id.toLowerCase().includes(q) ||
+      node.agentName.toLowerCase().includes(q) ||
+      (node.toolName && node.toolName.toLowerCase().includes(q)) ||
+      node.nodeType.toLowerCase().includes(q) ||
+      node.summary.toLowerCase().includes(q) ||
+      node.status.toLowerCase().includes(q)
+    );
+
+    const matchesStatus = statusFilter === 'all' || (
+      (statusFilter === 'completed' && node.status.toLowerCase() === 'completed') ||
+      (statusFilter === 'failed' && node.status.toLowerCase() === 'failed') ||
+      (statusFilter === 'active' && ['new', 'pending', 'running', 'waiting'].includes(node.status.toLowerCase()))
+    );
+
+    return matchesQuery && matchesStatus;
+  }
+
+  function filterTree(nodes) {
+    const result = [];
+    for (const node of nodes) {
+      const filteredChildren = filterTree(node.children);
+      const isSelfMatch = matchesFilter(node);
+      if (isSelfMatch || filteredChildren.length > 0) {
+        result.push({
+          ...node,
+          children: filteredChildren,
+        });
+      }
+    }
+    return result;
+  }
+
+  return filterTree(rootNodes);
+});
 
 async function fetchStats() {
   if (props.adapter?.getDatabaseHealth) {
@@ -599,6 +941,10 @@ async function fetchStats() {
 
 async function triggerAgent(agent) {
   if (!props.adapter?.triggerAgent) return;
+  if (!agent.isActive && !agent.enabled) {
+    addLog('warn', `[Console] Cannot trigger '${agent.name}': agent is disabled. Please enable it first.`);
+    return;
+  }
   runningAgents.value.add(agent.id);
   addLog('info', `[Console] Triggering agent: ${agent.name}...`);
   try {
@@ -612,6 +958,102 @@ async function triggerAgent(agent) {
   } catch (err) {
     addLog('error', `[Console] Failed to trigger: ${err.message}`);
     runningAgents.value.delete(agent.id);
+  }
+}
+
+async function deleteAgent(agent) {
+  if (!confirm(`Are you sure you want to delete agent '${agent.name}' along with its script?`)) return;
+  deletingAgents.value.add(agent.id);
+  addLog('info', `[Console] Deleting agent '${agent.name}'...`);
+  try {
+    if (props.adapter?.deleteAgent) {
+      await props.adapter.deleteAgent(agent.id);
+    } else if (props.adapter?.requestGraphql) {
+      await props.adapter.requestGraphql(`
+        mutation DeleteAgent($id: ID!) {
+          deleteAgent(id: $id)
+        }
+      `, { id: agent.id });
+    }
+    addLog('ok', `[Console] Agent '${agent.name}' soft-deleted.`);
+    await fetchAgents();
+    await fetchRequests();
+  } catch (err) {
+    addLog('error', `[Console] Failed to delete agent: ${err.message}`);
+  } finally {
+    deletingAgents.value.delete(agent.id);
+  }
+}
+
+async function toggleAgent(agent) {
+  if (!props.adapter?.requestGraphql && !props.adapter?.toggleAgent) return;
+  const previousActive = Boolean(agent.isActive ?? agent.enabled);
+  const newState = !previousActive;
+
+  // Optimistically toggle state in UI immediately for instant feedback
+  agent.isActive = newState;
+  agent.enabled = newState;
+  togglingAgents.value.add(agent.id);
+  addLog('info', `[Console] ${newState ? 'Enabling' : 'Disabling'} agent: ${agent.name}...`);
+
+  try {
+    if (props.adapter?.toggleAgent) {
+      await props.adapter.toggleAgent(agent.id, newState);
+    } else {
+      await props.adapter.requestGraphql(`
+        mutation ToggleCuratorAgent($id: ID!, $isActive: Boolean!) {
+          toggleCuratorAgent(id: $id, isActive: $isActive) {
+            id name isActive enabled schedule
+          }
+        }
+      `, { id: agent.id, isActive: newState });
+    }
+    addLog('ok', `[Console] Agent ${agent.name} ${newState ? 'enabled ✔' : 'disabled ✗'}`);
+    await fetchAgents();
+  } catch (err) {
+    // Revert optimistic state on failure
+    agent.isActive = previousActive;
+    agent.enabled = previousActive;
+    addLog('error', `[Console] Toggle failed: ${err.message}`);
+  } finally {
+    togglingAgents.value.delete(agent.id);
+  }
+}
+
+async function saveSchedule(agent) {
+  const newSchedule = (editingSchedule.value[agent.id] ?? agent.schedule ?? '').trim();
+  if (!newSchedule || newSchedule === agent.schedule) return;
+  if (!props.adapter?.requestGraphql) return;
+  addLog('info', `[Console] Updating schedule for ${agent.name}: ${newSchedule}`);
+  try {
+    await props.adapter.requestGraphql(`
+      mutation UpdateAgentSchedule($id: ID!, $schedule: String!) {
+        updateAgentSchedule(id: $id, schedule: $schedule) {
+          id name schedule
+        }
+      }
+    `, { id: agent.id, schedule: newSchedule });
+    addLog('ok', `[Console] Schedule updated: ${agent.name} → ${newSchedule}`);
+    delete editingSchedule.value[agent.id];
+    await fetchAgents();
+  } catch (err) {
+    addLog('error', `[Console] Schedule update failed: ${err.message}`);
+  }
+}
+
+function formatRelativeTime(dateStr) {
+  if (!dateStr || dateStr === 'Never') return 'Never';
+  try {
+    const d = new Date(dateStr);
+    const diffMs = Date.now() - d.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return 'Just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffH = Math.floor(diffMin / 60);
+    if (diffH < 24) return `${diffH}h ago`;
+    return `${Math.floor(diffH / 24)}d ago`;
+  } catch (_) {
+    return dateStr;
   }
 }
 
@@ -644,6 +1086,7 @@ onMounted(async () => {
         fetchRequests();
       } else if (type === 'request_start') {
         addLog('info', `[CuratorEngine] Request ${payload?.requestId} started`);
+        fetchRequests();
       } else if (type === 'request_done') {
         addLog(payload?.success ? 'ok' : 'error', `[CuratorEngine] Request ${payload?.requestId} ${payload?.success ? 'completed' : 'failed'}`);
         fetchRequests();
@@ -665,10 +1108,12 @@ onMounted(async () => {
   }
 
   if (props.adapter?.onDatabaseChange) {
-    unsubDbChange = props.adapter.onDatabaseChange(() => {
-      fetchRequests();
-      fetchAgents();
-      fetchStats();
+    unsubDbChange = props.adapter.onDatabaseChange((info) => {
+      const tables = info?.tables || [];
+      const hasAll = tables.includes('all');
+      if (hasAll || tables.includes('requests')) fetchRequests();
+      if (hasAll || tables.includes('agents')) fetchAgents();
+      if (hasAll || tables.includes('stats') || tables.includes('episodes')) fetchStats();
     });
   }
 
@@ -680,6 +1125,12 @@ onMounted(async () => {
 onUnmounted(() => {
   if (unsubProgress) unsubProgress();
   if (unsubDbChange) unsubDbChange();
+});
+
+watch(activeTab, (tab) => {
+  if (tab === 'agents') fetchAgents();
+  else if (tab === 'requests') fetchRequests();
+  else if (tab === 'storage') fetchStats();
 });
 
 watch(
@@ -718,6 +1169,14 @@ watch(
   animation: console-slide-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   overflow: hidden;
   max-width: 100vw;
+  transition: width 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.curator-console-drawer.is-fullscreen {
+  width: 100vw !important;
+  max-width: 100vw !important;
+  border-left: none;
+  box-shadow: none;
 }
 
 @keyframes console-fade-in {
@@ -1069,8 +1528,24 @@ watch(
 .agent-compact-card {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 8px 12px;
+  padding: 10px 12px;
   border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.2s;
+}
+
+.agent-compact-card:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.agent-disabled {
+  opacity: 0.6;
+  border-color: rgba(255, 255, 255, 0.04) !important;
+}
+
+.ag-header-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1080,96 +1555,249 @@ watch(
   font-weight: 600;
   font-size: 0.82rem;
   color: #f1f5f9;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
-.ag-sub {
-  font-size: 0.7rem;
-  color: #94a3b8;
+.ag-status-badge {
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
 }
+.badge-enabled {
+  background: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+.badge-disabled {
+  background: rgba(100, 116, 139, 0.18);
+  color: #94a3b8;
+  border: 1px solid rgba(100, 116, 139, 0.25);
+}
+
+.ag-cron-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ag-cron-label {
+  font-size: 0.68rem;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.ag-cron-input {
+  font-family: ui-monospace, monospace;
+  font-size: 0.7rem;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: #7dd3fc;
+  padding: 2px 6px;
+  width: 130px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.ag-cron-input:focus {
+  border-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.05);
+}
+
+.ag-last-run {
+  font-size: 0.65rem;
+  color: #64748b;
+}
+
+.ag-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ag-toggle-btn {
+  padding: 3px 9px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.ag-btn-enable {
+  background: rgba(16, 185, 129, 0.12);
+  color: #34d399;
+  border-color: rgba(16, 185, 129, 0.35);
+}
+.ag-btn-enable:hover { background: rgba(16, 185, 129, 0.25); }
+.ag-btn-disable {
+  background: rgba(239, 68, 68, 0.08);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.25);
+}
+.ag-btn-disable:hover { background: rgba(239, 68, 68, 0.18); }
+.ag-toggle-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .ag-run-btn {
   background: rgba(56, 189, 248, 0.15);
   color: #38bdf8;
   border: 1px solid rgba(56, 189, 248, 0.3);
-  padding: 4px 10px;
+  padding: 3px 10px;
   border-radius: 4px;
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 600;
   cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
 }
-.ag-run-btn:hover { background: #38bdf8; color: #0f172a; }
-.ag-run-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.ag-run-btn:hover:not(:disabled) { background: #38bdf8; color: #0f172a; }
+.ag-run-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
-/* Tab 3: Requests */
-.requests-list {
+.ag-delete-btn {
+  background: rgba(239, 68, 68, 0.1);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.ag-delete-btn:hover:not(:disabled) { background: rgba(239, 68, 68, 0.25); border-color: #ef4444; color: #fca5a5; }
+.ag-delete-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* Tab 3: Requests & Hierarchical Tree */
+.requests-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.requests-toolbar {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-.request-card {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 8px 10px;
   border-radius: 6px;
-  padding: 8px 12px;
 }
 
-.req-header {
+.req-search-group {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  position: relative;
+  width: 100%;
 }
 
-.req-id {
-  font-size: 0.75rem;
-  color: #38bdf8;
-  font-weight: 600;
-}
-
-.req-status {
-  font-size: 0.65rem;
-  padding: 2px 6px;
+.req-search-input {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 4px;
-  font-weight: 700;
-  text-transform: uppercase;
+  padding: 5px 26px 5px 8px;
+  color: #f1f5f9;
+  font-size: 0.72rem;
+  outline: none;
+  transition: border-color 0.15s;
 }
 
-.status-completed { background: rgba(16, 185, 129, 0.2); color: #34d399; }
-.status-pending { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
-.status-running { background: rgba(56, 189, 248, 0.2); color: #38bdf8; }
-.status-failed { background: rgba(239, 68, 68, 0.2); color: #f87171; }
-
-.req-date {
-  font-size: 0.68rem;
-  color: #64748b;
-  margin: 3px 0;
+.req-search-input:focus {
+  border-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.04);
 }
 
-.req-ast-details summary {
-  font-size: 0.7rem;
+.clear-search-btn {
+  position: absolute;
+  right: 6px;
+  background: transparent;
+  border: none;
   color: #94a3b8;
+  font-size: 0.7rem;
   cursor: pointer;
+  padding: 2px;
+}
+.clear-search-btn:hover { color: #f87171; }
+
+.req-status-filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
-.ast-json {
-  background: #020617;
-  padding: 8px;
-  border-radius: 4px;
-  font-size: 0.68rem;
+.filter-pill {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   color: #94a3b8;
-  max-height: 120px;
-  overflow-y: auto;
-  margin-top: 4px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s;
 }
 
-.resp-box {
-  background: rgba(16, 185, 129, 0.05);
-  border: 1px solid rgba(16, 185, 129, 0.2);
-  padding: 6px;
-  border-radius: 4px;
-  font-size: 0.7rem;
-  color: #6ee7b7;
-  margin-top: 6px;
+.filter-pill:hover {
+  color: #f8fafc;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.filter-pill.active {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: #38bdf8;
+  color: #38bdf8;
+}
+
+.status-pill-active.active {
+  background: rgba(245, 158, 11, 0.18);
+  border-color: #f59e0b;
+  color: #fbbf24;
+}
+
+.status-pill-completed.active {
+  background: rgba(16, 185, 129, 0.18);
+  border-color: #10b981;
+  color: #34d399;
+}
+
+.status-pill-failed.active {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: #ef4444;
+  color: #f87171;
+}
+
+.req-actions-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.primary-sub-btn {
+  background: rgba(56, 189, 248, 0.15) !important;
+  color: #38bdf8 !important;
+  border-color: rgba(56, 189, 248, 0.3) !important;
+  font-weight: 700 !important;
+}
+.primary-sub-btn:hover {
+  background: #38bdf8 !important;
+  color: #0f172a !important;
+}
+
+.requests-tree-view {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 20px;
 }
 
 /* Tab 4: Health */

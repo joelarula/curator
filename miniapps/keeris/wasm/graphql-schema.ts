@@ -410,13 +410,13 @@ export async function executeInWorkerGraphql(
       try {
         rows = queryAll(
           db,
-          'SELECT id, name, schedule, enabled AS isActive, updatedAt AS lastRunAt FROM "Agent" ORDER BY name ASC'
+          'SELECT id, name, schedule, enabled AS isActive, lastPolledAt AS lastRunAt FROM "Agent" ORDER BY name ASC'
         );
       } catch (_) {
         try {
           rows = queryAll(
             db,
-            'SELECT id, name, schedule, is_active AS isActive, updated_at AS lastRunAt FROM agents ORDER BY name ASC'
+            'SELECT id, name, schedule, is_active AS isActive, last_polled_at AS lastRunAt FROM agents ORDER BY name ASC'
           );
         } catch (_) {}
       }
@@ -440,11 +440,12 @@ export async function executeInWorkerGraphql(
 
         let episodesCount = 0;
         let tracksCount = 0;
+        let lastRunAt = ag.lastRunAt || null;
 
         if (def) {
           const prog = queryOne(db, 'SELECT id FROM programs WHERE series_id = ?', [String(def.seriesContentId)]);
           if (prog) {
-            const epRes = queryOne(db, 'SELECT COUNT(*) as c FROM episodes WHERE program_id = ?', [prog.id]);
+            const epRes = queryOne(db, 'SELECT COUNT(*) as c, MAX(fetched_at) as lastRun FROM episodes WHERE program_id = ?', [prog.id]);
             const trRes = queryOne(
               db,
               'SELECT COUNT(t.id) as c FROM tracks t JOIN episodes e ON t.episode_id = e.id WHERE e.program_id = ?',
@@ -452,6 +453,7 @@ export async function executeInWorkerGraphql(
             );
             episodesCount = epRes?.c || 0;
             tracksCount = trRes?.c || 0;
+            if (epRes?.lastRun) lastRunAt = epRes.lastRun;
           }
         }
 
@@ -460,6 +462,7 @@ export async function executeInWorkerGraphql(
           isActive: Boolean(ag.isActive),
           episodesCount,
           tracksCount,
+          lastRunAt: lastRunAt || 'Never',
         };
       });
     },
@@ -469,14 +472,14 @@ export async function executeInWorkerGraphql(
       try {
         rows = queryAll(
           db,
-          'SELECT id, ast, status, createdAt FROM "Request" ORDER BY createdAt DESC LIMIT ?',
+          'SELECT id, scriptId, parentId, notifyId, toolName, status, retryCount, ast, context, scheduledAt, createdAt, updatedAt FROM "Request" ORDER BY createdAt DESC LIMIT ?',
           [limit]
         );
       } catch (_) {
         try {
           rows = queryAll(
             db,
-            'SELECT id, ast, status, created_at AS createdAt FROM requests ORDER BY created_at DESC LIMIT ?',
+            'SELECT id, scriptId, parent_id AS parentId, notify_id AS notifyId, tool_name AS toolName, status, retry_count AS retryCount, ast, context, scheduled_at AS scheduledAt, created_at AS createdAt, updated_at AS updatedAt FROM requests ORDER BY created_at DESC LIMIT ?',
             [limit]
           );
         } catch (_) {}

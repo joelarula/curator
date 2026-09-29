@@ -78,6 +78,11 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
     console.log(`[Curator CLI] ✓ Database ready: ${dbPath}`);
   } else {
     console.log(`[Curator CLI] 🗄️ Using existing database: ${name}`);
+    try {
+      const migDb = new DatabaseSync(dbPath);
+      migDb.exec('ALTER TABLE User ADD COLUMN googleId TEXT;');
+      migDb.close();
+    } catch (_) {}
   }
 
   // Return a PrismaClient pointed at the SQLite file via better-sqlite3 adapter.

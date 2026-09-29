@@ -33,8 +33,10 @@ for (const [name, rawDef] of engine.agents) {
   });
   await prisma.agent.upsert({
     where: { name },
-    update: { scriptId: script.id, userId: user.id, projectId: project.id, enabled: isAgentEnabled, schedule: definition.schedule ?? '0 * * * *' },
-    create: { name, scriptId: script.id, userId: user.id, projectId: project.id, enabled: isAgentEnabled, schedule: definition.schedule ?? '0 * * * *' },
+    // On update: preserve existing enabled state (allow console to control it)
+    update: { scriptId: script.id, userId: user.id, projectId: project.id, schedule: definition.schedule ?? '0 * * * *' },
+    // On create: always seed as disabled — must be enabled explicitly via Curator Console
+    create: { name, scriptId: script.id, userId: user.id, projectId: project.id, enabled: false, schedule: definition.schedule ?? '0 * * * *' },
   });
 }
 

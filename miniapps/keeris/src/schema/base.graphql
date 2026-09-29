@@ -87,11 +87,16 @@ type CuratorResponse { id: ID!, requestId: ID!, content: String, createdAt: Stri
 type CuratorRequest {
   id: ID!
   scriptId: ID
+  parentId: ID
+  notifyId: ID
+  toolName: String
   ast: String
-  createdAt: String
-  responses: [CuratorResponse!]!
-  # Server-only field (null in WASM)
-  agentName: String
-  # WASM-only field (null in server)
+  context: String
   status: String
+  retryCount: Int
+  scheduledAt: String
+  createdAt: String
+  updatedAt: String
+  agentName: String
+  responses: [CuratorResponse!]!
 }

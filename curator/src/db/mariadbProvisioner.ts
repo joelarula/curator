@@ -111,8 +111,11 @@ async function ensureCuratorMariadbSchema(pool: any): Promise<void> {
       context JSON,
       conversationId INT NOT NULL,
       agentId VARCHAR(191),
-      scheduledAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      scheduledAt DATETIME DEFAULT CURRENT_TIMESTAMP,
       executionScheduled DATETIME DEFAULT CURRENT_TIMESTAMP,
+      priority INT DEFAULT 0,
+      notifyId INT,
+      pendingDependencies INT DEFAULT 0,
       lockedBy VARCHAR(191),
       lockedAt DATETIME,
       deletedAt DATETIME,
@@ -122,6 +125,11 @@ async function ensureCuratorMariadbSchema(pool: any): Promise<void> {
       existent BOOLEAN DEFAULT TRUE,
       INDEX idx_req_status_existent (status, existent)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+    `ALTER TABLE Request ADD COLUMN IF NOT EXISTS priority INT DEFAULT 0;`,
+    `ALTER TABLE Request ADD COLUMN IF NOT EXISTS notifyId INT;`,
+    `ALTER TABLE Request ADD COLUMN IF NOT EXISTS pendingDependencies INT DEFAULT 0;`,
+    `ALTER TABLE User ADD COLUMN IF NOT EXISTS googleId VARCHAR(191) UNIQUE;`,
 
     `CREATE TABLE IF NOT EXISTS Response (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -165,7 +173,12 @@ export async function provisionMariadbDb(connectionUrl: string = process.env.CUR
     user: url.username,
     password: decodeURIComponent(url.password),
     database: url.pathname.replace(/^\//, ''),
-    connectionLimit: 10,
+    connectionLimit: 25,
+    connectTimeout: 10000,
+    acquireTimeout: 30000,
+    idleTimeout: 60000,
+    minimumIdle: 2,
+    allowPublicKeyRetrieval: true,
   });
 
   // Ensure Curator schema exists in MariaDB before Prisma connects

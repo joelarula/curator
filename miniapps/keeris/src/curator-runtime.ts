@@ -1,6 +1,7 @@
 import { CuratorRequestProcessor } from '@curator/agent-server';
 import { provisionMariadbDb } from '../../../curator/src/db/mariadbProvisioner.ts';
 import { registerKeerisPlugins } from './plugins/index.ts';
+import { seedCuratorRbac } from '@curator/plugin-auth';
 
 export interface StartCuratorRuntimeOptions {
   databaseName?: string;
@@ -12,7 +13,7 @@ export interface StartCuratorRuntimeOptions {
 export async function startCuratorRuntime({
   databaseName = 'keeris',
   keerisDb,
-  intervalMs = 1000,
+  intervalMs = 5000,
   logger = console,
 }: StartCuratorRuntimeOptions = {}) {
   if (!databaseName) return null;
@@ -39,7 +40,19 @@ export async function startCuratorRuntime({
     conversation = await prisma.conversation.create({ data: { userId: user.id, projectId: project.id } });
   }
 
-  const processor = new CuratorRequestProcessor(prisma);
+  // Seed curator_manager role and assign to joel.arula@gmail.com
+  await seedCuratorManagerRole(prisma, logger);
+
+  const { curatorEvents } = await import('./server/events.ts');
+
+  const processor = new (CuratorRequestProcessor as any)(prisma, {
+    onEvent: (type: string, payload: any) => {
+      curatorEvents.broadcast(type, payload);
+      if (type === 'request_done') {
+        curatorEvents.broadcast('database_change', { tables: ['requests', 'responses', 'agents', 'episodes', 'tracks', 'stats'] });
+      }
+    }
+  });
   await processor.start(intervalMs);
 
   logger.log('[Keeris] Curator database connection established and RequestProcessor active.');
@@ -48,16 +61,25 @@ export async function startCuratorRuntime({
     prisma,
     processor,
     async triggerAgent(name: string, context: Record<string, any> = {}) {
-      const script = await prisma.script.findFirst({ where: { name } });
-      if (!script) throw new Error(`Curator script '${name}' not found`);
+      const agent = await prisma.agent.findFirst({
+        where: { OR: [{ id: name }, { name }], existent: true },
+        include: { script: true }
+      });
+      if (agent && agent.enabled === false) {
+        throw new Error(`Cannot trigger agent '${agent.name}': agent is disabled. Please enable it before running.`);
+      }
+      const script = agent?.script || await prisma.script.findFirst({ where: { name } });
+      if (!script) throw new Error(`Curator script for agent '${name}' not found`);
       return prisma.request.create({
         data: {
           user: { connect: { id: user.id } },
           project: { connect: { id: project.id } },
           conversation: { connect: { id: conversation.id } },
           script: { connect: { id: script.id } },
+          ...(agent ? { agent: { connect: { id: agent.id } } } : {}),
           ast: script.ast,
           context,
+          scheduledAt: new Date(),
         },
       });
     },
@@ -69,3 +91,20 @@ export async function startCuratorRuntime({
     },
   };
 }
+
+async function seedCuratorManagerRole(prisma: any, logger: any) {
+  try {
+    await seedCuratorRbac(prisma, {
+      managers: ['joel.arula@gmail.com'],
+      logger: {
+        info: (msg) => logger.log?.(`[Keeris] ${msg}`),
+        warn: (msg) => logger.warn?.(`[Keeris] ${msg}`),
+        error: (msg) => logger.error?.(`[Keeris] ${msg}`),
+      },
+    });
+  } catch (err: any) {
+    logger.warn?.(`[Keeris] Role seeding notice: ${err?.message}`);
+  }
+}
+
+

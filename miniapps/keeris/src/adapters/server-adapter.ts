@@ -19,9 +19,126 @@ export class ServerClientAdapter implements CuratorClientAdapter {
   private dbChangeListeners = new Set<(info: { tables: string[]; timestamp: number }) => void>();
   private processorPaused = false;
   private serverUrl: string;
+  private eventSource: EventSource | null = null;
+  private ws: WebSocket | null = null;
+  private reconnectTimer: any = null;
+  private reconnectAttempts = 0;
+  private isDestroyed = false;
 
   constructor(serverUrl?: string) {
     this.serverUrl = serverUrl ?? getServerBaseUrl();
+  }
+
+  private getWebSocketUrl(): string {
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('keeris_token') : null;
+    const query = token ? `?token=${encodeURIComponent(token)}` : '';
+    if (this.serverUrl) {
+      const wsOrigin = this.serverUrl.replace(/^http/, 'ws');
+      return `${wsOrigin}/api/curator/ws${query}`;
+    }
+    if (typeof window !== 'undefined') {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      return `${proto}//${window.location.host}/api/curator/ws${query}`;
+    }
+    return `ws://localhost:4001/api/curator/ws${query}`;
+  }
+
+  connectLiveStream(): void {
+    if (typeof window === 'undefined') return;
+    if (this.isDestroyed) return;
+
+    // Use native WebSocket if available
+    if (typeof WebSocket !== 'undefined') {
+      if (this.ws) {
+        try { this.ws.close(); } catch (_) {}
+        this.ws = null;
+      }
+
+      const wsUrl = this.getWebSocketUrl();
+      try {
+        const ws = new WebSocket(wsUrl);
+        this.ws = ws;
+
+        ws.onopen = () => {
+          this.reconnectAttempts = 0;
+          console.log('[Curator Adapter] WebSocket connected to real-time event stream');
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            if (!event.data) return;
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'database_change') {
+              this.notifyDatabaseChange(msg.payload?.tables || ['all']);
+            } else if (msg.type === 'pong') {
+              // Heartbeat reply
+            } else {
+              this.emitProgress(msg.type, msg.payload);
+            }
+          } catch (_) {}
+        };
+
+        ws.onerror = () => {
+          // Handled in onclose
+        };
+
+        ws.onclose = (e) => {
+          this.ws = null;
+          if (this.isDestroyed) return;
+
+          // If WS closed abnormally, try reconnecting or fallback to SSE
+          this.reconnectAttempts++;
+          const delay = Math.min(1000 * Math.pow(1.5, this.reconnectAttempts), 10000);
+          if (this.reconnectAttempts > 3 && typeof EventSource !== 'undefined' && !this.eventSource) {
+            console.warn('[Curator Adapter] WebSocket reconnecting, falling back to SSE in parallel...');
+            this.connectSseFallback();
+          }
+          this.reconnectTimer = setTimeout(() => this.connectLiveStream(), delay);
+        };
+        return;
+      } catch (err) {
+        console.warn('[Curator Adapter] WebSocket creation failed, falling back to SSE:', err);
+      }
+    }
+
+    // Fallback to SSE
+    this.connectSseFallback();
+  }
+
+  private connectSseFallback(): void {
+    if (typeof window === 'undefined' || typeof EventSource === 'undefined') return;
+    if (this.eventSource) return;
+
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('keeris_token') : null;
+    const url = `${this.serverUrl}/api/curator/events${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+
+    try {
+      const es = new EventSource(url);
+      this.eventSource = es;
+
+      es.onmessage = (e) => {
+        try {
+          if (!e.data || e.data.startsWith(':')) return;
+          const msg = JSON.parse(e.data);
+          if (msg.type === 'database_change') {
+            this.notifyDatabaseChange(msg.payload?.tables || ['all']);
+          } else {
+            this.emitProgress(msg.type, msg.payload);
+          }
+        } catch (_) {}
+      };
+
+      es.onerror = () => {
+        // EventSource automatically retries
+      };
+    } catch (err) {
+      console.warn('[Curator Adapter] EventSource failed to connect:', err);
+    }
+  }
+
+  /** Legacy method alias */
+  connectEventStream(): void {
+    this.connectLiveStream();
   }
 
   async init(): Promise<void> {
@@ -32,12 +149,14 @@ export class ServerClientAdapter implements CuratorClientAdapter {
         const data = await res.json();
         console.log(`[Curator Adapter] Connected to Server backend: ${data.database || 'PostgreSQL'} at ${displayTarget}`);
         this.ready = true;
+        this.connectLiveStream();
         return;
       }
     } catch (err: any) {
       console.warn(`[Curator Adapter] Server probe failed at ${displayTarget}: ${err?.message}`);
     }
     this.ready = true;
+    this.connectLiveStream();
   }
 
   isReady(): boolean {
@@ -46,12 +165,20 @@ export class ServerClientAdapter implements CuratorClientAdapter {
 
   async requestGraphql<T = any>(query: string, variables: Record<string, any> = {}): Promise<T> {
     const url = `${this.serverUrl}/graphql`;
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+      'accept': 'application/json',
+    };
+    if (typeof localStorage !== 'undefined') {
+      const token = localStorage.getItem('keeris_token');
+      if (token) {
+        headers['authorization'] = `Bearer ${token}`;
+      }
+    }
+
     const res = await fetch(url, {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'accept': 'application/json',
-      },
+      headers,
       body: JSON.stringify({ query, variables }),
     });
 
@@ -110,6 +237,16 @@ export class ServerClientAdapter implements CuratorClientAdapter {
     `, { id, isActive });
     this.notifyDatabaseChange(['agents']);
     return res;
+  }
+
+  async deleteAgent(id: string): Promise<boolean> {
+    const res = await this.requestGraphql(`
+      mutation DeleteAgent($id: ID!) {
+        deleteAgent(id: $id)
+      }
+    `, { id });
+    this.notifyDatabaseChange(['agents', 'requests', 'scripts']);
+    return res?.deleteAgent ?? true;
   }
 
   async getProcessorState(): Promise<boolean> {

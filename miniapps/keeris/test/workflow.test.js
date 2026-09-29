@@ -10,12 +10,14 @@ import { keerisDomainPlugin } from '../src/plugins/keeris-domain.ts';
 test('Keeris exposes Vikerraadio and Klassikaraadio program agent workflows', () => {
   const kauamangiv = keerisDomainPlugin.agents.vikerraadio_kauamangiv_scrape;
   assert.ok(kauamangiv.ast);
-  assert.equal(kauamangiv.ast.type, 'Sequence');
-  assert.equal(kauamangiv.ast.steps[0].tool, 'vikerraadio_discover_episodes');
-  assert.equal(kauamangiv.ast.steps[0].args.seriesContentId, '1037846');
+  assert.equal(kauamangiv.ast.type, 'Curator_Sequential');
+  const firstChild = kauamangiv.ast.subAgents?.[0] || kauamangiv.ast.steps?.[0];
+  assert.equal(firstChild.toolName || firstChild.tool, 'vikerraadio_discover_episodes');
+  assert.equal(firstChild.args.seriesContentId, '1037846');
   
   const fantaasia = keerisDomainPlugin.agents.klassikaraadio_fantaasia_scrape;
-  assert.equal(fantaasia.ast.steps[0].args.seriesContentId, '1038126');
+  const fantaasiaFirst = fantaasia.ast.subAgents?.[0] || fantaasia.ast.steps?.[0];
+  assert.equal(fantaasiaFirst.args.seriesContentId, '1038126');
 });
 
 test('recurring scrape skips episodes already indexed and parses show text metadata', async () => {

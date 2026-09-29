@@ -165,6 +165,15 @@ export class WasmWorkerAdapter implements CuratorClientAdapter {
     `, { id, isActive });
   }
 
+  async deleteAgent(id: string): Promise<boolean> {
+    const res = await this.requestGraphql(`
+      mutation DeleteAgent($id: ID!) {
+        deleteAgent(id: $id)
+      }
+    `, { id });
+    return res?.deleteAgent ?? true;
+  }
+
   getProcessorState(): Promise<boolean> {
     return new Promise((resolve, reject) => {
       const id = this.nextRequestId();

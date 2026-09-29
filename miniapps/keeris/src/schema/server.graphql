@@ -22,7 +22,28 @@ type CuratorDatabaseHealth {
   agentsActive: Int
 }
 
+type Role {
+  id: ID!
+  name: String!
+  description: String
+}
+
+type User {
+  id: ID!
+  email: String!
+  name: String
+  googleId: String
+  roles: [Role!]!
+  createdAt: String
+  updatedAt: String
+}
+
+# Authorization guard directives (enforced by @curator/plugin-auth)
+directive @auth(role: String, roles: [String!]) on FIELD_DEFINITION
+directive @requireRole(role: String!) on FIELD_DEFINITION
+
 type Query {
+  me: User
   programs: [Program!]!
   program(id: ID!): Program
   tracks(search: String, programId: ID, episodeId: ID, limit: Int, offset: Int): [Track!]!
@@ -30,15 +51,16 @@ type Query {
   episodes(search: String, programId: ID, limit: Int, offset: Int): [Episode!]!
   episode(id: ID!): Episode
   stats(search: String, programIds: [ID]): Stats!
-  curatorDatabaseHealth: CuratorDatabaseHealth!
-  curatorAgents: [CuratorAgent!]!
-  curatorRequests(limit: Int): [CuratorRequest!]!
+  curatorDatabaseHealth: CuratorDatabaseHealth! @requireRole(role: "curator_manager")
+  curatorAgents: [CuratorAgent!]! @requireRole(role: "curator_manager")
+  curatorRequests(limit: Int): [CuratorRequest!]! @requireRole(role: "curator_manager")
 }
 
 type Mutation {
-  triggerCuratorAgent(name: String, agentName: String, refresh: Boolean): CuratorResponse!
-  toggleCuratorAgent(id: ID!, isActive: Boolean!): CuratorAgent!
-  scrapeProgram(seriesContentId: String!, programTitle: String!, refresh: Boolean): ScrapeResult!
-  updateEpisodeMetadata(episodeId: ID, url: String, description: String, fullText: String): EpisodeMetadata!
-  downloadEpisode(url: String!, fileName: String): EpisodeDownloadResult!
+  triggerCuratorAgent(name: String, agentName: String, refresh: Boolean): CuratorResponse! @requireRole(role: "curator_manager")
+  toggleCuratorAgent(id: ID!, isActive: Boolean!): CuratorAgent! @requireRole(role: "curator_manager")
+  scrapeProgram(seriesContentId: String!, programTitle: String!, refresh: Boolean): ScrapeResult! @requireRole(role: "curator_manager")
+  updateEpisodeMetadata(episodeId: ID, url: String, description: String, fullText: String): EpisodeMetadata! @requireRole(role: "curator_manager")
+  downloadEpisode(url: String!, fileName: String): EpisodeDownloadResult! @requireRole(role: "curator_manager")
 }
+

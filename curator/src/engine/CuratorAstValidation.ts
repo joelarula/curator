@@ -152,6 +152,33 @@ function normalizeToolArgs(value: unknown): unknown {
   const record = value as Record<string, unknown>;
   const normalized: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(record)) normalized[key] = normalizeToolArgs(child);
+
+  // Translate pipeline & MiniApp AST types into formal Curator_* types
+  if (normalized.type === 'Sequence' && Array.isArray(normalized.steps)) {
+    return {
+      type: 'Curator_Sequential',
+      name: (normalized.name as string) || (normalized.id as string) || 'sequence',
+      subAgents: normalized.steps,
+    };
+  }
+
+  if (normalized.type === 'ToolTask' || normalized.type === 'Tool') {
+    return {
+      type: 'Curator_Tool',
+      toolName: (normalized.tool as string) || (normalized.toolName as string) || 'unknown_tool',
+      args: (normalized.args as Record<string, any>) || (normalized.parameters as Record<string, any>) || {},
+    };
+  }
+
+  if (normalized.type === 'ForEach') {
+    return {
+      type: 'Curator_ForEach',
+      collectionExpression: (normalized.collection as string) || (normalized.collectionExpression as string) || '[]',
+      iteratorName: (normalized.iterator as string) || (normalized.iteratorName as string) || 'item',
+      body: normalized.body,
+    };
+  }
+
   if (normalized.type === 'Curator_Tool' && normalized.args === undefined && normalized.parameters !== undefined) {
     normalized.args = normalized.parameters;
     delete normalized.parameters;

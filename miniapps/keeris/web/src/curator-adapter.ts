@@ -37,6 +37,19 @@ const baseAdapter: CuratorConsoleAdapter = {
   triggerAgent(agentId: string, options?: any) {
     return enqueueAgent(agentId, options);
   },
+  async toggleAgent(agentId: string, isActive: boolean) {
+    const adapter = await getCuratorAdapter();
+    if (adapter.toggleAgent) {
+      return adapter.toggleAgent(agentId, isActive);
+    }
+    return requestGraphql(`
+      mutation ToggleCuratorAgent($id: ID!, $isActive: Boolean!) {
+        toggleCuratorAgent(id: $id, isActive: $isActive) {
+          id name isActive enabled schedule
+        }
+      }
+    `, { id: agentId, isActive });
+  },
   async getStorageInfo() {
     const adapter = await getCuratorAdapter();
     return adapter.getStorageInfo();

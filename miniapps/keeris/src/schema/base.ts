@@ -82,10 +82,17 @@ type CuratorResponse { id: ID!, requestId: ID!, content: String, createdAt: Stri
 type CuratorRequest {
   id: ID!
   scriptId: ID
+  parentId: ID
+  notifyId: ID
+  toolName: String
   ast: String
-  createdAt: String
-  responses: [CuratorResponse!]!
-  agentName: String
+  context: String
   status: String
+  retryCount: Int
+  scheduledAt: String
+  createdAt: String
+  updatedAt: String
+  agentName: String
+  responses: [CuratorResponse!]!
 }
 `;

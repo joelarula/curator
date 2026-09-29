@@ -13,7 +13,7 @@ export interface DiscoveredEpisode {
 export interface DiscoverEpisodesOptions {
   seriesContentId?: string | number;
   onPage?: (pages: number, response?: unknown) => void;
-  shouldStop?: (items: any[]) => boolean;
+  shouldStop?: (items: any[]) => boolean | Promise<boolean>;
 }
 
 export interface DiscoverEpisodesResult {
@@ -82,7 +82,7 @@ export async function discoverEpisodes(
     const items = (response.data ?? []) as DiscoveredEpisode[];
     for (const episode of items) episodes.set(episode.id, episode);
     
-    if (shouldStop?.(items)) break;
+    if (shouldStop && (await shouldStop(items))) break;
 
     const cursor = response.previous;
     if (!cursor || cursors.has(cursor)) break;

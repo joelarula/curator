@@ -1,4 +1,4 @@
-﻿  scalar JSON
+  scalar JSON
 
   "Represents a tool call execution instruction"
   type ToolCall {
@@ -699,6 +699,8 @@
     toggleAgent(id: ID!, enabled: Boolean!): Agent!
     "Manually trigger an Agent to create a Request."
     triggerAgent(id: ID!): Request!
+    "Soft-delete an Agent and its associated Script."
+    deleteAgent(id: ID!): Boolean!
     "Upsert an Agent and its Script together in one call. Matches by name."
     upsertAgentWithScript(input: UpsertAgentWithScriptInput!): Agent!
 

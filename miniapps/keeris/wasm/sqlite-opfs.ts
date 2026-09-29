@@ -1,6 +1,7 @@
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
 import { SCHEMA_DDL } from './generated-schema.js';
 import { PROGRAM_MANIFEST } from './wasm-curator-engine.ts';
+import { buildPipelineScrapeAST } from '../src/plugins/manifest.ts';
 import type { Sqlite3Instance, OpfsDatabase } from './types';
 
 let sqlite3Instance: Sqlite3Instance | null = null;
@@ -84,31 +85,7 @@ export function seedBaselineData(db: OpfsDatabase | null): void {
     const escapedSeriesId = String(def.seriesContentId).replace(/'/g, "''");
     const escapedTitle = def.programTitle.replace(/'/g, "''");
     const scriptId = `script_${agentId}`;
-    const scriptAst = JSON.stringify({
-      type: 'Sequence',
-      steps: [
-        {
-          type: 'ToolTask',
-          tool: 'vikerraadio_discover_episodes',
-          args: { seriesContentId: String(def.seriesContentId), limit: 50 },
-          as: 'discovery',
-        },
-        {
-          type: 'ForEach',
-          collection: '{{discovery.data}}',
-          iterator: 'episode',
-          body: {
-            type: 'ToolTask',
-            tool: 'vikerraadio_process_episode',
-            args: {
-              url: '{{episode.url}}',
-              episode: '{{episode}}',
-              program: { seriesId: String(def.seriesContentId), title: def.programTitle },
-            },
-          },
-        },
-      ],
-    }).replace(/'/g, "''");
+    const scriptAst = JSON.stringify(buildPipelineScrapeAST(def)).replace(/'/g, "''");
 
     db.exec(`
       INSERT OR IGNORE INTO programs (series_id, title, created_at, updated_at)

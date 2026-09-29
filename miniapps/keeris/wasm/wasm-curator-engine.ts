@@ -201,13 +201,15 @@ async function executeAstNode(
 ): Promise<any> {
   if (!node || !node.type) throw new Error('Invalid AST node: ' + JSON.stringify(node));
 
-  switch (node.type) {
+  switch (node.type as string) {
+    case 'Curator_Sequential':
     case 'Sequence': {
       let result: any = null;
       const startIndex = env.__pausedStepIndex__ ?? 0;
       delete env.__pausedStepIndex__;
+      const steps = (node as any).subAgents || (node as any).steps || [];
 
-      for (let i = startIndex; i < (node.steps ?? []).length; i++) {
+      for (let i = startIndex; i < steps.length; i++) {
         if (isRequestPaused(requestId)) {
           env.__pausedStepIndex__ = i;
           env.__paused__ = true;
@@ -221,16 +223,28 @@ async function executeAstNode(
           return null;
         }
 
-        const step = node.steps[i];
+        const step = steps[i];
         result = await executeAstNode(step, env, requestId);
-        if ((step as any).as) env[(step as any).as] = result;
+        if ((step as any).as || (step as any).toolAlias) {
+          env[(step as any).as || (step as any).toolAlias] = result;
+        }
         if (env.__paused__) return null;
       }
       return result;
     }
 
+    case 'Curator_Parallel':
+    case 'Parallel': {
+      const steps = (node as any).subAgents || (node as any).steps || [];
+      const results = await Promise.all(
+        steps.map((step: AstNode) => executeAstNode(step, { ...env }, requestId))
+      );
+      return results;
+    }
+
+    case 'Curator_Tool':
     case 'ToolTask': {
-      const toolName = node.tool;
+      const toolName = (node as any).toolName || (node as any).tool;
       const tool = WASM_TOOLS[toolName];
       if (!tool) {
         _onProgress && _onProgress('log', '[CuratorEngine] Unknown tool: ' + toolName);
@@ -250,7 +264,8 @@ async function executeAstNode(
       await checkPause();
 
       // Resolve template args (basic {{varName.field}} interpolation)
-      const resolvedArgs = resolveTemplateArgs(node.args ?? {}, env);
+      const rawArgs = (node as any).args || (node as any).parameters || {};
+      const resolvedArgs = resolveTemplateArgs(rawArgs, env);
       _onProgress && _onProgress('log', '[CuratorEngine] Executing tool: ' + toolName);
       const result = await tool({
         args: resolvedArgs,
@@ -265,8 +280,10 @@ async function executeAstNode(
       return result;
     }
 
+    case 'Curator_ForEach':
     case 'ForEach': {
-      const collection = resolveValue(node.collection, env);
+      const rawExpr = (node as any).collectionExpression || (node as any).collection;
+      const collection = resolveValue(rawExpr, env);
       if (!Array.isArray(collection)) return null;
       const results: any[] = [];
       const startIndex = env.__pausedIterIndex__ ?? 0;
@@ -288,9 +305,9 @@ async function executeAstNode(
         }
 
         const item = collection[i];
-        const iterVar = node.iterator || (node as any).itemVar || 'item';
+        const iterVar = (node as any).iteratorName || (node as any).iterator || (node as any).itemVar || 'item';
         const iterEnv = { ...env, [iterVar]: item };
-        const res = await executeAstNode(node.body, iterEnv, requestId);
+        const res = await executeAstNode((node as any).body, iterEnv, requestId);
         results.push(res);
         if (iterEnv.__paused__) {
           env.__paused__ = true;
@@ -300,10 +317,11 @@ async function executeAstNode(
       return results;
     }
 
+    case 'Curator_IfElse':
     case 'IfElse': {
-      const cond = Boolean(resolveValue(node.condition, env));
-      const trueBranch = node.trueBranch || (node as any).then;
-      const falseBranch = node.falseBranch || (node as any).else;
+      const cond = Boolean(resolveValue((node as any).condition, env));
+      const trueBranch = (node as any).thenBranch || (node as any).trueBranch || (node as any).then;
+      const falseBranch = (node as any).elseBranch || (node as any).falseBranch || (node as any).else;
       if (cond && trueBranch) {
         return await executeAstNode(trueBranch, env, requestId);
       } else if (falseBranch) {
@@ -312,23 +330,93 @@ async function executeAstNode(
       return null;
     }
 
+    case 'Curator_While':
+    case 'While': {
+      let result: any = null;
+      while (Boolean(resolveValue((node as any).condition, env))) {
+        if (isRequestPaused(requestId)) {
+          env.__paused__ = true;
+          return null;
+        }
+        result = await executeAstNode((node as any).body, env, requestId);
+        if (env.__paused__) return null;
+      }
+      return result;
+    }
+
+    case 'Curator_Assign': {
+      const key = (node as any).key;
+      const expr = (node as any).expression;
+      const val = resolveValue(expr, env);
+      if (key) {
+        env[key] = val;
+      }
+      return val;
+    }
+
+    case 'Curator_SetState': {
+      const stateObj = resolveValue((node as any).state, env) || (node as any).state || {};
+      if (typeof stateObj === 'object') {
+        Object.assign(env, stateObj);
+      }
+      return stateObj;
+    }
+
+    case 'Curator_EmitEvent': {
+      const eventName = (node as any).eventName || (node as any).event;
+      const payload = resolveValue((node as any).payload, env);
+      _onProgress && _onProgress(eventName, payload);
+      return { eventName, payload };
+    }
+
     default:
       _onProgress && _onProgress('log', '[CuratorEngine] Unsupported AST node type: ' + (node as any)?.type);
       return null;
   }
 }
 
-function resolveValue(template: any, env: ExecutionContext): any {
-  if (typeof template !== 'string') return template;
-  const match = template.match(/^\{\{(.+?)\}\}$/);
-  if (!match) return template;
-  return match[1].split('.').reduce((obj: any, key: string) => obj?.[key], env) ?? null;
+function evaluateWasmExpression(expr: string, env: ExecutionContext): any {
+  if (typeof expr !== 'string') return expr;
+  const trimmed = expr.trim();
+  const match = trimmed.match(/^\{\{(.+?)\}\}$/);
+  if (match) {
+    const path = match[1].trim();
+    return path.split('.').reduce((obj: any, key: string) => obj?.[key], env) ?? null;
+  }
+  try {
+    const fn = new Function('env', 'state', 'context', `with(env) { return (${trimmed}); }`);
+    return fn(env, env.state || {}, env);
+  } catch (_) {
+    return trimmed.split('.').reduce((obj: any, key: string) => obj?.[key], env) ?? trimmed;
+  }
 }
 
-function resolveTemplateArgs(args: Record<string, any>, env: ExecutionContext): Record<string, any> {
+function resolveValue(template: any, env: ExecutionContext): any {
+  if (typeof template !== 'string') return template;
+  if (template.startsWith('{{') && template.endsWith('}}') && !template.slice(2, -2).includes('{{')) {
+    return evaluateWasmExpression(template, env);
+  }
+  if (template.includes('{{') && template.includes('}}')) {
+    return template.replace(/\{\{(.+?)\}\}/g, (_, inner) => {
+      const val = evaluateWasmExpression('{{' + inner + '}}', env);
+      return val !== null && val !== undefined ? String(val) : '';
+    });
+  }
+  return template;
+}
+
+function resolveTemplateArgs(args: any, env: ExecutionContext): any {
   if (typeof args !== 'object' || args === null) return args;
+  if (Array.isArray(args)) {
+    return args.map((item) => (typeof item === 'object' && item !== null ? resolveTemplateArgs(item, env) : resolveValue(item, env)));
+  }
   return Object.fromEntries(
-    Object.entries(args).map(([k, v]) => [k, typeof v === 'string' ? resolveValue(v, env) ?? v : v])
+    Object.entries(args).map(([k, v]) => {
+      if (typeof v === 'object' && v !== null) {
+        return [k, resolveTemplateArgs(v, env)];
+      }
+      return [k, resolveValue(v, env)];
+    })
   );
 }
 
@@ -453,7 +541,7 @@ export function startWasmRequestProcessor(
           onProgress && onProgress('request_start', { requestId: req.id });
           onProgress && onProgress('log', '[CuratorEngine] Processing request ' + req.id);
 
-          let ast: AstNode = { id: req.id, type: 'Sequence', steps: [] };
+          let ast: AstNode = { type: 'Curator_Sequential', subAgents: [] };
           try {
             ast = JSON.parse(req.ast);
           } catch (_) {}
@@ -565,7 +653,7 @@ export function enqueueScrapeRequest(
   }
 
   const ast = buildAgentAst(def);
-  const firstStep = ast.steps[0] as ToolTaskNode;
+  const firstStep = ((ast.subAgents?.[0] || (ast as any).steps?.[0]) || {}) as ToolTaskNode;
   if (refresh && firstStep?.args) {
     firstStep.args.refresh = true;
   }

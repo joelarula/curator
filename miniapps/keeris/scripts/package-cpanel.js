@@ -42,8 +42,11 @@ const prodPackage = {
     'cheerio': '^1.1.2',
     'express': '^5.1.0',
     'graphql': '^16.11.0',
+    'jsonwebtoken': '^9.0.2',
     'mariadb': '^3.5.4',
-    'mysql2': '^3.12.0'
+    'mysql2': '^3.12.0',
+    'passport': '^0.7.0',
+    'passport-google-oauth20': '^2.0.0'
   }
 };
 fs.writeFileSync(path.join(deployDir, 'package.json'), JSON.stringify(prodPackage, null, 2));
@@ -77,6 +80,16 @@ CURATOR_DATABASE_URL=mysql://sepisedc_curator:YOUR_DB_PASSWORD@localhost:3306/se
 # 3600000 ms = 1 hour (recommended for shared hosting)
 # ------------------------------------------------------------------------------
 INDEX_INTERVAL_MS=3600000
+
+# ------------------------------------------------------------------------------
+# 4. Google OAuth 2.0 & JWT Authentication (Production https://keeris.arula.dev/)
+# ------------------------------------------------------------------------------
+JWT_SECRET=your-super-secret-jwt-key
+GOOGLE_CLIENT_ID=YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=YOUR_GOOGLE_CLIENT_SECRET
+GOOGLE_API_KEY=YOUR_GOOGLE_API_KEY
+GOOGLE_CALLBACK_URL=https://keeris.arula.dev/auth/google/callback
+FRONTEND_URL=https://keeris.arula.dev
 `;
 fs.writeFileSync(path.join(deployDir, '.env.example'), envExample);
 

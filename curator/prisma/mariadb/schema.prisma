@@ -14,13 +14,14 @@ datasource db {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Minimal User stub
+// Actor / RBAC models (Curator canonical schema)
 // ─────────────────────────────────────────────────────────────────────────────
 
 model User {
   id        String      @id @default(cuid())
   email     String      @unique
   name      String?
+  googleId  String?     @unique
   roles     UserRole[]
   agents    Agent[]
   createdAt DateTime    @default(now())
@@ -71,9 +72,9 @@ model Tool {
   version              String?
   accessLevel          String       @default("safe_write")
   requiresConfirmation Boolean      @default(false)
-  permissions          Permission[]
   enabled              Boolean      @default(true)
   existent             Boolean?     @default(true)
+  permissions          Permission[]
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
 
@@ -234,8 +235,11 @@ model Request {
   conversation       Conversation  @relation(fields: [conversationId], references: [id])
   agentId            String?
   agent              Agent?        @relation(fields: [agentId], references: [id])
-  scheduledAt        DateTime      @default(now())
+  scheduledAt        DateTime?     @default(now())
   executionScheduled DateTime?     @default(now())
+  priority           Int           @default(0)
+  notifyId           Int?
+  pendingDependencies Int          @default(0)
   lockedBy           String?
   lockedAt           DateTime?
   deletedAt          DateTime?

@@ -33,6 +33,9 @@ export interface CuratorClientAdapter extends CuratorConsoleAdapter {
   /** Toggle active schedule state of an agent */
   toggleAgent(id: string, isActive: boolean): Promise<any>;
 
+  /** Soft-delete an agent and its associated script */
+  deleteAgent?(id: string): Promise<boolean>;
+
   /** Get the pause state of the request processor */
   getProcessorState(): Promise<boolean>;
 

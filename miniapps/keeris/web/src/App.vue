@@ -61,19 +61,47 @@
         </v-list>
       </template>
 
-      <v-divider class="my-2" />
-      <v-list nav class="pa-2 pt-0">
-        <v-list-item
-          prepend-icon="mdi-robot"
-          :title="$t('app.devConsole')"
-          rounded="lg"
-          @click="drawerOpen = !drawerOpen; mobileDrawer = false"
-        >
-          <template #append>
-            <span class="pulse-indicator"></span>
-          </template>
-        </v-list-item>
-      </v-list>
+      <!-- Google Auth in Mobile Drawer (Server mode) -->
+      <template v-if="isAuthSupported">
+        <v-divider class="my-2" />
+        <v-list nav class="pa-2 pt-0">
+          <v-list-item
+            v-if="!isAuthenticated"
+            prepend-icon="mdi-google"
+            :title="$t('app.signIn')"
+            rounded="lg"
+            @click="loginWithGoogle(); mobileDrawer = false"
+          />
+          <v-list-item
+            v-else
+            prepend-icon="mdi-account-circle"
+            :title="user?.name || user?.email"
+            :subtitle="$t('app.loggedInAs')"
+            rounded="lg"
+          >
+            <template #append>
+              <v-btn icon="mdi-logout" variant="text" size="small" @click="logout(); mobileDrawer = false" />
+            </template>
+          </v-list-item>
+        </v-list>
+      </template>
+
+      <!-- Dev Console Link (Only available to curator_manager in Server mode, or always in WASM mode) -->
+      <template v-if="canAccessConsole">
+        <v-divider class="my-2" />
+        <v-list nav class="pa-2 pt-0">
+          <v-list-item
+            prepend-icon="mdi-robot"
+            :title="$t('app.devConsole')"
+            rounded="lg"
+            @click="drawerOpen = !drawerOpen; mobileDrawer = false"
+          >
+            <template #append>
+              <span class="pulse-indicator"></span>
+            </template>
+          </v-list-item>
+        </v-list>
+      </template>
     </v-navigation-drawer>
 
     <main class="shell">
@@ -133,8 +161,9 @@
             />
           </template>
 
-          <!-- Desktop Dev Console Pill -->
+          <!-- Desktop Dev Console Pill (Only available to curator_manager in Server mode, or always in WASM mode) -->
           <button
+            v-if="canAccessConsole"
             class="console-nav-pill d-none d-md-inline-flex"
             :class="{ active: drawerOpen }"
             type="button"
@@ -144,6 +173,40 @@
             <span class="pulse-indicator"></span>
             {{ $t('app.devConsole') }}
           </button>
+
+          <!-- Desktop Google Auth (Server mode only) -->
+          <template v-if="isAuthSupported">
+            <button
+              v-if="!isAuthenticated"
+              class="auth-sign-in-btn d-none d-md-inline-flex"
+              type="button"
+              :title="$t('app.signIn')"
+              @click="loginWithGoogle"
+            >
+              <svg class="google-icon" viewBox="0 0 24 24" width="15" height="15">
+                <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.66v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.15z"/>
+                <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.26v3.13C3.27 21.36 7.35 24 12 24z"/>
+                <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.6H1.26C.46 8.2 0 10.03 0 12s.46 3.8 1.26 5.4l4.02-3.13z"/>
+                <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.35 0 3.27 2.64 1.26 6.6l4.02 3.13c.95-2.83 3.6-4.98 6.72-4.98z"/>
+              </svg>
+              <span>{{ $t('app.signIn') }}</span>
+            </button>
+            <div v-else class="auth-user-badge d-none d-md-inline-flex">
+              <span class="auth-user-name" :title="user?.email">{{ user?.name || user?.email?.split('@')[0] }}</span>
+              <button
+                class="auth-logout-btn"
+                type="button"
+                :title="$t('app.logout')"
+                @click="logout"
+              >
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                  <polyline points="16 17 21 12 16 7" />
+                  <line x1="21" y1="12" x2="9" y2="12" />
+                </svg>
+              </button>
+            </div>
+          </template>
 
           <!-- Theme Toggle (Visible everywhere, touch target friendly) -->
           <button
@@ -202,25 +265,35 @@
       </RouterView>
     </main>
 
-    <!-- Curator AST Dev Console & Database Tools -->
-    <CuratorConsole v-model="drawerOpen" :adapter="keerisCuratorAdapter" :domain-metrics="stats" />
+    <!-- Curator AST Dev Console & Database Tools (Restricted to curator_manager role in Server mode) -->
+    <CuratorConsole v-if="canAccessConsole" v-model="drawerOpen" :adapter="keerisCuratorAdapter" :domain-metrics="stats" />
   </v-app>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { RouterLink, RouterView } from 'vue-router';
 import { useDisplay } from 'vuetify';
 import KeerisHeader from './components/KeerisHeader.vue';
 import { CuratorConsole } from '@curator/console';
 import { keerisCuratorAdapter } from './curator-adapter';
-import { requestGraphql, onWorkerReady, exportDatabase, importDatabase, onDatabaseChange, getAppMode, type AppMode } from '@wasm/graphql-client';
+import { requestGraphql, onWorkerReady, exportDatabase, importDatabase, onDatabaseChange, getAppMode, getServerBaseUrl, type AppMode } from '@wasm/graphql-client';
 import { useTheme } from './composables/useTheme';
+import { useAuth } from './composables/useAuth';
 
 const { t } = useI18n();
 const { theme, toggleTheme } = useTheme();
 const { mdAndUp, smAndDown, mobile } = useDisplay();
+const { user, isAuthenticated, isCuratorManager, initAuth, loginWithGoogle, logout } = useAuth();
+
+const isReadonlyMode = ref(false);
+const isAuthSupported = computed(() => appMode.value === 'server' && !isReadonlyMode.value);
+
+const canAccessConsole = computed(() => {
+  if (isReadonlyMode.value) return false;
+  return appMode.value === 'wasm' || (isAuthenticated.value && isCuratorManager.value);
+});
 
 const mobileDrawer = ref(false);
 const appMode = ref<AppMode>('server');
@@ -280,10 +353,12 @@ async function handleFileSelected(e) {
   }
 }
 
-function handleKeyDown(e) {
+function handleKeyDown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key === '`') {
     e.preventDefault();
-    drawerOpen.value = !drawerOpen.value;
+    if (canAccessConsole.value) {
+      drawerOpen.value = !drawerOpen.value;
+    }
   }
 }
 
@@ -295,6 +370,21 @@ onMounted(async () => {
   try {
     appMode.value = await getAppMode();
   } catch (_) {}
+
+  try {
+    const baseUrl = getServerBaseUrl();
+    const res = await fetch(`${baseUrl}/health`).catch(() => null);
+    if (res?.ok) {
+      const data = await res.json();
+      if (data.mode === 'readonly') {
+        isReadonlyMode.value = true;
+      }
+    }
+  } catch (_) {}
+
+  if (appMode.value !== 'wasm' && !isReadonlyMode.value) {
+    await initAuth();
+  }
   onWorkerReady(() => {
     fetchStats();
   });
@@ -367,6 +457,71 @@ onUnmounted(() => {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
   transition: all 0.2s ease;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.auth-sign-in-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(30, 41, 59, 0.9);
+  color: #f1f5f9;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s ease;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.auth-sign-in-btn:hover {
+  background: #334155;
+  border-color: #60a5fa;
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.auth-user-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.85);
+  color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  padding: 4px 6px 4px 12px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.auth-user-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.auth-logout-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.auth-logout-btn:hover {
+  background: rgba(239, 68, 68, 0.3);
+  color: #ffffff;
+  border-color: #ef4444;
 }
 
 .console-nav-pill:hover {

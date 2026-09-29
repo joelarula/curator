@@ -1,6 +1,6 @@
 import { ErrClient, type ErrArchiveBroadcast } from '../err-client.ts';
 import { scrape } from '../scrape.ts';
-import { parseMusicList, parseEpisodeText } from '../episode-parser.ts';
+import { parseMusicList, parseEpisodeText, parseEpisodeDate } from '../episode-parser.ts';
 import { saveProgramData } from '../db.ts';
 
 export {
@@ -23,12 +23,104 @@ export function createErrRadioPlugin(db: any) {
             seriesContentId: { type: 'string' },
             limit: { type: 'number' },
             cursor: { type: 'string' },
+            onlyNew: { type: 'boolean' },
+            refresh: { type: 'boolean' },
           },
         },
         async runAsync({ args }: { args?: any } = {}) {
           const seriesContentId = args?.seriesContentId ?? '1037846';
           const response = await client.archive({ seriesContentId, limit: args?.limit ?? 50, cursor: args?.cursor });
+          
+          // By default, filter out episodes that have already been parsed with tracks into the database
+          if (args?.refresh !== true && args?.onlyNew !== false && response?.data && Array.isArray(response.data)) {
+            const newEpisodes: any[] = [];
+            for (const ep of response.data) {
+              const idMatch = ep.url ? String(ep.url).match(/\/(\d+)/) : null;
+              const epId = ep.id ?? (idMatch ? Number(idMatch[1]) : null);
+              if (epId) {
+                try {
+                  const existing: any = await db.prepare(`
+                    SELECT e.id, e.parse_status, COUNT(t.id) as track_count
+                    FROM episodes e
+                    LEFT JOIN tracks t ON t.episode_id = e.id
+                    WHERE e.id = ? OR e.url = ?
+                    GROUP BY e.id
+                  `).get(epId, ep.url || '');
+                  if (existing && existing.parse_status === 'parsed' && Number(existing.track_count || 0) > 0) {
+                    continue; // Skip already indexed episode that genuinely has tracks
+                  }
+                } catch (_) {}
+              }
+              newEpisodes.push(ep);
+            }
+            return {
+              ...response,
+              data: newEpisodes,
+              totalDiscovered: response.data.length,
+              newEpisodesCount: newEpisodes.length,
+            };
+          }
+
           return response;
+        },
+        toGenAiDeclaration() {
+          return { name: this.name, description: this.description, parameters: this.parameters };
+        },
+      },
+      vikerraadio_discover_missing_episodes: {
+        name: 'vikerraadio_discover_missing_episodes',
+        description: 'Discover episodes in the database that currently have 0 tracks or failed parsing so they can be re-scraped.',
+        parameters: {
+          type: 'object',
+          properties: {
+            limit: { type: 'number' },
+            programId: { type: 'string' },
+            seriesContentId: { type: 'string' },
+          },
+        },
+        async runAsync({ args }: { args?: any } = {}) {
+          const limit = Number(args?.limit || 50);
+          let sql = `
+            SELECT e.id, e.url, e.title, e.scheduled_at as scheduledAt, e.published_at as publishedAt,
+                   p.id as programId, p.title as programTitle, p.series_id as seriesId,
+                   COUNT(t.id) as track_count
+            FROM episodes e
+            LEFT JOIN tracks t ON t.episode_id = e.id
+            LEFT JOIN programs p ON p.id = e.program_id
+            WHERE 1=1
+          `;
+          const params: any[] = [];
+          if (args?.programId) {
+            sql += ` AND (p.id = ? OR p.series_id = ?)`;
+            params.push(args.programId, args.programId);
+          }
+          if (args?.seriesContentId) {
+            sql += ` AND p.series_id = ?`;
+            params.push(args.seriesContentId);
+          }
+          sql += `
+            GROUP BY e.id
+            HAVING track_count = 0
+            ORDER BY e.scheduled_at DESC
+          `;
+          if (limit > 0) {
+            sql += ` LIMIT ${limit}`;
+          }
+          const rows = await db.prepare(sql).all(...params);
+          const formatted = (rows || []).map((r: any) => ({
+            id: r.id,
+            url: r.url,
+            heading: r.title,
+            title: r.title,
+            scheduledAt: r.scheduledAt,
+            publishedAt: r.publishedAt,
+            seriesId: r.seriesId || '1037846',
+            programTitle: r.programTitle || 'Vikerraadio',
+          }));
+          return {
+            data: formatted,
+            totalDiscovered: formatted.length,
+          };
         },
         toGenAiDeclaration() {
           return { name: this.name, description: this.description, parameters: this.parameters };
@@ -119,20 +211,59 @@ export function createErrRadioPlugin(db: any) {
             episode: { type: 'object' },
             program: { type: 'object' },
             url: { type: 'string' },
+            refresh: { type: 'boolean' },
           },
           required: ['url'],
         },
         async runAsync({ args }: { args?: any } = {}) {
           const url = args?.url || args?.episode?.url;
           if (!url) throw new Error('url parameter is required');
+
+          const idMatch = url.match(/\/(\d+)/);
+          const episodeId = args?.episode?.id || (idMatch ? Number(idMatch[1]) : null);
+
+          // Skip re-fetching and parsing if already saved with tracks in database and refresh is false
+          if (!args?.refresh && episodeId) {
+            try {
+              const existing: any = await db.prepare(`
+                SELECT e.id, e.parse_status, COUNT(t.id) as track_count
+                FROM episodes e
+                LEFT JOIN tracks t ON t.episode_id = e.id
+                WHERE e.id = ? OR e.url = ?
+                GROUP BY e.id
+              `).get(episodeId, url);
+              if (existing && existing.parse_status === 'parsed' && Number(existing.track_count || 0) > 0) {
+                return {
+                  stored: false,
+                  skipped: true,
+                  reason: 'already_parsed_with_tracks',
+                  episodeId: existing.id,
+                  parseStatus: existing.parse_status,
+                  trackCount: existing.track_count,
+                };
+              }
+            } catch (_) {}
+          }
+
           const html = await client.episode(url);
           const tracks = parseMusicList(html);
           const metadata = parseEpisodeText(html);
+          const parsedDate = parseEpisodeDate(html);
 
-          const epData = args?.episode || {
-            id: Date.now(),
+          const scheduledAt = args?.episode?.scheduledAt
+            || (args?.episode?.scheduleStart ? new Date(args.episode.scheduleStart * 1000).toISOString() : null)
+            || parsedDate;
+          const publishedAt = args?.episode?.publishedAt
+            || (args?.episode?.publicStart ? new Date(args.episode.publicStart * 1000).toISOString() : null)
+            || parsedDate;
+
+          const epData = {
+            ...args?.episode,
+            id: episodeId || Date.now(),
             url,
-            title: metadata?.description ? metadata.description.slice(0, 100) : url,
+            title: args?.episode?.heading || args?.episode?.title || (metadata?.description ? metadata.description.slice(0, 100) : url),
+            scheduledAt,
+            publishedAt,
           };
 
           saveProgramData(db, {
@@ -140,6 +271,7 @@ export function createErrRadioPlugin(db: any) {
             episode: epData,
             tracks,
             metadata,
+            status: tracks.length > 0 ? 'parsed' : 'no_tracks',
           });
 
           return {

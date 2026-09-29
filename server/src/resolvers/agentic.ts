@@ -518,7 +518,23 @@ export const agenticResolvers = {
                 if (!script) throw new Error('Script not found or outside active project scope');
                 data.scriptId = input.scriptId;
             }
-            if (input.schedule !== undefined) data.schedule = input.schedule;
+            if (input.schedule !== undefined) {
+                data.schedule = input.schedule.trim();
+                const nextRunDate = new Date(Date.now() + 60000);
+                const pendingConditions: any[] = [{ agentId: id }, { agentId: agent.name }];
+                if (agent.scriptId) pendingConditions.push({ scriptId: agent.scriptId });
+
+                await context.prisma.request.updateMany({
+                    where: {
+                        OR: pendingConditions,
+                        status: { in: ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT', 'PAUSED'] }
+                    },
+                    data: {
+                        scheduledAt: nextRunDate,
+                        executionScheduled: nextRunDate
+                    }
+                });
+            }
 
             return await context.prisma.agent.update({
                 where: { id },
@@ -561,6 +577,23 @@ export const agenticResolvers = {
             });
 
             if (existingAgent) {
+                if (input.schedule !== undefined) {
+                    const nextRunDate = new Date(Date.now() + 60000);
+                    const pendingConditions: any[] = [{ agentId: existingAgent.id }, { agentId: existingAgent.name }];
+                    if (existingAgent.scriptId) pendingConditions.push({ scriptId: existingAgent.scriptId });
+
+                    await context.prisma.request.updateMany({
+                        where: {
+                            OR: pendingConditions,
+                            status: { in: ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT', 'PAUSED'] }
+                        },
+                        data: {
+                            scheduledAt: nextRunDate,
+                            executionScheduled: nextRunDate
+                        }
+                    });
+                }
+
                 return await context.prisma.agent.update({
                     where: { id: existingAgent.id },
                     data: {
@@ -591,18 +624,66 @@ export const agenticResolvers = {
             });
             if (!agent) throw new Error('Agent not found or outside active project scope');
 
-            return await context.prisma.agent.update({
+            const updated = await context.prisma.agent.update({
                 where: { id },
                 data: { enabled },
                 include: { user: true },
             });
+
+            if (!enabled) {
+                const enabledCount = await context.prisma.agent.count({ where: { enabled: true } });
+                if (enabledCount === 0) {
+                    await context.prisma.request.updateMany({
+                        where: {
+                            status: { in: ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT', 'PAUSED'] }
+                        },
+                        data: {
+                            status: 'CANCELLED',
+                            lockedBy: null,
+                            lockedAt: null
+                        }
+                    });
+                } else {
+                    const conditions: any[] = [{ agentId: id }, { agentId: agent.name }];
+                    if (agent.scriptId) conditions.push({ scriptId: agent.scriptId });
+
+                    const relatedReqs = await context.prisma.request.findMany({
+                        where: { OR: conditions },
+                        select: { conversationId: true }
+                    });
+                    const convIds = Array.from(new Set(relatedReqs.map((r: any) => r.conversationId).filter(Boolean)));
+                    if (convIds.length > 0) {
+                        conditions.push({ conversationId: { in: convIds } });
+                    }
+
+                    await context.prisma.request.updateMany({
+                        where: {
+                            OR: conditions,
+                            status: { in: ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT', 'PAUSED'] }
+                        },
+                        data: {
+                            status: 'CANCELLED',
+                            lockedBy: null,
+                            lockedAt: null
+                        }
+                    });
+                }
+            }
+
+            return updated;
         },
 
         triggerAgent: async (_parent: any, { id }: { id: string }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
-            const agent = await context.prisma.agent.findFirst({ where: { id, ...scope } });
+            const agent = await context.prisma.agent.findFirst({
+                where: { id, ...scope },
+                include: { script: true }
+            });
             if (!agent) throw new Error('Agent not found or outside active project scope');
+            if (agent.enabled === false) {
+                throw new Error(`Cannot trigger agent '${agent.name}': agent is disabled. Please enable it before running.`);
+            }
 
             const conv = await context.prisma.conversation.create({
                 data: {
@@ -613,11 +694,63 @@ export const agenticResolvers = {
             return await context.prisma.request.create({
                 data: {
                     status: 'NEW',
+                    agentId: agent.id,
+                    scriptId: agent.scriptId,
+                    ast: agent.script?.ast,
                     conversationId: conv.id,
                     projectId: context.activeProjectId || null,
                 },
                 include: { conversation: true },
             });
+        },
+
+        deleteAgent: async (_parent: any, { id }: { id: string }, context: any) => {
+            if (!context.user) throw new Error('Unauthorized');
+            const scope = buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId);
+            const agent = await context.prisma.agent.findFirst({
+                where: { id, ...scope },
+                include: { script: true }
+            });
+            if (!agent) throw new Error('Agent not found or outside active project scope');
+
+            const now = new Date();
+            await context.prisma.agent.update({
+                where: { id },
+                data: { existent: false, deletedAt: now, enabled: false }
+            });
+
+            if (agent.scriptId) {
+                await context.prisma.script.update({
+                    where: { id: agent.scriptId },
+                    data: { existent: false, deletedAt: now }
+                });
+            }
+
+            const conditions: any[] = [{ agentId: id }, { agentId: agent.name }];
+            if (agent.scriptId) conditions.push({ scriptId: agent.scriptId });
+
+            const relatedReqs = await context.prisma.request.findMany({
+                where: { OR: conditions },
+                select: { conversationId: true }
+            });
+            const convIds = Array.from(new Set(relatedReqs.map((r: any) => r.conversationId).filter(Boolean)));
+            if (convIds.length > 0) {
+                conditions.push({ conversationId: { in: convIds } });
+            }
+
+            await context.prisma.request.updateMany({
+                where: {
+                    OR: conditions,
+                    status: { in: ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT', 'PAUSED'] }
+                },
+                data: {
+                    status: 'CANCELLED',
+                    lockedBy: null,
+                    lockedAt: null
+                }
+            });
+
+            return true;
         },
     },
 

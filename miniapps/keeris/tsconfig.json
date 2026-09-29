@@ -20,7 +20,9 @@
       "@wasm/*": ["./wasm/*"],
       "@keeris/*": ["./src/*"],
       "@curator/console": ["../../packages/curator-console/src/index.ts"],
-      "@curator/ast": ["../../server/src/services/ast/types.ts"],
+      "@curator/plugin-auth": ["../../packages/plugin-auth/src/index.ts"],
+      "@curator/agent-server": ["../../curator/src/index.ts"],
+      "@curator/ast": ["../../curator/src/engine/CuratorAst.ts"],
       "@curator/wasm-core": ["../../server/src/wasm-core/types.ts"]
     },
     "types": ["node"]

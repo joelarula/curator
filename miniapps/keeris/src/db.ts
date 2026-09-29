@@ -498,8 +498,11 @@ export async function ensureMysqlSchema(pool: any): Promise<void> {
         context JSON,
         conversationId INT NOT NULL,
         agentId VARCHAR(191),
-        scheduledAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        scheduledAt DATETIME DEFAULT CURRENT_TIMESTAMP,
         executionScheduled DATETIME DEFAULT CURRENT_TIMESTAMP,
+        priority INT DEFAULT 0,
+        notifyId INT,
+        pendingDependencies INT DEFAULT 0,
         lockedBy VARCHAR(191),
         lockedAt DATETIME,
         deletedAt DATETIME,
@@ -510,6 +513,11 @@ export async function ensureMysqlSchema(pool: any): Promise<void> {
         INDEX idx_req_status_existent (status, existent)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;
     `);
+
+    await pool.query(`ALTER TABLE Request ADD COLUMN IF NOT EXISTS priority INT DEFAULT 0;`).catch(() => {});
+    await pool.query(`ALTER TABLE Request ADD COLUMN IF NOT EXISTS notifyId INT;`).catch(() => {});
+    await pool.query(`ALTER TABLE Request ADD COLUMN IF NOT EXISTS pendingDependencies INT DEFAULT 0;`).catch(() => {});
+    await pool.query(`ALTER TABLE User ADD COLUMN IF NOT EXISTS googleId VARCHAR(191) UNIQUE;`).catch(() => {});
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS Response (
@@ -578,11 +586,40 @@ export function convertSqlToMysql(sql: string): string {
   });
 }
 
+function sanitizeMysqlParams(params: any[]): any[] {
+  const flat = params.length === 1 && Array.isArray(params[0]) ? params[0] : params;
+  return flat.map((p) => {
+    if (typeof p === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(p)) {
+      return p.replace('T', ' ').replace(/\..*$/, '').replace(/Z$/, '').slice(0, 19);
+    }
+    return p;
+  });
+}
+
 export function createMysqlAdapter(connectionString: string) {
-  const pool = mysql.createPool(connectionString);
+  let pool: any;
+  try {
+    const url = new URL(connectionString);
+    pool = mysql.createPool({
+      host: url.hostname,
+      port: Number(url.port) || 3306,
+      user: url.username,
+      password: decodeURIComponent(url.password),
+      database: url.pathname.replace(/^\//, ''),
+      waitForConnections: true,
+      connectionLimit: 25,
+      queueLimit: 0,
+      connectTimeout: 10000,
+    });
+  } catch (_) {
+    pool = mysql.createPool(connectionString);
+  }
   pool.on('connection', (connection: any) => {
-    connection.query("SET sql_mode = CONCAT(@@sql_mode, ',PIPES_AS_CONCAT')");
-    connection.query("SET NAMES utf8mb4 COLLATE utf8mb4_0900_as_ci").catch?.(() => {});
+    try {
+      const conn = typeof connection.promise === 'function' ? connection.promise() : connection;
+      conn.query("SET sql_mode = CONCAT(@@sql_mode, ',PIPES_AS_CONCAT')").catch?.(() => {});
+      conn.query("SET NAMES utf8mb4 COLLATE utf8mb4_0900_as_ci").catch?.(() => {});
+    } catch (_) {}
   });
   ensureMysqlSchema(pool).catch(err => {
     console.warn('[MariaDB/MySQL] Schema initialization notice:', err.message);
@@ -596,18 +633,18 @@ export function createMysqlAdapter(connectionString: string) {
       const mysqlSql = convertSqlToMysql(sql);
       return {
         async all(...params: any[]) {
-          const flatParams = params.length === 1 && Array.isArray(params[0]) ? params[0] : params;
-          const [rows]: any = await pool.query(mysqlSql, flatParams);
+          const sanitized = sanitizeMysqlParams(params);
+          const [rows]: any = await pool.query(mysqlSql, sanitized);
           return rows;
         },
         async get(...params: any[]) {
-          const flatParams = params.length === 1 && Array.isArray(params[0]) ? params[0] : params;
-          const [rows]: any = await pool.query(mysqlSql, flatParams);
+          const sanitized = sanitizeMysqlParams(params);
+          const [rows]: any = await pool.query(mysqlSql, sanitized);
           return rows[0] || null;
         },
         async run(...params: any[]) {
-          const flatParams = params.length === 1 && Array.isArray(params[0]) ? params[0] : params;
-          const [res]: any = await pool.query(mysqlSql, flatParams);
+          const sanitized = sanitizeMysqlParams(params);
+          const [res]: any = await pool.query(mysqlSql, sanitized);
           return {
             changes: res.affectedRows,
             lastInsertRowid: res.insertId ?? null
@@ -678,7 +715,7 @@ export async function ensureUniqueTrack(
   const fingerprint = makeFingerprint(artist, title, rawText);
   if (!fingerprint) return null;
 
-  const now = new Date().toISOString();
+  const now = db.isMysql ? new Date().toISOString().slice(0, 19).replace('T', ' ') : new Date().toISOString();
   const existing = await db.prepare('SELECT * FROM unique_tracks WHERE fingerprint = ?').get(fingerprint);
 
   if (existing) {
@@ -794,7 +831,7 @@ export async function saveProgramData(
   db: any,
   { program, episode, tracks = [], metadata = {}, rawHash = null, status = 'parsed', error = null }: SaveProgramDataInput
 ): Promise<void> {
-  const now = new Date().toISOString();
+  const now = db.isMysql ? new Date().toISOString().slice(0, 19).replace('T', ' ') : new Date().toISOString();
   let programRecord: any = null;
   
   if (db.isPostgres) {

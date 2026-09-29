@@ -44,10 +44,15 @@ export async function scrape({
 }: ScrapeOptions): Promise<ScrapeResult> {
   const shouldStop = refresh
     ? undefined
-    : (items: DiscoveredEpisode[]) => items.some((item) => {
-        const row = db.prepare('SELECT parse_status FROM episodes WHERE id = ?').get(item.id);
-        return row && ['parsed', 'no_tracks'].includes(row.parse_status);
-      });
+    : async (items: DiscoveredEpisode[]) => {
+        for (const item of items) {
+          const row: any = await db.prepare('SELECT parse_status FROM episodes WHERE id = ?').get(item.id);
+          if (row && ['parsed', 'no_tracks'].includes(row.parse_status)) {
+            return true;
+          }
+        }
+        return false;
+      };
 
   const discovered = await discoverEpisodes(client, {
     seriesContentId,
@@ -70,7 +75,7 @@ export async function scrape({
       scheduledAt: episodeDate(item),
       publishedAt: item.publicStart ? new Date(item.publicStart * 1000).toISOString() : null,
     };
-    const existing = db.prepare('SELECT parse_status FROM episodes WHERE id = ?').get(item.id);
+    const existing: any = await db.prepare('SELECT parse_status FROM episodes WHERE id = ?').get(item.id);
     if (!refresh && existing && ['parsed', 'no_tracks'].includes(existing.parse_status)) continue;
 
     try {

@@ -33,6 +33,15 @@ async function ensureCuratorMariadbSchema(pool: any): Promise<void> {
       updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;`,
 
+    `CREATE TABLE IF NOT EXISTS UserRole (
+      userId VARCHAR(191) NOT NULL,
+      roleId VARCHAR(191) NOT NULL,
+      deletedAt DATETIME,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (userId, roleId)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_as_ci;`,
+
     `CREATE TABLE IF NOT EXISTS RoleInheritance (
       parentId VARCHAR(191) NOT NULL,
       subRoleId VARCHAR(191) NOT NULL,
@@ -141,6 +150,27 @@ async function ensureCuratorMariadbSchema(pool: any): Promise<void> {
       await pool.query(sql);
     } catch (_) {}
   }
+
+  // Seed curator_manager role and assign to joel.arula@gmail.com
+  const seedStatements = [
+    `INSERT INTO Role (id, name, description)
+     VALUES ('role_curator_manager', 'curator_manager', 'Curator Manager with full Console and Agent permissions')
+     ON DUPLICATE KEY UPDATE description=VALUES(description);`,
+
+    `INSERT INTO User (id, email, name)
+     VALUES ('user_joel_arula', 'joel.arula@gmail.com', 'Joel Arula')
+     ON DUPLICATE KEY UPDATE name=VALUES(name);`,
+
+    `INSERT INTO UserRole (userId, roleId)
+     VALUES ('user_joel_arula', 'role_curator_manager')
+     ON DUPLICATE KEY UPDATE roleId=VALUES(roleId);`
+  ];
+
+  for (const sql of seedStatements) {
+    try {
+      await pool.query(sql);
+    } catch (_) {}
+  }
 }
 
 export async function provisionMariadbDb(connectionUrl: string = process.env.CURATOR_DATABASE_URL || process.env.DATABASE_URL || ''): Promise<any> {
@@ -167,7 +197,12 @@ export async function provisionMariadbDb(connectionUrl: string = process.env.CUR
     user: url.username,
     password: decodeURIComponent(url.password),
     database: url.pathname.replace(/^\//, ''),
-    connectionLimit: 10,
+    connectionLimit: 25,
+    connectTimeout: 10000,
+    acquireTimeout: 30000,
+    idleTimeout: 60000,
+    minimumIdle: 2,
+    allowPublicKeyRetrieval: true,
   });
 
   // Ensure Curator schema exists in MariaDB before Prisma connects

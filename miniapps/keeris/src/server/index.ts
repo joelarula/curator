@@ -30,8 +30,9 @@ import { openDatabase } from '../db.ts';
 import { config } from '../config.ts';
 import { registerKeerisPlugins } from '../plugins/index.ts';
 import { executeGraphql } from './graphql.ts';
-import { startIndexer } from '../indexer.ts';
 import { startCuratorRuntime } from '../curator-runtime.ts';
+import { setupAuth, getUserFromToken } from './auth.ts';
+import { curatorEvents } from './events.ts';
 
 const port = process.env.PORT || 4001;
 const databasePath = process.env.DATABASE_URL || process.env.DATABASE_PATH || config.defaultDatabase;
@@ -64,14 +65,6 @@ if (curatorDbName) {
     });
 }
 
-console.log('[Keeris Server] Starting indexer...');
-const indexer = startIndexer({
-  databasePath,
-  curatorRuntime,
-  intervalMs: Number(process.env.INDEX_INTERVAL_MS ?? 60_000),
-  runImmediate: false,
-});
-
 console.log('[Keeris Server] Configuring Express...');
 const app = express();
 
@@ -86,6 +79,8 @@ app.use((_req, res, next) => {
   next();
 });
 app.use(express.json({ limit: '256kb' }));
+
+setupAuth(app, () => curatorRuntime?.prisma);
 
 const dataDir = join(root, 'data');
 if (existsSync(dataDir)) {
@@ -109,6 +104,43 @@ app.get('/health', async (_request, response) => {
   }
 });
 
+// SSE endpoint for live Curator Console progress & logs
+app.get('/api/curator/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+
+  const recent = curatorEvents.getRecentLogs();
+  for (const log of recent) {
+    res.write(`data: ${JSON.stringify({ type: 'log', payload: { message: log.message } })}\n\n`);
+  }
+
+  const listener = (event: any) => {
+    try {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    } catch (_) {}
+  };
+
+  curatorEvents.on('event', listener);
+
+  const heartbeat = setInterval(() => {
+    try {
+      res.write(': heartbeat\n\n');
+    } catch (_) {}
+  }, 15000);
+
+  req.on('close', () => {
+    curatorEvents.off('event', listener);
+    clearInterval(heartbeat);
+  });
+});
+
+app.get('/api/curator/logs', (_req, res) => {
+  res.json({ logs: curatorEvents.getRecentLogs() });
+});
+
 app.get('/graphql', (_request, response) => {
   response.type('html').send(`<!DOCTYPE html>
 <html>
@@ -123,7 +155,13 @@ app.get('/graphql', (_request, response) => {
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/graphiql@3/graphiql.min.js"></script>
   <script>
-    const fetcher = GraphiQL.createFetcher({ url: '/graphql' });
+    const fetcher = GraphiQL.createFetcher({
+      url: '/graphql',
+      headers: () => {
+        const token = localStorage.getItem('keeris_token');
+        return token ? { Authorization: 'Bearer ' + token } : {};
+      },
+    });
     const root = ReactDOM.createRoot(document.getElementById('graphiql'));
     root.render(React.createElement(GraphiQL, { fetcher, defaultQuery: '{ stats { episodes tracks uniqueTracks programs } }' }));
   </script>
@@ -133,7 +171,10 @@ app.get('/graphql', (_request, response) => {
 
 app.post('/graphql', async (request, response) => {
   if (typeof request.body?.query !== 'string') return response.status(400).json({ errors: [{ message: 'query is required' }] });
-  const result = await executeGraphql(db, request.body.query, request.body.variables, { curatorRuntime });
+  const authHeader = request.headers.authorization;
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : (request.query?.token as string);
+  const user = token ? await getUserFromToken(token, curatorRuntime?.prisma) : null;
+  const result = await executeGraphql(db, request.body.query, request.body.variables, { curatorRuntime, user });
   response.status(result.errors ? 400 : 200).json(result);
 });
 
@@ -158,14 +199,55 @@ if (existsSync(webRoot)) {
   });
 }
 
-const server = app.listen(port, () => console.log(`Keeris listening on http://localhost:${port}`));
+const server = app.listen(port, () => {
+  console.log(`Keeris listening on http://localhost:${port}`);
+  curatorEvents.attachWebSocketServer(server);
+  console.log(`[Keeris Server] Curator WebSocket stream ready on ws://localhost:${port}/api/curator/ws`);
+});
 
-function shutdown() {
-  indexer?.stop();
-  curatorRuntime?.stop().finally(() => server.close(() => { db.close(); process.exit(0); }));
+let isShuttingDown = false;
+async function shutdown() {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  console.log('[Keeris Server] Shutting down gracefully...');
+
+  // Fallback timer to ensure process exits within 2 seconds
+  const forceTimer = setTimeout(() => {
+    console.log('[Keeris Server] Force exiting.');
+    process.exit(0);
+  }, 2000);
+  forceTimer.unref();
+
+  try {
+    curatorEvents.close();
+  } catch (_) {}
+
+  try {
+    if (curatorRuntime && typeof curatorRuntime.stop === 'function') {
+      await curatorRuntime.stop();
+    }
+  } catch (_) {}
+
+  try {
+    if (typeof (server as any).closeAllConnections === 'function') {
+      (server as any).closeAllConnections();
+    }
+    if (typeof (server as any).closeIdleConnections === 'function') {
+      (server as any).closeIdleConnections();
+    }
+  } catch (_) {}
+
+  server.close(() => {
+    try { db.close(); } catch (_) {}
+    process.exit(0);
+  });
 }
-process.once('SIGINT', shutdown);
-process.once('SIGTERM', shutdown);
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
+if (process.platform === 'win32') {
+  process.on('SIGBREAK', shutdown);
+}
 
 export default app;
 export { app, server };

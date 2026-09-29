@@ -18,6 +18,8 @@ export interface CuratorConsoleAdapter {
 
   requestGraphql: (query: string, variables?: any) => Promise<any>;
   triggerAgent?: (agentId: string, options?: any) => Promise<any>;
+  toggleAgent?: (agentId: string, isActive: boolean) => Promise<any>;
+  deleteAgent?: (agentId: string) => Promise<any>;
   onProgress?: (callback: (type: string, payload: any) => void) => () => void;
   onDatabaseChange?: (callback: (info: { tables: string[]; timestamp: number }) => void) => () => void;
 }
@@ -56,12 +58,45 @@ export interface CuratorAgentSummary {
 
 export interface CuratorRequestSummary {
   id: string;
-  ast: any;
+  scriptId?: string | null;
+  parentId?: string | null;
+  notifyId?: string | null;
+  toolName?: string | null;
+  agentName?: string | null;
   status: string;
+  retryCount?: number;
+  ast: any;
+  context?: any;
+  scheduledAt?: string | null;
   createdAt: string;
+  updatedAt?: string | null;
   responses?: Array<{
     id: string;
+    requestId?: string;
     content: string;
-    createdAt: string;
+    createdAt?: string;
+    status?: string;
   }>;
 }
+
+export interface RequestTreeNode {
+  id: string;
+  raw: CuratorRequestSummary;
+  parentId: string | null;
+  notifyId: string | null;
+  agentName: string;
+  status: string;
+  nodeType: string;
+  toolName?: string;
+  summary: string;
+  astJson: string;
+  contextJson?: string | null;
+  createdAt: string;
+  scheduledAt?: string | null;
+  updatedAt?: string | null;
+  durationMs?: number | null;
+  retryCount: number;
+  depth: number;
+  children: RequestTreeNode[];
+}
+

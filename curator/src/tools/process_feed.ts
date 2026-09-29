@@ -96,7 +96,7 @@ export const process_feed = defineTool({
         create: { uri: hasPartPredicateUri, title: hasPartPredicateUri, userId, projectId, deletedAt: null }
       });
 
-      const newItems = [];
+      const newItems: any[] = [];
 
       for (const item of newFeedItems) {
         const articleResource = await prisma.resource.create({
