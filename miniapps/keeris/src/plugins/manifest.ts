@@ -89,6 +89,12 @@ export const RADIO_PROGRAMS: Record<string, RadioProgramDefinition> = {
     schedule: '0 14 * * 0', // Sundays at 14:00
     enabled: true,
   },
+  klassikaraadio_serenaad_scrape: {
+    seriesContentId: 'https://klassikaraadio.err.ee/1610135165/serenaad',
+    programTitle: 'Serenaad',
+    schedule: '0 18 * * 0', // Sundays at 18:00 (after 17:05 broadcast)
+    enabled: true,
+  },
   // Archived / Completed Series (on-demand triggerable via GraphQL)
   vikerraadio_heldur_karmo_aeg_scrape: {
     seriesContentId: '1610049724',

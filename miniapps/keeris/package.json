@@ -12,6 +12,8 @@
   "scripts": {
     "postinstall": "prisma generate --schema=prisma/schema.prisma",
     "scrape": "node src/cli.ts scrape",
+    "scrape:serenaad": "node scripts/scrape-serenaad.mjs",
+    "seed:serenaad": "node scripts/seed-serenaad.mjs",
     "rescrape:missing": "node scripts/rescrape-missing.mjs",
     "search": "node src/cli.ts search --artist=Keeris",
     "stats": "node src/cli.ts stats",
