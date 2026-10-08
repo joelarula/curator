@@ -5,7 +5,8 @@
   "workspaces": [
     "curator",
     "minigames/*",
-    "packages/*"
+    "packages/*",
+    "miniapps/*"
   ],
   "scripts": {
     "install:all": "npm install --prefix server && npm install --prefix frontend",

@@ -7,6 +7,7 @@ import { curatorContext } from './CuratorContext.js';
 import type { CuratorAstNode, CuratorAgentNode, CuratorSequentialNode, CuratorParallelNode, CuratorJoinNode, CuratorToolNode, CuratorScriptNode, CuratorRouteNode, CuratorGraphNode } from './CuratorAst.js';
 import { logger } from '../utils/logger.js';
 import { validateCuratorAst } from './CuratorAstValidation.js';
+import { coffeeAstVerbs } from './CoffeeVerbs.js';
 import type { Prisma } from '@prisma/client';
 import { LlmFactory } from './llm/LlmFactory.js';
 import type { LlmMessage, LlmToolDefinition, LlmRequest } from './llm/ILlmProvider.js';
@@ -1184,11 +1185,21 @@ export class CuratorRequestProcessor {
       return;
     }
 
-    logger.info(`[CuratorRequestProcessor] Executing Script Node for request ${req.id}`);
-    const sandbox = { console, input: req.context?.input || '' };
+    logger.info(`[CuratorRequestProcessor] Executing Script Node (${ast.language || 'javascript'}) for request ${req.id}`);
+    const sandbox = {
+      console,
+      input: req.context?.input || '',
+      context: req.context || {},
+      ...coffeeAstVerbs,
+    };
     const context = vm.createContext(sandbox);
     try {
-      const output = vm.runInContext(ast.code, context);
+      let codeToExecute = ast.code;
+      if (ast.language === 'coffeescript') {
+        const coffee = (await import('coffeescript')).default;
+        codeToExecute = coffee.compile(ast.code, { bare: true, header: false });
+      }
+      const output = vm.runInContext(codeToExecute, context);
       
       const nodeTypes = ['Curator_Agent', 'Curator_Sequential', 'Curator_Parallel', 'Curator_Join', 'Curator_Tool', 'Curator_Script', 'Curator_Route', 'Curator_HumanInput', 'Curator_Graph', 'Curator_AgentRef', 'Curator_SetState', 'Curator_EmitEvent', 'Curator_WaitEvent', 'Curator_Interrupt', 'Curator_Assign', 'Curator_IfElse', 'Curator_While', 'Curator_ForEach'];
       if (output && typeof output === 'object' && output.type && nodeTypes.includes(output.type)) {

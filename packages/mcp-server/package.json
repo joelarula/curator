@@ -1,0 +1,34 @@
+{
+  "name": "@curator/mcp-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./*": "./dist/*"
+  },
+  "bin": {
+    "curator-mcp": "./dist/bin/curator-mcp.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test test/registry.test.ts"
+  },
+  "dependencies": {
+    "@curator/agent-server": "^1.0.0",
+    "@curator/host": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "commander": "^14.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.1",
+    "typescript": "^5.6.2"
+  }
+}

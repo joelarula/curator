@@ -8,13 +8,23 @@ export type CuratorToolOutput = unknown;
  * Replaces @google/adk FunctionTool.
  */
 export interface CuratorToolContext {
-  conversationId?: string;
-  userId?: number;
-  projectId?: number;
-  prisma?: PrismaClient;
+  conversationId?: string | number;
+  userId?: number | string;
+  projectId?: number | string;
+  prisma?: PrismaClient | any;
+  [key: string]: unknown;
 }
 
 export type CuratorToolAccessLevel = 'read_only' | 'safe_write' | 'elevated' | 'destructive';
+
+export interface McpToolExposure {
+  /** Expose this tool on the MCP server. Default: false */
+  expose?: boolean;
+  /** Override MCP tool name (default: tool.name) */
+  name?: string;
+  /** Override MCP description */
+  description?: string;
+}
 
 export interface CuratorTool {
   readonly name: string;
@@ -22,6 +32,7 @@ export interface CuratorTool {
   readonly parameters: CuratorJsonSchema;
   readonly accessLevel: CuratorToolAccessLevel;
   readonly requiresConfirmation: boolean;
+  readonly mcp?: McpToolExposure;
 
   runAsync(input: {
     args: Record<string, unknown>;
@@ -34,6 +45,13 @@ export interface CuratorTool {
     description: string;
     parameters: CuratorJsonSchema;
   };
+
+  /** Returns an MCP-compatible tool declaration for external MCP clients */
+  toMcpDeclaration(): {
+    name: string;
+    description: string;
+    inputSchema: CuratorJsonSchema;
+  };
 }
 
 /** Helper to build a CuratorTool from a plain function */
@@ -43,6 +61,7 @@ export function defineTool(opts: {
   parameters: CuratorJsonSchema;
   accessLevel?: CuratorToolAccessLevel;
   requiresConfirmation?: boolean;
+  mcp?: McpToolExposure;
   execute: (args: Record<string, unknown>, ctx: CuratorToolContext) => Promise<CuratorToolOutput>;
 }): CuratorTool {
   return {
@@ -51,6 +70,7 @@ export function defineTool(opts: {
     parameters: opts.parameters,
     accessLevel: opts.accessLevel ?? 'safe_write',
     requiresConfirmation: opts.requiresConfirmation ?? false,
+    mcp: opts.mcp,
     async runAsync({ args, toolContext }): Promise<CuratorToolOutput> {
       return opts.execute(args, toolContext);
     },
@@ -59,6 +79,13 @@ export function defineTool(opts: {
         name: opts.name,
         description: opts.description,
         parameters: opts.parameters,
+      };
+    },
+    toMcpDeclaration() {
+      return {
+        name: opts.mcp?.name ?? opts.name,
+        description: opts.mcp?.description ?? opts.description,
+        inputSchema: opts.parameters ?? { type: 'object', properties: {} },
       };
     },
   };

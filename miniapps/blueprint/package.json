@@ -1,0 +1,43 @@
+{
+  "name": "curator-blueprint-miniapp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/server/index.js",
+  "scripts": {
+    "dev:server": "tsx src/server/index.ts",
+    "seed": "tsx src/cli.ts seed",
+    "exec": "tsx src/cli.ts exec",
+    "run": "tsx src/cli.ts run",
+    "trigger": "tsx src/cli.ts trigger",
+    "status": "tsx src/cli.ts status",
+    "build": "tsc",
+    "start": "node dist/server/index.js",
+    "test": "node --test test/blueprint.test.ts",
+    "agent:dialog": "tsx examples/agent_daemon.ts",
+    "chat": "tsx examples/cli_client.ts",
+    "cli:agent": "tsx src/cli.ts agent",
+    "cli:chat": "tsx src/cli.ts chat",
+    "example:tool": "tsx examples/direct_tool_call.ts",
+    "example:dialog": "tsx examples/dialog_loop.ts",
+    "example:coffee": "tsx examples/coffeescript_execution.ts",
+    "example:coffee-verbs": "tsx examples/coffeescript_verbs.ts",
+    "example:mcp": "tsx examples/mcp_server_client.ts",
+    "example:events": "tsx examples/events_streaming.ts"
+  },
+  "dependencies": {
+    "@curator/agent-server": "file:../../curator",
+    "@curator/host": "file:../../packages/host",
+    "@curator/mcp-server": "file:../../packages/mcp-server",
+    "commander": "^14.0.2",
+    "express": "^5.1.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.19.1",
+    "@types/ws": "^8.5.14",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "strict": false,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "ignoreDeprecations": "6.0",
+    "paths": {
+      "@curator/agent-server": ["../../curator/dist/src/index.d.ts"],
+      "@curator/agent-server/*": ["../../curator/dist/src/*"],
+      "@curator/host": ["../../packages/host/dist/index.d.ts"],
+      "@curator/host/*": ["../../packages/host/dist/*"],
+      "@curator/mcp-server": ["../../packages/mcp-server/dist/index.d.ts"],
+      "@curator/mcp-server/*": ["../../packages/mcp-server/dist/*"]
+    },
+    "typeRoots": [
+      "../../node_modules/@types",
+      "../../curator/node_modules/@types",
+      "../../server/node_modules/@types",
+      "../../miniapps/keeris/node_modules/@types"
+    ]
+  },
+  "include": ["src/**/*"]
+}

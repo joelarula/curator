@@ -16,6 +16,7 @@ export type CuratorPlugin = CuratorPluginDefinition;
 
 export class CuratorEngine {
   public tools = new Map<string, CuratorTool>();
+  public toolPlugins = new Map<string, string>();
   public models = new Map<string, SemanticNodeShape>();
   public scripts = new Map<string, CuratorScriptDefinition>();
   public agents = new Map<string, CuratorAgentDefinition | CuratorAstNode>();
@@ -26,7 +27,10 @@ export class CuratorEngine {
     console.log(`[CuratorEngine] Registering plugin: ${plugin.name}`);
 
     if (plugin.tools) {
-      Object.entries(plugin.tools).forEach(([k, v]) => this.tools.set(k, v));
+      Object.entries(plugin.tools).forEach(([k, v]) => {
+        this.tools.set(k, v);
+        this.toolPlugins.set(k, plugin.name);
+      });
     }
     if (plugin.models) {
       plugin.models.forEach(m => this.models.set(m.uri, m));
