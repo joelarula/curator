@@ -16,7 +16,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "node --test test/proxy.test.ts test/events.test.ts"
+    "test": "node --test test/proxy.test.ts test/events.test.ts test/identity.test.ts"
   },
   "dependencies": {
     "@curator/agent-server": "file:../../curator",

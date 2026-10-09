@@ -5,11 +5,13 @@ import { McpPeerClient } from '../mcp/McpPeerClient.js';
 import { createRemoteMcpProxyTool } from '../mcp/RemoteMcpProxyTool.js';
 import { MeshEventBridge } from '../events/MeshEventBridge.js';
 import { MeshServer } from '../events/MeshServer.js';
+import { resolvePeerSession, type PeerSessionResult } from '../identity/PeerSessionResolver.js';
 
 export class PeerConnectionManager {
   public readonly peers = new Map<string, PeerDescriptor>();
-  public readonly remoteTools = new Map<string, CuratorTool>(); // fullName -> CuratorTool
-  private mcpClients = new Map<string, McpPeerClient>();       // peerId -> McpPeerClient
+  public readonly peerSessions = new Map<string, PeerSessionResult>(); // peerId -> resolved session
+  public readonly remoteTools = new Map<string, CuratorTool>();       // fullName -> CuratorTool
+  private mcpClients = new Map<string, McpPeerClient>();             // peerId -> McpPeerClient
   public readonly eventBridge: MeshEventBridge;
   public readonly meshServer?: MeshServer;
 
@@ -33,19 +35,58 @@ export class PeerConnectionManager {
   }
 
   /**
-   * Registers a new peer into the mesh
+   * Registers a new peer into the mesh and provisions database User, Role, and Session
    */
   public async addPeer(peer: PeerDescriptor): Promise<void> {
     this.peers.set(peer.id, peer);
 
-    // 1. Setup MCP Client if mcpUrl is provided
+    // 1. Resolve Peer Session & DB entities (User, Role, UserRole, Session, Conversation)
+    try {
+      if (this.host.prisma) {
+        const sessionResult = await resolvePeerSession(this.host.prisma, peer);
+        this.peerSessions.set(peer.id, sessionResult);
+
+        // Also track/update active peer conversation in database with metadata
+        const convExternalId = `conv_peer_${peer.id}`;
+        await this.host.prisma.conversation.upsert({
+          where: { externalId: convExternalId },
+          update: {
+            metadata: {
+              peerId: peer.id,
+              name: peer.name || peer.id,
+              mcpUrl: peer.mcpUrl,
+              eventsUrl: peer.eventsUrl,
+              status: peer.status || 'connected',
+              lastSeen: new Date().toISOString(),
+            },
+          },
+          create: {
+            externalId: convExternalId,
+            userId: sessionResult.userId,
+            projectId: sessionResult.projectId,
+            metadata: {
+              peerId: peer.id,
+              name: peer.name || peer.id,
+              mcpUrl: peer.mcpUrl,
+              eventsUrl: peer.eventsUrl,
+              status: peer.status || 'connected',
+              lastSeen: new Date().toISOString(),
+            },
+          },
+        });
+      }
+    } catch (err: any) {
+      console.warn(`[PeerConnectionManager] Warning: Could not provision peer database session for "${peer.id}":`, err?.message || err);
+    }
+
+    // 2. Setup MCP Client if mcpUrl is provided
     if (peer.mcpUrl) {
       const client = new McpPeerClient(peer);
       this.mcpClients.set(peer.id, client);
       await this.syncPeerTools(peer, client);
     }
 
-    // 2. Connect event bridge if eventsUrl is provided
+    // 3. Connect event bridge if eventsUrl is provided
     if (peer.eventsUrl) {
       this.eventBridge.connectToPeer(peer);
     }

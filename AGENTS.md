@@ -88,8 +88,27 @@ Prefer this change order for feature work:
 
 - The `Request` and `Response` database tables execute workflows exclusively via the **Formal Execution AST** (`ast` field) and state mapping environment (`context`).
 - All legacy flat pipeline columns (`toolCalls`, `toolArgs`, `callbacks` on `Request` / `Response`) are deleted from both PostgreSQL and SQLite schemas.
-- Whenever dynamic scripts or sequential commands are submitted/run, they must compile using `compileToAST` into the structured AST JSON format before creating database request tasks.
-- The execution processor (`RequestProcessor`) polls for new requests and recursively executes the compiled nodes (`Sequence`, `ForEach`, `IfElse`, `Spawn`, `While`, `ToolTask`).
+- Whenever dynamic scripts or sequential commands are submitted/run, they must compile using `compileToAST` (or `compileCoffeeScriptToAST`) into the structured AST JSON format before creating database request tasks.
+- The execution processor (`RequestProcessor` / `CuratorRequestProcessor`) polls for new requests and recursively executes the compiled nodes (`Sequence`, `ForEach`, `IfElse`, `Spawn`, `While`, `ToolTask`).
+
+#### AST Context & Session Execution Guarantees
+Curator Core automatically maintains context, turn state, and database response logs across workflow executions:
+
+```coffeescript
+# Curator Core automatically maintains context, turn state, and database response logs
+while_loop "$context.turn <= 5",
+  seq [
+    wait_event "game:ping"
+    set_state turn: "$context.turn + 1", score: "$context.turn * 10"
+    emit_event "game:pong", turn: "$context.turn", sender: "alpha"
+  ]
+```
+
+When this runs, `CuratorRequestProcessor` guarantees:
+1. `$context.turn` and state are committed to the database after each step.
+2. `Response` and audit records are created per turn automatically.
+3. Peer sessions and token permissions are validated against the database.
+
 
 ## 5. Module-by-module run and validation commands
 

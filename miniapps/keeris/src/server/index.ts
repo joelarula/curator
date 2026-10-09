@@ -28,9 +28,8 @@ for (const envPath of envCandidates) {
 
 import { openDatabase } from '../db.ts';
 import { config } from '../config.ts';
-import { registerKeerisPlugins } from '../plugins/index.ts';
+import { createKeerisHost } from '../host.ts';
 import { executeGraphql } from './graphql.ts';
-import { startCuratorRuntime } from '../curator-runtime.ts';
 import { setupAuth, getUserFromToken } from './auth.ts';
 import { curatorEvents } from './events.ts';
 
@@ -44,26 +43,10 @@ console.log('[Keeris Server] Initializing database...');
 console.log(`[Keeris Server] Database target: ${databasePath.replace(/:[^:@]+@/, ':****@')}`);
 const db = openDatabase(databasePath);
 
-console.log('[Keeris Server] Registering plugins...');
-let engine: any = null;
-registerKeerisPlugins({ db })
-  .then(res => { engine = res; })
-  .catch(err => console.error('[Keeris Server] Plugin registration error:', err));
-
-let curatorRuntime: any = null;
-const curatorDbName = process.env.CURATOR_DATABASE_NAME ?? 'keeris';
-
-if (curatorDbName) {
-  console.log(`[Keeris Server] Starting Curator runtime (${curatorDbName})...`);
-  startCuratorRuntime({ databaseName: curatorDbName, keerisDb: db })
-    .then(runtime => {
-      curatorRuntime = runtime;
-      console.log(`[Keeris Server] Curator runtime ready (${curatorDbName}).`);
-    })
-    .catch(error => {
-      console.error(`[Keeris] Curator runtime notice: ${error?.message}`);
-    });
-}
+console.log('[Keeris Server] Initializing Curator Host...');
+const host = await createKeerisHost({ domainDb: db });
+await host.start(5000);
+console.log('[Keeris Server] Curator host and RequestProcessor active.');
 
 console.log('[Keeris Server] Configuring Express...');
 const app = express();
@@ -80,7 +63,7 @@ app.use((_req, res, next) => {
 });
 app.use(express.json({ limit: '256kb' }));
 
-setupAuth(app, () => curatorRuntime?.prisma);
+setupAuth(app, () => host.prisma);
 
 const dataDir = join(root, 'data');
 if (existsSync(dataDir)) {
@@ -95,8 +78,8 @@ app.get('/health', async (_request, response) => {
       serverApi: true,
       mode: 'express-graphql',
       database: db.isMysql ? 'mariadb' : db.isPostgres ? 'postgresql' : 'sqlite',
-      processor: curatorRuntime ? 'ready' : 'standalone',
-      plugins: engine?.plugins ? engine.plugins.map((plugin: any) => plugin.name) : ['core', 'keeris-domain', 'err-radio'],
+      processor: 'ready',
+      plugins: Array.from(host.engine.plugins.keys()),
       episodes: Number(stats?.episodes || 0)
     });
   } catch (error: any) {
@@ -112,7 +95,7 @@ app.get('/api/curator/events', (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders?.();
 
-  const recent = curatorEvents.getRecentLogs();
+  const recent = host.events.getRecentLogs();
   for (const log of recent) {
     res.write(`data: ${JSON.stringify({ type: 'log', payload: { message: log.message } })}\n\n`);
   }
@@ -123,7 +106,7 @@ app.get('/api/curator/events', (req, res) => {
     } catch (_) {}
   };
 
-  curatorEvents.on('event', listener);
+  host.events.onEvent(listener);
 
   const heartbeat = setInterval(() => {
     try {
@@ -132,13 +115,12 @@ app.get('/api/curator/events', (req, res) => {
   }, 15000);
 
   req.on('close', () => {
-    curatorEvents.off('event', listener);
     clearInterval(heartbeat);
   });
 });
 
 app.get('/api/curator/logs', (_req, res) => {
-  res.json({ logs: curatorEvents.getRecentLogs() });
+  res.json({ logs: host.events.getRecentLogs() });
 });
 
 app.get('/graphql', (_request, response) => {
@@ -173,8 +155,8 @@ app.post('/graphql', async (request, response) => {
   if (typeof request.body?.query !== 'string') return response.status(400).json({ errors: [{ message: 'query is required' }] });
   const authHeader = request.headers.authorization;
   const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : (request.query?.token as string);
-  const user = token ? await getUserFromToken(token, curatorRuntime?.prisma) : null;
-  const result = await executeGraphql(db, request.body.query, request.body.variables, { curatorRuntime, user });
+  const user = token ? await getUserFromToken(token, host.prisma) : null;
+  const result = await executeGraphql(db, request.body.query, request.body.variables, { curatorRuntime: host, user });
   response.status(result.errors ? 400 : 200).json(result);
 });
 
@@ -201,8 +183,8 @@ if (existsSync(webRoot)) {
 
 const server = app.listen(port, () => {
   console.log(`Keeris listening on http://localhost:${port}`);
-  curatorEvents.attachWebSocketServer(server);
-  console.log(`[Keeris Server] Curator WebSocket stream ready on ws://localhost:${port}/api/curator/ws`);
+  host.events.attachWebSocketServer(server);
+  console.log(`[Keeris Server] Curator WebSocket stream ready on ws://localhost:${port}/api/events`);
 });
 
 let isShuttingDown = false;
@@ -211,7 +193,6 @@ async function shutdown() {
   isShuttingDown = true;
   console.log('[Keeris Server] Shutting down gracefully...');
 
-  // Fallback timer to ensure process exits within 2 seconds
   const forceTimer = setTimeout(() => {
     console.log('[Keeris Server] Force exiting.');
     process.exit(0);
@@ -219,13 +200,7 @@ async function shutdown() {
   forceTimer.unref();
 
   try {
-    curatorEvents.close();
-  } catch (_) {}
-
-  try {
-    if (curatorRuntime && typeof curatorRuntime.stop === 'function') {
-      await curatorRuntime.stop();
-    }
+    await host.stop();
   } catch (_) {}
 
   try {

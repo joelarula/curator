@@ -15,8 +15,8 @@
     "paths": {
       "@curator/agent-server": ["../../curator/dist/src/index.d.ts"],
       "@curator/agent-server/*": ["../../curator/dist/src/*"],
-      "@curator/plugin-auth": ["../plugin-auth/dist/index.d.ts"],
-      "@curator/plugin-auth/*": ["../plugin-auth/dist/*"],
+      "@curator/host": ["../host/dist/index.d.ts"],
+      "@curator/host/*": ["../host/dist/*"],
       "graphql": ["../../miniapps/blueprint/node_modules/graphql/index.d.ts"],
       "graphql/*": ["../../miniapps/blueprint/node_modules/graphql/*"],
       "express": ["../../miniapps/blueprint/node_modules/@types/express/index.d.ts"]

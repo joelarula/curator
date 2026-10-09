@@ -12,7 +12,6 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "types": ["node"],
-    "ignoreDeprecations": "6.0",
     "paths": {
       "@curator/agent-server": ["../../curator/dist/src/index.d.ts"],
       "@curator/agent-server/*": ["../../curator/dist/src/*"],

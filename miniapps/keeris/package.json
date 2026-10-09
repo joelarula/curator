@@ -55,6 +55,8 @@
   "dependencies": {
     "@curator/agent-server": "file:../../curator",
     "@curator/console": "file:../../packages/curator-console",
+    "@curator/host": "file:../../packages/host",
+    "@curator/server": "file:../../packages/server",
     "@curator/plugin-auth": "file:../../packages/plugin-auth",
     "@mdi/js": "^7.4.47",
     "@prisma/adapter-mariadb": "^7.10.0",
@@ -80,7 +82,6 @@
     "@types/jsonwebtoken": "^9.0.9",
     "@types/passport": "^1.0.17",
     "@types/passport-google-oauth20": "^2.0.16",
-    "@types/vite-plugin-vuetify": "^2.0.0",
     "@types/ws": "^8.5.14",
     "@vitejs/plugin-vue": "^6.0.2",
     "esbuild": "^0.28.2",

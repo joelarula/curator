@@ -1,5 +1,5 @@
 {
-  "name": "@curator/host",
+  "name": "@curator/server",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -14,17 +14,13 @@
     },
     "./*": "./dist/*"
   },
-  "bin": {
-    "curator-seed": "./dist/bin/curator-seed.js"
-  },
   "scripts": {
     "build": "tsc",
-    "test": "node --test test/events.test.ts"
+    "test": "node --test test/server.test.ts"
   },
   "dependencies": {
     "@curator/agent-server": "file:../../curator",
-    "@curator/plugin-auth": "file:../plugin-auth",
-    "commander": "^14.0.2",
+    "@curator/host": "file:../host",
     "express": "^5.1.0",
     "graphql": "^16.14.2",
     "ws": "^8.18.0"

@@ -1,6 +1,15 @@
 import type { CuratorTool, CuratorPluginDefinition } from '../../../curator/dist/src/index.js';
 import type { CuratorHost } from '../../host/dist/index.js';
 
+export interface PeerIdentity {
+  id: string;
+  name?: string;
+  email?: string;
+  token?: string;
+  roleName?: string;
+  allowedTools?: string[];
+}
+
 export interface PeerDescriptor {
   id: string;
   name?: string;
@@ -9,6 +18,8 @@ export interface PeerDescriptor {
   status?: 'connected' | 'disconnected' | 'connecting' | 'error';
   lastSeen?: string;
   latencyMs?: number;
+  identity?: PeerIdentity;
+  token?: string;
   metadata?: Record<string, unknown>;
 }
 

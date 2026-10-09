@@ -1,19 +1,22 @@
+#!/usr/bin/env node
 try {
   process.loadEnvFile?.();
 } catch {}
 
-import { Command } from 'commander';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { createHostCli } from '@curator/host';
+import { createKeerisHost } from './host.ts';
 import { openDatabase } from './db.ts';
 import { executeGraphql } from './server/graphql.ts';
 import { config } from './config.ts';
 
-const program = new Command();
+const program = createHostCli(createKeerisHost, {
+  name: 'keeris',
+  description: 'Curator Keeris Archive & Host Management CLI',
+  version: '1.0.0',
+});
 
-program
-  .name('curator')
-  .description('Curator Engine & Archive Management CLI (driven by inner GraphQL API)')
-  .option('-d, --db <path>', 'Database path', config.defaultDatabase);
+program.option('-d, --db <path>', 'Database path', config.defaultDatabase);
 
 program
   .command('stats')
@@ -90,43 +93,6 @@ program
     }`, { search: queryTerm, limit: Number(options.limit) });
     if (res.errors?.length) throw new Error(res.errors[0].message);
     console.log(JSON.stringify((res.data as any).uniqueTracks, null, 2));
-    db.close();
-  });
-
-program
-  .command('agents')
-  .description('List registered Curator workflow agents & schedules via GraphQL')
-  .action(async () => {
-    const db = openDatabase(program.opts().db);
-    const res = await executeGraphql(db, 'query { curatorAgents { id name ast schedule isActive enabled } }');
-    if (res.errors?.length) throw new Error(res.errors[0].message);
-    console.log(JSON.stringify((res.data as any).curatorAgents, null, 2));
-    db.close();
-  });
-
-program
-  .command('requests')
-  .description('Query recent Curator workflow execution requests via GraphQL')
-  .option('-l, --limit <number>', 'Number of execution log records to retrieve', '20')
-  .action(async (options) => {
-    const db = openDatabase(program.opts().db);
-    const res = await executeGraphql(db, 'query($limit: Int) { curatorRequests(limit: $limit) { id agentName createdAt responses { id content createdAt } } }', { limit: Number(options.limit) });
-    if (res.errors?.length) throw new Error(res.errors[0].message);
-    console.log(JSON.stringify((res.data as any).curatorRequests, null, 2));
-    db.close();
-  });
-
-program
-  .command('trigger')
-  .description('Trigger a Curator agent workflow execution via GraphQL mutation')
-  .requiredOption('-a, --agent <name>', 'Agent workflow name (e.g. vikerraadio_kauamangiv_scrape)')
-  .option('-r, --refresh', 'Refresh existing episode pages')
-  .action(async (options) => {
-    const db = openDatabase(program.opts().db);
-    console.log(`[Curator CLI] Invoking triggerCuratorAgent mutation for '${options.agent}'...`);
-    const res = await executeGraphql(db, 'mutation($name: String!, $refresh: Boolean) { triggerCuratorAgent(name: $name, refresh: $refresh) { id requestId content createdAt } }', { name: options.agent, refresh: !!options.refresh });
-    if (res.errors?.length) throw new Error(res.errors[0].message);
-    console.log(JSON.stringify((res.data as any).triggerCuratorAgent, null, 2));
     db.close();
   });
 

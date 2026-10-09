@@ -6,11 +6,14 @@ A reference starter template for building domain-focused **Curator MiniApps** po
 
 ## Features
 
+- **Full-Stack Web Dashboard**: Vue 3 + Vite frontend with real-time telemetry, agent triggers, and tool runner.
+- **Embedded Curator Dev Console**: Universal `<CuratorConsole>` integration (toggle with `Ctrl + \`` or masthead pill) for AST step inspection, engine pause/resume, and 1-click SQLite binary export/import.
 - **SQLite Persistence**: Built-in SQLite orchestration database located at `./data/state/curator.db`.
 - **Domain Plugin**: Clean separation of domain tools and workflows in `src/plugins/demo.ts`.
 - **Command-Line Interface**: CLI commands for seeding, direct tool execution, and synchronous terminal runs (`npm run seed`, `npm run exec`, `npm run run`, `npm run trigger`).
 - **Interactive Dialog Loop & Script Playground**: Human-in-the-loop dialog workflow executing tools dynamically.
 - **CoffeeScript Integration**: Native support for in-AST CoffeeScript nodes and standalone `.coffee` script pipelines.
+- **Distributed P2P Mesh**: Dynamic multi-host federated communication with remote MCP proxying (`@curator/federation`).
 - **Server Daemon**: Express HTTP API with real-time WebSocket event streaming (`/api/events`).
 - **Zero Boilerplate**: Lifecycle, processor loops, and seeding are managed by `@curator/host`.
 
@@ -25,14 +28,24 @@ miniapps/blueprint/
 ├── README.md
 ├── test/
 │   └── blueprint.test.ts      # Unit tests
+├── web/                       # Full-Stack Vue 3 + Vite Frontend
+│   ├── index.html
+│   ├── vite.config.ts
+│   └── src/
+│       ├── main.ts
+│       ├── App.vue            # Interactive UI + Embedded <CuratorConsole>
+│       ├── curator-adapter.ts # Universal CuratorConsoleAdapter implementation
+│       └── style.css          # Design system & dark theme tokens
 ├── examples/
 │   ├── agent_daemon.ts             # Side A: Background Dialog Agent runner
 │   ├── cli_client.ts               # Side B: Interactive human CLI chat client
 │   ├── dialog_loop.ts              # Programmatic simulation of an interactive dialog turn
 │   ├── direct_tool_call.ts         # In-process tool execution & MCP declarations
 │   ├── coffeescript_execution.ts   # Dynamic CoffeeScript agent compilation & execution
+│   ├── coffeescript_verbs.ts       # Natural Verbs DSL & Automatic AST compilation
 │   ├── mcp_server_client.ts        # MCP tool registry discovery and invocation
 │   ├── events_streaming.ts         # Real-time typed event bus listeners
+│   ├── p2p_pingpong.ts             # Symmetric P2P Host Ping-Pong / Cuckoo Harness
 │   └── coffeescript_pipeline.coffee # Standalone CoffeeScript AST workflow definition
 └── src/
     ├── host.ts                # CuratorHost bootstrap & plugin registration
@@ -40,7 +53,7 @@ miniapps/blueprint/
     ├── plugins/
     │   └── demo.ts            # Domain plugin (tools & agents)
     └── server/
-        └── index.ts           # Long-running HTTP & WebSocket daemon
+        └── index.ts           # Long-running HTTP, GraphQL & WebSocket daemon
 ```
 
 ---
@@ -120,9 +133,34 @@ npm run example:mcp
 # Real-time Host lifecycle events & topic streaming
 npm run example:events
 
+# Distributed P2P Mesh & Multi-Agent Ping-Pong Harness
+npm run example:p2p
+
 # Side A: Background Dialog Agent Daemon
 npm run agent:dialog
 
 # Side B: User CLI Chat Client
 npm run chat
 ```
+
+---
+
+## Curator Core Execution Guarantees
+
+When defining workflows using CoffeeScript Natural Verbs (`while_loop`, `seq`, `set_state`, `wait_event`, `emit_event`):
+
+```coffeescript
+# Curator Core automatically maintains context, turn state, and database response logs
+while_loop "$context.turn <= 5",
+  seq [
+    wait_event "game:ping"
+    set_state turn: "$context.turn + 1", score: "$context.turn * 10"
+    emit_event "game:pong", turn: "$context.turn", sender: "alpha"
+  ]
+```
+
+`CuratorRequestProcessor` guarantees:
+1. `$context.turn` and state are committed to the database after each step.
+2. `Response` and audit records are created per turn automatically.
+3. Peer sessions and token permissions are validated against the database.
+

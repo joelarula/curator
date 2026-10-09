@@ -18,7 +18,10 @@
     "paths": {
       "@/*": ["./web/src/*"],
       "@wasm/*": ["./wasm/*"],
-      "@keeris/*": ["./src/*"],
+      "@curator/host": ["../../packages/host/src/index.ts"],
+      "@curator/host/*": ["../../packages/host/src/*"],
+      "@curator/server": ["../../packages/server/src/index.ts"],
+      "@curator/server/*": ["../../packages/server/src/*"],
       "@curator/console": ["../../packages/curator-console/src/index.ts"],
       "@curator/plugin-auth": ["../../packages/plugin-auth/src/index.ts"],
       "@curator/agent-server": ["../../curator/src/index.ts"],

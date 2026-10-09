@@ -12,16 +12,22 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "types": ["node"],
-    "ignoreDeprecations": "6.0",
     "paths": {
       "@curator/agent-server": ["../../curator/dist/src/index.d.ts"],
       "@curator/agent-server/*": ["../../curator/dist/src/*"],
       "@curator/host": ["../../packages/host/dist/index.d.ts"],
       "@curator/host/*": ["../../packages/host/dist/*"],
       "@curator/mcp-server": ["../../packages/mcp-server/dist/index.d.ts"],
-      "@curator/mcp-server/*": ["../../packages/mcp-server/dist/*"]
+      "@curator/mcp-server/*": ["../../packages/mcp-server/dist/*"],
+      "@curator/server": ["../../packages/server/dist/index.d.ts"],
+      "@curator/server/*": ["../../packages/server/dist/*"],
+      "@curator/federation": ["../../packages/federation/dist/index.d.ts"],
+      "@curator/federation/*": ["../../packages/federation/dist/*"],
+      "graphql": ["../../miniapps/keeris/node_modules/graphql/index.d.ts"],
+      "graphql/*": ["../../miniapps/keeris/node_modules/graphql/*"]
     },
     "typeRoots": [
+      "./node_modules/@types",
       "../../node_modules/@types",
       "../../curator/node_modules/@types",
       "../../server/node_modules/@types",

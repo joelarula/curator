@@ -6,13 +6,16 @@
   "main": "dist/server/index.js",
   "scripts": {
     "dev:server": "tsx src/server/index.ts",
+    "dev:web": "vite --config web/vite.config.ts",
+    "build:web": "vite build --config web/vite.config.ts",
+    "build:server": "tsc",
+    "build": "npm run build:server && npm run build:web",
     "seed": "tsx src/cli.ts seed",
     "exec": "tsx src/cli.ts exec",
     "run": "tsx src/cli.ts run",
     "trigger": "tsx src/cli.ts trigger",
     "status": "tsx src/cli.ts status",
-    "build": "tsc",
-    "start": "node dist/server/index.js",
+    "start": "node dist/src/server/index.js",
     "test": "node --test test/blueprint.test.ts",
     "agent:dialog": "tsx examples/agent_daemon.ts",
     "chat": "tsx examples/cli_client.ts",
@@ -23,21 +26,32 @@
     "example:coffee": "tsx examples/coffeescript_execution.ts",
     "example:coffee-verbs": "tsx examples/coffeescript_verbs.ts",
     "example:mcp": "tsx examples/mcp_server_client.ts",
-    "example:events": "tsx examples/events_streaming.ts"
+    "example:events": "tsx examples/events_streaming.ts",
+    "example:p2p": "tsx examples/p2p_pingpong.ts"
   },
   "dependencies": {
     "@curator/agent-server": "file:../../curator",
+    "@curator/console": "file:../../packages/curator-console",
+    "@curator/federation": "file:../../packages/federation",
     "@curator/host": "file:../../packages/host",
     "@curator/mcp-server": "file:../../packages/mcp-server",
+    "@curator/server": "file:../../packages/server",
     "commander": "^14.0.2",
     "express": "^5.1.0",
+    "graphql": "^16.14.2",
+    "vue": "^3.5.13",
+    "vuetify": "^3.7.15",
     "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
+    "@types/multer": "^1.4.12",
     "@types/node": "^22.19.1",
     "@types/ws": "^8.5.14",
+    "@vitejs/plugin-vue": "^5.2.1",
     "tsx": "^4.19.1",
-    "typescript": "^5.6.2"
+    "typescript": "^5.6.2",
+    "vite": "^6.2.0",
+    "vite-plugin-vuetify": "^2.0.4"
   }
 }

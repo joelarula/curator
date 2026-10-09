@@ -223,6 +223,30 @@ mutation {
 
 - Scripts run with a **5 second timeout**.
 - No `require`, `import`, `fetch`, or file system access.
-- The script **must return a `ToolChain` instance** — calling `.toJSON()` yourself before returning throws an error.
+- The script **must return a `ToolChain` instance** (or an AST node when using CoffeeScript verbs).
 - For multi-statement scripts, use an explicit `return` on the last line.
 - For single-expression scripts, omit `return` entirely.
+
+---
+
+## CoffeeScript Natural Verbs & AST Execution Guarantees
+
+Curator supports writing clean, human-readable pipelines using the CoffeeScript Natural Verbs DSL (`tool`, `prompt`, `seq`, `set_state`, `while_loop`, `for_each`, `emit_event`, `wait_event`).
+
+### Example: Stateful Ping-Pong & Event Workflow
+
+```coffeescript
+# Curator Core automatically maintains context, turn state, and database response logs
+while_loop "$context.turn <= 5",
+  seq [
+    wait_event "game:ping"
+    set_state turn: "$context.turn + 1", score: "$context.turn * 10"
+    emit_event "game:pong", turn: "$context.turn", sender: "alpha"
+  ]
+```
+
+### Guarantees Enforced by `CuratorRequestProcessor`
+1. **Context Persistence**: `$context.turn` and state are committed to the database `Request.context` after each step.
+2. **Response Generation**: `Response` records and audit history are created per turn automatically in SQLite / PostgreSQL.
+3. **Session & Security Validation**: Peer sessions, user roles, and token permissions are validated against the database for every tool and event invocation.
+
