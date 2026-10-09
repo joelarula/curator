@@ -663,7 +663,21 @@ export function createMysqlAdapter(connectionString: string) {
   return adapter;
 }
 
-export function openDatabase(filenameOrUrl?: string): any {
+export interface DatabaseAdapter {
+  isPostgres?: boolean;
+  isMysql?: boolean;
+  pool?: any;
+  prepare(sql: string): {
+    all(...params: any[]): any;
+    get(...params: any[]): any;
+    run(...params: any[]): any;
+  };
+  exec(sql: string): any;
+  close(): any;
+  [key: string]: any;
+}
+
+export function openDatabase(filenameOrUrl?: string): DatabaseAdapter {
   const target = filenameOrUrl || process.env.DATABASE_URL || 'data/keeris.db';
   if (typeof target === 'string' && (target.startsWith('postgres://') || target.startsWith('postgresql://'))) {
     return createPostgresAdapter(target);
