@@ -72,7 +72,15 @@
           <div class="song-title-group">
             <div class="d-flex flex-column flex-sm-row align-start justify-space-between ga-2">
               <div class="song-heading flex-grow-1">
-                <h2 v-html="highlight(song.title || $t('trackTable.untitledSong'), searchQuery)"></h2>
+                <router-link
+                  v-if="String(song.id).startsWith('ep-')"
+                  :to="`/episode/${String(song.id).replace(/^ep-/, '')}`"
+                  class="episode-card-title-link"
+                  :title="$t('trackTable.episodePage')"
+                >
+                  <h2 v-html="highlight(song.title || $t('trackTable.untitledSong'), searchQuery)"></h2>
+                </router-link>
+                <h2 v-else v-html="highlight(song.title || $t('trackTable.untitledSong'), searchQuery)"></h2>
                 <div class="artist-row d-flex align-center flex-wrap ga-2 mt-1">
                   <span class="artist" v-html="highlight(song.artist || $t('trackTable.unknownArtist'), searchQuery)"></span>
                   <span class="play-count-badge episode-badge" v-if="String(song.id).startsWith('ep-')">{{ $t('trackTable.episodeMatch') }}</span>
@@ -123,10 +131,10 @@
                 <span class="airing-date">{{ airing.date ? airing.date.slice(0, 10) : '' }}</span>
                 <span v-if="airing.position" class="airing-pos">{{ $t('trackTable.trackPos', { pos: airing.position }) }}</span>
                 <router-link
-                  v-if="airing.episodeId && airing.episodeTitle"
-                  :to="`/episode/${airing.episodeId}`"
+                  v-if="(airing.episodeId || String(song.id).startsWith('ep-')) && airing.episodeTitle"
+                  :to="`/episode/${airing.episodeId || String(song.id).replace(/^ep-/, '')}`"
                   class="episode-title-link"
-                  title="Open dedicated episode page"
+                  :title="$t('trackTable.episodePage')"
                 >
                   — <span v-html="highlight(airing.episodeTitle, searchQuery)"></span>
                 </router-link>
@@ -138,8 +146,8 @@
                   {{ $t('trackTable.listen') }} <span aria-hidden="true">↗</span>
                 </a>
                 <router-link
-                  v-if="airing.episodeId"
-                  :to="`/episode/${airing.episodeId}`"
+                  v-if="airing.episodeId || String(song.id).startsWith('ep-')"
+                  :to="`/episode/${airing.episodeId || String(song.id).replace(/^ep-/, '')}`"
                   class="open-link"
                   :title="$t('trackTable.episodePage')"
                 >
@@ -238,6 +246,7 @@ export interface SongItem {
   playCount?: number;
   firstPlayedAt?: string | null;
   lastPlayedAt?: string | null;
+  snippet?: string | null;
   airings?: AiringItem[];
 }
 
@@ -577,6 +586,15 @@ onUnmounted(() => {
   transition: color 0.15s ease;
 }
 .episode-title-link:hover {
+  color: #0284c7;
+  text-decoration: underline;
+}
+
+.episode-card-title-link {
+  color: inherit;
+  text-decoration: none;
+}
+.episode-card-title-link:hover h2 {
   color: #0284c7;
   text-decoration: underline;
 }

@@ -29,11 +29,30 @@ export function extractMatchSnippet(text: string | null | undefined, search: str
 
   const lowerText = text.toLowerCase();
   const lowerSearch = cleanSearch.toLowerCase();
-  const idx = lowerText.indexOf(lowerSearch);
+  let idx = lowerText.indexOf(lowerSearch);
+  let matchLen = cleanSearch.length;
+
+  if (idx === -1) {
+    const nfcText = text.normalize('NFC').toLowerCase();
+    const nfcSearch = cleanSearch.normalize('NFC').toLowerCase();
+    const nfcIdx = nfcText.indexOf(nfcSearch);
+    if (nfcIdx !== -1) {
+      idx = Math.min(nfcIdx, text.length - 1);
+      matchLen = nfcSearch.length;
+    } else {
+      const nfdText = text.normalize('NFD').toLowerCase();
+      const nfdSearch = cleanSearch.normalize('NFD').toLowerCase();
+      const nfdIdx = nfdText.indexOf(nfdSearch);
+      if (nfdIdx !== -1) {
+        idx = Math.min(nfdIdx, text.length - 1);
+        matchLen = nfdSearch.length;
+      }
+    }
+  }
   if (idx === -1) return null;
 
   let start = Math.max(0, idx - padding);
-  let end = Math.min(text.length, idx + cleanSearch.length + padding);
+  let end = Math.min(text.length, idx + matchLen + padding);
 
   if (start > 0) {
     const space = text.indexOf(' ', start);
@@ -41,7 +60,7 @@ export function extractMatchSnippet(text: string | null | undefined, search: str
   }
   if (end < text.length) {
     const space = text.lastIndexOf(' ', end);
-    if (space !== -1 && space > idx + cleanSearch.length) end = space;
+    if (space !== -1 && space > idx + matchLen) end = space;
   }
 
   let snippet = text.slice(start, end).trim().replace(/\s+/g, ' ');
@@ -226,6 +245,7 @@ export function readonlyResolvers(db: any) {
             airParams.push(...validProgramIds);
           }
           const airRows = await db.prepare(`SELECT t.id, t.position, t.artist, t.title, t.raw_text,
+              e.id AS episodeId, p.id AS programId,
               e.scheduled_at AS date, e.title AS episodeTitle, e.url AS episodeUrl, p.title AS programTitle,
               COALESCE(NULLIF(m.description, ''), m.summary) AS episodeDescription
             FROM tracks t JOIN episodes e ON e.id=t.episode_id
@@ -237,21 +257,23 @@ export function readonlyResolvers(db: any) {
       }));
 
       if (cleanSearch.length > 0) {
-        const needle = `%${normalizeText(cleanSearch)}%`;
+        const needleNfc = `%${cleanSearch.normalize('NFC').toLowerCase()}%`;
+        const needleNfd = `%${cleanSearch.normalize('NFD').toLowerCase()}%`;
         const progFilterEp = validProgramIds.length > 0
           ? `AND e.program_id IN (${validProgramIds.map(() => '?').join(',')})`
           : '';
         const epParams = validProgramIds.length > 0
-          ? [needle, ...validProgramIds, safeLimit]
-          : [needle, safeLimit];
+          ? [needleNfc, needleNfd, ...validProgramIds, safeLimit]
+          : [needleNfc, needleNfd, safeLimit];
 
-        const epRows = await db.prepare(`SELECT e.id, e.title AS episodeTitle, e.url AS episodeUrl, e.scheduled_at AS date,
+        const epRows = await db.prepare(`SELECT e.id, e.program_id AS programId, e.title AS episodeTitle, e.url AS episodeUrl, e.scheduled_at AS date,
             p.title AS programTitle, COALESCE(NULLIF(m.description, ''), m.summary) AS episodeDescription,
             m.full_text AS episodeFullText, m.description AS rawDescription, m.summary AS rawSummary
           FROM episodes e
           LEFT JOIN programs p ON p.id = e.program_id
           LEFT JOIN episode_metadata m ON m.episode_id = e.id
-          WHERE (LOWER(coalesce(e.title, '') || ' ' || coalesce(m.description, '') || ' ' || coalesce(m.full_text, '')) LIKE LOWER(?))
+          WHERE ((LOWER(coalesce(e.title, '') || ' ' || coalesce(m.description, '') || ' ' || coalesce(m.full_text, '')) LIKE LOWER(?))
+             OR (LOWER(coalesce(e.title, '') || ' ' || coalesce(m.description, '') || ' ' || coalesce(m.full_text, '')) LIKE LOWER(?)))
             ${progFilterEp}
           ORDER BY e.scheduled_at DESC LIMIT ?`).all(...epParams);
 
@@ -287,6 +309,7 @@ export function readonlyResolvers(db: any) {
             snippet: epSnippet,
             airings: async () => {
               const epTracks = await db.prepare(`SELECT t.id, t.position, t.artist, t.title, t.raw_text,
+                  e.id AS episodeId, p.id AS programId,
                   e.scheduled_at AS date, e.title AS episodeTitle, e.url AS episodeUrl, p.title AS programTitle,
                   COALESCE(NULLIF(m.description, ''), m.summary) AS episodeDescription,
                   ut.artist AS uArtist, ut.title AS uTitle, ut.play_count AS uPlayCount
@@ -315,6 +338,8 @@ export function readonlyResolvers(db: any) {
                 title: epTitle,
                 rawText: epTitle,
                 date: epDate,
+                episodeId: ep.id,
+                programId: ep.programId ?? ep.program_id ?? null,
                 episodeTitle: epTitle,
                 episodeUrl: epUrl,
                 programTitle: progTitle,

@@ -847,7 +847,28 @@ export async function saveProgramData(
 ): Promise<void> {
   const now = db.isMysql ? new Date().toISOString().slice(0, 19).replace('T', ' ') : new Date().toISOString();
   let programRecord: any = null;
-  
+
+  if (program) {
+    if (program.title) program.title = String(program.title).normalize('NFC');
+    if (program.description) program.description = String(program.description).normalize('NFC');
+  }
+  if (episode) {
+    if (episode.heading) episode.heading = String(episode.heading).normalize('NFC');
+    if (episode.title) episode.title = String(episode.title).normalize('NFC');
+  }
+  if (metadata) {
+    if (metadata.description) metadata.description = String(metadata.description).normalize('NFC');
+    if (metadata.fullText) metadata.fullText = String(metadata.fullText).normalize('NFC');
+    if (metadata.summary) metadata.summary = String(metadata.summary).normalize('NFC');
+  }
+  if (tracks && tracks.length > 0) {
+    for (const t of tracks) {
+      if (t.artist) t.artist = String(t.artist).normalize('NFC');
+      if (t.title) t.title = String(t.title).normalize('NFC');
+      if (t.rawText) t.rawText = String(t.rawText).normalize('NFC');
+    }
+  }
+
   if (db.isPostgres) {
     const client = await db.pool.connect();
     try {
