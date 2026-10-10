@@ -106,7 +106,7 @@ app.get('/api/curator/events', (req, res) => {
     } catch (_) {}
   };
 
-  host.events.onEvent(listener);
+  const unsubscribe = host.events.onEvent(listener);
 
   const heartbeat = setInterval(() => {
     try {
@@ -116,6 +116,7 @@ app.get('/api/curator/events', (req, res) => {
 
   req.on('close', () => {
     clearInterval(heartbeat);
+    try { unsubscribe(); } catch (_) {}
   });
 });
 

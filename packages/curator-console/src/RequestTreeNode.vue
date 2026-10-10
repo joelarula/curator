@@ -6,6 +6,7 @@
         'status-card-' + (node.status || 'pending').toLowerCase(),
         { 'is-selected': isSelected, 'has-subtasks': node.children.length > 0 }
       ]"
+      @click="$emit('select-node', node)"
     >
       <!-- Header Row -->
       <div class="node-header">
@@ -29,6 +30,21 @@
           <span class="node-type-badge" :class="'type-' + nodeTypeClass">
             <span class="type-icon">{{ nodeTypeIcon }}</span>
             <span class="type-text">{{ node.toolName || node.nodeType || 'AST Task' }}</span>
+          </span>
+
+          <!-- Turn Badge if present in context -->
+          <span v-if="contextTurn != null" class="node-turn-badge" title="Conversation Turn">
+            Turn #{{ contextTurn }}
+          </span>
+
+          <!-- Parent Task Link -->
+          <span 
+            v-if="node.parentId && depth > 0" 
+            class="node-parent-badge" 
+            :title="'Spawned by parent task #' + node.parentId"
+            @click.stop="$emit('select-node', { id: node.parentId } as any)"
+          >
+            ↖ #{{ node.parentId }}
           </span>
 
           <!-- Agent Name Badge (if root or explicit) -->
@@ -58,7 +74,7 @@
       </div>
 
       <!-- Detail Inspector Action Bar -->
-      <div class="node-actions-bar">
+      <div class="node-actions-bar" @click.stop>
         <button 
           class="inspect-tab-btn" 
           :class="{ active: openSection === 'context', 'has-data': node.contextJson }"
@@ -108,45 +124,72 @@
       </div>
 
       <!-- Expanded Section: CONTEXT -->
-      <div v-if="openSection === 'context'" class="node-drawer context-drawer">
+      <div v-if="openSection === 'context'" class="node-drawer context-drawer" @click.stop>
         <div class="drawer-header">
-          <span class="drawer-title">Execution Context (Variables & State):</span>
-          <button class="copy-btn" @click="copyText(node.contextJson || '{}')">📋 Copy</button>
+          <div class="d-flex align-center gap-2">
+            <span class="drawer-title">Execution Context (Variables &amp; State):</span>
+            <input 
+              v-if="parsedContextEntries.length > 3" 
+              v-model="contextFilter" 
+              type="text" 
+              placeholder="Filter keys..." 
+              class="drawer-filter-input"
+            />
+          </div>
+          <button class="copy-btn" @click="copyText(node.contextJson || '{}')">📋 Copy JSON</button>
         </div>
+
+        <!-- Key-Value Summary Grid -->
+        <div v-if="filteredContextEntries.length > 0" class="context-key-badges">
+          <div v-for="[k, v] in filteredContextEntries" :key="k" class="context-pill">
+            <span class="c-key">{{ k }}:</span>
+            <span class="c-val" :title="String(v)">{{ formatValuePreview(v) }}</span>
+          </div>
+        </div>
+
         <pre v-if="node.contextJson" class="drawer-code">{{ node.contextJson }}</pre>
         <div v-else class="drawer-empty">No context payload attached to this task.</div>
       </div>
 
       <!-- Expanded Section: AST -->
-      <div v-if="openSection === 'ast'" class="node-drawer ast-drawer">
+      <div v-if="openSection === 'ast'" class="node-drawer ast-drawer" @click.stop>
         <div class="drawer-header">
           <span class="drawer-title">Execution AST Definition:</span>
-          <button class="copy-btn" @click="copyText(node.astJson)">📋 Copy</button>
+          <button class="copy-btn" @click="copyText(node.astJson)">📋 Copy AST</button>
         </div>
         <pre class="drawer-code">{{ node.astJson }}</pre>
       </div>
 
-      <!-- Expanded Section: RESPONSES -->
-      <div v-if="openSection === 'responses'" class="node-drawer responses-drawer">
+      <!-- Expanded Section: RESPONSES / CONVERSATION FEED -->
+      <div v-if="openSection === 'responses'" class="node-drawer responses-drawer" @click.stop>
         <div class="drawer-header">
-          <span class="drawer-title">Execution Outputs & Responses:</span>
+          <span class="drawer-title">Execution Outputs &amp; Conversation Stream:</span>
+          <button v-if="node.raw.responses?.length" class="copy-btn" @click="copyAllResponses">📋 Copy All</button>
         </div>
         <div v-if="node.raw.responses && node.raw.responses.length" class="responses-feed">
-          <div v-for="resp in node.raw.responses" :key="resp.id" class="response-entry">
+          <div v-for="resp in parsedResponses" :key="resp.id" class="response-entry" :class="'resp-role-' + resp.role">
             <div class="resp-header">
-              <span class="resp-id">Response #{{ resp.id }}</span>
-              <span class="resp-time">{{ resp.createdAt ? new Date(resp.createdAt).toLocaleTimeString() : '' }}</span>
+              <div class="d-flex align-center gap-2">
+                <span class="resp-role-badge">{{ resp.roleIcon }} {{ resp.role.toUpperCase() }}</span>
+                <span class="resp-id">#{{ resp.id }}</span>
+              </div>
+              <div class="d-flex align-center gap-2">
+                <span class="resp-time">{{ resp.time }}</span>
+                <button class="copy-btn mini-btn" @click="copyText(resp.rawContent)">📋</button>
+              </div>
             </div>
-            <pre class="resp-content">{{ formatResponseContent(resp.content) }}</pre>
+            <!-- If message text exists, display chat-style preview -->
+            <div v-if="resp.messageText" class="resp-message-text">{{ resp.messageText }}</div>
+            <pre class="resp-content">{{ resp.formattedContent }}</pre>
           </div>
         </div>
         <div v-else class="drawer-empty">No response logs recorded for this request yet.</div>
       </div>
 
       <!-- Expanded Section: TIMELINE & METADATA -->
-      <div v-if="openSection === 'timeline'" class="node-drawer timeline-drawer">
+      <div v-if="openSection === 'timeline'" class="node-drawer timeline-drawer" @click.stop>
         <div class="drawer-header">
-          <span class="drawer-title">Task Timeline & Execution Details:</span>
+          <span class="drawer-title">Task Timeline &amp; Execution Details:</span>
         </div>
         <div class="timeline-grid">
           <div class="timeline-item">
@@ -220,9 +263,75 @@ const emit = defineEmits<{
 }>();
 
 const openSection = ref<'context' | 'ast' | 'responses' | 'timeline' | null>(null);
+const contextFilter = ref('');
 
 const isCollapsed = computed(() => props.collapsedNodes.has(props.node.id));
 const isSelected = computed(() => props.selectedNodeId === props.node.id);
+
+const parsedContext = computed<Record<string, any>>(() => {
+  if (!props.node.contextJson) return {};
+  try {
+    return JSON.parse(props.node.contextJson);
+  } catch {
+    return {};
+  }
+});
+
+const contextTurn = computed<number | string | null>(() => {
+  const ctx = parsedContext.value;
+  if (ctx.turn != null) return ctx.turn;
+  if (ctx.$turn != null) return ctx.$turn;
+  if (ctx.step != null) return ctx.step;
+  return null;
+});
+
+const parsedContextEntries = computed<[string, any][]>(() => {
+  return Object.entries(parsedContext.value);
+});
+
+const filteredContextEntries = computed<[string, any][]>(() => {
+  if (!contextFilter.value.trim()) return parsedContextEntries.value;
+  const q = contextFilter.value.toLowerCase();
+  return parsedContextEntries.value.filter(([k]) => k.toLowerCase().includes(q));
+});
+
+const parsedResponses = computed(() => {
+  if (!props.node.raw?.responses) return [];
+  return props.node.raw.responses.map((resp: any) => {
+    let role = 'assistant';
+    let roleIcon = '🤖';
+    let messageText = '';
+    let formatted = resp.content;
+
+    try {
+      const obj = JSON.parse(resp.content);
+      formatted = JSON.stringify(obj, null, 2);
+      if (obj.role) {
+        role = obj.role;
+      }
+      if (obj.text || obj.message || obj.content) {
+        messageText = typeof (obj.text || obj.message || obj.content) === 'string'
+          ? (obj.text || obj.message || obj.content)
+          : '';
+      }
+      if (role === 'user') roleIcon = '👤';
+      else if (role === 'system') roleIcon = '⚙️';
+      else if (role === 'tool') roleIcon = '🔧';
+    } catch (_) {
+      formatted = resp.content;
+    }
+
+    return {
+      id: resp.id,
+      role,
+      roleIcon,
+      messageText,
+      formattedContent: formatted,
+      rawContent: resp.content,
+      time: resp.createdAt ? new Date(resp.createdAt).toLocaleTimeString() : '',
+    };
+  });
+});
 
 const nodeTypeClass = computed(() => {
   const t = (props.node.nodeType || '').toLowerCase();
@@ -260,6 +369,12 @@ function toggleSection(section: 'context' | 'ast' | 'responses' | 'timeline') {
   openSection.value = openSection.value === section ? null : section;
 }
 
+function formatValuePreview(v: any): string {
+  if (v == null) return 'null';
+  if (typeof v === 'object') return Array.isArray(v) ? `Array(${v.length})` : '{...}';
+  return String(v);
+}
+
 function formatTime(isoStr?: string | null): string {
   if (!isoStr) return '—';
   try {
@@ -284,19 +399,15 @@ function formatDuration(ms: number): string {
   return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
 }
 
-function formatResponseContent(content: string): string {
-  if (!content) return '';
-  try {
-    const parsed = JSON.parse(content);
-    return JSON.stringify(parsed, null, 2);
-  } catch {
-    return content;
-  }
-}
-
 function copyText(text: string) {
   if (!text) return;
   navigator.clipboard.writeText(text);
+}
+
+function copyAllResponses() {
+  if (!props.node.raw?.responses) return;
+  const combined = props.node.raw.responses.map((r: any) => `=== Response #${r.id} (${r.createdAt || ''}) ===\n${r.content}`).join('\n\n');
+  copyText(combined);
 }
 </script>
 
@@ -685,6 +796,122 @@ function copyText(text: string) {
 .tl-val.highlight {
   color: #38bdf8;
   font-weight: 700;
+}
+
+/* Turn & Parent Link Badges */
+.node-turn-badge {
+  font-size: 0.62rem;
+  font-weight: 700;
+  background: rgba(168, 85, 247, 0.2);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.node-parent-badge {
+  font-size: 0.6rem;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.06);
+  color: #94a3b8;
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  padding: 1px 5px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.node-parent-badge:hover {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+  border-color: #38bdf8;
+}
+
+.drawer-filter-input {
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #f1f5f9;
+  font-size: 0.62rem;
+  padding: 1px 6px;
+  border-radius: 3px;
+  outline: none;
+}
+.drawer-filter-input:focus {
+  border-color: #38bdf8;
+}
+
+/* Context Key Badges */
+.context-key-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+  max-height: 90px;
+  overflow-y: auto;
+}
+
+.context-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 0.62rem;
+}
+
+.c-key {
+  color: #38bdf8;
+  font-weight: 600;
+  font-family: ui-monospace, monospace;
+}
+
+.c-val {
+  color: #e2e8f0;
+  font-family: ui-monospace, monospace;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mini-btn {
+  padding: 0 4px !important;
+  font-size: 0.55rem !important;
+}
+
+/* Response Role Styles */
+.resp-role-user {
+  background: rgba(56, 189, 248, 0.05) !important;
+  border-color: rgba(56, 189, 248, 0.25) !important;
+}
+.resp-role-assistant {
+  background: rgba(16, 185, 129, 0.05) !important;
+  border-color: rgba(16, 185, 129, 0.25) !important;
+}
+.resp-role-system, .resp-role-tool {
+  background: rgba(245, 158, 11, 0.05) !important;
+  border-color: rgba(245, 158, 11, 0.25) !important;
+}
+
+.resp-role-badge {
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.resp-message-text {
+  font-size: 0.68rem;
+  color: #f8fafc;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 5px 8px;
+  border-radius: 4px;
+  margin-bottom: 4px;
+  line-height: 1.4;
+  white-space: pre-wrap;
 }
 
 /* Nested Subtree Styles */

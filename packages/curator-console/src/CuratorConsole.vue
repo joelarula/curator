@@ -196,12 +196,62 @@
         <div class="panel-desc">
           Manage and trigger Curator Agent workflows. Disabled agents will not run on schedule.
         </div>
+
+        <!-- Agents Toolbar (Search & Sort) -->
+        <div class="agents-toolbar" v-if="agents.length > 0">
+          <div class="ag-search-group">
+            <input
+              v-model="agentSearchQuery"
+              type="text"
+              class="ag-search-input"
+              placeholder="Search agents..."
+            />
+            <button
+              v-if="agentSearchQuery"
+              class="clear-search-btn"
+              title="Clear search"
+              @click="agentSearchQuery = ''"
+            >✕</button>
+          </div>
+
+          <div class="ag-sort-group">
+            <span class="sort-label">Sort:</span>
+            <button
+              class="sort-pill"
+              :class="{ active: agentSortBy === 'nextRun' }"
+              @click="setAgentSort('nextRun')"
+              title="Sort by next scheduled execution time"
+            >
+              ⏳ Next Run {{ agentSortBy === 'nextRun' ? (agentSortAsc ? '↑' : '↓') : '' }}
+            </button>
+            <button
+              class="sort-pill"
+              :class="{ active: agentSortBy === 'name' }"
+              @click="setAgentSort('name')"
+              title="Sort alphabetically by agent name"
+            >
+              🔤 Name {{ agentSortBy === 'name' ? (agentSortAsc ? '↑' : '↓') : '' }}
+            </button>
+            <button
+              class="sort-pill"
+              :class="{ active: agentSortBy === 'lastRun' }"
+              @click="setAgentSort('lastRun')"
+              title="Sort by last execution time"
+            >
+              ⏱️ Last Run {{ agentSortBy === 'lastRun' ? (agentSortAsc ? '↑' : '↓') : '' }}
+            </button>
+          </div>
+        </div>
+
         <div v-if="agents.length === 0" class="log-empty">
           No registered Curator agents found.
         </div>
+        <div v-else-if="filteredAndSortedAgents.length === 0" class="log-empty">
+          No agents match the active search criteria.
+        </div>
         <div v-else class="agents-grid">
           <div
-            v-for="ag in agents"
+            v-for="ag in filteredAndSortedAgents"
             :key="ag.id"
             class="agent-compact-card"
             :class="{ 'agent-disabled': !ag.isActive && !ag.enabled }"
@@ -216,6 +266,18 @@
               </div>
             </div>
 
+            <!-- Scheduled Next Run Row -->
+            <div class="ag-next-run-row">
+              <span class="ag-next-run-label">⏳ Next Run:</span>
+              <span
+                class="ag-next-run-val"
+                :class="(ag.isActive || ag.enabled) ? 'next-run-active' : 'next-run-disabled'"
+                :title="formatNextRunFull(ag)"
+              >
+                {{ formatNextRunText(ag) }}
+              </span>
+            </div>
+
             <!-- Cron schedule row (editable) -->
             <div class="ag-cron-row" v-if="ag.schedule !== undefined">
               <span class="ag-cron-label">Cron:</span>
@@ -227,7 +289,9 @@
                 @keydown.enter.prevent="saveSchedule(ag)"
                 @blur="saveSchedule(ag)"
               />
-              <span v-if="ag.lastRunAt" class="ag-last-run">Last: {{ formatRelativeTime(ag.lastRunAt) }}</span>
+              <span v-if="ag.lastRunAt" class="ag-last-run" :title="'Last executed: ' + new Date(ag.lastRunAt).toLocaleString()">
+                Last: {{ formatRelativeTime(ag.lastRunAt) }}
+              </span>
             </div>
 
             <!-- Action buttons row -->
@@ -501,6 +565,9 @@ const runningAgents = ref(new Set());
 const togglingAgents = ref(new Set());
 const deletingAgents = ref(new Set());
 const editingSchedule = ref({});
+const agentSearchQuery = ref('');
+const agentSortBy = ref('nextRun'); // 'nextRun' | 'name' | 'lastRun'
+const agentSortAsc = ref(true);
 const storageInfo = ref({ usage: 0, quota: 0 });
 const curatorHealth = ref({
   storageEngine: 'SQLite3 WASM (OPFS)',
@@ -722,6 +789,12 @@ function collapseAllRequestNodes() {
   }
   collapsedRequestNodes.value = ids;
 }
+
+watch(requestSearchQuery, (q) => {
+  if (q && q.trim()) {
+    expandAllRequestNodes();
+  }
+});
 
 function parseAstNodeInfo(rawAst) {
   let astObj = null;
@@ -1056,6 +1129,182 @@ function formatRelativeTime(dateStr) {
     return dateStr;
   }
 }
+
+function parseCronField(field, min, max) {
+  if (!field || field === '*') return null;
+  const values = new Set();
+  const parts = field.split(',');
+  for (const part of parts) {
+    if (part.includes('/')) {
+      const [range, stepStr] = part.split('/');
+      const step = parseInt(stepStr, 10) || 1;
+      let start = min;
+      let end = max;
+      if (range && range !== '*') {
+        if (range.includes('-')) {
+          const [r1, r2] = range.split('-').map(Number);
+          start = r1;
+          end = r2;
+        } else {
+          start = parseInt(range, 10);
+        }
+      }
+      for (let i = start; i <= end; i += step) {
+        values.add(i);
+      }
+    } else if (part.includes('-')) {
+      const [r1, r2] = part.split('-').map(Number);
+      for (let i = r1; i <= r2; i++) {
+        values.add(i);
+      }
+    } else {
+      const val = parseInt(part, 10);
+      if (!isNaN(val)) values.add(val);
+    }
+  }
+  return values;
+}
+
+function getNextCronRun(cronExpr, fromDate = new Date()) {
+  if (!cronExpr || typeof cronExpr !== 'string') return null;
+  const parts = cronExpr.trim().split(/\s+/);
+  if (parts.length !== 5) return null;
+
+  const [minPart, hourPart, domPart, monPart, dowPart] = parts;
+  const matchMinutes = parseCronField(minPart, 0, 59);
+  const matchHours = parseCronField(hourPart, 0, 23);
+  const matchDom = parseCronField(domPart, 1, 31);
+  const matchMon = parseCronField(monPart, 1, 12);
+  const matchDow = parseCronField(dowPart, 0, 7);
+
+  const current = new Date(fromDate.getTime());
+  current.setSeconds(0, 0);
+  current.setMinutes(current.getMinutes() + 1);
+
+  const limit = new Date(current.getTime() + 365 * 24 * 60 * 60 * 1000);
+
+  while (current < limit) {
+    const mon = current.getMonth() + 1;
+    if (matchMon && !matchMon.has(mon)) {
+      current.setMonth(current.getMonth() + 1, 1);
+      current.setHours(0, 0, 0, 0);
+      continue;
+    }
+
+    const dom = current.getDate();
+    const dow = current.getDay();
+    const dowAlt = dow === 0 ? 7 : dow;
+    const domMatches = !matchDom || matchDom.has(dom);
+    const dowMatches = !matchDow || matchDow.has(dow) || matchDow.has(dowAlt);
+
+    if (!domMatches || !dowMatches) {
+      current.setDate(current.getDate() + 1);
+      current.setHours(0, 0, 0, 0);
+      continue;
+    }
+
+    const hour = current.getHours();
+    if (matchHours && !matchHours.has(hour)) {
+      current.setHours(current.getHours() + 1, 0, 0, 0);
+      continue;
+    }
+
+    const min = current.getMinutes();
+    if (matchMinutes && !matchMinutes.has(min)) {
+      current.setMinutes(current.getMinutes() + 1);
+      continue;
+    }
+
+    return current;
+  }
+  return null;
+}
+
+function getAgentNextRun(ag) {
+  if (!ag.isActive && !ag.enabled) return null;
+  const schedule = editingSchedule.value[ag.id] ?? ag.schedule;
+  return getNextCronRun(schedule);
+}
+
+function formatNextRunText(ag) {
+  if (!ag.isActive && !ag.enabled) return 'Disabled (paused)';
+  const nextDate = getAgentNextRun(ag);
+  if (!nextDate) return 'Not scheduled';
+
+  const now = new Date();
+  const diffMs = nextDate.getTime() - now.getTime();
+  const diffMin = Math.round(diffMs / 60000);
+
+  if (diffMin <= 0) return 'Due now';
+  if (diffMin < 60) return `in ${diffMin}m (${nextDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`;
+
+  const isToday = nextDate.toDateString() === now.toDateString();
+  const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const isTomorrow = nextDate.toDateString() === tomorrow.toDateString();
+
+  const timeStr = nextDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (isToday) return `Today at ${timeStr} (in ${Math.round(diffMin / 60)}h)`;
+  if (isTomorrow) return `Tomorrow at ${timeStr}`;
+
+  return `${nextDate.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} at ${timeStr}`;
+}
+
+function formatNextRunFull(ag) {
+  const nextDate = getAgentNextRun(ag);
+  if (!nextDate) return ag.schedule ? `Schedule: ${ag.schedule}` : 'No schedule';
+  return `Next scheduled run: ${nextDate.toLocaleString()} (${ag.schedule || ''})`;
+}
+
+function setAgentSort(by) {
+  if (agentSortBy.value === by) {
+    agentSortAsc.value = !agentSortAsc.value;
+  } else {
+    agentSortBy.value = by;
+    agentSortAsc.value = by === 'nextRun' ? true : by === 'name' ? true : false;
+  }
+}
+
+const filteredAndSortedAgents = computed(() => {
+  let list = [...agents.value];
+
+  const q = agentSearchQuery.value.trim().toLowerCase();
+  if (q) {
+    list = list.filter((ag) => {
+      return (
+        (ag.name && ag.name.toLowerCase().includes(q)) ||
+        (ag.id && String(ag.id).toLowerCase().includes(q)) ||
+        (ag.schedule && ag.schedule.toLowerCase().includes(q))
+      );
+    });
+  }
+
+  list.sort((a, b) => {
+    let cmp = 0;
+
+    if (agentSortBy.value === 'name') {
+      cmp = (a.name || '').localeCompare(b.name || '');
+    } else if (agentSortBy.value === 'lastRun') {
+      const tA = a.lastRunAt ? new Date(a.lastRunAt).getTime() : 0;
+      const tB = b.lastRunAt ? new Date(b.lastRunAt).getTime() : 0;
+      cmp = tA - tB;
+    } else if (agentSortBy.value === 'nextRun') {
+      const activeA = Boolean(a.isActive || a.enabled);
+      const activeB = Boolean(b.isActive || b.enabled);
+      if (activeA && !activeB) return -1;
+      if (!activeA && activeB) return 1;
+
+      const dateA = getAgentNextRun(a);
+      const dateB = getAgentNextRun(b);
+      const tA = dateA ? dateA.getTime() : Infinity;
+      const tB = dateB ? dateB.getTime() : Infinity;
+      cmp = tA - tB;
+    }
+
+    return agentSortAsc.value ? cmp : -cmp;
+  });
+
+  return list;
+});
 
 onMounted(async () => {
   addLog('info', '[Console] Curator Dev Console mounted.');
@@ -1517,6 +1766,106 @@ watch(
   font-size: 0.75rem;
   color: #94a3b8;
   margin-bottom: 10px;
+}
+
+/* Agents Toolbar */
+.agents-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 8px 10px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+
+.ag-search-group {
+  display: flex;
+  align-items: center;
+  position: relative;
+  width: 100%;
+}
+
+.ag-search-input {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 5px 26px 5px 8px;
+  color: #f1f5f9;
+  font-size: 0.72rem;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.ag-search-input:focus { border-color: #38bdf8; }
+
+.ag-sort-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.sort-label {
+  font-size: 0.68rem;
+  color: #64748b;
+  font-weight: 600;
+  margin-right: 2px;
+}
+
+.sort-pill {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.sort-pill:hover { background: rgba(255, 255, 255, 0.08); color: #f8fafc; }
+.sort-pill.active {
+  background: rgba(56, 189, 248, 0.18);
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+  font-weight: 700;
+}
+
+/* Next Run Row */
+.ag-next-run-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.68rem;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.ag-next-run-label {
+  color: #64748b;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.ag-next-run-val {
+  font-weight: 600;
+  font-family: ui-monospace, monospace;
+}
+
+.next-run-active {
+  color: #38bdf8;
+}
+
+.next-run-disabled {
+  color: #64748b;
+  font-style: italic;
 }
 
 .agents-grid {

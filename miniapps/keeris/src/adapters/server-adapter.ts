@@ -19,7 +19,6 @@ export class ServerClientAdapter implements CuratorClientAdapter {
   private dbChangeListeners = new Set<(info: { tables: string[]; timestamp: number }) => void>();
   private processorPaused = false;
   private serverUrl: string;
-  private eventSource: EventSource | null = null;
   private ws: WebSocket | null = null;
   private reconnectTimer: any = null;
   private reconnectAttempts = 0;
@@ -32,13 +31,13 @@ export class ServerClientAdapter implements CuratorClientAdapter {
   private getWebSocketUrl(): string {
     const token = typeof localStorage !== 'undefined' ? localStorage.getItem('keeris_token') : null;
     const query = token ? `?token=${encodeURIComponent(token)}` : '';
+    if (typeof window !== 'undefined' && window.location) {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      return `${proto}//${window.location.host}/api/curator/ws${query}`;
+    }
     if (this.serverUrl) {
       const wsOrigin = this.serverUrl.replace(/^http/, 'ws');
       return `${wsOrigin}/api/curator/ws${query}`;
-    }
-    if (typeof window !== 'undefined') {
-      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      return `${proto}//${window.location.host}/api/curator/ws${query}`;
     }
     return `ws://localhost:4001/api/curator/ws${query}`;
   }
@@ -46,93 +45,60 @@ export class ServerClientAdapter implements CuratorClientAdapter {
   connectLiveStream(): void {
     if (typeof window === 'undefined') return;
     if (this.isDestroyed) return;
+    if (typeof WebSocket === 'undefined') return;
 
-    // Use native WebSocket if available
-    if (typeof WebSocket !== 'undefined') {
-      if (this.ws) {
-        try { this.ws.close(); } catch (_) {}
-        this.ws = null;
-      }
-
-      const wsUrl = this.getWebSocketUrl();
-      try {
-        const ws = new WebSocket(wsUrl);
-        this.ws = ws;
-
-        ws.onopen = () => {
-          this.reconnectAttempts = 0;
-          console.log('[Curator Adapter] WebSocket connected to real-time event stream');
-        };
-
-        ws.onmessage = (event) => {
-          try {
-            if (!event.data) return;
-            const msg = JSON.parse(event.data);
-            if (msg.type === 'database_change') {
-              this.notifyDatabaseChange(msg.payload?.tables || ['all']);
-            } else if (msg.type === 'pong') {
-              // Heartbeat reply
-            } else {
-              this.emitProgress(msg.type, msg.payload);
-            }
-          } catch (_) {}
-        };
-
-        ws.onerror = () => {
-          // Handled in onclose
-        };
-
-        ws.onclose = (e) => {
-          this.ws = null;
-          if (this.isDestroyed) return;
-
-          // If WS closed abnormally, try reconnecting or fallback to SSE
-          this.reconnectAttempts++;
-          const delay = Math.min(1000 * Math.pow(1.5, this.reconnectAttempts), 10000);
-          if (this.reconnectAttempts > 3 && typeof EventSource !== 'undefined' && !this.eventSource) {
-            console.warn('[Curator Adapter] WebSocket reconnecting, falling back to SSE in parallel...');
-            this.connectSseFallback();
-          }
-          this.reconnectTimer = setTimeout(() => this.connectLiveStream(), delay);
-        };
-        return;
-      } catch (err) {
-        console.warn('[Curator Adapter] WebSocket creation failed, falling back to SSE:', err);
-      }
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      return;
     }
 
-    // Fallback to SSE
-    this.connectSseFallback();
-  }
+    if (this.ws) {
+      try { this.ws.close(); } catch (_) {}
+      this.ws = null;
+    }
 
-  private connectSseFallback(): void {
-    if (typeof window === 'undefined' || typeof EventSource === 'undefined') return;
-    if (this.eventSource) return;
-
-    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('keeris_token') : null;
-    const url = `${this.serverUrl}/api/curator/events${token ? `?token=${encodeURIComponent(token)}` : ''}`;
-
+    const wsUrl = this.getWebSocketUrl();
     try {
-      const es = new EventSource(url);
-      this.eventSource = es;
+      const ws = new WebSocket(wsUrl);
+      this.ws = ws;
 
-      es.onmessage = (e) => {
+      ws.onopen = () => {
+        this.reconnectAttempts = 0;
+        console.log('[Curator Adapter] WebSocket connected to real-time event stream');
+      };
+
+      ws.onmessage = (event) => {
         try {
-          if (!e.data || e.data.startsWith(':')) return;
-          const msg = JSON.parse(e.data);
+          if (!event.data) return;
+          const msg = JSON.parse(event.data);
           if (msg.type === 'database_change') {
             this.notifyDatabaseChange(msg.payload?.tables || ['all']);
+          } else if (msg.type === 'pong') {
+            // Heartbeat reply
           } else {
             this.emitProgress(msg.type, msg.payload);
           }
         } catch (_) {}
       };
 
-      es.onerror = () => {
-        // EventSource automatically retries
+      ws.onerror = () => {
+        // Handled in onclose
+      };
+
+      ws.onclose = () => {
+        this.ws = null;
+        if (this.isDestroyed) return;
+
+        this.reconnectAttempts++;
+        const delay = Math.min(1000 * Math.pow(1.5, this.reconnectAttempts), 10000);
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = setTimeout(() => this.connectLiveStream(), delay);
       };
     } catch (err) {
-      console.warn('[Curator Adapter] EventSource failed to connect:', err);
+      console.warn('[Curator Adapter] WebSocket connection error:', err);
+      this.reconnectAttempts++;
+      const delay = Math.min(1000 * Math.pow(1.5, this.reconnectAttempts), 10000);
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = setTimeout(() => this.connectLiveStream(), delay);
     }
   }
 
