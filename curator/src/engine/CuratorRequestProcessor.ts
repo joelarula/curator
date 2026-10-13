@@ -11,6 +11,9 @@ import { coffeeAstVerbs } from './CoffeeVerbs.js';
 import type { Prisma } from '@prisma/client';
 import { LlmFactory } from './llm/LlmFactory.js';
 import type { LlmMessage, LlmToolDefinition, LlmRequest } from './llm/ILlmProvider.js';
+import { AgentRoleService } from '../services/AgentRoleService.js';
+import { ApprovalService } from '../services/ApprovalService.js';
+import { AuditService } from '../services/AuditService.js';
 
 export interface CuratorRequestProcessorOptions {
   onEvent?: (type: string, payload: any) => void;
@@ -22,6 +25,7 @@ export interface CuratorRequestProcessorOptions {
 export class CuratorRequestProcessor {
   private prisma: any;
   private timer: NodeJS.Timeout | null = null;
+  public isAdHoc: boolean = false;
   private isPolling = false;
   private activeTasks = 0;
   private backoffUntil: number = 0;
@@ -108,6 +112,9 @@ export class CuratorRequestProcessor {
     try {
       logger.info(`[CuratorRequestProcessor] Syncing tools & permissions from CuratorEngine registry...`);
       let count = 0;
+
+      // Seed baseline security roles
+      await AgentRoleService.ensureDefaultRoles(this.prisma);
 
       // Ensure base roles exist
       const adminRole = await this.prisma.role.upsert({
@@ -521,7 +528,7 @@ export class CuratorRequestProcessor {
     }
   }
 
-  private async processRequest(request: any) {
+  public async processRequest(request: any) {
     logger.info(`[CuratorRequestProcessor] Processing request ${request.id}`);
     this.emit('request_start', { requestId: request.id });
     try {
@@ -1294,22 +1301,87 @@ export class CuratorRequestProcessor {
     return permissions;
   }
 
-  private async checkToolAccess(req: any, toolName: string, tool: any): Promise<{ allowed: boolean; requiresConfirmation: boolean; reason?: string }> {
+  private async checkToolAccess(req: any, toolName: string, tool: any): Promise<{ allowed: boolean; requiresConfirmation: boolean; reason?: string; approvalScope?: string }> {
     const accessLevel = (tool as any).accessLevel || 'safe_write';
-    const requiresConfirmation = (tool as any).requiresConfirmation || accessLevel === 'destructive';
+    const requiresConfirmation = (tool as any).requiresConfirmation || (tool as any).requiresHumanApproval || accessLevel === 'destructive' || accessLevel === 'elevated';
 
-    // If confirmation is needed and not already confirmed in request context:
-    if (requiresConfirmation && req.context?.confirmed !== true) {
-      return {
-        allowed: false,
-        requiresConfirmation: true,
-        reason: `Tool '${toolName}' (${accessLevel}) requires user confirmation before execution.`
-      };
+    // 1. Agent Role Whitelisting (if req.agentId is provided and agent exists in DB)
+    if (req.agentId && this.prisma?.agent) {
+      try {
+        const roleCheck = await AgentRoleService.validateAgentToolAccess(
+          this.prisma,
+          String(req.agentId),
+          toolName,
+          {
+            name: toolName,
+            requiredRole: (tool as any).requiredRole,
+            accessLevel,
+            requiresHumanApproval: requiresConfirmation
+          }
+        );
+        if (!roleCheck.allowed) {
+          await AuditService.log(this.prisma, {
+            entityType: 'AGENT',
+            entityId: String(req.agentId),
+            action: 'TOOL_EXECUTION_BLOCKED',
+            userId: req.userId ? String(req.userId) : null,
+            agentId: String(req.agentId),
+            requestId: req.id,
+            status: 'BLOCKED',
+            metadata: {
+              tool: toolName,
+              roles: roleCheck.roleNames,
+              reason: roleCheck.reason
+            }
+          });
+          return {
+            allowed: false,
+            requiresConfirmation: false,
+            reason: roleCheck.reason
+          };
+        }
+      } catch (roleErr) {
+        logger.warn('[CuratorRequestProcessor] AgentRoleService check failed:', roleErr);
+      }
     }
 
-    // If there are RBAC permissions configured in database, verify them
+    // 2. Human-in-the-Loop Gating: Check if tool mandates human confirmation / approval
+    let approvalResult: any = { approved: false };
+    if (requiresConfirmation) {
+      approvalResult = await ApprovalService.checkApproval(this.prisma, {
+        toolName,
+        agentId: req.agentId ? String(req.agentId) : null,
+        conversationId: req.conversationId,
+        context: req.context
+      });
+
+      if (!approvalResult.approved) {
+        await AuditService.log(this.prisma, {
+          entityType: req.agentId ? 'AGENT' : 'REQUEST',
+          entityId: req.agentId ? String(req.agentId) : String(req.id),
+          action: 'HUMAN_APPROVAL_REQUIRED',
+          userId: req.userId ? String(req.userId) : null,
+          agentId: req.agentId ? String(req.agentId) : null,
+          requestId: req.id,
+          status: 'PENDING_APPROVAL',
+          metadata: {
+            tool: toolName,
+            accessLevel,
+            reason: approvalResult.reason
+          }
+        });
+
+        return {
+          allowed: false,
+          requiresConfirmation: true,
+          reason: approvalResult.reason || `Tool '${toolName}' (${accessLevel}) requires user confirmation before execution.`
+        };
+      }
+    }
+
+    // 3. Check granular actor permissions in database if present
     try {
-      const totalPermissionsCount = await this.prisma.permission.count();
+      const totalPermissionsCount = await this.prisma.permission?.count?.() || 0;
       if (totalPermissionsCount > 0) {
         const actorPerms = await this.resolveActorPermissions({ userId: req.userId, agentId: req.agentId });
         if (actorPerms.size > 0) {
@@ -1327,7 +1399,11 @@ export class CuratorRequestProcessor {
       logger.warn('[CuratorRequestProcessor] Permission check encountered error, defaulting to safe allow:', err);
     }
 
-    return { allowed: true, requiresConfirmation: false };
+    return { 
+      allowed: true, 
+      requiresConfirmation: false, 
+      approvalScope: approvalResult.scope 
+    };
   }
 
   private async handleTool(ast: CuratorToolNode, req: any) {
@@ -1421,6 +1497,29 @@ export class CuratorRequestProcessor {
         logger.warn(`[CuratorRequestProcessor] Context update skipped for req ${req.id}: ${ctxErr.message}`);
       }
     }
+
+    // Consume ONETIME approval if used
+    if (accessCheck.approvalScope === 'ONETIME' && req.context) {
+      delete req.context.__humanApproved__;
+      if (Array.isArray(req.context.__approvedTools__)) {
+        req.context.__approvedTools__ = req.context.__approvedTools__.filter((t: string) => t !== ast.toolName);
+      }
+    }
+
+    // Immutable Activity Audit Log
+    await AuditService.log(this.prisma, {
+      entityType: req.agentId ? 'AGENT' : 'REQUEST',
+      entityId: req.agentId ? String(req.agentId) : String(req.id),
+      action: 'TOOL_EXECUTION',
+      userId: req.userId ? String(req.userId) : null,
+      agentId: req.agentId ? String(req.agentId) : null,
+      requestId: req.id,
+      status: rawOutput !== undefined && !(typeof result === 'string' && result.startsWith('[Tool Error]')) ? 'SUCCESS' : 'FAILED',
+      metadata: {
+        tool: ast.toolName,
+        approvalScope: accessCheck.approvalScope || null
+      }
+    });
 
     await this.saveResponse(req, result);
     await this.completeRequest(req.id, 'COMPLETED');
@@ -1820,6 +1919,29 @@ export class CuratorRequestProcessor {
                 }
               });
               toolOutput = typeof res === 'string' ? res : JSON.stringify(res);
+
+              // Consume ONETIME approval if used
+              if (accessCheck.approvalScope === 'ONETIME' && req.context) {
+                delete req.context.__humanApproved__;
+                if (Array.isArray(req.context.__approvedTools__)) {
+                  req.context.__approvedTools__ = req.context.__approvedTools__.filter((t: string) => t !== tc.name);
+                }
+              }
+
+              // Immutable Activity Audit Log
+              await AuditService.log(this.prisma, {
+                entityType: req.agentId ? 'AGENT' : 'REQUEST',
+                entityId: req.agentId ? String(req.agentId) : String(req.id),
+                action: 'TOOL_EXECUTION',
+                userId: req.userId ? String(req.userId) : null,
+                agentId: req.agentId ? String(req.agentId) : null,
+                requestId: req.id,
+                status: 'SUCCESS',
+                metadata: {
+                  tool: tc.name,
+                  approvalScope: accessCheck.approvalScope || null
+                }
+              });
             } catch (err: any) {
               toolOutput = `[Tool Error] ${err.message}`;
               isError = true;

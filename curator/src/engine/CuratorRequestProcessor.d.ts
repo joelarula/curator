@@ -7,6 +7,7 @@ export interface CuratorRequestProcessorOptions {
 export declare class CuratorRequestProcessor {
     private prisma;
     private timer;
+    isAdHoc: boolean;
     private isPolling;
     private activeTasks;
     private backoffUntil;
@@ -36,7 +37,7 @@ export declare class CuratorRequestProcessor {
     private unlockStaleRequests;
     private pollRequests;
     private runTask;
-    private processRequest;
+    processRequest(request: any): Promise<void>;
     private handleEmitEvent;
     private handleWaitEvent;
     /**

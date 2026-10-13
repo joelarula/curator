@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
-import { curatorEngine } from '../../curator/src/index.js';
-import { createMcpServer } from '../../packages/mcp-server/src/index.js';
+import { curatorEngine } from '../../curator/dist/src/index.js';
+import { createMcpServer } from '../../packages/mcp-server/dist/index.js';
 
 /**
  * Curator MCP Server

@@ -7,6 +7,7 @@ export * from './engine/CuratorAst.js';
 export * from './engine/CuratorBuilder.js';
 export * from './engine/CuratorAstValidation.js';
 export * from './engine/CoffeeVerbs.js';
+export * from './engine/CffeCompiler.js';
 export * from './engine/ScheduledAgentScheduler.js';
 // Storage SPI & Adapters
 export * from './storage/index.js';
@@ -21,6 +22,11 @@ export * from './tools/CuratorTool.js';
 export * from './tools/index.js';
 export * from './services/SemanticSchemaEngine.js';
 export * from './services/BrowserRelayService.js';
+export * from './services/AgentRoleService.js';
+export * from './services/ApprovalService.js';
+export * from './services/AuditService.js';
+export * from './services/ProjectScopeService.js';
+export * from './services/DefaultProjectService.js';
 export * from './db/sqliteProvisioner.js';
 export * from './db/mariadbProvisioner.js';
 // Built-in Plugins
