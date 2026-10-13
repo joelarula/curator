@@ -8,9 +8,8 @@ const __dirname = path.dirname(__filename);
 const scheduledWorkerPath = path.join(__dirname, 'workers', fs.existsSync(path.join(__dirname, 'workers', 'scheduledAgentWorker.js')) ? 'scheduledAgentWorker.js' : 'scheduledAgentWorker.ts');
 Bree.extend(tsWorker);
 export class ScheduledAgentScheduler {
-    prisma;
-    bree = null;
     constructor(prisma) {
+        this.bree = null;
         this.prisma = prisma;
     }
     async start() {

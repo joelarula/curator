@@ -5,19 +5,16 @@ import { curatorEngine } from './CuratorEngine.js';
 import { curatorContext } from './CuratorContext.js';
 import { logger } from '../utils/logger.js';
 import { validateCuratorAst } from './CuratorAstValidation.js';
+import { coffeeAstVerbs } from './CoffeeVerbs.js';
 import { LlmFactory } from './llm/LlmFactory.js';
 export class CuratorRequestProcessor {
-    prisma;
-    timer = null;
-    isPolling = false;
-    activeTasks = 0;
-    backoffUntil = 0;
-    workerId = `curator-worker-${Math.random().toString(36).substring(7)}`;
-    onEvent;
-    poolLimit;
-    reserveWebConnections;
-    maxConcurrency;
     constructor(prisma, options = {}) {
+        this.timer = null;
+        this.isPolling = false;
+        this.activeTasks = 0;
+        this.backoffUntil = 0;
+        this.workerId = `curator-worker-${Math.random().toString(36).substring(7)}`;
+        this.lastScheduleMinuteBucket = 0;
         this.prisma = prisma;
         this.onEvent = options.onEvent;
         // Capacity & Web Headroom Configuration:
@@ -268,7 +265,6 @@ export class CuratorRequestProcessor {
             logger.error('[CuratorRequestProcessor] Failed to sync agents to DB:', err);
         }
     }
-    lastScheduleMinuteBucket = 0;
     stop() {
         if (this.timer) {
             clearInterval(this.timer);
@@ -720,10 +716,10 @@ export class CuratorRequestProcessor {
             const unit = inMatch[2];
             const msMap = {
                 second: 1000,
-                minute: 60_000,
-                hour: 3_600_000,
-                day: 86_400_000,
-                week: 604_800_000
+                minute: 60000,
+                hour: 3600000,
+                day: 86400000,
+                week: 604800000
             };
             return new Date(Date.now() + amount * (msMap[unit] || 0));
         }
@@ -1088,11 +1084,21 @@ export class CuratorRequestProcessor {
             await this.completeRequest(req.id, 'COMPLETED');
             return;
         }
-        logger.info(`[CuratorRequestProcessor] Executing Script Node for request ${req.id}`);
-        const sandbox = { console, input: req.context?.input || '' };
+        logger.info(`[CuratorRequestProcessor] Executing Script Node (${ast.language || 'javascript'}) for request ${req.id}`);
+        const sandbox = {
+            console,
+            input: req.context?.input || '',
+            context: req.context || {},
+            ...coffeeAstVerbs,
+        };
         const context = vm.createContext(sandbox);
         try {
-            const output = vm.runInContext(ast.code, context);
+            let codeToExecute = ast.code;
+            if (ast.language === 'coffeescript') {
+                const coffee = (await import('coffeescript')).default;
+                codeToExecute = coffee.compile(ast.code, { bare: true, header: false });
+            }
+            const output = vm.runInContext(codeToExecute, context);
             const nodeTypes = ['Curator_Agent', 'Curator_Sequential', 'Curator_Parallel', 'Curator_Join', 'Curator_Tool', 'Curator_Script', 'Curator_Route', 'Curator_HumanInput', 'Curator_Graph', 'Curator_AgentRef', 'Curator_SetState', 'Curator_EmitEvent', 'Curator_WaitEvent', 'Curator_Interrupt', 'Curator_Assign', 'Curator_IfElse', 'Curator_While', 'Curator_ForEach'];
             if (output && typeof output === 'object' && output.type && nodeTypes.includes(output.type)) {
                 logger.info(`[CuratorRequestProcessor] Script generated a valid AST node of type ${output.type}. Spawning as child...`);

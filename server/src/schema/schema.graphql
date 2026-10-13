@@ -323,8 +323,16 @@
   """
   type Agent {
     id: ID!
+    "Semantic RDF URI identity (e.g. agent:news_curator)"
+    uri: String
     "Human-readable name"
     name: String!
+    "Description of agent identity, purpose, and mission"
+    description: String
+    "System prompt persona defining agent behavioral constraints"
+    systemPrompt: String
+    "Avatar or icon identifier"
+    avatar: String
     "Script linked to this agent"
     script: Script!
     "Natural language schedule (e.g. 'every 5 minutes', 'at 12:00pm')"
@@ -335,6 +343,10 @@
     user: User!
     "Agent execution requests"
     requests: [Request!]!
+    "Assigned restricted roles"
+    roles: [Role!]!
+    "Audit logs for this agent"
+    auditLogs(limit: Int): [AuditLog!]!
     "Whether polling is active"
     enabled: Boolean!
     createdAt: String!
@@ -435,16 +447,38 @@
   input AgentInput {
     "Human-readable name"
     name: String
+    "Semantic RDF URI identity (e.g. agent:news_curator)"
+    uri: String
+    "Agent identity and purpose description"
+    description: String
+    "System persona and prompt constraints"
+    systemPrompt: String
+    "Avatar or icon identifier"
+    avatar: String
     "Script ID"
     scriptId: ID
     "Natural language schedule (e.g. 'every 5 minutes')"
     schedule: String
+    "Whether polling is enabled"
+    enabled: Boolean
+    "Role names to whitelist for this agent"
+    roleNames: [String!]
+    "Role IDs to whitelist for this agent"
+    roleIds: [ID!]
   }
 
   "Input for upserting an Agent and its Script."
   input UpsertAgentWithScriptInput {
     "Agent name (used for unique matching)"
     agentName: String!
+    "Semantic RDF URI identity"
+    uri: String
+    "Agent identity and purpose description"
+    description: String
+    "System persona and prompt constraints"
+    systemPrompt: String
+    "Avatar or icon identifier"
+    avatar: String
     "Natural language schedule"
     schedule: String!
     "Script name (used for unique matching)"
@@ -453,9 +487,13 @@
     body: String
     "Tool calls definitions or execution instructions"
     toolCalls: JSON
+    "Role names to whitelist for this agent"
+    roleNames: [String!]
+    "Role IDs to whitelist for this agent"
+    roleIds: [ID!]
   }
 
-  "Result of an executeRequest call â€” the completed Request and its responses."
+  "Result of an executeRequest call — the completed Request and its responses."
   type ExecuteRequestResult {
     "The completed (or failed) Request"
     request: Request!
@@ -482,10 +520,51 @@
     description: String
     "Semantic version of the tool implementation"
     version: String
+    "Security access level (safe_read, safe_write, elevated, destructive, admin)"
+    accessLevel: String!
+    "Role required by default to whitelist this tool"
+    requiredRole: String
+    "Whether executing this tool requires human approval before proceeding"
+    requiresHumanApproval: Boolean!
+    "Alias for requiresHumanApproval"
+    requiresConfirmation: Boolean!
     "Whether this tool is currently enabled"
     enabled: Boolean!
     createdAt: String!
     updatedAt: String!
+  }
+
+  "A system or user role defining capability boundaries."
+  type Role {
+    id: ID!
+    name: String!
+    description: String
+    permissions: [Permission!]!
+    createdAt: String!
+  }
+
+  "Granular permission mapping to a specific tool or action."
+  type Permission {
+    id: ID!
+    name: String!
+    description: String
+    toolName: String
+    accessLevel: String
+    requiresConfirmation: Boolean!
+  }
+
+  "Immutable audit log record tracking agent and tool activities."
+  type AuditLog {
+    id: ID!
+    entityType: String!
+    entityId: String!
+    action: String!
+    userId: String
+    agentId: String
+    requestId: Int
+    status: String!
+    metadata: JSON
+    timestamp: String!
   }
 
   "A user-owned project used to scope resources in server mode."
@@ -622,6 +701,10 @@
     tools: [Tool!]!
     "Fetch a single registered tool by name."
     tool(name: String!): Tool
+    "List all registered roles in the system."
+    roles: [Role!]!
+    "Fetch audit logs, optionally filtered by agentId, entityType, or entityId."
+    auditLogs(agentId: ID, entityType: String, entityId: String, limit: Int): [AuditLog!]!
 
     "Fetch the parsed metadata and AST for all SASL models"
     dslModels: JSON!
@@ -703,6 +786,12 @@
     deleteAgent(id: ID!): Boolean!
     "Upsert an Agent and its Script together in one call. Matches by name."
     upsertAgentWithScript(input: UpsertAgentWithScriptInput!): Agent!
+    "Approve a paused Request that is waiting for human approval for a sensitive tool."
+    approveRequest(id: ID!): Request!
+    "Assign a role to an agent for whitelist access."
+    assignAgentRole(agentId: ID!, roleName: String!): Agent!
+    "Remove an assigned role from an agent."
+    removeAgentRole(agentId: ID!, roleName: String!): Agent!
 
     "Create a new project for the current user."
     createProject(name: String!): Project!

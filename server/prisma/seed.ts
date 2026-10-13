@@ -16,6 +16,8 @@ const prisma = new PrismaClient({ adapter });
 import { syncAIModelsToDatabase } from '../src/services/AIModelRegistry.js';
 import { seedPredicates } from '../src/services/PredicateService.js';
 import { SemanticDslEngine } from '../src/services/SemanticDslEngine.js';
+import { syncToolsToDatabase } from '../src/services/ToolRegistry.js';
+import { AgentRoleService } from '../src/services/AgentRoleService.js';
 
 
 async function seedSystemVocabulary(systemUserId: string, systemProjectId: string) {
@@ -101,6 +103,12 @@ async function main() {
 
   // 3. Sync compiled SASL DSL Models/Ontology to the system project
   await SemanticDslEngine.getInstance(prisma).syncDslOntology(systemUser.id, systemProject.id);
+
+  // 4. Ensure standard governance roles and tool permissions
+  await AgentRoleService.ensureDefaultRoles(prisma);
+
+  // 5. Sync Tools with gating configuration into database
+  await syncToolsToDatabase(prisma);
 
   console.log('[Seed] Unified Resource Graph seeding complete.');
 }

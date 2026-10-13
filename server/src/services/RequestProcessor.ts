@@ -160,10 +160,23 @@ export class RequestProcessor {
             // 2. Fetch request details
             const req = await this.prisma.request.findUnique({
                 where: { id: request.id },
-                include: { user: true, resources: true }
+                include: { user: true, resources: true, agent: true }
             });
 
             if (!req) throw new Error(`Request ${request.id} not found`);
+
+            if (req.agentId) {
+                await AuditService.log(this.prisma, {
+                    entityType: 'AGENT',
+                    entityId: req.agentId,
+                    action: 'AGENT_REQUEST_STARTED',
+                    userId: req.userId,
+                    agentId: req.agentId,
+                    requestId: req.id,
+                    status: 'RUNNING',
+                    metadata: { toolName: req.toolName, retryCount: req.retryCount }
+                });
+            }
 
             // 3. Link Request to the Conversation Resource if not already linked
             if (!req.resources.some((r: any) => r.id === convResource.id)) {
@@ -214,10 +227,35 @@ export class RequestProcessor {
             });
             this.requestsProcessed++;
 
+            if (req.agentId) {
+                await AuditService.log(this.prisma, {
+                    entityType: 'AGENT',
+                    entityId: req.agentId,
+                    action: 'AGENT_WORKFLOW_COMPLETED',
+                    userId: req.userId,
+                    agentId: req.agentId,
+                    requestId: req.id,
+                    status: 'SUCCESS'
+                });
+            }
+
             console.log(`[RequestProcessor] Finished processing request ${request.id}`);
 
         } catch (error: any) {
             console.error(`[RequestProcessor] Failed request ${request.id}:`, error);
+
+            if (request.agentId) {
+                await AuditService.log(this.prisma, {
+                    entityType: 'AGENT',
+                    entityId: request.agentId,
+                    action: 'AGENT_WORKFLOW_FAILED',
+                    userId: request.userId,
+                    agentId: request.agentId,
+                    requestId: request.id,
+                    status: 'FAILED',
+                    metadata: { error: error?.message || String(error) }
+                });
+            }
             
             // Exponential backoff: 5s, 15s, 45s
             const backoffSeconds = Math.pow(3, request.retryCount) * 5;
@@ -308,6 +346,69 @@ export class RequestProcessor {
                     });
                     return;
                 }
+
+                const toolConfig = getToolDefinition(node.tool);
+
+                // 1. Whitelist-based Access Control: Gated by Agent's assigned roles
+                if (req.agentId) {
+                    const accessCheck = await AgentRoleService.validateAgentToolAccess(
+                        this.prisma,
+                        req.agentId,
+                        node.tool,
+                        toolConfig
+                    );
+                    if (!accessCheck.allowed) {
+                        console.warn(`[AST Executor] ${accessCheck.reason}`);
+                        await AuditService.log(this.prisma, {
+                            entityType: 'AGENT',
+                            entityId: req.agentId,
+                            action: 'TOOL_EXECUTION_BLOCKED',
+                            userId: req.userId,
+                            agentId: req.agentId,
+                            requestId: req.id,
+                            status: 'BLOCKED',
+                            metadata: {
+                                tool: node.tool,
+                                roles: accessCheck.roleNames,
+                                reason: accessCheck.reason
+                            }
+                        });
+                        throw new Error(accessCheck.reason);
+                    }
+                }
+
+                // 2. Human-in-the-Loop Gating: Check if tool configuration mandates human approval
+                const requiresApproval = isToolRequiringApproval(node.tool);
+                const isApproved = context.__humanApproved__ === true || req.context?.__humanApproved__ === true;
+
+                if (requiresApproval && !isApproved) {
+                    console.log(`[AST Executor] Tool '${node.tool}' requires human approval. Pausing request ${req.id}.`);
+                    context.__paused__ = true;
+                    context.__pendingApprovalTool__ = node.tool;
+                    context.__pendingApprovalArgs__ = node.args;
+
+                    await AuditService.log(this.prisma, {
+                        entityType: req.agentId ? 'AGENT' : 'REQUEST',
+                        entityId: req.agentId || String(req.id),
+                        action: 'HUMAN_APPROVAL_REQUIRED',
+                        userId: req.userId,
+                        agentId: req.agentId,
+                        requestId: req.id,
+                        status: 'PENDING_APPROVAL',
+                        metadata: {
+                            tool: node.tool,
+                            args: node.args,
+                            accessLevel: toolConfig?.accessLevel || 'elevated'
+                        }
+                    });
+
+                    await this.prisma.request.update({
+                        where: { id: req.id },
+                        data: { status: 'PAUSED' as any, context, lockedBy: null, lockedAt: null }
+                    });
+                    return;
+                }
+
                 const materializedArgs = await this.materializeToolArgs(node.args, {
                     ...context,
                     resources: resourceStack,
@@ -324,6 +425,22 @@ export class RequestProcessor {
                 );
 
                 console.log(`[AST Executor] Tool ${node.tool} result: data=${!!result?.data}${node.id ? ` (id=${node.id})` : ''}`);
+
+                // 3. Immutable Activity Audit Log
+                await AuditService.log(this.prisma, {
+                    entityType: req.agentId ? 'AGENT' : 'REQUEST',
+                    entityId: req.agentId || String(req.id),
+                    action: 'TOOL_EXECUTION',
+                    userId: req.userId,
+                    agentId: req.agentId,
+                    requestId: req.id,
+                    status: 'SUCCESS',
+                    metadata: {
+                        tool: node.tool,
+                        requiresHumanApproval: requiresApproval,
+                        wasHumanApproved: isApproved
+                    }
+                });
                 
                 // Expose tool results in context for downstream nodes
                 const dataValue = result?.data ?? result;

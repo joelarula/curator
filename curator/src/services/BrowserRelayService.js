@@ -1,7 +1,9 @@
 import { logger } from '../utils/logger.js';
 export class BrowserRelayService {
-    workers = new Map();
-    pendingTasks = new Map();
+    constructor() {
+        this.workers = new Map();
+        this.pendingTasks = new Map();
+    }
     /**
      * Register an active browser worker (e.g. Chrome Extension instance).
      */

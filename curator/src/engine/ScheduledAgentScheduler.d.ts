@@ -9,5 +9,5 @@ export declare class ScheduledAgentScheduler {
     removeAgentJob(agentId: number): Promise<void>;
 }
 export declare function setGlobalScheduler(scheduler: ScheduledAgentScheduler): void;
-export declare function getGlobalScheduler(): ScheduledAgentScheduler;
+export declare function getGlobalScheduler(): ScheduledAgentScheduler | null;
 //# sourceMappingURL=ScheduledAgentScheduler.d.ts.map

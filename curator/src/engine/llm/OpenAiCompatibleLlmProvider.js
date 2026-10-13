@@ -1,6 +1,8 @@
 import { logger } from '../../utils/logger.js';
 export class OpenAiCompatibleLlmProvider {
-    providerName = 'openai-compatible';
+    constructor() {
+        this.providerName = 'openai-compatible';
+    }
     async generateContent(req) {
         const baseUrl = req.baseUrl || process.env.LOCAL_LLM_URL || process.env.OPENAI_BASE_URL || 'http://localhost:8080';
         const apiKey = req.apiKey || process.env.OPENAI_API_KEY || 'no-key-required';

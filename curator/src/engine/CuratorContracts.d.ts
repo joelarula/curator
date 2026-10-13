@@ -57,6 +57,14 @@ export interface CuratorAgentDefinition {
     toolName?: string;
     args?: Record<string, unknown>;
 }
+export interface CuratorPluginMcpPolicy {
+    /** Expose all tools from this plugin on MCP (overrides per-tool default) */
+    exposeAll?: boolean;
+    /** Only expose these tool keys */
+    include?: string[];
+    /** Never expose these tool keys */
+    exclude?: string[];
+}
 export interface CuratorPluginDefinition {
     name: string;
     version?: string;
@@ -66,6 +74,7 @@ export interface CuratorPluginDefinition {
     scripts?: Record<string, CuratorScriptDefinition>;
     agents?: Record<string, CuratorAgentDefinition | CuratorAstNode>;
     llmProviders?: Record<string, any>;
+    mcp?: CuratorPluginMcpPolicy;
     onInit?: (context: any) => Promise<void> | void;
     onDestroy?: () => Promise<void> | void;
 }

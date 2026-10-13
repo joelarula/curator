@@ -29,6 +29,59 @@
 import { ScriptRunner } from '../services/ScriptRunner.js';
 import { buildProjectScopeWhere } from '../services/ProjectScopeService.js';
 import { compileToAST } from '../services/ast/compiler.js';
+import { AuditService } from '../services/AuditService.js';
+import { AgentRoleService } from '../services/AgentRoleService.js';
+
+async function anchorAgentIdentityResource(prisma: any, agent: any, userId: string, projectId?: string | null) {
+    const uri = agent.uri || `agent:${agent.name}`;
+    try {
+        await prisma.resource.upsert({
+            where: { uri },
+            update: {
+                title: agent.name,
+                description: agent.description || `AI Agent: ${agent.name}`,
+                userId,
+                projectId: projectId || null,
+                isPublished: false,
+                existent: true,
+            },
+            create: {
+                uri,
+                title: agent.name,
+                description: agent.description || `AI Agent: ${agent.name}`,
+                userId,
+                projectId: projectId || null,
+                isPublished: false,
+                existent: true,
+            }
+        });
+    } catch (err) {
+        console.warn(`[AgentIdentity] Could not anchor agent Resource for ${uri}:`, err);
+    }
+}
+
+async function syncAgentRoles(prisma: any, agentId: string, roleNames?: string[], roleIds?: string[]) {
+    if (!roleNames?.length && !roleIds?.length) return;
+    
+    const resolvedRoleIds = new Set<string>(roleIds || []);
+    if (roleNames?.length) {
+        for (const name of roleNames) {
+            let role = await prisma.role.findUnique({ where: { name } });
+            if (!role) {
+                role = await prisma.role.create({ data: { name, description: `Role ${name}` } });
+            }
+            resolvedRoleIds.add(role.id);
+        }
+    }
+
+    for (const rId of resolvedRoleIds) {
+        await prisma.agentRole.upsert({
+            where: { agentId_roleId: { agentId, roleId: rId } },
+            update: {},
+            create: { agentId, roleId: rId }
+        });
+    }
+}
 
 export const agenticResolvers = {
     Query: {
@@ -148,6 +201,20 @@ export const agenticResolvers = {
         tool: async (_parent: any, { name }: { name: string }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             return await context.prisma.tool.findUnique({ where: { name } });
+        },
+
+        roles: async (_parent: any, _args: any, context: any) => {
+            if (!context.user) throw new Error('Unauthorized');
+            await AgentRoleService.ensureDefaultRoles(context.prisma);
+            return await context.prisma.role.findMany({
+                orderBy: { name: 'asc' },
+                include: { permissions: { include: { permission: true } } }
+            });
+        },
+
+        auditLogs: async (_parent: any, args: any, context: any) => {
+            if (!context.user) throw new Error('Unauthorized');
+            return await AuditService.getLogs(context.prisma, args);
         },
     },
 
@@ -489,9 +556,14 @@ export const agenticResolvers = {
             });
             if (!script) throw new Error('Script not found or outside active project scope');
 
-            return await context.prisma.agent.create({
+            const uri = input.uri || `agent:${input.name}`;
+            const agent = await context.prisma.agent.create({
                 data: {
                     name: input.name,
+                    uri,
+                    description: input.description || null,
+                    systemPrompt: input.systemPrompt || null,
+                    avatar: input.avatar || null,
                     scriptId: input.scriptId,
                     schedule: input.schedule || 'every 1 hour',
                     userId: context.user.id,
@@ -499,6 +571,21 @@ export const agenticResolvers = {
                 },
                 include: { user: true, script: true },
             });
+
+            await anchorAgentIdentityResource(context.prisma, agent, context.user.id, context.activeProjectId);
+            await syncAgentRoles(context.prisma, agent.id, input.roleNames, input.roleIds);
+
+            await AuditService.log(context.prisma, {
+                entityType: 'AGENT',
+                entityId: agent.id,
+                action: 'AGENT_CREATED',
+                userId: context.user.id,
+                agentId: agent.id,
+                status: 'SUCCESS',
+                metadata: { name: agent.name, uri: agent.uri, roles: input.roleNames }
+            });
+
+            return agent;
         },
 
         updateAgent: async (_parent: any, { id, input }: { id: string; input: any }, context: any) => {
@@ -511,6 +598,10 @@ export const agenticResolvers = {
 
             const data: any = {};
             if (input.name !== undefined) data.name = input.name;
+            if (input.uri !== undefined) data.uri = input.uri;
+            if (input.description !== undefined) data.description = input.description;
+            if (input.systemPrompt !== undefined) data.systemPrompt = input.systemPrompt;
+            if (input.avatar !== undefined) data.avatar = input.avatar;
             if (input.scriptId !== undefined) {
                 const script = await context.prisma.script.findFirst({
                     where: { id: input.scriptId, ...scope }
@@ -536,11 +627,26 @@ export const agenticResolvers = {
                 });
             }
 
-            return await context.prisma.agent.update({
+            const updated = await context.prisma.agent.update({
                 where: { id },
                 data,
                 include: { user: true, script: true },
             });
+
+            await anchorAgentIdentityResource(context.prisma, updated, context.user.id, context.activeProjectId);
+            await syncAgentRoles(context.prisma, updated.id, input.roleNames, input.roleIds);
+
+            await AuditService.log(context.prisma, {
+                entityType: 'AGENT',
+                entityId: updated.id,
+                action: 'AGENT_UPDATED',
+                userId: context.user.id,
+                agentId: updated.id,
+                status: 'SUCCESS',
+                metadata: { updatedFields: Object.keys(data) }
+            });
+
+            return updated;
         },
 
         upsertAgentWithScript: async (_parent: any, { input }: { input: any }, context: any) => {
@@ -576,6 +682,9 @@ export const agenticResolvers = {
                 where: { name: input.agentName, ...scope }
             });
 
+            const uri = input.uri || `agent:${input.agentName}`;
+            let agent;
+
             if (existingAgent) {
                 if (input.schedule !== undefined) {
                     const nextRunDate = new Date(Date.now() + 60000);
@@ -594,26 +703,49 @@ export const agenticResolvers = {
                     });
                 }
 
-                return await context.prisma.agent.update({
+                agent = await context.prisma.agent.update({
                     where: { id: existingAgent.id },
                     data: {
                         scriptId: script.id,
                         schedule: input.schedule,
+                        ...(input.uri ? { uri: input.uri } : {}),
+                        ...(input.description !== undefined ? { description: input.description } : {}),
+                        ...(input.systemPrompt !== undefined ? { systemPrompt: input.systemPrompt } : {}),
+                        ...(input.avatar !== undefined ? { avatar: input.avatar } : {}),
                     },
                     include: { user: true, script: true }
                 });
+            } else {
+                agent = await context.prisma.agent.create({
+                    data: {
+                        name: input.agentName,
+                        uri,
+                        description: input.description || null,
+                        systemPrompt: input.systemPrompt || null,
+                        avatar: input.avatar || null,
+                        scriptId: script.id,
+                        schedule: input.schedule,
+                        userId,
+                        projectId: context.activeProjectId || null,
+                    },
+                    include: { user: true, script: true },
+                });
             }
 
-            return await context.prisma.agent.create({
-                data: {
-                    name: input.agentName,
-                    scriptId: script.id,
-                    schedule: input.schedule,
-                    userId,
-                    projectId: context.activeProjectId || null,
-                },
-                include: { user: true, script: true },
+            await anchorAgentIdentityResource(context.prisma, agent, userId, context.activeProjectId);
+            await syncAgentRoles(context.prisma, agent.id, input.roleNames, input.roleIds);
+
+            await AuditService.log(context.prisma, {
+                entityType: 'AGENT',
+                entityId: agent.id,
+                action: existingAgent ? 'AGENT_UPDATED' : 'AGENT_CREATED',
+                userId,
+                agentId: agent.id,
+                status: 'SUCCESS',
+                metadata: { name: agent.name, uri: agent.uri }
             });
+
+            return agent;
         },
 
         toggleAgent: async (_parent: any, { id, enabled }: { id: string; enabled: boolean }, context: any) => {
@@ -752,6 +884,93 @@ export const agenticResolvers = {
 
             return true;
         },
+
+        approveRequest: async (_parent: any, { id }: { id: string }, context: any) => {
+            if (!context.user) throw new Error('Unauthorized');
+            const requestId = Number(id);
+            const req = await context.prisma.request.findUnique({
+                where: { id: requestId }
+            });
+            if (!req) throw new Error(`Request ${id} not found`);
+
+            const currentContext = (req.context && typeof req.context === 'object') ? req.context as any : {};
+            currentContext.__humanApproved__ = true;
+            const toolName = currentContext.__pendingApprovalTool__;
+            delete currentContext.__paused__;
+
+            const updatedReq = await context.prisma.request.update({
+                where: { id: requestId },
+                data: {
+                    status: 'NEW',
+                    context: currentContext,
+                    executionScheduled: new Date(),
+                    lockedBy: null,
+                    lockedAt: null
+                }
+            });
+
+            await AuditService.log(context.prisma, {
+                entityType: req.agentId ? 'AGENT' : 'REQUEST',
+                entityId: req.agentId || String(req.id),
+                action: 'HUMAN_APPROVAL_GRANTED',
+                userId: context.user.id,
+                agentId: req.agentId,
+                requestId: req.id,
+                status: 'SUCCESS',
+                metadata: { tool: toolName, approver: context.user.email || context.user.id }
+            });
+
+            return updatedReq;
+        },
+
+        assignAgentRole: async (_parent: any, { agentId, roleName }: { agentId: string, roleName: string }, context: any) => {
+            if (!context.user) throw new Error('Unauthorized');
+            let role = await context.prisma.role.findUnique({ where: { name: roleName } });
+            if (!role) {
+                role = await context.prisma.role.create({ data: { name: roleName, description: `Role ${roleName}` } });
+            }
+            await context.prisma.agentRole.upsert({
+                where: { agentId_roleId: { agentId, roleId: role.id } },
+                update: {},
+                create: { agentId, roleId: role.id }
+            });
+            await AuditService.log(context.prisma, {
+                entityType: 'AGENT',
+                entityId: agentId,
+                action: 'ROLE_ASSIGNED',
+                userId: context.user.id,
+                agentId,
+                status: 'SUCCESS',
+                metadata: { roleName }
+            });
+            return await context.prisma.agent.findUnique({
+                where: { id: agentId },
+                include: { user: true, script: true }
+            });
+        },
+
+        removeAgentRole: async (_parent: any, { agentId, roleName }: { agentId: string, roleName: string }, context: any) => {
+            if (!context.user) throw new Error('Unauthorized');
+            const role = await context.prisma.role.findUnique({ where: { name: roleName } });
+            if (role) {
+                await context.prisma.agentRole.deleteMany({
+                    where: { agentId, roleId: role.id }
+                });
+                await AuditService.log(context.prisma, {
+                    entityType: 'AGENT',
+                    entityId: agentId,
+                    action: 'ROLE_REMOVED',
+                    userId: context.user.id,
+                    agentId,
+                    status: 'SUCCESS',
+                    metadata: { roleName }
+                });
+            }
+            return await context.prisma.agent.findUnique({
+                where: { id: agentId },
+                include: { user: true, script: true }
+            });
+        },
     },
 
     // Field resolvers
@@ -865,5 +1084,35 @@ export const agenticResolvers = {
                 orderBy: { createdAt: 'desc' }
             });
         },
+        roles: async (agent: any, _args: any, context: any) => {
+            const agentRoles = await context.prisma.agentRole.findMany({
+                where: { agentId: agent.id },
+                include: { role: { include: { permissions: { include: { permission: true } } } } }
+            });
+            return agentRoles.map((ar: any) => ar.role).filter(Boolean);
+        },
+        auditLogs: async (agent: any, args: any, context: any) => {
+            return await AuditService.getLogs(context.prisma, { agentId: agent.id, limit: args.limit });
+        },
+    },
+
+    Tool: {
+        requiresHumanApproval: (tool: any) => tool.requiresHumanApproval ?? tool.requiresConfirmation ?? false,
+        requiresConfirmation: (tool: any) => tool.requiresConfirmation ?? tool.requiresHumanApproval ?? false,
+        accessLevel: (tool: any) => tool.accessLevel || 'safe_write',
+        requiredRole: (tool: any) => tool.requiredRole || 'agent:writer',
+    },
+
+    Role: {
+        permissions: async (role: any, _args: any, context: any) => {
+            if (role.permissions && Array.isArray(role.permissions) && role.permissions[0]?.name) {
+                return role.permissions;
+            }
+            const rolePerms = await context.prisma.rolePermission.findMany({
+                where: { roleId: role.id },
+                include: { permission: true }
+            });
+            return rolePerms.map((rp: any) => rp.permission).filter(Boolean);
+        }
     },
 };

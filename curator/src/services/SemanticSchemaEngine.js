@@ -1,9 +1,8 @@
 import crypto from 'node:crypto';
 export class SemanticSchemaEngine {
-    prisma;
-    shapes = {};
-    datatypeCache = {};
     constructor(prisma) {
+        this.shapes = {};
+        this.datatypeCache = {};
         this.prisma = prisma;
     }
     /**

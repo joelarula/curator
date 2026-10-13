@@ -1,6 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 class CuratorContextManager {
-    storage = new AsyncLocalStorage();
+    constructor() {
+        this.storage = new AsyncLocalStorage();
+    }
     run(context, callback) {
         return this.storage.run(context, callback);
     }

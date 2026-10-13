@@ -1,11 +1,5 @@
 import { OpenAiCompatibleLlmProvider } from './OpenAiCompatibleLlmProvider.js';
 export class LlmFactory {
-    static providers = new Map([
-        ['openai-compatible', new OpenAiCompatibleLlmProvider()],
-        ['local', new OpenAiCompatibleLlmProvider()],
-        ['ollama', new OpenAiCompatibleLlmProvider()],
-        ['llamacpp', new OpenAiCompatibleLlmProvider()],
-    ]);
     static registerProvider(name, provider) {
         this.providers.set(name.toLowerCase(), provider);
     }
@@ -28,4 +22,10 @@ export class LlmFactory {
         return fallback;
     }
 }
+LlmFactory.providers = new Map([
+    ['openai-compatible', new OpenAiCompatibleLlmProvider()],
+    ['local', new OpenAiCompatibleLlmProvider()],
+    ['ollama', new OpenAiCompatibleLlmProvider()],
+    ['llamacpp', new OpenAiCompatibleLlmProvider()],
+]);
 //# sourceMappingURL=LlmFactory.js.map

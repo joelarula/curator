@@ -15,7 +15,7 @@ export interface CuratorToolContext {
   [key: string]: unknown;
 }
 
-export type CuratorToolAccessLevel = 'read_only' | 'safe_write' | 'elevated' | 'destructive';
+export type CuratorToolAccessLevel = 'read_only' | 'safe_read' | 'safe_write' | 'elevated' | 'destructive' | 'admin';
 
 export interface McpToolExposure {
   /** Expose this tool on the MCP server. Default: false */
@@ -31,6 +31,8 @@ export interface CuratorTool {
   readonly description: string;
   readonly parameters: CuratorJsonSchema;
   readonly accessLevel: CuratorToolAccessLevel;
+  readonly requiredRole?: string;
+  readonly requiresHumanApproval: boolean;
   readonly requiresConfirmation: boolean;
   readonly mcp?: McpToolExposure;
 
@@ -60,16 +62,21 @@ export function defineTool(opts: {
   description: string;
   parameters: CuratorJsonSchema;
   accessLevel?: CuratorToolAccessLevel;
+  requiredRole?: string;
+  requiresHumanApproval?: boolean;
   requiresConfirmation?: boolean;
   mcp?: McpToolExposure;
   execute: (args: Record<string, unknown>, ctx: CuratorToolContext) => Promise<CuratorToolOutput>;
 }): CuratorTool {
+  const requiresApproval = opts.requiresHumanApproval ?? opts.requiresConfirmation ?? false;
   return {
     name: opts.name,
     description: opts.description,
     parameters: opts.parameters,
     accessLevel: opts.accessLevel ?? 'safe_write',
-    requiresConfirmation: opts.requiresConfirmation ?? false,
+    requiredRole: opts.requiredRole,
+    requiresHumanApproval: requiresApproval,
+    requiresConfirmation: requiresApproval,
     mcp: opts.mcp,
     async runAsync({ args, toolContext }): Promise<CuratorToolOutput> {
       return opts.execute(args, toolContext);

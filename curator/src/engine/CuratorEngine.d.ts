@@ -6,6 +6,7 @@ import type { LlmRequest, LlmResponse, LlmEmbeddingRequest, LlmEmbeddingResponse
 export type CuratorPlugin = CuratorPluginDefinition;
 export declare class CuratorEngine {
     tools: Map<string, CuratorTool>;
+    toolPlugins: Map<string, string>;
     models: Map<string, SemanticNodeShape>;
     scripts: Map<string, CuratorScriptDefinition>;
     agents: Map<string, CuratorAstNode | CuratorAgentDefinition>;

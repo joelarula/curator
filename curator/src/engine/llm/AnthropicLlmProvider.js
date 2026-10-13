@@ -1,5 +1,8 @@
+import { logger } from '../../utils/logger.js';
 export class AnthropicLlmProvider {
-    providerName = 'anthropic';
+    constructor() {
+        this.providerName = 'anthropic';
+    }
     async generateContent(req) {
         const apiKey = req.apiKey || process.env.ANTHROPIC_API_KEY;
         if (!apiKey) {

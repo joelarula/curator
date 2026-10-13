@@ -10,7 +10,9 @@ async function getGoogleGenAI(apiKey) {
     }
 }
 export class GeminiLlmProvider {
-    providerName = 'gemini';
+    constructor() {
+        this.providerName = 'gemini';
+    }
     async generateContent(req) {
         const apiKey = req.apiKey || process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
         if (!apiKey) {

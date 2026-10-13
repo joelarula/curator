@@ -1,0 +1,1 @@
+{"version":3,"file":"mcp-orchestration-plugin.d.ts","sourceRoot":"","sources":["mcp-orchestration-plugin.ts"],"names":[],"mappings":"AAAA,OAAO,EAAc,KAAK,uBAAuB,EAAE,MAAM,uBAAuB,CAAC;AACjF,OAAO,KAAK,EAAE,WAAW,EAAE,MAAM,eAAe,CAAC;AAEjD,MAAM,WAAW,6BAA6B;IAC5C,IAAI,CAAC,EAAE,WAAW,CAAC;IACnB,MAAM,CAAC,EAAE,GAAG,CAAC;CACd;AAED,wBAAgB,sBAAsB,CAAC,OAAO,EAAE,6BAA6B,GAAG,uBAAuB,CAoKtG"}

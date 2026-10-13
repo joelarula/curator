@@ -16,7 +16,7 @@ export class CffeCompiler {
         // Wrap the CoffeeScript run block in a function to let CoffeeScript compiler
         // automatically insert implicit returns for the last expression, and explicitly
         // return the result of the function call at the top-level of the VM evaluation.
-        const indentedCode = runCode.split('\n').map(line => '  ' + line).join('\n');
+        const indentedCode = runCode.split('\n').map((line: string) => '  ' + line).join('\n');
         const wrappedCode = `__cffe_run__ = ->\n${indentedCode}\nreturn __cffe_run__()`;
 
         // Compile the wrapped CoffeeScript run block to JavaScript

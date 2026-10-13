@@ -1,15 +1,21 @@
 import { LlmFactory } from './llm/LlmFactory.js';
 export class CuratorEngine {
-    tools = new Map();
-    models = new Map();
-    scripts = new Map();
-    agents = new Map();
-    plugins = [];
+    constructor() {
+        this.tools = new Map();
+        this.toolPlugins = new Map();
+        this.models = new Map();
+        this.scripts = new Map();
+        this.agents = new Map();
+        this.plugins = [];
+    }
     registerPlugin(plugin) {
         this.plugins.push(plugin);
         console.log(`[CuratorEngine] Registering plugin: ${plugin.name}`);
         if (plugin.tools) {
-            Object.entries(plugin.tools).forEach(([k, v]) => this.tools.set(k, v));
+            Object.entries(plugin.tools).forEach(([k, v]) => {
+                this.tools.set(k, v);
+                this.toolPlugins.set(k, plugin.name);
+            });
         }
         if (plugin.models) {
             plugin.models.forEach(m => this.models.set(m.uri, m));

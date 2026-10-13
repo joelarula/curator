@@ -6,18 +6,30 @@ export type CuratorToolOutput = unknown;
  * Replaces @google/adk FunctionTool.
  */
 export interface CuratorToolContext {
-    conversationId?: string;
-    userId?: number;
-    projectId?: number;
-    prisma?: PrismaClient;
+    conversationId?: string | number;
+    userId?: number | string;
+    projectId?: number | string;
+    prisma?: PrismaClient | any;
+    [key: string]: unknown;
 }
-export type CuratorToolAccessLevel = 'read_only' | 'safe_write' | 'elevated' | 'destructive';
+export type CuratorToolAccessLevel = 'read_only' | 'safe_read' | 'safe_write' | 'elevated' | 'destructive' | 'admin';
+export interface McpToolExposure {
+    /** Expose this tool on the MCP server. Default: false */
+    expose?: boolean;
+    /** Override MCP tool name (default: tool.name) */
+    name?: string;
+    /** Override MCP description */
+    description?: string;
+}
 export interface CuratorTool {
     readonly name: string;
     readonly description: string;
     readonly parameters: CuratorJsonSchema;
     readonly accessLevel: CuratorToolAccessLevel;
+    readonly requiredRole?: string;
+    readonly requiresHumanApproval: boolean;
     readonly requiresConfirmation: boolean;
+    readonly mcp?: McpToolExposure;
     runAsync(input: {
         args: Record<string, unknown>;
         toolContext: CuratorToolContext;
@@ -28,6 +40,12 @@ export interface CuratorTool {
         description: string;
         parameters: CuratorJsonSchema;
     };
+    /** Returns an MCP-compatible tool declaration for external MCP clients */
+    toMcpDeclaration(): {
+        name: string;
+        description: string;
+        inputSchema: CuratorJsonSchema;
+    };
 }
 /** Helper to build a CuratorTool from a plain function */
 export declare function defineTool(opts: {
@@ -35,7 +53,10 @@ export declare function defineTool(opts: {
     description: string;
     parameters: CuratorJsonSchema;
     accessLevel?: CuratorToolAccessLevel;
+    requiredRole?: string;
+    requiresHumanApproval?: boolean;
     requiresConfirmation?: boolean;
+    mcp?: McpToolExposure;
     execute: (args: Record<string, unknown>, ctx: CuratorToolContext) => Promise<CuratorToolOutput>;
 }): CuratorTool;
 //# sourceMappingURL=CuratorTool.d.ts.map

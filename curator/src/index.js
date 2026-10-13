@@ -6,6 +6,7 @@ export * from './engine/CuratorContracts.js';
 export * from './engine/CuratorAst.js';
 export * from './engine/CuratorBuilder.js';
 export * from './engine/CuratorAstValidation.js';
+export * from './engine/CoffeeVerbs.js';
 export * from './engine/ScheduledAgentScheduler.js';
 // Storage SPI & Adapters
 export * from './storage/index.js';
@@ -16,7 +17,7 @@ export * from './engine/llm/GeminiLlmProvider.js';
 export * from './engine/llm/AnthropicLlmProvider.js';
 export * from './engine/llm/OpenAiCompatibleLlmProvider.js';
 // Tools & Services
-export { defineTool } from './tools/CuratorTool.js';
+export * from './tools/CuratorTool.js';
 export * from './tools/index.js';
 export * from './services/SemanticSchemaEngine.js';
 export * from './services/BrowserRelayService.js';
