@@ -26,6 +26,8 @@ import Parser from 'rss-parser';
 import { PrismaClient } from '@prisma/client';
 import { FeedAgentService } from './FeedAgentService.js';
 
+export * from '../../../packages/plugin-feeds/dist/index.js';
+
 export class FeedService {
     private static parser = new Parser();
 
@@ -34,9 +36,9 @@ export class FeedService {
      * the feed's AI prompt against scraped article content.
      */
     static async pollFeed(prisma: PrismaClient, feedId: string) {
-        const feed = await prisma.feed.findUnique({
+        const feed = await (prisma as any).feed?.findUnique({
             where: { id: feedId }
-        }) as any;  // Cast to any until Prisma client is regenerated with new fields
+        }) as any;
 
         if (!feed) throw new Error(`Feed with ID ${feedId} not found.`);
 
@@ -82,7 +84,7 @@ export class FeedService {
         }
 
         // Update last polled time
-        await prisma.feed.update({
+        await (prisma as any).feed?.update({
             where: { id: feedId },
             data: { lastPolledAt: new Date() }
         });
@@ -126,12 +128,12 @@ export class FeedService {
      * Polls all active and enabled feeds.
      */
     static async pollAllFeeds(prisma: PrismaClient) {
-        const feeds = await prisma.feed.findMany({
+        const feeds = await (prisma as any).feed?.findMany({
             where: { 
                 existent: true,
                 enabled: true   // Respect the user's enabled/disabled toggle
             }
-        });
+        }) || [];
 
 
 

@@ -60,7 +60,84 @@ const HANDLER_MAP = new Map<string, ToolHandler>(
     TOOLS.map(t => [t.name, t.handler])
 );
 
-// ─── Public API ───────────────────────────────────────────────────────────────
+/**
+ * Registers an individual tool dynamically.
+ */
+export function registerTool(tool: ToolDefinition): void {
+    const existingIndex = TOOLS.findIndex(t => t.name === tool.name);
+    if (existingIndex >= 0) {
+        TOOLS[existingIndex] = tool;
+    } else {
+        TOOLS.push(tool);
+    }
+    HANDLER_MAP.set(tool.name, tool.handler);
+    Curator.register(tool.name);
+}
+
+/**
+ * Interface for Curator plugins registering tools and extensions.
+ */
+export interface CuratorServerPlugin {
+    name: string;
+    version?: string;
+    description?: string;
+    tools?: Record<string, any> | ToolDefinition[];
+    onInit?: (context?: any) => Promise<void> | void;
+    onDestroy?: () => Promise<void> | void;
+}
+
+/**
+ * Dynamically registers a plugin and all its contributed tools into the registry.
+ */
+export function registerPlugin(plugin: CuratorServerPlugin): void {
+    console.log(`[ToolRegistry] Registering plugin: ${plugin.name}`);
+    if (plugin.tools) {
+        if (Array.isArray(plugin.tools)) {
+            for (const tool of plugin.tools) {
+                registerTool(tool);
+            }
+        } else {
+            for (const [name, candidate] of Object.entries(plugin.tools)) {
+                if (typeof candidate === 'function') {
+                    registerTool({
+                        name,
+                        description: `Tool contributed by ${plugin.name} plugin.`,
+                        version: plugin.version || '1.0.0',
+                        accessLevel: 'safe_write',
+                        requiredRole: 'agent:writer',
+                        handler: candidate,
+                    });
+                } else if (candidate && typeof candidate === 'object') {
+                    const handler = candidate.handler || candidate.execute;
+                    if (typeof handler === 'function') {
+                        registerTool({
+                            name: candidate.name || name,
+                            description: candidate.description || `Tool contributed by ${plugin.name} plugin.`,
+                            version: candidate.version || plugin.version || '1.0.0',
+                            accessLevel: candidate.accessLevel || 'safe_write',
+                            requiredRole: candidate.requiredRole || 'agent:writer',
+                            requiresHumanApproval: candidate.requiresHumanApproval ?? false,
+                            requiresConfirmation: candidate.requiresConfirmation ?? false,
+                            handler: (args: any, prisma: PrismaClient, userId: string, responseId?: number, request?: any) => {
+                                if (candidate.execute) {
+                                    return candidate.execute(args, { prisma, userId, responseId, request });
+                                }
+                                return handler(args, prisma, userId, responseId, request);
+                            },
+                        });
+                    }
+                }
+            }
+        }
+    }
+    if (typeof plugin.onInit === 'function') {
+        try {
+            plugin.onInit({ registry: { registerTool, registerPlugin } });
+        } catch (err) {
+            console.error(`[ToolRegistry] Error initializing plugin ${plugin.name}:`, err);
+        }
+    }
+}
 
 /**
  * Returns a specific registered tool definition.

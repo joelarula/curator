@@ -188,3 +188,24 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([timestamp])
 }
+
+model ToolApproval {
+  id             String    @id @default(cuid())
+  toolName       String    // Tool name or "*"
+  agentId        String?
+  agent          Agent?    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  userId         String?
+  scope          String    @default("ONETIME") // "ONETIME", "CONVERSATION", "PERMANENT"
+  conversationId Int?
+  approvedBy     String
+  revoked        Boolean   @default(false)
+  revokedAt      DateTime?
+  revokedBy      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([agentId, toolName, revoked])
+  @@index([conversationId, toolName, revoked])
+  @@index([scope, revoked])
+}
+

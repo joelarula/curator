@@ -31,6 +31,7 @@ import { buildProjectScopeWhere } from '../services/ProjectScopeService.js';
 import { compileToAST } from '../services/ast/compiler.js';
 import { AuditService } from '../services/AuditService.js';
 import { AgentRoleService } from '../services/AgentRoleService.js';
+import { ApprovalService } from '../services/ApprovalService.js';
 
 async function anchorAgentIdentityResource(prisma: any, agent: any, userId: string, projectId?: string | null) {
     const uri = agent.uri || `agent:${agent.name}`;
@@ -215,6 +216,11 @@ export const agenticResolvers = {
         auditLogs: async (_parent: any, args: any, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             return await AuditService.getLogs(context.prisma, args);
+        },
+
+        toolApprovals: async (_parent: any, { agentId, toolName, scope }: any, context: any) => {
+            if (!context.user) throw new Error('Unauthorized');
+            return await ApprovalService.listApprovals(context.prisma, { agentId, toolName, scope, includeRevoked: true });
         },
     },
 
@@ -885,7 +891,7 @@ export const agenticResolvers = {
             return true;
         },
 
-        approveRequest: async (_parent: any, { id }: { id: string }, context: any) => {
+        approveRequest: async (_parent: any, { id, scope }: { id: string; scope?: 'ONETIME' | 'CONVERSATION' | 'PERMANENT' }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             const requestId = Number(id);
             const req = await context.prisma.request.findUnique({
@@ -894,8 +900,22 @@ export const agenticResolvers = {
             if (!req) throw new Error(`Request ${id} not found`);
 
             const currentContext = (req.context && typeof req.context === 'object') ? req.context as any : {};
+            const toolName = currentContext.__pendingApprovalTool__ || req.toolName || '*';
+            const approvalScope = scope || 'ONETIME';
+
+            // Grant approval using ApprovalService
+            await ApprovalService.grantApproval(context.prisma, {
+                toolName,
+                scope: approvalScope,
+                approvedBy: context.user.email || context.user.id,
+                agentId: req.agentId,
+                conversationId: req.conversationId,
+                requestId: req.id,
+                userId: context.user.id
+            });
+
             currentContext.__humanApproved__ = true;
-            const toolName = currentContext.__pendingApprovalTool__;
+            currentContext.__approvalScope__ = approvalScope;
             delete currentContext.__paused__;
 
             const updatedReq = await context.prisma.request.update({
@@ -909,18 +929,30 @@ export const agenticResolvers = {
                 }
             });
 
-            await AuditService.log(context.prisma, {
-                entityType: req.agentId ? 'AGENT' : 'REQUEST',
-                entityId: req.agentId || String(req.id),
-                action: 'HUMAN_APPROVAL_GRANTED',
-                userId: context.user.id,
-                agentId: req.agentId,
-                requestId: req.id,
-                status: 'SUCCESS',
-                metadata: { tool: toolName, approver: context.user.email || context.user.id }
-            });
-
             return updatedReq;
+        },
+
+        revokeToolApproval: async (_parent: any, { id }: { id: string }, context: any) => {
+            if (!context.user) throw new Error('Unauthorized');
+            await ApprovalService.revokeApproval(context.prisma, id, context.user.email || context.user.id);
+            return true;
+        },
+
+        revokeAgentToolApproval: async (_parent: any, { agentId, toolName }: { agentId: string; toolName: string }, context: any) => {
+            if (!context.user) throw new Error('Unauthorized');
+            await ApprovalService.revokeAgentToolApproval(context.prisma, agentId, toolName, context.user.email || context.user.id);
+            return true;
+        },
+
+        grantToolApproval: async (_parent: any, { agentId, toolName, scope }: { agentId: string; toolName: string; scope: 'ONETIME' | 'CONVERSATION' | 'PERMANENT' }, context: any) => {
+            if (!context.user) throw new Error('Unauthorized');
+            return await ApprovalService.grantApproval(context.prisma, {
+                toolName,
+                scope,
+                agentId,
+                approvedBy: context.user.email || context.user.id,
+                userId: context.user.id
+            });
         },
 
         assignAgentRole: async (_parent: any, { agentId, roleName }: { agentId: string, roleName: string }, context: any) => {
@@ -1094,6 +1126,22 @@ export const agenticResolvers = {
         auditLogs: async (agent: any, args: any, context: any) => {
             return await AuditService.getLogs(context.prisma, { agentId: agent.id, limit: args.limit });
         },
+        toolApprovals: async (agent: any, _args: any, context: any) => {
+            return await context.prisma.toolApproval.findMany({
+                where: { agentId: agent.id },
+                orderBy: { createdAt: 'desc' }
+            });
+        },
+    },
+
+    ToolApproval: {
+        agent: async (approval: any, _args: any, context: any) => {
+            if (!approval.agentId) return null;
+            return await context.prisma.agent.findUnique({ where: { id: approval.agentId } });
+        },
+        createdAt: (approval: any) => approval.createdAt ? new Date(approval.createdAt).toISOString() : new Date().toISOString(),
+        updatedAt: (approval: any) => approval.updatedAt ? new Date(approval.updatedAt).toISOString() : new Date().toISOString(),
+        revokedAt: (approval: any) => approval.revokedAt ? new Date(approval.revokedAt).toISOString() : null,
     },
 
     Tool: {

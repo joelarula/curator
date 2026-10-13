@@ -347,6 +347,8 @@
     roles: [Role!]!
     "Audit logs for this agent"
     auditLogs(limit: Int): [AuditLog!]!
+    "Active and past tool approvals granted for this agent"
+    toolApprovals: [ToolApproval!]!
     "Whether polling is active"
     enabled: Boolean!
     createdAt: String!
@@ -567,6 +569,29 @@
     timestamp: String!
   }
 
+  "Scope for human approval of gated tool execution."
+  enum ApprovalScope {
+    ONETIME
+    CONVERSATION
+    PERMANENT
+  }
+
+  "Record of human approval granted for gated tools."
+  type ToolApproval {
+    id: ID!
+    toolName: String!
+    agentId: String
+    agent: Agent
+    scope: String!
+    conversationId: Int
+    approvedBy: String!
+    revoked: Boolean!
+    revokedAt: String
+    revokedBy: String
+    createdAt: String!
+    updatedAt: String!
+  }
+
   "A user-owned project used to scope resources in server mode."
   type Project {
     id: ID!
@@ -705,6 +730,8 @@
     roles: [Role!]!
     "Fetch audit logs, optionally filtered by agentId, entityType, or entityId."
     auditLogs(agentId: ID, entityType: String, entityId: String, limit: Int): [AuditLog!]!
+    "Fetch active and past tool approvals with optional filtering."
+    toolApprovals(agentId: ID, toolName: String, scope: String): [ToolApproval!]!
 
     "Fetch the parsed metadata and AST for all SASL models"
     dslModels: JSON!
@@ -786,8 +813,14 @@
     deleteAgent(id: ID!): Boolean!
     "Upsert an Agent and its Script together in one call. Matches by name."
     upsertAgentWithScript(input: UpsertAgentWithScriptInput!): Agent!
-    "Approve a paused Request that is waiting for human approval for a sensitive tool."
-    approveRequest(id: ID!): Request!
+    "Approve a paused Request that is waiting for human approval with a specific scope (ONETIME, CONVERSATION, or PERMANENT)."
+    approveRequest(id: ID!, scope: ApprovalScope): Request!
+    "Revoke an active tool approval by ID."
+    revokeToolApproval(id: ID!): Boolean!
+    "Revoke all active permanent approvals for an agent and tool."
+    revokeAgentToolApproval(agentId: ID!, toolName: String!): Boolean!
+    "Directly grant a tool approval to an agent with specified scope."
+    grantToolApproval(agentId: ID!, toolName: String!, scope: ApprovalScope!): ToolApproval!
     "Assign a role to an agent for whitelist access."
     assignAgentRole(agentId: ID!, roleName: String!): Agent!
     "Remove an assigned role from an agent."

@@ -238,6 +238,72 @@
                 </div>
               </v-card>
 
+              <!-- Human-in-the-Loop Active Approvals Card -->
+              <v-card variant="outlined" class="glass-card pa-6 rounded-xl mb-6">
+                <div class="d-flex align-center mb-3">
+                  <v-icon size="18" class="me-2 text-warning">mdi-check-decagram</v-icon>
+                  <div>
+                    <div class="text-subtitle-2 font-weight-bold">Active Tool Approvals (Revocable)</div>
+                    <div class="text-caption opacity-50">Permanent and conversation approvals granted for this agent</div>
+                  </div>
+                  <v-spacer></v-spacer>
+                  <div class="d-flex align-center ga-2">
+                    <v-select
+                      v-model="toolToApprove"
+                      :items="gatedToolNames"
+                      label="Tool to Approve"
+                      variant="outlined"
+                      density="compact"
+                      hide-details
+                      style="max-width: 240px;"
+                      placeholder="Select gated tool"
+                    ></v-select>
+                    <v-btn
+                      color="warning"
+                      variant="tonal"
+                      prepend-icon="mdi-shield-check"
+                      :disabled="!toolToApprove"
+                      @click="grantPermanentApproval"
+                    >
+                      Grant Permanent
+                    </v-btn>
+                  </div>
+                </div>
+
+                <div v-if="activeApprovals.length === 0" class="text-caption opacity-40 py-2">
+                  No active permanent or conversation approvals. Gated tools will pause for human confirmation when triggered.
+                </div>
+
+                <div v-else class="d-flex flex-wrap ga-3">
+                  <v-card
+                    v-for="approval in activeApprovals"
+                    :key="approval.id"
+                    variant="tonal"
+                    color="surface"
+                    class="pa-3 rounded-lg border border-white border-opacity-10 d-flex align-center ga-3"
+                  >
+                    <div>
+                      <div class="font-weight-bold font-mono text-body-2">
+                        <code>{{ approval.toolName }}</code>
+                      </div>
+                      <div class="text-caption opacity-60">
+                        {{ approval.scope }} • Approved by {{ approval.approvedBy }}
+                      </div>
+                    </div>
+                    <v-spacer></v-spacer>
+                    <v-btn
+                      size="small"
+                      color="error"
+                      variant="tonal"
+                      prepend-icon="mdi-cancel"
+                      @click="revokeApproval(approval.id)"
+                    >
+                      Revoke
+                    </v-btn>
+                  </v-card>
+                </div>
+              </v-card>
+
               <!-- Effective Tools Whitelist Matrix -->
               <v-card variant="outlined" class="glass-card rounded-xl overflow-hidden">
                 <div class="px-6 py-4 border-b border-white border-opacity-5 d-flex align-center">
@@ -489,6 +555,13 @@
               </strong>.
               Operation has been safely suspended according to Curator governance policy.
             </div>
+            <div class="text-caption font-weight-bold opacity-80 mb-1">Approval Scope:</div>
+            <v-radio-group v-model="approvalScopeChoice" inline density="compact" hide-details class="mb-4">
+              <v-radio value="ONETIME" label="One-Time (This step only)"></v-radio>
+              <v-radio value="CONVERSATION" label="Conversation (Session duration)"></v-radio>
+              <v-radio value="PERMANENT" label="Permanent (Revocable in Roles tab)"></v-radio>
+            </v-radio-group>
+
             <v-btn
               color="warning"
               variant="flat"
@@ -497,7 +570,7 @@
               :loading="approvingRequest"
               @click="approveCurrentRequest"
             >
-              Approve & Resume Execution
+              Approve & Resume ({{ approvalScopeChoice }})
             </v-btn>
           </v-alert>
 
@@ -562,16 +635,29 @@ const scriptForm = ref({ name: '', code: '' })
 const scriptMode = ref('Dynamic (JS)')
 const savingScript = ref(false)
 
-// Roles
+// Roles & Approvals
 const roleToAssign = ref<string | null>(null)
 const assigningRole = ref(false)
 const toolSearch = ref('')
+const toolToApprove = ref<string | null>(null)
+const agentApprovals = ref<any[]>([])
+const approvalScopeChoice = ref<'ONETIME' | 'CONVERSATION' | 'PERMANENT'>('ONETIME')
 
 const unassignedRoles = computed(() => {
   const currentRoleNames = (selectedAgent.value?.roles || []).map((r: any) => r.name)
   return allRoles.value
     .map(r => r.name)
     .filter(name => !currentRoleNames.includes(name))
+})
+
+const activeApprovals = computed(() => {
+  return agentApprovals.value.filter(a => !a.revoked)
+})
+
+const gatedToolNames = computed(() => {
+  return allTools.value
+    .filter(t => t.requiresHumanApproval || t.requiresConfirmation)
+    .map(t => t.name)
 })
 
 const filteredTools = computed(() => {
@@ -679,8 +765,9 @@ async function selectAgent(agent: any) {
     scriptForm.value.code = 'const chain = ToolChain.start()\n  .toJSON();'
   }
 
-  // Fetch requests & audit logs
+  // Fetch requests, approvals & audit logs
   fetchAgentRequests(agent.name)
+  fetchAgentApprovals(agent.id)
   fetchAgentAuditLogs()
 }
 
@@ -830,24 +917,88 @@ function isToolWhitelistedForAgent(tool: any): boolean {
   return false
 }
 
+async function fetchAgentApprovals(agentId: string) {
+  try {
+    const data = await graphql(`
+      query($agentId: ID!) {
+        toolApprovals(agentId: $agentId) {
+          id toolName scope revoked approvedBy createdAt
+        }
+      }
+    `, { agentId })
+    if (data?.toolApprovals) {
+      agentApprovals.value = data.toolApprovals
+    }
+  } catch (err) {
+    console.warn('Could not fetch agent approvals:', err)
+  }
+}
+
+async function grantPermanentApproval() {
+  if (!selectedAgent.value || !toolToApprove.value) return
+  try {
+    const data = await graphql(`
+      mutation($agentId: ID!, $toolName: String!, $scope: ApprovalScope!) {
+        grantToolApproval(agentId: $agentId, toolName: $toolName, scope: $scope) {
+          id toolName scope revoked
+        }
+      }
+    `, {
+      agentId: selectedAgent.value.id,
+      toolName: toolToApprove.value,
+      scope: 'PERMANENT'
+    })
+
+    if (data?.grantToolApproval) {
+      showSuccess(`Permanent approval granted for '${toolToApprove.value}'`)
+      toolToApprove.value = null
+      fetchAgentApprovals(selectedAgent.value.id)
+      fetchAgentAuditLogs()
+    }
+  } catch (e: any) {
+    showError(e.message)
+  }
+}
+
+async function revokeApproval(approvalId: string) {
+  try {
+    const data = await graphql(`
+      mutation($id: ID!) {
+        revokeToolApproval(id: $id)
+      }
+    `, { id: approvalId })
+
+    if (data?.revokeToolApproval) {
+      showSuccess('Tool approval revoked. Future executions will require confirmation.')
+      if (selectedAgent.value) {
+        fetchAgentApprovals(selectedAgent.value.id)
+        fetchAgentAuditLogs()
+      }
+    }
+  } catch (e: any) {
+    showError(e.message)
+  }
+}
+
 async function approveCurrentRequest() {
   if (!selectedRequest.value) return
   approvingRequest.value = true
   try {
     const data = await graphql(`
-      mutation($id: ID!) {
-        approveRequest(id: $id) {
+      mutation($id: ID!, $scope: ApprovalScope) {
+        approveRequest(id: $id, scope: $scope) {
           id status context
         }
       }
-    `, { id: selectedRequest.value.id })
+    `, { id: selectedRequest.value.id, scope: approvalScopeChoice.value })
 
     if (data?.approveRequest) {
       selectedRequest.value.status = data.approveRequest.status
       selectedRequest.value.context = data.approveRequest.context
-      showSuccess('Human approval recorded! Workflow resumed.')
+      showSuccess(`Approval granted (${approvalScopeChoice.value})! Workflow resumed.`)
       if (selectedAgent.value) {
         fetchAgentRequests(selectedAgent.value.name)
+        fetchAgentApprovals(selectedAgent.value.id)
         fetchAgentAuditLogs()
       }
     }

@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import { executeTool, getToolDefinition, isToolRequiringApproval } from './Tools.js';
 import { AuditService } from './AuditService.js';
 import { AgentRoleService } from './AgentRoleService.js';
+import { ApprovalService } from './ApprovalService.js';
 import { VOCAB } from '../constants/vocabulary.js';
 
 export class RequestProcessor {
@@ -379,7 +380,18 @@ export class RequestProcessor {
 
                 // 2. Human-in-the-Loop Gating: Check if tool configuration mandates human approval
                 const requiresApproval = isToolRequiringApproval(node.tool);
-                const isApproved = context.__humanApproved__ === true || req.context?.__humanApproved__ === true;
+                let approvalResult: any = { approved: false };
+
+                if (requiresApproval) {
+                    approvalResult = await ApprovalService.checkApproval(this.prisma, {
+                        toolName: node.tool,
+                        agentId: req.agentId,
+                        conversationId: req.conversationId,
+                        context: { ...req.context, ...context }
+                    });
+                }
+
+                const isApproved = !requiresApproval || approvalResult.approved;
 
                 if (requiresApproval && !isApproved) {
                     console.log(`[AST Executor] Tool '${node.tool}' requires human approval. Pausing request ${req.id}.`);
@@ -398,7 +410,8 @@ export class RequestProcessor {
                         metadata: {
                             tool: node.tool,
                             args: node.args,
-                            accessLevel: toolConfig?.accessLevel || 'elevated'
+                            accessLevel: toolConfig?.accessLevel || 'elevated',
+                            reason: approvalResult.reason
                         }
                     });
 
@@ -426,6 +439,14 @@ export class RequestProcessor {
 
                 console.log(`[AST Executor] Tool ${node.tool} result: data=${!!result?.data}${node.id ? ` (id=${node.id})` : ''}`);
 
+                // If this was a ONETIME approval, consume it so subsequent gated calls still require approval
+                if (approvalResult.scope === 'ONETIME') {
+                    delete context.__humanApproved__;
+                    if (Array.isArray(context.__approvedTools__)) {
+                        context.__approvedTools__ = context.__approvedTools__.filter((t: string) => t !== node.tool);
+                    }
+                }
+
                 // 3. Immutable Activity Audit Log
                 await AuditService.log(this.prisma, {
                     entityType: req.agentId ? 'AGENT' : 'REQUEST',
@@ -438,7 +459,8 @@ export class RequestProcessor {
                     metadata: {
                         tool: node.tool,
                         requiresHumanApproval: requiresApproval,
-                        wasHumanApproved: isApproved
+                        wasHumanApproved: requiresApproval ? isApproved : false,
+                        approvalScope: approvalResult.scope || null
                     }
                 });
                 

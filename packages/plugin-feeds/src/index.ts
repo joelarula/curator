@@ -1,6 +1,8 @@
 import { process_feed } from './process_feed.js';
+import { FeedService } from './FeedService.js';
 
 export * from './process_feed.js';
+export * from './FeedService.js';
 
 export function feedsPlugin() {
   return {
@@ -10,5 +12,8 @@ export function feedsPlugin() {
     tools: {
       process_feed,
     },
+    FeedService,
   };
 }
+
+export default feedsPlugin;
