@@ -3,7 +3,16 @@
   "name": "Curator Knowledge Studio",
   "version": "1.0.0",
   "description": "Your semantic client-side knowledge graph inside Chrome",
-  "permissions": ["activeTab", "tabs", "scripting", "storage", "unlimitedStorage", "contextMenus", "notifications"],
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "scripting",
+    "storage",
+    "unlimitedStorage",
+    "contextMenus",
+    "notifications",
+    "offscreen"
+  ],
   "host_permissions": ["<all_urls>"],
   "icons": {
     "16": "src/popup/icon16.png",
@@ -13,6 +22,20 @@
   "background": {
     "service_worker": "dist/background.js",
     "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["dist/content-bridge.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "externally_connectable": {
+    "matches": [
+      "http://localhost/*",
+      "http://127.0.0.1/*",
+      "https://*.arula.dev/*"
+    ]
   },
   "action": {
     "default_title": "Curator Studio",

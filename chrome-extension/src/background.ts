@@ -44,6 +44,20 @@ if (typeof (globalThis as any).XMLHttpRequest === 'undefined') {
 
 import initSqlJs from 'sql.js';
 import { CuratorWasmCore } from '../../server/src/wasm-core/index.js';
+import { PeerDiscoveryHub } from './p2p/PeerDiscoveryHub.js';
+import { SCHEMA_DDL } from './adapter/schema.js';
+import {
+    saveToOpfs,
+    loadFromOpfs,
+    deleteFromOpfs,
+    migrateFromLocalStorage,
+    getStorageEstimate,
+    isOpfsSupported
+} from './adapter/opfsStorage.js';
+import {
+    checkPageScrapeStatus,
+    persistSemanticScrape
+} from './scraper/semanticScraper.js';
 
 let db: any;
 let core: CuratorWasmCore = new CuratorWasmCore();
@@ -95,15 +109,20 @@ function base64ToUint8Array(base64: string): Uint8Array {
     return bytes;
 }
 
-// Persist SQLite state to chrome.storage.local
+// Persist SQLite state directly to OPFS binary file (or fallback to chrome.storage.local)
 async function persistDatabase() {
     if (!db) return;
     try {
         const binaryArray = db.export();
-        const base64 = uint8ArrayToBase64(binaryArray);
-        const storageKey = currentDbId === 'default' ? 'curator_sqlite_db' : `curator_sqlite_db_${currentDbId}`;
-        await chrome.storage.local.set({ [storageKey]: base64 });
-        console.log(`[Curator Extension] Database state persisted successfully to ${storageKey}.`);
+        if (isOpfsSupported()) {
+            await saveToOpfs(currentDbId, binaryArray);
+            console.log(`[Curator Extension] Database state persisted to OPFS (curator_${currentDbId}.sqlite3: ${binaryArray.byteLength} bytes).`);
+        } else {
+            const base64 = uint8ArrayToBase64(binaryArray);
+            const storageKey = currentDbId === 'default' ? 'curator_sqlite_db' : `curator_sqlite_db_${currentDbId}`;
+            await chrome.storage.local.set({ [storageKey]: base64 });
+            console.log(`[Curator Extension] Database state persisted to fallback storage (${storageKey}).`);
+        }
     } catch (err) {
         console.error('[Curator Extension] Database persistence failed:', err);
     }
@@ -134,14 +153,40 @@ async function logEvent(level: 'INFO' | 'WARN' | 'ERROR', type: string, message:
     }
 }
 
+// Ensure persistent Offscreen Document exists for OPFS and background workers
+async function ensureOffscreenDocument(): Promise<void> {
+    if (typeof chrome.offscreen === 'undefined') return;
+    try {
+        if (typeof chrome.offscreen.hasDocument === 'function') {
+            const hasDoc = await chrome.offscreen.hasDocument();
+            if (hasDoc) return;
+        }
+    } catch {
+        // hasDocument might throw if unsupported
+    }
+
+    try {
+        await chrome.offscreen.createDocument({
+            url: 'dist/offscreen.html',
+            reasons: [chrome.offscreen.Reason.BLOBS, chrome.offscreen.Reason.LOCAL_STORAGE],
+            justification: 'Persistent OPFS SQLite storage and worker execution for Curator'
+        });
+        console.log('[Curator Extension] Offscreen Document created successfully.');
+    } catch (err: any) {
+        console.warn('[Curator Extension] Note on offscreen document creation:', err?.message || err);
+    }
+}
+
 // Initialize SQLite WASM & Prisma Client
 async function initDatabase() {
     console.log('[Curator Extension] Initializing SQLite WASM...');
     await logEvent('INFO', 'SYSTEM', 'Initializing SQLite WASM database...');
 
+    // Boot offscreen document asynchronously
+    ensureOffscreenDocument().catch(() => {});
+
     const registry = await getDbRegistry();
     currentDbId = registry.activeId;
-    const storageKey = currentDbId === 'default' ? 'curator_sqlite_db' : `curator_sqlite_db_${currentDbId}`;
 
     // Pre-fetch sql-wasm.wasm to prevent internal XMLHttpRequest loading in background service worker
     const wasmUrl = chrome.runtime.getURL('dist/sql-wasm.wasm');
@@ -153,16 +198,21 @@ async function initDatabase() {
         wasmBinary
     });
 
-    // Check if there is an existing database state in storage
-    const storage = await chrome.storage.local.get(storageKey);
-    if (storage[storageKey]) {
-        console.log(`[Curator Extension] Restoring existing database state from ${storageKey}...`);
-        await logEvent('INFO', 'SYSTEM', `Restoring existing SQLite database state from ${storageKey}...`);
-        const bytes = base64ToUint8Array(storage[storageKey]);
+    // 1. Try loading directly from OPFS binary storage
+    let bytes: Uint8Array | null = await loadFromOpfs(currentDbId);
+
+    // 2. If not yet in OPFS, check if legacy Base64 exists in chrome.storage.local and migrate
+    if (!bytes) {
+        bytes = await migrateFromLocalStorage(currentDbId);
+    }
+
+    if (bytes) {
+        console.log(`[Curator Extension] Restoring existing database state from OPFS (${bytes.byteLength} bytes)...`);
+        await logEvent('INFO', 'SYSTEM', `Restored SQLite database from OPFS for project ${currentDbId} (${bytes.byteLength} bytes)...`);
         db = new SQL.Database(bytes);
     } else {
-        console.log(`[Curator Extension] Creating a new SQLite database in-memory for ${storageKey}...`);
-        await logEvent('INFO', 'SYSTEM', `Creating a new in-memory SQLite database instance for ${storageKey}...`);
+        console.log(`[Curator Extension] Creating a new SQLite database in-memory for project ${currentDbId}...`);
+        await logEvent('INFO', 'SYSTEM', `Creating a new in-memory SQLite database instance for ${currentDbId}...`);
         db = new SQL.Database();
 
         // Execute DDL to create tables
@@ -183,9 +233,32 @@ async function initDatabase() {
             VALUES 
             (1, 'gemini-2.5-flash', 'Gemini 2.5 Flash', 'google', 'TEXT', '2.5', 'https://generativelanguage.googleapis.com', NULL, 1, strftime('%Y-%m-%d %H:%M:%f', 'now')),
             (2, 'local-gemma', 'Local Gemma 3 1B', 'local', 'TEXT', '3', 'http://localhost:8080', NULL, 1, strftime('%Y-%m-%d %H:%M:%f', 'now'));
+
+            INSERT OR IGNORE INTO "Script" (id, name, body, ast, userId, projectId, existent)
+            VALUES (
+                101,
+                'web_scraper_workflow',
+                '# Web Scrape Agent AST\nseq [ call_tool "browser_scrape_page", call_tool "persist_semantic_resource" ]',
+                '{"type":"Sequence","nodes":[{"type":"ToolTask","toolName":"browser_scrape_page"},{"type":"ToolTask","toolName":"persist_semantic_resource"}]}',
+                'curator-extension-user',
+                'system',
+                1
+            );
+
+            INSERT OR IGNORE INTO "Agent" (id, name, scriptId, schedule, userId, projectId, enabled, existent)
+            VALUES (
+                'agent_web_scraper',
+                'Web Scraper & Knowledge Synthesizer',
+                101,
+                'on_demand',
+                'curator-extension-user',
+                'system',
+                1,
+                1
+            );
         `);
 
-        // Save immediately
+        // Save immediately to OPFS
         await persistDatabase();
     }
 
@@ -194,6 +267,9 @@ async function initDatabase() {
             projects: async () => {
                 const registry = await getDbRegistry();
                 return registry.databases;
+            },
+            storageInfo: async () => {
+                return await getStorageEstimate();
             }
         },
         Mutation: {
@@ -219,7 +295,7 @@ async function initDatabase() {
     });
 
     console.log('[Curator Extension] Curator WASM Core initialized successfully!');
-    await logEvent('INFO', 'SYSTEM', 'In-memory GraphQL & SQLite WASM database fully ready.');
+    await logEvent('INFO', 'SYSTEM', `Curator Core ready (OPFS: ${isOpfsSupported() ? 'enabled' : 'fallback'}).`);
 }
 
 // Start database — store promise so any handler can await full initialisation
@@ -237,6 +313,19 @@ async function switchDatabase(newId: string) {
     dbReadyPromise = initDatabase().catch(err => {
         console.error('[Curator Extension] Switch DB boot failed:', err);
     });
+
+    // Notify all open tabs of active project change
+    chrome.tabs.query({}, (tabs) => {
+        for (const t of tabs) {
+            if (t.id) {
+                chrome.tabs.sendMessage(t.id, {
+                    type: 'ACTIVE_PROJECT_CHANGED',
+                    projectId: newId
+                }).catch(() => {});
+            }
+        }
+    });
+
     return dbReadyPromise;
 }
 
@@ -262,6 +351,7 @@ async function deleteDatabase(id: string) {
         registry.activeId = 'default';
     }
     await setDbRegistry(registry);
+    await deleteFromOpfs(id);
     await chrome.storage.local.remove(`curator_sqlite_db_${id}`);
     
     dbReadyPromise = initDatabase().catch(err => {
@@ -563,9 +653,13 @@ export async function extractRenderedPage(url: string, waitForSelector?: string)
             }
         });
 
+        const res = (injection?.result || {}) as any;
         return {
             url,
-            ...injection.result
+            title: res.title || '',
+            html: res.html || '',
+            text: res.text || '',
+            meta: res.meta || {}
         };
     } finally {
         if (tab.id) {
@@ -592,4 +686,348 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 console.log('[Curator Extension] Browser Relay Worker active and ready for background scraping.');
+
+// ==========================================
+// Curator P2P Federation & Discovery Hub
+// ==========================================
+
+async function executeExtensionTool(toolName: string, args: Record<string, unknown>): Promise<any> {
+    if (toolName === 'browser_get_active_tab') {
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!activeTab) throw new Error('No active browser tab found.');
+        return {
+            id: activeTab.id,
+            url: activeTab.url || '',
+            title: activeTab.title || '',
+            favIconUrl: activeTab.favIconUrl || ''
+        };
+    }
+
+    if (toolName === 'browser_scrape_page') {
+        const targetUrl = args.url as string | undefined;
+        const waitForSelector = args.waitForSelector as string | undefined;
+
+        if (targetUrl) {
+            return await extractRenderedPage(targetUrl, waitForSelector);
+        }
+
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!activeTab || !activeTab.id) throw new Error('No active tab available to scrape.');
+
+        const [injection] = await chrome.scripting.executeScript({
+            target: { tabId: activeTab.id },
+            func: () => {
+                const meta: Record<string, string> = {};
+                document.querySelectorAll('meta').forEach(el => {
+                    const name = el.getAttribute('name') || el.getAttribute('property');
+                    const content = el.getAttribute('content');
+                    if (name && content) meta[name] = content;
+                });
+                return {
+                    title: document.title || '',
+                    html: document.documentElement.outerHTML,
+                    text: document.body ? document.body.innerText : '',
+                    meta
+                };
+            }
+        });
+
+        const res = (injection?.result || {}) as any;
+        return {
+            url: activeTab.url || '',
+            title: res.title || '',
+            html: res.html || '',
+            text: res.text || '',
+            meta: res.meta || {}
+        };
+    }
+
+    if (toolName === 'browser_capture_viewport') {
+        const dataUrl = await chrome.tabs.captureVisibleTab(undefined as any, { format: 'png' });
+        return { screenshot: dataUrl };
+    }
+
+    if (toolName === 'curator_search_knowledge') {
+        await dbReadyPromise;
+        const result = await core.handleGraphQL({
+            query: `
+                query SearchResources($term: String) {
+                    resources(filter: { title: $term }) {
+                        id
+                        title
+                        uri
+                        description
+                        createdAt
+                    }
+                }
+            `,
+            variables: { term: (args.query as string) || '' },
+            activeProjectId: currentDbId
+        });
+        return result.data?.resources || [];
+    }
+
+    if (toolName === 'curator_get_storage_info') {
+        const estimate = await getStorageEstimate();
+        return {
+            ...estimate,
+            activeDb: currentDbId
+        };
+    }
+
+    throw new Error(`Unknown extension tool: "${toolName}"`);
+}
+
+export const peerHub = new PeerDiscoveryHub({
+    hubId: 'chrome-extension',
+    name: 'Curator Chrome Extension Hub',
+    localTools: [
+        {
+            name: 'browser_get_active_tab',
+            description: 'Get details of the currently active browser tab (URL, title, tab ID)',
+            parameters: { type: 'object', properties: {} }
+        },
+        {
+            name: 'browser_scrape_page',
+            description: 'Extract readable HTML, text content, and metadata from a given URL or active tab',
+            parameters: {
+                type: 'object',
+                properties: {
+                    url: { type: 'string', description: 'Target URL. If omitted, scrapes the active tab.' },
+                    waitForSelector: { type: 'string', description: 'CSS selector to wait for before scraping.' }
+                }
+            }
+        },
+        {
+            name: 'browser_capture_viewport',
+            description: 'Capture screenshot of the currently visible browser viewport as PNG Base64',
+            parameters: { type: 'object', properties: {} }
+        },
+        {
+            name: 'curator_search_knowledge',
+            description: 'Query the local Curator WASM SQLite knowledge base for resources and entities',
+            parameters: {
+                type: 'object',
+                properties: {
+                    query: { type: 'string', description: 'Search keywords or title' },
+                    limit: { type: 'number', description: 'Maximum items to return' }
+                },
+                required: ['query']
+            }
+        },
+        {
+            name: 'curator_get_storage_info',
+            description: 'Get storage engine statistics (OPFS status, disk usage bytes, quota)',
+            parameters: { type: 'object', properties: {} }
+        }
+    ],
+    onLog: (level, type, message, detail) => logEvent(level, type, message, detail),
+    executeLocalTool: async (toolName, args) => {
+        return executeExtensionTool(toolName, args);
+    }
+});
+
+// Connect content script bridges and external ports
+chrome.runtime.onConnect.addListener((port) => {
+    if (port.name === 'curator-peer-bridge') {
+        peerHub.handlePortConnection(port);
+    }
+});
+
+// Handle P2P inspection queries from extension popup or internal pages
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === 'STORAGE_INFO') {
+        getStorageEstimate().then(info => sendResponse(info));
+        return true;
+    }
+    if (message?.type === 'PEER_LIST') {
+        sendResponse({ peers: peerHub.listPeers() });
+        return true;
+    }
+    if (message?.type === 'PEER_TOOLS') {
+        sendResponse({ tools: peerHub.listAllFederatedTools() });
+        return true;
+    }
+    if (message?.type === 'CALL_FEDERATED_TOOL') {
+        peerHub.callRemoteTool(message.peerId, message.toolName, message.args || {})
+            .then(result => sendResponse({ status: 'ok', result }))
+            .catch(err => sendResponse({ status: 'error', error: err?.message || String(err) }));
+        return true;
+    }
+    if (message?.type === 'CHECK_PAGE_SCRAPE_STATUS') {
+        (async () => {
+            await dbReadyPromise;
+            const registry = await getDbRegistry();
+            const activeProject = registry.databases.find(d => d.id === currentDbId)?.name || 'Default';
+            const status = checkPageScrapeStatus(db, message.url);
+            sendResponse({
+                ...status,
+                projectId: currentDbId,
+                projectName: activeProject
+            });
+        })();
+        return true;
+    }
+    if (message?.type === 'TRIGGER_PAGE_SCRAPE') {
+        (async () => {
+            try {
+                await dbReadyPromise;
+                const { url, title } = message;
+
+                // Extract data from the page
+                let extracted: any;
+                const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+                const currentTab = tabs[0];
+
+                if (currentTab?.id && currentTab.url === url) {
+                    const [injection] = await chrome.scripting.executeScript({
+                        target: { tabId: currentTab.id },
+                        func: () => {
+                            const meta: Record<string, string> = {};
+                            document.querySelectorAll('meta').forEach(el => {
+                                const name = el.getAttribute('name') || el.getAttribute('property');
+                                const content = el.getAttribute('content');
+                                if (name && content) meta[name] = content;
+                            });
+                            return {
+                                url: window.location.href,
+                                title: document.title || '',
+                                text: document.body ? document.body.innerText : '',
+                                meta
+                            };
+                        }
+                    });
+                    extracted = injection?.result;
+                } else {
+                    extracted = await extractRenderedPage(url);
+                }
+
+                if (!extracted) throw new Error('Could not extract page content');
+
+                // Persist into active OPFS SQLite database
+                const result = await persistSemanticScrape(db, {
+                    url: extracted.url || url,
+                    title: extracted.title || title || url,
+                    text: extracted.text || '',
+                    meta: extracted.meta || {}
+                }, currentDbId);
+
+                await persistDatabase();
+
+                // Broadcast update to tabs
+                chrome.tabs.query({}, (tabList) => {
+                    for (const t of tabList) {
+                        if (t.id) {
+                            chrome.tabs.sendMessage(t.id, {
+                                type: 'PAGE_SCRAPE_UPDATED',
+                                url: extracted.url || url,
+                                resourceId: result.resourceId,
+                                updatedAt: new Date().toISOString()
+                            }).catch(() => {});
+                        }
+                    }
+                });
+
+                sendResponse({ status: 'ok', resourceId: result.resourceId, title: result.title });
+            } catch (err: any) {
+                console.error('[Curator Extension] Scrape failed:', err);
+                sendResponse({ status: 'error', error: err?.message || String(err) });
+            }
+        })();
+        return true;
+    }
+    if (message?.type === 'OPEN_CURATOR_STUDIO') {
+        openCuratorTab(message.resourceId).catch(console.error);
+        sendResponse({ status: 'ok' });
+        return true;
+    }
+    if (message?.type === 'BROADCAST_MESH_EVENT') {
+        peerHub.broadcastEvent(message.envelope);
+        sendResponse({ status: 'ok' });
+        return true;
+    }
+});
+
+console.log('[Curator Extension] PeerDiscoveryHub active. In-browser P2P mesh listening on curator-peer-bridge.');
+
+// ==========================================
+// Desktop MCP Bridge Client Loop
+// ==========================================
+
+function initMcpBridgeClient(port = 8765) {
+    let bridgeSocket: WebSocket | null = null;
+    let retryTimer: any = null;
+
+    function connect() {
+        try {
+            bridgeSocket = new WebSocket(`ws://127.0.0.1:${port}`);
+
+            bridgeSocket.onopen = () => {
+                console.log('[Curator Extension] Connected to desktop MCP runner.');
+                const allTools = peerHub.listAllFederatedTools();
+                bridgeSocket?.send(JSON.stringify({
+                    type: 'REGISTER_TOOLS',
+                    tools: allTools
+                }));
+            };
+
+            bridgeSocket.onmessage = async (event) => {
+                try {
+                    const msg = JSON.parse(event.data.toString());
+                    if (msg.type === 'CALL_TOOL') {
+                        const { callId, toolName, args } = msg;
+                        try {
+                            let targetPeerId = 'chrome-extension';
+                            let actualToolName = toolName;
+                            if (toolName.includes(':')) {
+                                const parts = toolName.split(':');
+                                targetPeerId = parts[0];
+                                actualToolName = parts.slice(1).join(':');
+                            }
+                            const result = await peerHub.callRemoteTool(targetPeerId, actualToolName, args || {});
+                            bridgeSocket?.send(JSON.stringify({
+                                type: 'TOOL_RESPONSE',
+                                callId,
+                                result
+                            }));
+                        } catch (err: any) {
+                            bridgeSocket?.send(JSON.stringify({
+                                type: 'TOOL_RESPONSE',
+                                callId,
+                                error: err?.message || String(err)
+                            }));
+                        }
+                    }
+                } catch (err) {
+                    console.error('[Curator Extension] MCP message handling error:', err);
+                }
+            };
+
+            bridgeSocket.onclose = () => {
+                bridgeSocket = null;
+                scheduleRetry();
+            };
+
+            bridgeSocket.onerror = () => {
+                bridgeSocket?.close();
+            };
+        } catch {
+            scheduleRetry();
+        }
+    }
+
+    function scheduleRetry() {
+        if (retryTimer) clearTimeout(retryTimer);
+        retryTimer = setTimeout(() => {
+            connect();
+        }, 5000);
+    }
+
+    connect();
+}
+
+// Start connecting to Desktop MCP Bridge
+initMcpBridgeClient();
+
+
 

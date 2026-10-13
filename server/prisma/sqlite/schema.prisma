@@ -65,14 +65,18 @@ model Project {
 }
 
 model Tool {
-  id          Int      @id @default(autoincrement())
-  name        String   @unique
-  description String?
-  version     String?
-  enabled     Boolean  @default(true)
-  existent    Boolean? @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                    Int      @id @default(autoincrement())
+  name                  String   @unique
+  description           String?
+  version               String?
+  accessLevel           String   @default("safe_write")
+  requiredRole          String?
+  requiresConfirmation  Boolean  @default(false)
+  requiresHumanApproval Boolean  @default(false)
+  enabled               Boolean  @default(true)
+  existent              Boolean? @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   @@index([existent])
 }
@@ -311,7 +315,11 @@ model ResourceTree {
 
 model Agent {
   id           String    @id @default(cuid())
+  uri          String?   @unique
   name         String
+  description  String?
+  systemPrompt String?
+  avatar       String?
   scriptId     Int
   script       Script    @relation(fields: [scriptId], references: [id])
   schedule     String    @default("every 10 minutes")
@@ -320,6 +328,7 @@ model Agent {
   projectId    String?
   project      Project?  @relation(fields: [projectId], references: [id])
   enabled      Boolean   @default(true)
+  auditLogs    AuditLog[]
   existent     Boolean?  @default(true)
   deletedAt    DateTime?
   createdAt    DateTime  @default(now())
@@ -365,5 +374,23 @@ model WorkflowCheckpoint {
   status       String
   result       Json?
   createdAt    DateTime        @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  entityType String
+  entityId   String
+  action     String
+  userId     String?
+  agentId    String?
+  agent      Agent?   @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  requestId  Int?
+  status     String   @default("SUCCESS")
+  metadata   Json?
+  timestamp  DateTime @default(now())
+
+  @@index([agentId])
+  @@index([entityType, entityId])
+  @@index([timestamp])
 }
 

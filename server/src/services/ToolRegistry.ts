@@ -33,6 +33,10 @@ export interface ToolDefinition {
     name: string;
     description: string;
     version: string;
+    accessLevel?: 'safe_read' | 'safe_write' | 'elevated' | 'destructive' | 'admin';
+    requiredRole?: string;
+    requiresHumanApproval?: boolean;
+    requiresConfirmation?: boolean;
     handler: ToolHandler;
 }
 
@@ -41,11 +45,7 @@ export interface ToolDefinition {
 const TOOLS: ToolDefinition[] = [
     ...CORE_TOOL_DEFINITIONS,
     ...LLAMA_TOOL_DEFINITIONS,
-
 ];
-
-
-
 
 // ─── Register all tools as Curator plugins ─────────────────────────────────
 // Runs once on module load. After this every tool is a fluent method:
@@ -61,6 +61,21 @@ const HANDLER_MAP = new Map<string, ToolHandler>(
 );
 
 // ─── Public API ───────────────────────────────────────────────────────────────
+
+/**
+ * Returns a specific registered tool definition.
+ */
+export function getToolDefinition(name: string): ToolDefinition | undefined {
+    return TOOLS.find(t => t.name === name);
+}
+
+/**
+ * Checks if a specific tool requires explicit human approval before execution.
+ */
+export function isToolRequiringApproval(toolName: string): boolean {
+    const def = getToolDefinition(toolName);
+    return !!(def?.requiresHumanApproval || def?.requiresConfirmation);
+}
 
 /**
  * Executes a registered tool by name.
@@ -87,10 +102,18 @@ export async function executeTool(
 
 
 /**
- * Returns the static list of all registered tool definitions.
+ * Returns the static list of all registered tool definitions with gating metadata.
  */
 export function getRegisteredTools(): Omit<ToolDefinition, 'handler'>[] {
-    return TOOLS.map(({ name, description, version }) => ({ name, description, version }));
+    return TOOLS.map(({ name, description, version, accessLevel, requiredRole, requiresHumanApproval, requiresConfirmation }) => ({
+        name,
+        description,
+        version,
+        accessLevel: accessLevel || 'safe_write',
+        requiredRole: requiredRole || 'agent:writer',
+        requiresHumanApproval: requiresHumanApproval ?? requiresConfirmation ?? false,
+        requiresConfirmation: requiresConfirmation ?? requiresHumanApproval ?? false,
+    }));
 }
 
 /**
@@ -121,19 +144,36 @@ declare module './Curator.js' {
         evaluate_condition(args: T.EvaluateConditionInput): CuratorFlow;
         as(name: string): CuratorFlow;
     }
-
-
-
-
 }
 
 export async function syncToolsToDatabase(prisma: PrismaClient): Promise<void> {
     console.log('[ToolRegistry] Syncing tools to database...');
     for (const tool of TOOLS) {
+        const requiresApproval = tool.requiresHumanApproval ?? tool.requiresConfirmation ?? false;
+        const accessLevel = tool.accessLevel || 'safe_write';
+        const requiredRole = tool.requiredRole || 'agent:writer';
+
         await prisma.tool.upsert({
             where:  { name: tool.name },
-            update: { description: tool.description, version: tool.version, enabled: true },
-            create: { name: tool.name, description: tool.description, version: tool.version, enabled: true },
+            update: {
+                description: tool.description,
+                version: tool.version,
+                enabled: true,
+                accessLevel,
+                requiredRole,
+                requiresConfirmation: requiresApproval,
+                requiresHumanApproval: requiresApproval,
+            },
+            create: {
+                name: tool.name,
+                description: tool.description,
+                version: tool.version,
+                enabled: true,
+                accessLevel,
+                requiredRole,
+                requiresConfirmation: requiresApproval,
+                requiresHumanApproval: requiresApproval,
+            },
         });
     }
     console.log(`[ToolRegistry] ${TOOLS.length} tools synced.`);

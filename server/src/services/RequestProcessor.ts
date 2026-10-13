@@ -1,5 +1,7 @@
 import { PrismaClient } from '@prisma/client';
-import { executeTool } from './Tools.js';
+import { executeTool, getToolDefinition, isToolRequiringApproval } from './Tools.js';
+import { AuditService } from './AuditService.js';
+import { AgentRoleService } from './AgentRoleService.js';
 import { VOCAB } from '../constants/vocabulary.js';
 
 export class RequestProcessor {

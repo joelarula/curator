@@ -1,6 +1,7 @@
 import esbuild from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
+import { getWasmCoreEsbuildAliases } from '../server/src/wasm-core/shims/esbuild-aliases.js';
 
 const isWatch = process.argv.includes('--watch');
 
@@ -31,12 +32,25 @@ try {
   console.error('[esbuild] Failed to copy query_compiler_fast_bg.wasm:', err);
 }
 
-import { getWasmCoreEsbuildAliases } from '../server/src/wasm-core/shims/esbuild-aliases.js';
+// Copy offscreen.html to dist/
+try {
+  const offscreenHtmlPath = path.resolve('src', 'offscreen', 'offscreen.html');
+  if (fs.existsSync(offscreenHtmlPath)) {
+    fs.copyFileSync(offscreenHtmlPath, path.join('dist', 'offscreen.html'));
+    console.log('[esbuild] Copied offscreen.html to dist/');
+  }
+} catch (err) {
+  console.error('[esbuild] Failed to copy offscreen.html:', err);
+}
 
 const ctx = await esbuild.context({
-  entryPoints: ['src/background.ts'],
+  entryPoints: {
+    background: 'src/background.ts',
+    'content-bridge': 'src/content/content-bridge.ts',
+    offscreen: 'src/offscreen/offscreen.ts'
+  },
   bundle: true,
-  outfile: 'dist/background.js',
+  outdir: 'dist',
   format: 'esm',
   target: 'es2020',
   alias: getWasmCoreEsbuildAliases(),

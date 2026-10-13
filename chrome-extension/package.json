@@ -6,6 +6,7 @@
     "build": "vite build && node esbuild.config.js",
     "build:popup": "vite build",
     "build:bg": "node esbuild.config.js",
+    "test": "esbuild test/p2p.test.ts test/opfs.test.ts test/scraper.test.ts --bundle --packages=external --outdir=dist/test --format=esm --platform=node && node --test dist/test/p2p.test.js dist/test/opfs.test.js dist/test/scraper.test.js",
     "watch": "concurrently \"vite build --watch\" \"node esbuild.config.js --watch\"",
     "prisma:generate-wasm": "set PRISMA_CLIENT_ENGINE_TYPE=wasm && prisma generate --schema=../server/prisma/schema/base.prisma",
     "postinstall": "prisma generate --schema=../server/prisma/schema/base.prisma"

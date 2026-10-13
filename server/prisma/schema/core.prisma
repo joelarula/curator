@@ -41,7 +41,9 @@ model Tool {
   description          String?      @db.Text
   version              String? // semver, e.g. "1.0.0"
   accessLevel          String       @default("safe_write")
+  requiredRole         String?      // Exact role required to whitelist this tool
   requiresConfirmation Boolean      @default(false)
+  requiresHumanApproval Boolean     @default(false)
   permissions          Permission[]
   enabled              Boolean      @default(true)
   existent             Boolean?     @default(true)
@@ -366,7 +368,11 @@ model ResourceTree {
 
 model Agent {
   id           String    @id @default(cuid())
+  uri          String?   @unique // Semantic RDF Identity (e.g. agent:news_curator)
   name         String
+  description  String?   @db.Text
+  systemPrompt String?   @db.Text
+  avatar       String?
   scriptId     Int
   script       Script    @relation(fields: [scriptId], references: [id])
   schedule     String    @default("every 10 minutes")
@@ -377,16 +383,15 @@ model Agent {
   projectId    String?
   project      Project?  @relation(fields: [projectId], references: [id])
 
-  enabled   Boolean     @default(true)
-  roles     AgentRole[]
+  enabled      Boolean     @default(true)
+  roles        AgentRole[]
+  auditLogs    AuditLog[]
 
-  existent  Boolean?    @default(true)
-  deletedAt DateTime?
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-  requests  Request[]
-
-
+  existent     Boolean?    @default(true)
+  deletedAt    DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  requests     Request[]
 
   @@unique([name])
   @@index([existent])
