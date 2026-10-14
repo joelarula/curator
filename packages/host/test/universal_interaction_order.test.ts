@@ -250,4 +250,5 @@ seq 'coffee_banter',
 
   // Clear
   const clearSeq = ast.subAgents[6];
-  assert.equ
+  assert.equal(clearSeq.subAgents[0].state.slateStatus, 'CLEARED');
+});
