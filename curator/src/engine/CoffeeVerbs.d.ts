@@ -21,6 +21,7 @@ export declare const coffeeAstVerbs: {
     waitEvent: (eventName: string, payloadAlias?: string) => import("./CuratorAst.js").CuratorWaitEventNode;
     script: (code: string | ((ctx: any) => any), language?: "javascript" | "coffeescript") => import("./CuratorAst.js").CuratorScriptNode;
     agent: (options: any) => import("./CuratorAst.js").CuratorAgentNode;
+    secret: (key: string) => string;
     CuratorBuilder: typeof CuratorBuilder;
     builder: typeof CuratorBuilder;
 };

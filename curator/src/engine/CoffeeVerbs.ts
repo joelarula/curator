@@ -53,7 +53,10 @@ export const coffeeAstVerbs = {
     CuratorBuilder.script(code, language),
   agent: (options: any) => CuratorBuilder.agent(options),
 
-  // 7. Builder Reference
+  // 7. Sensitive tokens & secret placeholders
+  secret: (key: string) => CuratorBuilder.secret(key),
+
+  // 8. Builder Reference
   CuratorBuilder,
   builder: CuratorBuilder,
 };

@@ -92,5 +92,8 @@ export class CuratorBuilder {
         }
         return { type: 'Curator_Tool', toolName, args: evaluatedArgs };
     }
+    static secret(key) {
+        return `$secret:${key}`;
+    }
 }
 //# sourceMappingURL=CuratorBuilder.js.map

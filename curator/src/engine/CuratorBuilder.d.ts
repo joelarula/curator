@@ -54,5 +54,9 @@ export declare class CuratorBuilder {
      * Execute a registered tool.
      */
     static tool(toolName: string, args?: Record<string, any>): CuratorToolNode;
+    /**
+     * Reference a sensitive credential or API token via a secure placeholder.
+     */
+    static secret(key: string): string;
 }
 //# sourceMappingURL=CuratorBuilder.d.ts.map

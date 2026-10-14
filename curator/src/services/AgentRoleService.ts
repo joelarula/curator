@@ -110,6 +110,99 @@ export class AgentRoleService {
     }
 
     /**
+     * Validates whether an agent is permitted to resolve a specific secret.
+     * Denied by default if the agent has no roles.
+     * Allowed if the agent has admin role, wildcard permission, or explicit secret permission (e.g. `secret:read:<name>` or `secret:<name>`).
+     */
+    static async validateAgentSecretAccess(
+        prisma: PrismaClient | any,
+        agentId: string | number | null | undefined,
+        secretName: string
+    ): Promise<{ allowed: boolean; reason?: string; roleNames?: string[] }> {
+        if (!agentId || !prisma?.agent?.findUnique) {
+            // Direct user interaction or non-agent execution is permitted
+            return { allowed: true };
+        }
+
+        const numericId = Number(agentId);
+        const whereClause = !isNaN(numericId) && typeof agentId !== 'boolean' ? { id: numericId } : { id: String(agentId) };
+
+        let agent: any = null;
+        try {
+            agent = await (prisma as any).agent.findUnique({
+                where: whereClause,
+                include: {
+                    roles: {
+                        include: {
+                            role: {
+                                include: {
+                                    permissions: {
+                                        include: {
+                                            permission: true
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        } catch (_) {
+            return { allowed: true };
+        }
+
+        if (!agent) {
+            return {
+                allowed: false,
+                reason: `Agent '${agentId}' not found.`
+            };
+        }
+
+        const agentRoles = agent.roles || [];
+        const roleNames = agentRoles.map((r: any) => r.role?.name || r.roleId);
+
+        if (agentRoles.length === 0) {
+            return {
+                allowed: false,
+                roleNames,
+                reason: `Access Denied: Agent '${agent.name}' has no assigned roles. Secret resolution requires authorization.`
+            };
+        }
+
+        // Admin wildcard
+        const isSuperAdmin = roleNames.some((r: string) => 
+            r === 'admin' || r === 'agent:admin' || r === 'system:admin'
+        );
+        if (isSuperAdmin) {
+            return { allowed: true, roleNames };
+        }
+
+        // Direct secret role
+        if (roleNames.includes(`secret:${secretName}`) || roleNames.includes('secret:*') || roleNames.includes(`secret:read:${secretName}`)) {
+            return { allowed: true, roleNames };
+        }
+
+        // Permissions attached to roles
+        for (const ar of agentRoles) {
+            const perms = ar.role?.permissions || [];
+            for (const rp of perms) {
+                const p = rp.permission;
+                if (!p) continue;
+
+                if (p.name === '*' || p.name === 'secret:*' || p.name === `secret:${secretName}` || p.name === `secret:read:${secretName}` || p.name === `secret:read:*`) {
+                    return { allowed: true, roleNames };
+                }
+            }
+        }
+
+        return {
+            allowed: false,
+            roleNames,
+            reason: `Access Denied: Agent '${agent.name}' with roles [${roleNames.join(', ')}] is not permitted to access secret '${secretName}'. Requires permission 'secret:${secretName}' or 'secret:*'.`
+        };
+    }
+
+    /**
      * Seeds or ensures standard baseline roles exist in the database.
      */
     static async ensureDefaultRoles(prisma: PrismaClient | any): Promise<void> {
@@ -134,3 +227,4 @@ export class AgentRoleService {
         }
     }
 }
+

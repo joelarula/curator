@@ -8,6 +8,7 @@ export * from './engine/CuratorBuilder.js';
 export * from './engine/CuratorAstValidation.js';
 export * from './engine/CoffeeVerbs.js';
 export * from './engine/CffeCompiler.js';
+export * from './engine/CuratorMermaid.js';
 export * from './engine/ScheduledAgentScheduler.js';
 
 // Storage SPI & Adapters
@@ -30,6 +31,7 @@ export * from './services/ApprovalService.js';
 export * from './services/AuditService.js';
 export * from './services/ProjectScopeService.js';
 export * from './services/DefaultProjectService.js';
+export * from './services/SecretService.js';
 export * from './db/sqliteProvisioner.js';
 export * from './db/mariadbProvisioner.js';
 

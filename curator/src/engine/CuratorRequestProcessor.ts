@@ -14,6 +14,7 @@ import type { LlmMessage, LlmToolDefinition, LlmRequest } from './llm/ILlmProvid
 import { AgentRoleService } from '../services/AgentRoleService.js';
 import { ApprovalService } from '../services/ApprovalService.js';
 import { AuditService } from '../services/AuditService.js';
+import { SecretService } from '../services/SecretService.js';
 
 export interface CuratorRequestProcessorOptions {
   onEvent?: (type: string, payload: any) => void;
@@ -1463,9 +1464,19 @@ export class CuratorRequestProcessor {
 
     let result = '';
     let rawOutput: any = undefined;
+    let hydratedSecrets = new Map<string, string>();
     try {
+      // Late-binding secret hydration: replaces $secret:XYZ, {{secrets.XYZ}}, etc.
+      const hydration = await SecretService.hydrate(evaluatedArgs, {
+        projectId: req.projectId,
+        userId: req.userId,
+        agentId: req.agentId,
+        prisma: this.prisma
+      });
+      hydratedSecrets = hydration.secretsMap;
+
       rawOutput = await tool.runAsync({
-        args: evaluatedArgs,
+        args: hydration.hydrated,
         toolContext: {
           conversationId: req.conversationId,
           userId: req.userId,
@@ -1478,13 +1489,19 @@ export class CuratorRequestProcessor {
       result = `[Tool Error] ${e.message}`;
     }
 
+    // Egress scrubbing: mask any reflected secrets before writing to DB responses or context
+    result = SecretService.mask(result, hydratedSecrets);
+
     // Store tool output in req.context under a short name derived from the tool name.
     // This is best-effort: if the DB update fails (e.g. P2028), we still proceed with
     // saveResponse + completeRequest using the in-memory context.
     if (rawOutput !== undefined) {
+      const sanitizedOutput = typeof rawOutput === 'string'
+        ? SecretService.mask(rawOutput, hydratedSecrets)
+        : SecretService.sanitizeContext(rawOutput, hydratedSecrets);
       const toolKey = this.toolNameToContextKey(ast.toolName);
-      const updatedContext = { ...(req.context || {}), [toolKey]: rawOutput };
-      updatedContext[ast.toolName] = rawOutput;
+      const updatedContext = { ...(req.context || {}), [toolKey]: sanitizedOutput };
+      updatedContext[ast.toolName] = sanitizedOutput;
       req.context = updatedContext;
       try {
         await this.prisma.request.update({
@@ -1908,57 +1925,93 @@ export class CuratorRequestProcessor {
               isError = true;
             }
           } else {
+            let hydratedSecrets = new Map<string, string>();
+            let executionArgs = tc.args;
+            let secretResolutionError = false;
+
             try {
-              const res = await tool.runAsync({
-                args: tc.args,
-                toolContext: {
-                  conversationId: req.conversationId,
-                  userId: req.userId,
-                  projectId: req.projectId,
-                  prisma: this.prisma
-                }
+              const hydration = await SecretService.hydrate(tc.args, {
+                projectId: req.projectId,
+                userId: req.userId,
+                agentId: req.agentId,
+                prisma: this.prisma
               });
-              toolOutput = typeof res === 'string' ? res : JSON.stringify(res);
-
-              // Consume ONETIME approval if used
-              if (accessCheck.approvalScope === 'ONETIME' && req.context) {
-                delete req.context.__humanApproved__;
-                if (Array.isArray(req.context.__approvedTools__)) {
-                  req.context.__approvedTools__ = req.context.__approvedTools__.filter((t: string) => t !== tc.name);
-                }
-              }
-
-              // Immutable Activity Audit Log
-              await AuditService.log(this.prisma, {
-                entityType: req.agentId ? 'AGENT' : 'REQUEST',
-                entityId: req.agentId ? String(req.agentId) : String(req.id),
-                action: 'TOOL_EXECUTION',
-                userId: req.userId ? String(req.userId) : null,
-                agentId: req.agentId ? String(req.agentId) : null,
-                requestId: req.id,
-                status: 'SUCCESS',
-                metadata: {
-                  tool: tc.name,
-                  approvalScope: accessCheck.approvalScope || null
-                }
-              });
-            } catch (err: any) {
-              toolOutput = `[Tool Error] ${err.message}`;
+              executionArgs = hydration.hydrated;
+              hydratedSecrets = hydration.secretsMap;
+            } catch (secErr: any) {
+              toolOutput = `[Secret Resolution Error] ${secErr.message}`;
               isError = true;
+              secretResolutionError = true;
+            }
+
+            if (!secretResolutionError) {
+              try {
+                const res = await tool.runAsync({
+                  args: executionArgs,
+                  toolContext: {
+                    conversationId: req.conversationId,
+                    userId: req.userId,
+                    projectId: req.projectId,
+                    prisma: this.prisma
+                  }
+                });
+                toolOutput = typeof res === 'string' ? res : JSON.stringify(res);
+
+                // Egress sanitization: mask any reflected secrets before sending back to LLM/DB
+                toolOutput = SecretService.mask(toolOutput, hydratedSecrets);
+
+                // Consume ONETIME approval if used
+                if (accessCheck.approvalScope === 'ONETIME' && req.context) {
+                  delete req.context.__humanApproved__;
+                  if (Array.isArray(req.context.__approvedTools__)) {
+                    req.context.__approvedTools__ = req.context.__approvedTools__.filter((t: string) => t !== tc.name);
+                  }
+                }
+
+                // Immutable Activity Audit Log
+                await AuditService.log(this.prisma, {
+                  entityType: req.agentId ? 'AGENT' : 'REQUEST',
+                  entityId: req.agentId ? String(req.agentId) : String(req.id),
+                  action: 'TOOL_EXECUTION',
+                  userId: req.userId ? String(req.userId) : null,
+                  agentId: req.agentId ? String(req.agentId) : null,
+                  requestId: req.id,
+                  status: 'SUCCESS',
+                  metadata: {
+                    tool: tc.name,
+                    approvalScope: accessCheck.approvalScope || null
+                  }
+                });
+              } catch (err: any) {
+                toolOutput = `[Tool Error] ${SecretService.mask(err.message, hydratedSecrets)}`;
+                isError = true;
+              }
             }
           }
         } else {
           // Inline tool check
           const inlineDef = (ast.tools as any[]).find((t: any) => typeof t !== 'string' && t.name === tc.name);
           if (inlineDef) {
+            let hydratedSecrets = new Map<string, string>();
+            let executionArgs = tc.args;
             try {
-              const sandbox = { console, args: tc.args, fetch };
+              const hydration = await SecretService.hydrate(tc.args, {
+                projectId: req.projectId,
+                userId: req.userId,
+                agentId: req.agentId,
+                prisma: this.prisma
+              });
+              executionArgs = hydration.hydrated;
+              hydratedSecrets = hydration.secretsMap;
+
+              const sandbox = { console, args: executionArgs, fetch };
               const ctx = vm.createContext(sandbox);
               const wrapper = `(async () => { const fn = ${inlineDef.sourceCode}; return await fn(args); })()`;
               const res = await vm.runInContext(wrapper, ctx);
               toolOutput = typeof res === 'string' ? res : JSON.stringify(res);
+              toolOutput = SecretService.mask(toolOutput, hydratedSecrets);
             } catch (err: any) {
-              toolOutput = `[Inline Tool Error] ${err.message}`;
+              toolOutput = `[Inline Tool Error] ${SecretService.mask(err.message, hydratedSecrets)}`;
               isError = true;
             }
           } else {

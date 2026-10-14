@@ -28,6 +28,7 @@ export const coffeeAstVerbs = {
     // 6. Embedded scripts & agent calls
     script: (code, language = 'coffeescript') => CuratorBuilder.script(code, language),
     agent: (options) => CuratorBuilder.agent(options),
+    secret: (key) => CuratorBuilder.secret(key),
     // 7. Builder Reference
     CuratorBuilder,
     builder: CuratorBuilder,

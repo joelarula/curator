@@ -121,4 +121,13 @@ export class CuratorBuilder {
     }
     return { type: 'Curator_Tool', toolName, args: evaluatedArgs };
   }
+
+  /**
+   * Reference a sensitive credential or API token via a secure placeholder.
+   * e.g. CuratorBuilder.secret('GITHUB_TOKEN') -> '$secret:GITHUB_TOKEN'
+   */
+  static secret(key: string): string {
+    return `$secret:${key}`;
+  }
 }
+
