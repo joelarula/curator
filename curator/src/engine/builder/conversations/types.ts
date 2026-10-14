@@ -35,6 +35,7 @@ export interface InformOptions {
   as_role?: string;
   targetRole?: string;
   senderRole?: string;
+  in_forum?: string;
   topic?: string;
   payload: any;
   [k: string]: any;
@@ -51,7 +52,7 @@ export interface VoteOptions {
 
 export interface SynthesizeOptions {
   in_forum: string;
-  conclusion: string;
+  conclusion?: string;
   summary?: string;
   as_role?: string;
   senderRole?: string;

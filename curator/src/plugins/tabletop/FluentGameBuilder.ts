@@ -1,5 +1,6 @@
 import type { CuratorAstNode, CuratorSequentialNode } from '../../engine/CuratorAst.js';
 import { CuratorCoreBuilder } from '../../engine/builder/CuratorCoreBuilder.js';
+import { UNIVERSAL_GAME_PHASE_MATRIX } from './matrix.js';
 
 /**
  * Universal Game State Machine & Tabletop Fluent Builder.
@@ -20,8 +21,12 @@ export class FluentGameBuilder {
    * Commits baseline stakes or posts blinds.
    */
   ante(options: { amount?: number; pot?: number; blinds?: Record<string, number>; [k: string]: any } = {}): this {
+    const meta = UNIVERSAL_GAME_PHASE_MATRIX.INITIALIZATION;
     this.steps.push(CuratorCoreBuilder.setState({
       gamePhase: 'ANTE',
+      universalPhase: meta.phase,
+      fundamentalQuestion: meta.fundamentalQuestion,
+      playerAgency: meta.playerAgency,
       turn: '$context.turn + 1',
       pot: options.pot || options.amount || 0,
       blinds: options.blinds || null,
@@ -43,8 +48,12 @@ export class FluentGameBuilder {
    * Bids for contract or trump suit (Bridge, Spades, Tarock).
    */
   bid(options: { as_role?: string; suit?: string; tricks?: number; amount?: number; [k: string]: any } = {}): this {
+    const meta = UNIVERSAL_GAME_PHASE_MATRIX.INITIALIZATION;
     this.steps.push(CuratorCoreBuilder.setState({
       gamePhase: 'CONTRACTING',
+      universalPhase: meta.phase,
+      fundamentalQuestion: meta.fundamentalQuestion,
+      playerAgency: meta.playerAgency,
       turn: '$context.turn + 1',
       lastBid: options,
     }));
@@ -68,9 +77,13 @@ export class FluentGameBuilder {
   deal(options: { privateCount?: number; communityCount?: number; holeCards?: number; community?: number; [k: string]: any } = {}): this {
     const privCount = options.privateCount ?? options.holeCards ?? 0;
     const commCount = options.communityCount ?? options.community ?? 0;
+    const meta = UNIVERSAL_GAME_PHASE_MATRIX.ALLOCATION;
 
     this.steps.push(CuratorCoreBuilder.setState({
       gamePhase: 'DEAL',
+      universalPhase: meta.phase,
+      fundamentalQuestion: meta.fundamentalQuestion,
+      playerAgency: meta.playerAgency,
       turn: '$context.turn + 1',
       privateCardCount: privCount,
       communityCardCount: commCount,
@@ -93,8 +106,12 @@ export class FluentGameBuilder {
    */
   deal_private(options: { to_role?: string; count?: number; cards?: any; [k: string]: any } = {}): this {
     const target = options.to_role || '$context.targetRole';
+    const meta = UNIVERSAL_GAME_PHASE_MATRIX.ALLOCATION;
     this.steps.push(CuratorCoreBuilder.setState({
       gamePhase: 'DEAL',
+      universalPhase: meta.phase,
+      fundamentalQuestion: meta.fundamentalQuestion,
+      playerAgency: meta.playerAgency,
       turn: '$context.turn + 1',
       [`private_hand_${target}`]: options.cards || options.count || 2,
     }));
@@ -116,8 +133,12 @@ export class FluentGameBuilder {
    * Deals community cards or flips starter/trump card visible to all.
    */
   deal_public(options: { count?: number; cards?: any; starter?: string; [k: string]: any } = {}): this {
+    const meta = UNIVERSAL_GAME_PHASE_MATRIX.ALLOCATION;
     this.steps.push(CuratorCoreBuilder.setState({
       gamePhase: 'DEAL',
+      universalPhase: meta.phase,
+      fundamentalQuestion: meta.fundamentalQuestion,
+      playerAgency: meta.playerAgency,
       turn: '$context.turn + 1',
       communityCards: options.cards || options.count || 3,
     }));
@@ -143,8 +164,12 @@ export class FluentGameBuilder {
 
   draw(options: { as_role?: string; count?: number; from?: 'deck' | 'discard'; [k: string]: any } = {}): this {
     const act = options.action || 'draw';
+    const meta = UNIVERSAL_GAME_PHASE_MATRIX.INTERACTION;
     this.steps.push(CuratorCoreBuilder.setState({
       gamePhase: 'INTERACTION',
+      universalPhase: meta.phase,
+      fundamentalQuestion: meta.fundamentalQuestion,
+      playerAgency: meta.playerAgency,
       microTurn: 'ACQUISITION',
       turn: '$context.turn + 1',
       lastAcquisition: act,
@@ -163,8 +188,12 @@ export class FluentGameBuilder {
   }
 
   discard(options: { as_role?: string; cards?: any; count?: number; [k: string]: any } = {}): this {
+    const meta = UNIVERSAL_GAME_PHASE_MATRIX.INTERACTION;
     this.steps.push(CuratorCoreBuilder.setState({
       gamePhase: 'INTERACTION',
+      universalPhase: meta.phase,
+      fundamentalQuestion: meta.fundamentalQuestion,
+      playerAgency: meta.playerAgency,
       microTurn: 'DISCARD',
       turn: '$context.turn + 1',
     }));
@@ -192,8 +221,12 @@ export class FluentGameBuilder {
    */
   wager(options: { action?: 'bet' | 'raise' | 'check'; amount?: number; as_role?: string; [k: string]: any } = {}): this {
     const act = options.action || 'bet';
+    const meta = UNIVERSAL_GAME_PHASE_MATRIX.INTERACTION;
     this.steps.push(CuratorCoreBuilder.setState({
       gamePhase: 'WAGER',
+      universalPhase: meta.phase,
+      fundamentalQuestion: meta.fundamentalQuestion,
+      playerAgency: meta.playerAgency,
       microTurn: 'VALUATION',
       turn: '$context.turn + 1',
       currentWager: options.amount || 0,
@@ -216,8 +249,12 @@ export class FluentGameBuilder {
    * Posturing / Claim: Asserts private state or bluff (Cheat, Liar's Dice, Perudo).
    */
   claim(options: { as_role?: string; declaration: string; rank?: string; count?: number; cards?: any; [k: string]: any }): this {
+    const meta = UNIVERSAL_GAME_PHASE_MATRIX.INTERACTION;
     this.steps.push(CuratorCoreBuilder.setState({
       gamePhase: 'POSTURING',
+      universalPhase: meta.phase,
+      fundamentalQuestion: meta.fundamentalQuestion,
+      playerAgency: meta.playerAgency,
       microTurn: 'CLAIM',
       turn: '$context.turn + 1',
       lastClaim: options,
@@ -241,8 +278,12 @@ export class FluentGameBuilder {
    */
   contestation(options: { action?: 'call' | 'fold' | 'stand' | 'challenge' | 'double_down'; as_role?: string; timeout?: string | number; [k: string]: any } = {}): this {
     const act = options.action || 'call';
+    const meta = UNIVERSAL_GAME_PHASE_MATRIX.INTERACTION;
     this.steps.push(CuratorCoreBuilder.setState({
       gamePhase: 'CONTESTATION',
+      universalPhase: meta.phase,
+      fundamentalQuestion: meta.fundamentalQuestion,
+      playerAgency: meta.playerAgency,
       microTurn: 'RESPONSE',
       turn: '$context.turn + 1',
       lastContestation: act,
@@ -286,8 +327,12 @@ export class FluentGameBuilder {
 
   play_card(options: { as_role?: string; card?: any; suit?: string; rank?: any; [k: string]: any }): this {
     const act = options.action || 'play';
+    const meta = UNIVERSAL_GAME_PHASE_MATRIX.INTERACTION;
     this.steps.push(CuratorCoreBuilder.setState({
       gamePhase: 'EXECUTION',
+      universalPhase: meta.phase,
+      fundamentalQuestion: meta.fundamentalQuestion,
+      playerAgency: meta.playerAgency,
       microTurn: 'PLAY',
       turn: '$context.turn + 1',
       lastCardPlayed: options.card || options,
@@ -306,8 +351,12 @@ export class FluentGameBuilder {
   }
 
   capture(options: { winner_role?: string; trickId?: string; cards?: any[]; points?: number; [k: string]: any } = {}): this {
+    const meta = UNIVERSAL_GAME_PHASE_MATRIX.INTERACTION;
     this.steps.push(CuratorCoreBuilder.setState({
       gamePhase: 'EXECUTION',
+      universalPhase: meta.phase,
+      fundamentalQuestion: meta.fundamentalQuestion,
+      playerAgency: meta.playerAgency,
       microTurn: 'CAPTURE',
       turn: '$context.turn + 1',
       lastTrickWinner: options.winner_role || '$context.trickWinner',
@@ -351,8 +400,12 @@ export class FluentGameBuilder {
    * Tables private hands to public domain and adjudicates claims against truth.
    */
   showdown(options: { evaluator?: string; revealAll?: boolean; [k: string]: any } = {}): this {
+    const meta = UNIVERSAL_GAME_PHASE_MATRIX.VERIFICATION;
     this.steps.push(CuratorCoreBuilder.setState({
       gamePhase: 'SHOWDOWN',
+      universalPhase: meta.phase,
+      fundamentalQuestion: meta.fundamentalQuestion,
+      playerAgency: meta.playerAgency,
       turn: '$context.turn + 1',
       showdownStatus: 'VERIFYING',
     }));
@@ -392,8 +445,12 @@ export class FluentGameBuilder {
    * Payouts pot, checks for player elimination, and rotates positional advantage (dealer button).
    */
   settlement(options: { winner?: string; pot?: number; points?: Record<string, number>; rotateDealer?: boolean; [k: string]: any } = {}): this {
+    const meta = UNIVERSAL_GAME_PHASE_MATRIX.SETTLEMENT;
     this.steps.push(CuratorCoreBuilder.setState({
       gamePhase: 'SETTLEMENT',
+      universalPhase: meta.phase,
+      fundamentalQuestion: meta.fundamentalQuestion,
+      playerAgency: meta.playerAgency,
       turn: '$context.turn + 1',
       roundStatus: 'CONCLUDED',
       winner: options.winner || '$context.declaredWinner',
@@ -416,7 +473,11 @@ export class FluentGameBuilder {
   }
 
   rotate_dealer(options: { next_role?: string; [k: string]: any } = {}): this {
+    const meta = UNIVERSAL_GAME_PHASE_MATRIX.SETTLEMENT;
     this.steps.push(CuratorCoreBuilder.setState({
+      universalPhase: meta.phase,
+      fundamentalQuestion: meta.fundamentalQuestion,
+      playerAgency: meta.playerAgency,
       turn: '$context.turn + 1',
       dealer: options.next_role || '$context.nextDealer',
     }));

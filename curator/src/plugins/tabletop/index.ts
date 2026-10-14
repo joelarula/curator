@@ -3,6 +3,7 @@ import { evalBlackjackTool, evalPokerTool, evalTrickTool } from './tools.js';
 import { tabletopVocabularies } from './GameComposables.js';
 
 export * from './tools.js';
+export * from './matrix.js';
 export * from './FluentGameBuilder.js';
 export * from './GameComposables.js';
 

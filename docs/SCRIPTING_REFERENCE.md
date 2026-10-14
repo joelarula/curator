@@ -128,14 +128,23 @@ revoke_lease tool: 'process_payment', from: 'agent_checkout'
 
 ## 7. Tabletop & Card Game State Machine DSL
 
-When using the `@curator/plugin-tabletop` plugin, you gain access to the universal 5-phase game machine:
+When using the `@curator/plugin-tabletop` plugin, you gain access to the **Universal Game Phase Matrix**, which formalizes gameplay across card, board, and social deduction games into 5 universal communicative phases:
 
+| Phase | Fundamental Question | Player Agency | Typical Communicative Turn | Canonical Speech Acts |
+| :--- | :--- | :--- | :--- | :--- |
+| **1. Initialization** | *"Who is in, and at what cost?"* | **Binary / Contractual** | Commit stake, make bid, post blinds, declare intent | `REQUEST`, `PROPOSE` |
+| **2. Allocation** | *"What hand did fate deal?"* | **Passive reception** | Receive private / public state, turn up starter card | `INFORM` |
+| **3. Interaction** | *"How do I leverage, bluff, or optimize?"* | **High strategic choice** | Bet, Fold, Hit, Stand, Swap, Lead, Play card, Challenge | `REQUEST`, `PROPOSE`, `ASSERT`, `VOTE` |
+| **4. Verification** | *"Whose assertion was valid?"* | **Revealing truth** | Show cards, challenge claim, evaluate hand rankings | `SYNTHESIZE`, `INFORM` |
+| **5. Settlement** | *"Who owns the consequences?"* | **Passive accounting** | Award pot, tally points, check elimination, rotate roles | `INFORM` |
+
+### Scripting with the Universal Matrix
 ```coffeescript
-# Phase 1: Ante & Blinds
-# Phase 2: Private vs Public Allocation
-# Phase 3: Interaction & Contestation Loop
-# Phase 4: Showdown & Verification
-# Phase 5: Settlement & State Reset
+# Phase 1: Initialization ("Who is in, and at what cost?")
+# Phase 2: Allocation ("What hand did fate deal?")
+# Phase 3: Interaction ("How do I leverage, bluff, or optimize?")
+# Phase 4: Verification ("Whose assertion was valid?")
+# Phase 5: Settlement ("Who owns the consequences?")
 
 game('high_stakes_poker')
   .ante(blinds: { sb: 10, bb: 20 })

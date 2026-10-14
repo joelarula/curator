@@ -7,9 +7,58 @@ import {
   evalPokerTool,
   evalTrickTool,
   compileCoffeeScriptToAST,
+  UNIVERSAL_GAME_PHASE_MATRIX,
+  getPhaseDefinition,
+  isValidPhaseTransition,
   game,
   table,
 } from '../../../curator/dist/src/index.js';
+
+test('Universal Game Phase Matrix: Formal 5-phase definitions and agency properties', () => {
+  // Phase 1: Initialization
+  const p1 = UNIVERSAL_GAME_PHASE_MATRIX.INITIALIZATION;
+  assert.equal(p1.phaseNumber, 1);
+  assert.equal(p1.fundamentalQuestion, 'Who is in, and at what cost?');
+  assert.equal(p1.playerAgency, 'contractual');
+  assert.equal(p1.playerAgencyLabel, 'Binary / Contractual');
+  assert.ok(p1.typicalCommunicativeTurns.some(t => t.includes('Commit stake')));
+
+  // Phase 2: Allocation
+  const p2 = UNIVERSAL_GAME_PHASE_MATRIX.ALLOCATION;
+  assert.equal(p2.phaseNumber, 2);
+  assert.equal(p2.fundamentalQuestion, 'What hand did fate deal?');
+  assert.equal(p2.playerAgency, 'passive_reception');
+  assert.equal(p2.playerAgencyLabel, 'Passive reception');
+
+  // Phase 3: Interaction
+  const p3 = UNIVERSAL_GAME_PHASE_MATRIX.INTERACTION;
+  assert.equal(p3.phaseNumber, 3);
+  assert.equal(p3.fundamentalQuestion, 'How do I leverage, bluff, or optimize?');
+  assert.equal(p3.playerAgency, 'strategic_choice');
+  assert.equal(p3.playerAgencyLabel, 'High strategic choice');
+
+  // Phase 4: Verification
+  const p4 = UNIVERSAL_GAME_PHASE_MATRIX.VERIFICATION;
+  assert.equal(p4.phaseNumber, 4);
+  assert.equal(p4.fundamentalQuestion, 'Whose assertion was valid?');
+  assert.equal(p4.playerAgency, 'revealing_truth');
+  assert.equal(p4.playerAgencyLabel, 'Revealing truth');
+
+  // Phase 5: Settlement
+  const p5 = UNIVERSAL_GAME_PHASE_MATRIX.SETTLEMENT;
+  assert.equal(p5.phaseNumber, 5);
+  assert.equal(p5.fundamentalQuestion, 'Who owns the consequences?');
+  assert.equal(p5.playerAgency, 'passive_accounting');
+  assert.equal(p5.playerAgencyLabel, 'Passive accounting');
+
+  // Phase Transition Validation
+  assert.equal(isValidPhaseTransition('INITIALIZATION', 'ALLOCATION'), true);
+  assert.equal(isValidPhaseTransition('ALLOCATION', 'INTERACTION'), true);
+  assert.equal(isValidPhaseTransition('INTERACTION', 'VERIFICATION'), true);
+  assert.equal(isValidPhaseTransition('VERIFICATION', 'SETTLEMENT'), true);
+  assert.equal(isValidPhaseTransition('SETTLEMENT', 'INITIALIZATION'), true);
+  assert.equal(isValidPhaseTransition('INITIALIZATION', 'VERIFICATION'), false); // Illegal leap
+});
 
 test('Tabletop Plugin: CuratorEngine registers tabletop tools and vocabulary verbs', () => {
   const engine = new CuratorEngine();
