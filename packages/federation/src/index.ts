@@ -8,3 +8,4 @@ export * from './mesh/PeerConnectionManager.js';
 export * from './mesh/withFederation.js';
 export * from './plugin/federationPlugin.js';
 export * from './identity/PeerSessionResolver.js';
+export * from './conversations/index.js';

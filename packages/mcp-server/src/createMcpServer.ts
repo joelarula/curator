@@ -45,12 +45,17 @@ export async function createMcpServer(config: McpServerConfig): Promise<CuratorM
     }
   }
 
-  // 2. Build MCP registry from CuratorEngine
-  const registry = McpToolRegistry.fromEngine(engine, async () => {
-    return buildToolContext({ prisma, host });
-  });
+  // 2. Build MCP registry from CuratorEngine with dynamic exposure controller
+  const exposureController = config.exposureController || host?.conversations?.exposure;
+  const registry = McpToolRegistry.fromEngine(
+    engine,
+    async () => {
+      return buildToolContext({ prisma, host });
+    },
+    exposureController
+  );
 
-  // 3. Initialize MCP Server
+  // 3. Initialize MCP Server with tool list change notification capability
   const server = new Server(
     {
       name,
@@ -58,22 +63,40 @@ export async function createMcpServer(config: McpServerConfig): Promise<CuratorM
     },
     {
       capabilities: {
-        tools: {},
+        tools: {
+          listChanged: true,
+        },
       },
     }
   );
 
-  // 4. Attach tool listing
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
+  // Broadcast MCP notifications/tools/list_changed when outer exposure changes
+  if (exposureController) {
+    exposureController.on('exposure_changed', () => {
+      registry.refresh();
+      try {
+        server.notification({
+          method: 'notifications/tools/list_changed',
+        });
+      } catch (_) {
+        // Safe catch if client transport not yet connected
+      }
+    });
+  }
+
+  // 4. Attach tool listing with dynamic exposure gating
+  server.setRequestHandler(ListToolsRequestSchema, async (_request, extra: any) => {
+    const session = extra?.session || config.session;
     return {
-      tools: registry.list(),
+      tools: registry.list(session),
     };
   });
 
-  // 5. Attach tool dispatch
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  // 5. Attach tool dispatch with lease accounting & trust tier validation
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra: any) => {
     const { name: toolName, arguments: args } = request.params;
-    const result = await registry.call(toolName, (args as Record<string, unknown>) || {});
+    const session = extra?.session || config.session;
+    const result = await registry.call(toolName, (args as Record<string, unknown>) || {}, session);
     return result as any;
   });
 

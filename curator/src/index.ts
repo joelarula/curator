@@ -5,6 +5,7 @@ export * from './engine/CuratorContext.js';
 export * from './engine/CuratorContracts.js';
 export * from './engine/CuratorAst.js';
 export * from './engine/CuratorBuilder.js';
+export * from './engine/builder/index.js';
 export * from './engine/CuratorAstValidation.js';
 export * from './engine/CoffeeVerbs.js';
 export * from './engine/CffeCompiler.js';
@@ -38,4 +39,8 @@ export * from './db/mariadbProvisioner.js';
 // Built-in Plugins
 export * from './plugins/core/index.js';
 export * from './plugins/semantic-shapes/index.js';
+export * from './plugins/tabletop/index.js';
+
+// Conversational Multi-Agent Protocol & Patterns
+export * from './conversations/index.js';
 

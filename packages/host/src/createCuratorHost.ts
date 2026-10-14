@@ -4,7 +4,9 @@ import {
   provisionMariadbDb,
   CuratorRequestProcessor,
   curatorEngine,
-} from '@curator/agent-server';
+  ConversationManager,
+  ConversationRouter,
+} from '../../../curator/dist/src/index.js';
 import { CuratorHostEvents } from './events/CuratorHostEvents.js';
 import { seedAgentsAndTools } from './seed/seedAgentsAndTools.js';
 import type { CuratorHost, CuratorHostConfig, SeedResult } from './types.js';
@@ -75,12 +77,72 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
     },
   });
 
+  // 6. Instantiate ConversationManager & ConversationRouter for native intra-node agent communication
+  const convManager = new ConversationManager({
+    prisma,
+    defaultProjectId: project.id,
+    defaultUserId: user.id,
+  });
+
+  const conversations = new ConversationRouter({
+    localNodeId: name,
+    localProjectId: project.id,
+    manager: convManager,
+    prisma,
+  });
+
+  function parseDurationMs(duration: string | number): number {
+    if (typeof duration === 'number') return duration;
+    const match = duration.match(/^(\d+(?:\.\d+)?)\s*(ms|s|m|h|d)?$/i);
+    if (!match) return 300000;
+    const val = parseFloat(match[1]);
+    const unit = (match[2] || 'm').toLowerCase();
+    switch (unit) {
+      case 'ms': return val;
+      case 's': return val * 1000;
+      case 'm': return val * 60 * 1000;
+      case 'h': return val * 3600 * 1000;
+      case 'd': return val * 86400 * 1000;
+      default: return val * 60 * 1000;
+    }
+  }
+
+  // Wire host events with ConversationRouter for local loopback & intra-node message passing
+  events.onEvent((event: any) => {
+    if (event.type === 'agent:message' || event.type === 'mesh:agent:message') {
+      conversations.routeInbound(event.payload).catch((err) => {
+        logger.warn?.(`[CuratorHost:${name}] Failed to route inbound agent message:`, err);
+      });
+    } else if (event.type === 'agent:lease:grant') {
+      const p = event.payload || {};
+      const durationMs = parseDurationMs(p.duration || '5m');
+      conversations.exposure.grantLease({
+        toolName: p.toolName,
+        granteePeerId: p.grantee,
+        conversationId: p.conversationId,
+        durationMs,
+        maxInvocations: p.maxInvocations,
+      });
+    } else if (event.type === 'agent:lease:revoke') {
+      const p = event.payload || {};
+      if (p.leaseId) {
+        conversations.exposure.revokeLease(p.leaseId, 'event_revoke');
+      } else {
+        const matching = conversations.exposure.getActiveLeases(p.grantee).find((l) => l.toolName === p.toolName);
+        if (matching) {
+          conversations.exposure.revokeLease(matching.leaseId, 'event_revoke');
+        }
+      }
+    }
+  });
+
   const host: CuratorHost = {
     config,
     events,
     prisma,
     processor,
     engine: registeredEngine,
+    conversations,
 
     async start(intervalMs?: number): Promise<void> {
       const interval = intervalMs ?? config.intervalMs ?? 3000;

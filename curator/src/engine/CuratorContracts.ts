@@ -82,6 +82,7 @@ export interface CuratorPluginDefinition {
   scripts?: Record<string, CuratorScriptDefinition>;
   agents?: Record<string, CuratorAgentDefinition | CuratorAstNode>;
   llmProviders?: Record<string, any>;
+  vocabularies?: Record<string, (...args: any[]) => CuratorAstNode | any>;
   mcp?: CuratorPluginMcpPolicy;
   onInit?: (context: any) => Promise<void> | void;
   onDestroy?: () => Promise<void> | void;

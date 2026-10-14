@@ -2,8 +2,9 @@ import vm from 'node:vm';
 import { CuratorBuilder } from './CuratorBuilder.js';
 import type { CuratorAstNode } from './CuratorAst.js';
 import { validateCuratorAst } from './CuratorAstValidation.js';
+import { vocabularyRegistry, type VocabularyComposable } from './builder/VocabularyRegistry.js';
 
-export const coffeeAstVerbs = {
+export const coffeeAstVerbs: Record<string, any> = {
   // 1. Tool execution
   tool: (toolName: string, args?: Record<string, any>) =>
     CuratorBuilder.tool(toolName, args),
@@ -56,10 +57,46 @@ export const coffeeAstVerbs = {
   // 7. Sensitive tokens & secret placeholders
   secret: (key: string) => CuratorBuilder.secret(key),
 
-  // 8. Builder Reference
+  // 8. Agentic SpeechActs & Classical Discourse Forms
+  ask: (options: any) => CuratorBuilder.ask(options),
+  propose: (options: any) => CuratorBuilder.propose(options),
+  inform: (options: any) => CuratorBuilder.inform(options),
+  vote: (options: any) => CuratorBuilder.vote(options),
+  synthesize: (options: any) => CuratorBuilder.synthesize(options),
+  broadcast: (options: any) => CuratorBuilder.broadcast(options),
+  dialog: (targetUri: string) => CuratorBuilder.dialog(targetUri),
+  dialogue: (targetUri: string) => CuratorBuilder.dialogue(targetUri),
+  forum: (roomUri: string) => CuratorBuilder.forum(roomUri),
+  polylogue: (roomUri: string) => CuratorBuilder.polylogue(roomUri),
+  enter_forum: (roomUri: string, options: any = {}) =>
+    CuratorBuilder.enter_forum(roomUri, options),
+  soliloquy: (thought: any) => CuratorBuilder.soliloquy(thought),
+  monologue: (topic: string, narrative: any) => CuratorBuilder.monologue(topic, narrative),
+  trialogue: (agentB: string, agentC: string, topic?: string) => CuratorBuilder.trialogue(agentB, agentC, topic),
+  catechism: (targetUri: string, queryOrOptions: any) => CuratorBuilder.catechism(targetUri, queryOrOptions),
+  dialectic: (options: any) => CuratorBuilder.dialectic(options),
+  apostrophe: (absentEntity: string, assertion: any) => CuratorBuilder.apostrophe(absentEntity, assertion),
+  grant_lease: (options: any) => CuratorBuilder.grant_lease(options),
+  revoke_lease: (options: any) => CuratorBuilder.revoke_lease(options),
+  as_role: (roleName: string, actionsOrFn?: any) => CuratorBuilder.as_role(roleName, actionsOrFn),
+  with_role: (roleName: string, actionsOrFn?: any) => CuratorBuilder.with_role(roleName, actionsOrFn),
+  role: (roleName: string) => CuratorBuilder.role(roleName),
+
+  // 9. Vocabulary Extension
+  extend_verbs: (verbs: Record<string, VocabularyComposable>) => extendCoffeeAstVerbs(verbs),
+
+  // 10. Builder Reference
   CuratorBuilder,
   builder: CuratorBuilder,
 };
+
+/**
+ * Dynamically extends coffeeAstVerbs and registers new vocabulary composables into the engine.
+ */
+export function extendCoffeeAstVerbs(newVerbs: Record<string, VocabularyComposable>): void {
+  Object.assign(coffeeAstVerbs, newVerbs);
+  vocabularyRegistry.registerMany(newVerbs);
+}
 
 /**
  * Compiles a natural CoffeeScript workflow string into a formal Execution AST.
@@ -93,6 +130,11 @@ export async function compileCoffeeScriptToAST(
   // If the script returned a function (factory), execute it
   if (typeof result === 'function') {
     result = result({ context: initialContext, ...coffeeAstVerbs });
+  }
+
+  // If result is a fluent builder with a .build() method, automatically resolve it
+  if (result && typeof result === 'object' && typeof (result as any).build === 'function') {
+    result = (result as any).build();
   }
 
   if (!result || typeof result !== 'object' || !result.type) {

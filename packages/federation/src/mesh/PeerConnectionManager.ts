@@ -6,6 +6,7 @@ import { createRemoteMcpProxyTool } from '../mcp/RemoteMcpProxyTool.js';
 import { MeshEventBridge } from '../events/MeshEventBridge.js';
 import { MeshServer } from '../events/MeshServer.js';
 import { resolvePeerSession, type PeerSessionResult } from '../identity/PeerSessionResolver.js';
+import type { ConversationRouter } from '../conversations/index.js';
 
 export class PeerConnectionManager {
   public readonly peers = new Map<string, PeerDescriptor>();
@@ -14,12 +15,53 @@ export class PeerConnectionManager {
   private mcpClients = new Map<string, McpPeerClient>();             // peerId -> McpPeerClient
   public readonly eventBridge: MeshEventBridge;
   public readonly meshServer?: MeshServer;
+  public readonly router: ConversationRouter;
 
   constructor(
     public readonly host: CuratorHost,
     public readonly config: FederationConfig
   ) {
     this.eventBridge = new MeshEventBridge(host, config);
+
+    // Reuse the host's central ConversationRouter without duplicating router or manager state
+    this.router = this.host.conversations;
+
+    // Attach remote federation mesh transport hooks
+    this.router.setRemoteTransport({
+      sendRemote: async (targetNodeId, eventName, payload) => {
+        this.eventBridge.emitMeshEvent(eventName, payload);
+      },
+      broadcastRemote: async (eventName, payload) => {
+        this.eventBridge.emitMeshEvent(eventName, payload);
+      },
+    });
+
+    // Wire outer capability exposure changes to broadcast mesh:tools:list_changed
+    this.host.conversations.exposure.on('exposure_changed', (change: any) => {
+      this.eventBridge.emitMeshEvent('mesh:tools:list_changed', {
+        peerId: this.config.peerId,
+        change,
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    // Listen to agent:message / mesh:agent:message / mesh:tools:list_changed events received from peer bridge
+    this.host.events.onEvent((event: any) => {
+      if ((event.type === 'agent:message' || event.type === 'mesh:agent:message') && event.payload?._isMesh) {
+        this.router.routeInbound(event.payload).catch((err) => {
+          console.warn('[PeerConnectionManager] Failed to route inbound mesh agent message:', err);
+        });
+      } else if (event.type === 'mesh:tools:list_changed' && event.payload?._isMesh) {
+        const remotePeerId = event.payload.peerId || event.payload._senderNode;
+        const peer = this.peers.get(remotePeerId);
+        const client = this.mcpClients.get(remotePeerId);
+        if (peer && client) {
+          this.syncPeerTools(peer, client).catch((err) => {
+            console.warn(`[PeerConnectionManager] Failed dynamic tool resync for "${remotePeerId}":`, err);
+          });
+        }
+      }
+    });
 
     if (config.meshPort) {
       this.meshServer = new MeshServer(this.eventBridge, { port: config.meshPort });
@@ -122,6 +164,15 @@ export class PeerConnectionManager {
       const tools = await client.listTools();
       const prefix = this.config.toolPrefix ?? `${peer.name || peer.id}:`;
 
+      // 1. Unregister previously registered tools for this peer so revoked leases and throttled tools vanish
+      for (const [toolName] of this.remoteTools.entries()) {
+        if (toolName.startsWith(prefix)) {
+          this.remoteTools.delete(toolName);
+          this.host.engine.tools.delete(toolName);
+        }
+      }
+
+      // 2. Register fresh set of tools
       for (const t of tools) {
         const proxyTool = createRemoteMcpProxyTool({
           peer,
@@ -135,6 +186,11 @@ export class PeerConnectionManager {
         this.remoteTools.set(proxyTool.name, proxyTool);
         this.host.engine.registerTool(proxyTool);
       }
+
+      this.host.events.broadcast('mesh:tools:synced', {
+        peerId: peer.id,
+        toolsCount: tools.length,
+      });
     } catch (err: any) {
       console.warn(`[PeerConnectionManager] Tool sync failed for peer "${peer.id}":`, err?.message || err);
     }

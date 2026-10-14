@@ -1,4 +1,5 @@
 import type { CuratorHostEvents, CuratorEvent, CuratorEventType } from './events/CuratorHostEvents.js';
+import type { ConversationRouter } from '../../../curator/dist/src/index.js';
 
 export type { CuratorHostEvents, CuratorEvent, CuratorEventType };
 
@@ -46,6 +47,7 @@ export interface CuratorHost {
   prisma: any;
   processor: any;
   engine: any;
+  conversations: ConversationRouter;
   start(intervalMs?: number): Promise<void>;
   stop(): Promise<void>;
   gracefulShutdown(): Promise<void>;

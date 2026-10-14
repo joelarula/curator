@@ -11,6 +11,7 @@ import type {
   LlmCacheInfo,
 } from './llm/ILlmProvider.js';
 import { LlmFactory } from './llm/LlmFactory.js';
+import { extendCoffeeAstVerbs } from './CoffeeVerbs.js';
 
 export type CuratorPlugin = CuratorPluginDefinition;
 
@@ -45,6 +46,9 @@ export class CuratorEngine {
       Object.entries(plugin.llmProviders).forEach(([k, v]) => {
         LlmFactory.registerProvider(k, v);
       });
+    }
+    if (plugin.vocabularies) {
+      extendCoffeeAstVerbs(plugin.vocabularies);
     }
     if (typeof plugin.onInit === 'function') {
       try {

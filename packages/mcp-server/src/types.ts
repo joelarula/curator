@@ -1,4 +1,4 @@
-import type { CuratorEngine } from '@curator/agent-server';
+import type { CuratorEngine, ExposurePolicyController, PeerSessionContext } from '@curator/agent-server';
 import type { CuratorHost } from '@curator/host';
 
 export type McpTransport = 'stdio' | { http: { port: number; path?: string } };
@@ -16,6 +16,8 @@ export interface McpServerConfig {
   engine: CuratorEngine;
   prisma: any;
   host?: CuratorHost;
+  exposureController?: ExposurePolicyController;
+  session?: PeerSessionContext;
   transport?: McpTransport;
   /** Extra plugins to register before building registry (mcpCorePlugin & mcpOrchestrationPlugin) */
   registerBuiltinPlugins?: boolean;

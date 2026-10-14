@@ -1,4 +1,10 @@
-import type { CuratorEngine, CuratorTool, CuratorToolContext } from '@curator/agent-server';
+import type {
+  CuratorEngine,
+  CuratorTool,
+  CuratorToolContext,
+  ExposurePolicyController,
+  PeerSessionContext,
+} from '@curator/agent-server';
 import type { McpCallResult, McpToolDeclaration } from './types.js';
 
 export class McpToolRegistry {
@@ -6,16 +12,26 @@ export class McpToolRegistry {
 
   constructor(
     private engine: CuratorEngine,
-    private getContext: () => Promise<CuratorToolContext>
+    private getContext: () => Promise<CuratorToolContext>,
+    private exposureController?: ExposurePolicyController
   ) {
     this.refresh();
   }
 
   public static fromEngine(
     engine: CuratorEngine,
-    getContext: () => Promise<CuratorToolContext>
+    getContext: () => Promise<CuratorToolContext>,
+    exposureController?: ExposurePolicyController
   ): McpToolRegistry {
-    return new McpToolRegistry(engine, getContext);
+    return new McpToolRegistry(engine, getContext, exposureController);
+  }
+
+  public getExposureController(): ExposurePolicyController | undefined {
+    return this.exposureController;
+  }
+
+  public setExposureController(controller: ExposurePolicyController): void {
+    this.exposureController = controller;
   }
 
   public refresh(): void {
@@ -57,9 +73,15 @@ export class McpToolRegistry {
     return false;
   }
 
-  public list(): McpToolDeclaration[] {
+  public list(session?: PeerSessionContext): McpToolDeclaration[] {
     const list: McpToolDeclaration[] = [];
-    for (const tool of this.exposedTools.values()) {
+    const allTools = Array.from(this.exposedTools.values());
+
+    const allowedTools = this.exposureController
+      ? this.exposureController.filterTools(allTools, session || { peerId: 'local', trustTier: 'cluster_admin' })
+      : allTools;
+
+    for (const tool of allowedTools) {
       list.push(tool.toMcpDeclaration());
     }
     return list;
@@ -67,7 +89,8 @@ export class McpToolRegistry {
 
   public async call(
     name: string,
-    args: Record<string, unknown> = {}
+    args: Record<string, unknown> = {},
+    session?: PeerSessionContext
   ): Promise<McpCallResult> {
     const tool = this.exposedTools.get(name);
     if (!tool) {
@@ -75,6 +98,23 @@ export class McpToolRegistry {
         content: [{ type: 'text', text: `Error: Unknown or unexposed MCP tool "${name}"` }],
         isError: true,
       };
+    }
+
+    // Dynamic Exposure Policy Evaluation (Trust tiers, ephemeral leases, CPU throttling, multi-tenant boundaries)
+    if (this.exposureController) {
+      const peerSession = session || { peerId: 'local', trustTier: 'cluster_admin' };
+      const accessEval = this.exposureController.evaluateToolAccess(tool, peerSession);
+      if (!accessEval.allowed) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error: ${accessEval.reason || 'Access denied by exposure policy controller.'}`,
+            },
+          ],
+          isError: true,
+        };
+      }
     }
 
     if (tool.accessLevel === 'destructive' && process.env.MCP_ALLOW_DESTRUCTIVE !== 'true') {
@@ -95,6 +135,11 @@ export class McpToolRegistry {
         args,
         toolContext,
       });
+
+      // Record invocation against lease if an ephemeral lease was utilized
+      if (this.exposureController && session?.peerId) {
+        this.exposureController.recordLeaseInvocation(session.peerId, tool.name, session.conversationId);
+      }
 
       const formattedText =
         typeof output === 'string'
