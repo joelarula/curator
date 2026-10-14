@@ -1,3 +1,10 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Canonical PostgreSQL Core Schema
+// Main enterprise backend models (Postgres + pgvector).
+// For multi-database architecture and synchronization rules across SQLite &
+// MariaDB (curator/prisma-*), see AGENTS.md Section 4.6.
+// ─────────────────────────────────────────────────────────────────────────────
+
 enum RequestStatus {
   NEW
   WAITING

@@ -109,6 +109,27 @@ When this runs, `CuratorRequestProcessor` guarantees:
 2. `Response` and audit records are created per turn automatically.
 3. Peer sessions and token permissions are validated against the database.
 
+### 4.6 Multi-Database Schema Topology and Isolation Rules
+
+The repository intentionally supports multiple database engines across modules:
+
+1. **`server/prisma/schema/` (PostgreSQL with `pgvector`)**:
+   - The primary enterprise backend for GraphQL, Apollo Server, OAuth/RBAC, and semantic vector embeddings.
+   - Utilizes PostgreSQL-specific native features (`vector(1536)`).
+2. **`curator/prisma-sqlite/` (SQLite)**:
+   - Powers `@curator/agent-server`, standalone desktop CLI runs (`curator run --db <name>`), offline agents, and WASM/OPFS client edge runtimes (e.g. Chrome extension, Keeris).
+   - Stripped of PostgreSQL-specific native modifiers and vector extensions so it runs without Docker or external DB services.
+3. **`curator/prisma-mariadb/` (MySQL / MariaDB)**:
+   - Used for cPanel and shared-hosting deployments where PostgreSQL/Docker are unavailable.
+4. **`server/prisma/sqlite/` (Server SQLite replica)**:
+   - Maintained for local SQLite execution paths and testing within `server`.
+
+#### Strict Isolation Rules for Prisma Schemas:
+- **Never co-locate multiple engine schemas under the same `prisma/` folder**: Prisma Language Server automatically treats any `.prisma` files in the same directory tree as a single multi-file schema. Placing SQLite, MariaDB, or Postgres schemas in the same `prisma/` folder causes fatal duplicate model collisions (`The model "Project" cannot be defined because a model with that name already exists`).
+- Separate distinct database targets into their own root folders (e.g., `prisma-sqlite/`, `prisma-mariadb/`).
+- **Core Entity Synchronization**: When updating core workflow models (`Project`, `User`, `Agent`, `Request`, `Response`, `Conversation`), the changes must be intentionally synced across both PostgreSQL (`server/prisma/schema/core.prisma`) and embedded runtimes (`curator/prisma-sqlite/` and `curator/prisma-mariadb/`).
+- **Client Output & TypeScript Path Mapping**: Submodules using custom output generators (e.g., `src/generated/prisma-sqlite`) must map `@prisma/client` in `tsconfig.json` paths so local services maintain full type safety without relying on hoisted root stubs.
+
 
 ## 5. Module-by-module run and validation commands
 

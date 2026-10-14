@@ -1,8 +1,289 @@
 /**
- * Universal Game Phase Matrix
- * Formalizes gameplay across all tabletop, card, and social deduction games
- * into a universal state machine of acts and communicative turns.
+ * Universal Interaction Order & Game Phase Matrix
+ * Unifies games, speech acts, rituals, political theater, and everyday habits
+ * across Linguistic Pragmatics, Goffman's Frame Analysis, Game Theory, and Ethnomethodology.
  */
+
+// ============================================================================
+// 1. Unified Interaction Primitives (6 Foundational Primitives)
+// ============================================================================
+
+export type UniversalInteractionPrimitive =
+  | 'FRAME_BOUNDARY'          // 1. Frame & Boundary (The Container)
+  | 'POSTURING_ASSERTION'     // 2. Posturing & Assertion (Claiming Reality)
+  | 'YIELDING_CONTESTATION'   // 3. Yielding & Contestation (Managing Collision)
+  | 'VERIFICATION_REVELATION' // 4. Verification & Revelation (Collapsing Entropy)
+  | 'SETTLEMENT_ACCOUNTING'   // 5. Settlement & Accounting (State Rebalance)
+  | 'META_ACTS';              // 6. Meta-Acts (Rules of the Rule-Set)
+
+export interface InteractionAnalogRecord {
+  cardGame: string;
+  speechActConversation: string;
+  ritualHabit: string;
+  politicalTheaterCourtroom: string;
+}
+
+export interface UniversalInteractionDefinition {
+  readonly primitiveNumber: 1 | 2 | 3 | 4 | 5 | 6;
+  readonly primitive: UniversalInteractionPrimitive;
+  readonly name: string;
+  readonly theoreticalRoots: string[];
+  readonly fundamentalQuestion: string;
+  readonly playerAgency: string;
+  readonly playerAgencyLabel: string;
+  readonly coreAct: string;
+  readonly canonicalSpeechActs: ('REQUEST' | 'PROPOSE' | 'INFORM' | 'ACCEPT' | 'REJECT' | 'ASSERT' | 'VOTE' | 'SYNTHESIZE')[];
+  readonly subActions: string[];
+  readonly analogs: Record<string, InteractionAnalogRecord>;
+}
+
+export const UNIVERSAL_INTERACTION_MATRIX: Record<UniversalInteractionPrimitive, UniversalInteractionDefinition> = {
+  FRAME_BOUNDARY: {
+    primitiveNumber: 1,
+    primitive: 'FRAME_BOUNDARY',
+    name: 'Frame & Boundary (The Container)',
+    theoreticalRoots: [
+      "Erving Goffman: Frame Analysis & The Interaction Order",
+      "Johan Huizinga: Homo Ludens (The Magic Circle)",
+      "J.L. Austin & John Searle: Felicity Conditions for Performatives",
+      "Game Theory: Rules of the Arena & Information Partitioning",
+    ],
+    fundamentalQuestion: 'What reality is currently being enacted, under what rules, and what collateral legitimized entry?',
+    playerAgency: 'framing_contractual',
+    playerAgencyLabel: 'Framing & Collateral Buy-In',
+    coreAct: 'Isolating the temporal and spatial boundary from "real life", establishing stance, and committing stakes.',
+    canonicalSpeechActs: ['REQUEST', 'INFORM', 'PROPOSE'],
+    subActions: ['bracket', 'magic_circle', 'stance', 'frame_alignment', 'stake', 'buy_in', 'ante'],
+    analogs: {
+      bracket: {
+        cardGame: 'Shuffling & dealing',
+        speechActConversation: 'Clearing throat, "Can we talk?"',
+        ritualHabit: 'Crossing threshold, ringing a bell',
+        politicalTheaterCourtroom: 'Gavel strike, "All rise for the court"',
+      },
+      stance: {
+        cardGame: 'Casual vs tournament stance',
+        speechActConversation: 'Playful banter vs solemn confession',
+        ritualHabit: 'Adopting reverent posture, kneeling',
+        politicalTheaterCourtroom: 'Entering formal plea, swearing oath',
+      },
+      stake: {
+        cardGame: 'Posting blinds / ante',
+        speechActConversation: 'Personal vulnerability, putting credibility on the line',
+        ritualHabit: 'Personal submission, sacrifice, vow',
+        politicalTheaterCourtroom: 'Posting bail, committing political capital',
+      },
+    },
+  },
+
+  POSTURING_ASSERTION: {
+    primitiveNumber: 2,
+    primitive: 'POSTURING_ASSERTION',
+    name: 'Posturing & Assertion (Claiming Reality)',
+    theoreticalRoots: [
+      "Linguistic Pragmatics: Illocutionary Force & Assertives",
+      "Michael Spence: Costly Signaling Theory",
+      "Erving Goffman: Frontstage Performance & The Presentation of Self",
+      "Game Theory: Bluffing, Strategic Revelation, and Strategic Moves",
+    ],
+    fundamentalQuestion: 'How does an actor project intent, modify state, and test boundaries?',
+    playerAgency: 'strategic_assertion',
+    playerAgencyLabel: 'Strategic Assertion & Signaling',
+    coreAct: 'Projecting intent, claiming reality through costly signaling or bluffs, and escalating conversational friction.',
+    canonicalSpeechActs: ['PROPOSE', 'ASSERT'],
+    subActions: ['bid', 'gambit', 'posture', 'signal', 'raise', 'escalate', 'wager', 'claim', 'lead', 'play_card'],
+    analogs: {
+      bid: {
+        cardGame: 'Placing a lead card, bidding trump',
+        speechActConversation: 'Asking a leading question, proposing agenda',
+        ritualHabit: 'Offering an opening prayer / greeting',
+        politicalTheaterCourtroom: 'Filing opening motion, introducing legislation',
+      },
+      posture: {
+        cardGame: 'Bluffing a big bet',
+        speechActConversation: 'Tone of authority, flexing expertise',
+        ritualHabit: 'Bowing head, adopting austere silence',
+        politicalTheaterCourtroom: 'Press briefing, partisan filibuster, grandstanding',
+      },
+      raise: {
+        cardGame: 'Raising the pot 3x',
+        speechActConversation: 'Increasing tension, pressing an argument',
+        ritualHabit: 'Accelerating liturgy, intensifying drumbeat',
+        politicalTheaterCourtroom: 'Raising the stakes, issuing an ultimatum',
+      },
+    },
+  },
+
+  YIELDING_CONTESTATION: {
+    primitiveNumber: 3,
+    primitive: 'YIELDING_CONTESTATION',
+    name: 'Yielding & Contestation (Managing Collision)',
+    theoreticalRoots: [
+      "Ethnomethodology: Turn-Taking & Adjacency Pairs (Sacks, Schegloff, Jefferson)",
+      "Game Theory: Minimax, Zero-Sum Contestation, and Concession Thresholds",
+      "Sociology of Law: Adversarial Cross-Examination & Objection Orders",
+    ],
+    fundamentalQuestion: 'When divergent trajectories meet, who yields, who checks, and who interrogates?',
+    playerAgency: 'contestation_negotiation',
+    playerAgencyLabel: 'Contestation & Precedence Negotiation',
+    coreAct: 'Negotiating precedence when trajectories collide: deferring initiative, interrogating validity, or conceding.',
+    canonicalSpeechActs: ['ACCEPT', 'REJECT', 'VOTE', 'INFORM'],
+    subActions: ['check', 'defer', 'challenge', 'interrogate', 'yield', 'concede', 'fold', 'call', 'stand'],
+    analogs: {
+      check: {
+        cardGame: 'Checking in poker',
+        speechActConversation: 'Nodding, holding floor, pausing turn',
+        ritualHabit: 'Silent pause in liturgy',
+        politicalTheaterCourtroom: 'Yielding balance of time, passing initiative',
+      },
+      challenge: {
+        cardGame: 'Calling a bluff ("Bullshit")',
+        speechActConversation: 'Pointing out contradiction, calling foul',
+        ritualHabit: 'Calling out heresy or taboo violation',
+        politicalTheaterCourtroom: '"Objection your honor!", committee subpoena',
+      },
+      yield: {
+        cardGame: 'Folding a hand',
+        speechActConversation: 'Admitting error, conceding the point',
+        ritualHabit: 'Prostrating before authority, submission',
+        politicalTheaterCourtroom: 'Plea bargain, withdrawing candidacy, settlement',
+      },
+    },
+  },
+
+  VERIFICATION_REVELATION: {
+    primitiveNumber: 4,
+    primitive: 'VERIFICATION_REVELATION',
+    name: 'Verification & Revelation (Collapsing Entropy)',
+    theoreticalRoots: [
+      "Information Economics: The Revelation Principle",
+      "Sociology of Law & Ritual: Performative Ratification & Witnessing",
+      "Speech Act Theory: Declarations & Juridical Illocutions",
+    ],
+    fundamentalQuestion: 'Whose assertion was valid, and who ratifies the truth into public fact?',
+    playerAgency: 'revealing_truth',
+    playerAgencyLabel: 'Entropy Collapse & Public Witnessing',
+    coreAct: 'Compelling private assets/beliefs into auditable public fact and collectively ratifying the outcome.',
+    canonicalSpeechActs: ['SYNTHESIZE', 'INFORM', 'ACCEPT'],
+    subActions: ['expose', 'showdown', 'reveal', 'ratify', 'witness', 'adjudicate'],
+    analogs: {
+      expose: {
+        cardGame: 'Showdown (cards tabled on felt)',
+        speechActConversation: 'Producing proof, confessing secret',
+        ritualHabit: 'Taking a solemn public vow',
+        politicalTheaterCourtroom: 'Submitting Exhibit A, publishing inspector general report',
+      },
+      ratify: {
+        cardGame: 'Pushing the pot to the winner',
+        speechActConversation: '"I understand and agree", signing contract',
+        ritualHabit: 'Pronouncing: "I now pronounce you...", Amen',
+        politicalTheaterCourtroom: 'Foreman reading verdict, signing treaty into law',
+      },
+    },
+  },
+
+  SETTLEMENT_ACCOUNTING: {
+    primitiveNumber: 5,
+    primitive: 'SETTLEMENT_ACCOUNTING',
+    name: 'Settlement & Accounting (State Rebalance)',
+    theoreticalRoots: [
+      "Pierre Bourdieu: Symbolic Capital, Face & Social Credit",
+      "Mechanism Design: Wealth Transfer, Scoring & Positional Reallocation",
+      "Ritual Studies: Cleansing Rites, Expiation & The Return to Mundane Time",
+    ],
+    fundamentalQuestion: 'How is symbolic, social, or physical capital redistributed, and how is the slate wiped clean?',
+    playerAgency: 'state_rebalance',
+    playerAgencyLabel: 'Capital Redistribution & Baseline Reset',
+    coreAct: 'Exacting levies or penalties, transferring capital/points, and wiping the slate clean to baseline.',
+    canonicalSpeechActs: ['INFORM', 'SYNTHESIZE'],
+    subActions: ['levy', 'toll', 'clear', 'reset', 'settlement', 'payout', 'rotate_dealer'],
+    analogs: {
+      levy: {
+        cardGame: 'Collecting rake, penalty for foul',
+        speechActConversation: 'Losing face, social shame, retraction',
+        ritualHabit: 'Penance, tithing, atonement toll',
+        politicalTheaterCourtroom: 'Court sanction, punitive fine, prison sentence',
+      },
+      clear: {
+        cardGame: 'Shuffling deck, rotating dealer button',
+        speechActConversation: 'Exchanging parting handshakes, "water under the bridge"',
+        ritualHabit: 'Parting blessing, saying "Amen", washing hands',
+        politicalTheaterCourtroom: 'Adjourning court sine die, clearing the docket',
+      },
+    },
+  },
+
+  META_ACTS: {
+    primitiveNumber: 6,
+    primitive: 'META_ACTS',
+    name: 'Meta-Acts (Rules of the Rule-Set)',
+    theoreticalRoots: [
+      "Harold Garfinkel: Breaching Experiments & Ethnomethodological Indifference",
+      "Conversation Analysis: Repair Sequences & Preference Organization",
+      "Johan Huizinga: The Spoilsport vs The Cheat (Breaching the Magic Circle)",
+    ],
+    fundamentalQuestion: 'Is the interaction going off-track, or is the frame itself being rejected?',
+    playerAgency: 'meta_repair_or_rupture',
+    playerAgencyLabel: 'Frame Preservation & Breaching',
+    coreAct: 'Executing micro-adjustments to preserve the illusion (repair) or refusing to honor the social contract (rupture).',
+    canonicalSpeechActs: ['REQUEST', 'REJECT', 'INFORM'],
+    subActions: ['repair', 'rupture', 'rephrase', 'apologize', 'spoilsport', 'walkout'],
+    analogs: {
+      repair: {
+        cardGame: 'Calling a misdeal, floor judge ruling',
+        speechActConversation: '"Sorry, that came out wrong", "Let me rephrase"',
+        ritualHabit: 'Apology, atonement gesture, cleansing rite',
+        politicalTheaterCourtroom: 'Withdrawing improper remark, striking from record',
+      },
+      rupture: {
+        cardGame: 'Table flip, refusing to pay, walking away',
+        speechActConversation: 'Hanging up phone, storming out of room',
+        ritualHabit: 'Desecration, public apostasy, taboo breach',
+        politicalTheaterCourtroom: 'Contempt of court outburst, walking out of summit',
+      },
+    },
+  },
+};
+
+/**
+ * Returns metadata for a given interaction primitive.
+ */
+export function getInteractionPrimitiveDefinition(primitive: UniversalInteractionPrimitive): UniversalInteractionDefinition {
+  return UNIVERSAL_INTERACTION_MATRIX[primitive];
+}
+
+/**
+ * Validates whether an interaction primitive transition is structurally valid.
+ */
+export function isValidInteractionTransition(
+  current: UniversalInteractionPrimitive,
+  next: UniversalInteractionPrimitive
+): boolean {
+  // Meta-acts can be invoked at ANY time from any primitive (repair or rupture)
+  if (next === 'META_ACTS') return true;
+  if (current === 'META_ACTS') return true; // Recover from repair or transition to reset
+
+  const currentNum = UNIVERSAL_INTERACTION_MATRIX[current]?.primitiveNumber;
+  const nextNum = UNIVERSAL_INTERACTION_MATRIX[next]?.primitiveNumber;
+
+  if (!currentNum || !nextNum) return false;
+
+  // Linear progression forward, or cycle back from Settlement (5) to Frame/Boundary (1)
+  if (nextNum === currentNum + 1) return true;
+  if (current === 'SETTLEMENT_ACCOUNTING' && next === 'FRAME_BOUNDARY') return true;
+
+  // Posturing & Contestation tight negotiation loops (Turn 3 <-> Turn 2)
+  if (current === 'POSTURING_ASSERTION' && next === 'YIELDING_CONTESTATION') return true;
+  if (current === 'YIELDING_CONTESTATION' && next === 'POSTURING_ASSERTION') return true;
+  if (current === 'POSTURING_ASSERTION' && next === 'POSTURING_ASSERTION') return true;
+  if (current === 'YIELDING_CONTESTATION' && next === 'YIELDING_CONTESTATION') return true;
+
+  return false;
+}
+
+// ============================================================================
+// 2. Legacy Tabletop Game Phase Matrix (Backward Compatibility Layer)
+// ============================================================================
 
 export type UniversalGamePhase =
   | 'INITIALIZATION'
@@ -116,7 +397,7 @@ export function isValidPhaseTransition(current: UniversalGamePhase, next: Univer
 
   // Linear progression forward, or restart from settlement to initialization
   if (nextNum === currentNum + 1) return true;
-  if (currentNum === 5 && nextNum === 1) return true;
+  if (current === 'SETTLEMENT' && next === 'INITIALIZATION') return true;
 
   // Multi-street / trick interaction loops (e.g., Flop -> Wager -> Turn -> Wager, or multiple tricks)
   if (current === 'INTERACTION' && next === 'INTERACTION') return true;
@@ -124,3 +405,4 @@ export function isValidPhaseTransition(current: UniversalGamePhase, next: Univer
 
   return false;
 }
+

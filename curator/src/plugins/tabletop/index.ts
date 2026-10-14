@@ -22,3 +22,20 @@ export const tabletopPlugin: CuratorPlugin = {
   },
   vocabularies: tabletopVocabularies,
 };
+
+/**
+ * Universal Interaction Order Domain Plugin.
+ * Unifies games, speech acts, rituals, political theater, and everyday habits across 6 foundational primitives.
+ */
+export const interactionPlugin: CuratorPlugin = {
+  name: 'interaction_order',
+  version: '1.0.0',
+  description: 'Universal 6-Primitive Interaction Order Plugin (Pragmatics, Goffman Frame Analysis, Game Theory, Ethnomethodology)',
+  tools: {
+    eval_blackjack: evalBlackjackTool,
+    eval_poker: evalPokerTool,
+    eval_trick: evalTrickTool,
+  },
+  vocabularies: tabletopVocabularies,
+};
+

@@ -113,6 +113,7 @@ export async function compileCoffeeScriptToAST(
     input: initialContext.input ?? '',
     context: initialContext,
     ...coffeeAstVerbs,
+    ...vocabularyRegistry.getAll(),
     exports: {},
     module: { exports: {} },
   };

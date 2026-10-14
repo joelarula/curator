@@ -4,9 +4,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 generator mariadbClient {
-  provider        = "prisma-client-js"
-  output          = "../../src/generated/prisma-mariadb"
-  previewFeatures = ["driverAdapters"]
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma-mariadb"
 }
 
 datasource db {

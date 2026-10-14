@@ -1,8 +1,21 @@
-# Curator Scripting Language Reference
+# Curator Scripting Language Reference & Tutorial
 
 Curator scripts allow you to compose multi-agent interactions, tool execution pipelines, and deterministic state machines using expressive **CoffeeScript** or **TypeScript**. 
 
 Scripts compile deterministically into a formal **Curator AST** (`CuratorAstNode`) that guarantees atomic state persistence, turn audit logging, and capability safety.
+
+---
+
+## Table of Contents
+1. [Flow Control & Pipeline Primitives](#1-flow-control--pipeline-primitives)
+2. [Universal Speech Acts (Illocutionary Pragmatics)](#2-universal-speech-acts-illocutionary-pragmatics)
+3. [Discourse Topologies & Governance (Bilateral & Multilateral)](#3-discourse-topologies--governance)
+4. [Classical Discourse Forms (Soliloquy, Monologue, Dialectic, Catechism)](#4-classical-discourse-forms)
+5. [Conversational Roles vs. Permission Roles (`as_role`)](#5-conversational-roles-as_role)
+6. [Dynamic Capability Leases](#6-dynamic-capability-leases)
+7. [Tabletop & Card Game State Machine DSL (Universal 5-Phase Matrix)](#7-tabletop--card-game-state-machine-dsl)
+8. [Extending Vocabulary in Plugins & MiniApps](#8-extending-vocabulary-in-plugins--miniapps)
+9. [Ritual, Drama & Swarm Agency: Making Swarms Act](#9-ritual-drama--swarm-agency-making-swarms-act)
 
 ---
 
@@ -62,18 +75,43 @@ dialog('@role:architect')
   .say('Thanks, applying the suggested indexes now.')
 ```
 
-### Multilateral Forum (M:N)
-Managed via `forum(roomUri)` for group deliberation, proposal submission, voting, and consensus:
+### Multilateral Forum (M:N): Real-Time Dynamic Deliberation
+
+In real-world multi-agent systems, agents generate speech acts asynchronously in real time. The canonical Curator expression defines the **governance protocol, decision gates, and voting quorum**, while querying autonomous agents dynamically via `ask`:
+
+```coffeescript
+seq 'engineering_rfc_deliberation',
+  # 1. Proposer drafts the proposal dynamically
+  ask to: '@role:proposer', query: 'Draft RFC-101 for vector indexing', as: 'proposal'
+  propose in_forum: 'engineering_rfc_room', topic: 'RFC-101', patch: '$context.proposal'
+
+  # 2. Critic reviews and responds in real-time
+  ask to: '@role:critic', query: 'Critique proposal: $context.proposal', as: 'critique'
+  inform in_forum: 'engineering_rfc_room', payload: '$context.critique'
+
+  # 3. Conditional rebuttal: if Critic raised concerns, allow Proposer 1 revision
+  if_else '$context.critique.hasObjections',
+    seq 'revision_round',
+      ask to: '@role:proposer', query: 'Address critique: $context.critique', as: 'revision'
+      inform in_forum: 'engineering_rfc_room', payload: '$context.revision'
+
+  # 4. Solicit votes concurrently from the committee
+  parallel 'voting_round',
+    ask to: '@role:critic', query: 'Cast vote on RFC-101: $context.proposal', as: 'vote_critic'
+    ask to: '@role:proposer', query: 'Cast vote on RFC-101: $context.proposal', as: 'vote_proposer'
+
+  # 5. Chair synthesizes the outcome from actual votes
+  ask to: '@role:chair', query: 'Synthesize consensus from $context.vote_critic and $context.vote_proposer', as: 'verdict'
+  synthesize in_forum: 'engineering_rfc_room', summary: '$context.verdict'
+```
+
+For test fixtures, room governance setup, or replaying deterministic transcripts:
 ```coffeescript
 forum('architecture_committee')
-  .as_role('engineer')
-  .say('Submitting proposal for microservices split.')
-  .propose(topic: 'split_v2', service: 'billing')
-  .as_role('lead')
-  .call_vote(topic: 'split_v2', quorum: 0.66)
-  .vote(as_role: 'engineer', choice: 'ACCEPT')
-  .vote(as_role: 'lead', choice: 'ACCEPT')
-  .synthesize(as_role: 'lead', summary: 'Billing service extraction approved')
+  .join(role: 'engineer')
+  .propose(title: 'Adopt OPFS SQLite', body: { threads: 1 })
+  .await_quorum(targetVotes: 2)
+  .synthesize(summary: 'Approved unanimously')
 ```
 
 ---
@@ -181,4 +219,111 @@ Then in scripts:
 seq 'space_mission',
   launch_satellite 'Hubble-2'
   wait_event 'orbit_stabilized'
+```
+
+---
+
+## 9. Ritual, Drama & Swarm Agency: Making Swarms Act
+
+In Curator, the boundary between **communication**, **acting**, and **ritual** is the core architectural engine that allows an autonomous multi-agent swarm to execute real-world force without collapsing into chaos or hallucination:
+
+```
+      [ COMMUNICATION ]
+     (Locutionary Bits)
+    "The data, the text"
+            ▲
+            │ 
+            │ Encapsulated by Speech Acts
+            ▼
+        [ ACTING ] ─────────────────────────► [ RITUAL ]
+   (Illocutionary Deeds)                    (Sacred Invariant Order)
+  "To speak is to mutate"               "The rules of the magic circle"
+  (PROPOSE, VOTE, ASSERT)                (AST, Phases, Quorum, Collapse)
+```
+
+### The 4 Convergence Points in Curator Core
+
+1. **The Room as the Magic Circle (Spatial Boundary)**:
+   Outside a ritual room, saying *"I bet 100"* or *"I approve RFC-101"* is noise. Inside `forum('engineering_rfc_room')` or `game('table_01')`, the utterance is bounded by the room: visibility is partitioned, turns are audited in the ledger, and legitimate peers are bound.
+2. **Roles as Masks / *Dramatis Personae* (Actor Boundary)**:
+   Curator strictly decouples RBAC identity from conversational roles (`as_role 'critic'`). An agent dons a mask within the ritual space. The role dictates floor rights, obligations, and valid speech acts.
+3. **Speech Acts as Illocutionary Invocations (Linguistic Boundary)**:
+   Agents never emit unconstrained strings. Every utterance is an illocutionary deed (`PROPOSE`, `VOTE`, `ASSERT`, `SYNTHESIZE`) that mutates the shared environment.
+4. **The Execution AST as Liturgy (Temporal Invariant Boundary)**:
+   The AST (`seq`, `while_loop`, `if_else`, `wait_event`) guarantees the invariant order of operations. Agents improvise *what* they say (cognition), but the AST strictly dictates *when* they say it and *how* consensus collapses into action.
+
+### The Formula for Swarm Agency
+
+$$\text{Swarm Agency} = \text{The Room (Magic Circle)} + \text{Roles (Personae)} + \text{Speech Acts (Illocutionary Force)} + \text{The Execution AST (Liturgy)}$$
+
+---
+
+### The Three Swarm Liturgical Archetypes
+
+#### 1. Archetype A: The Agora (Deliberative Quorum Ritual)
+*Best for: Architecture councils, security triage, code reviews, multi-agent governance.*
+
+```coffeescript
+seq 'swarm_rfc_ritual',
+  # Step 1: Evocation of the Proposal
+  ask to: '@role:author', query: 'Formulate proposal for vector indexing', as: 'proposal'
+  propose in_forum: 'council_chamber', topic: 'ARCH-42', patch: '$context.proposal'
+
+  # Step 2: The Ordeal / Trial (Concurrent Cross-Role Scrutiny)
+  parallel 'swarm_scrutiny',
+    ask to: '@role:security_auditor', query: 'Attack surface audit of $context.proposal', as: 'critique_sec'
+    ask to: '@role:perf_engineer', query: 'Benchmark scalability of $context.proposal', as: 'critique_perf'
+    ask to: '@role:finance_officer', query: 'Audit infrastructure cost of $context.proposal', as: 'critique_cost'
+
+  # Step 3: The Gathering of Ballots
+  parallel 'ballot_casting',
+    for_each '$context.council_members', (agent) ->
+      ask to: agent, query: 'Cast ACCEPT or REJECT on ARCH-42 with rationale', as: 'ballot'
+
+  # Step 4: The Sacred Collapse (Synthesis & Execution)
+  synthesize in_forum: 'council_chamber', summary: '$context.ballots'
+  
+  if_else '$context.ballots.accepted == true',
+    tool 'deploy_infrastructure', patch: '$context.proposal'
+```
+
+#### 2. Archetype B: The Magic Circle (The Market / Auction Swarm)
+*Best for: Dynamic task allocation, resource pricing, contractor bidding.*
+
+```coffeescript
+seq 'swarm_task_auction',
+  # Phase 1: Ante (Escrow stakes to enter task arena)
+  for_each '$context.worker_swarm', (worker) ->
+    tool 'escrow_stake', agent: worker, amount: 10
+
+  # Phase 2: Allocation (Secret sealed bid submission)
+  parallel 'collect_sealed_bids',
+    for_each '$context.worker_swarm', (worker) ->
+      ask to: worker, query: 'Submit secret cost and latency bid', as: 'sealed_bid'
+
+  # Phase 3 & 4: Verification (Showdown & Deterministic Evaluation)
+  tool 'eval_vickrey_auction', bids: '$context.sealed_bids', as: 'auction_result'
+
+  # Phase 5: Settlement & Dynamic Lease Bestowal
+  grant_lease tool: 'execute_heavy_job', to: '$context.auction_result.winner', duration: '1h'
+  tool 'refund_losing_stakes', losers: '$context.auction_result.losers'
+```
+
+#### 3. Archetype C: The Dialectic (Truth-Seeking Synthesis)
+*Best for: Fact-checking, thesis reconciliation, intelligence synthesis.*
+
+```coffeescript
+seq 'dialectic_truth_ritual',
+  # Thesis
+  ask to: '@role:thesis_advocate', query: 'Argue proposition X', as: 'thesis'
+  
+  # Antithesis
+  ask to: '@role:antithesis_advocate', query: 'Refute proposition X given $context.thesis', as: 'antithesis'
+  
+  # Synthesis
+  ask to: '@role:hegelian_arbiter', 
+    query: 'Reconcile tension between $context.thesis and $context.antithesis into a higher synthesis', 
+    as: 'synthesis'
+    
+  inform to: 'public_knowledge_base', payload: '$context.synthesis'
 ```

@@ -27,16 +27,20 @@ test('calculateMetricTool executes correctly', async () => {
 test('dialog_playground AST contains sequential and while loop structures', () => {
   const agent = demoPlugin.agents?.dialog_playground;
   assert.ok(agent);
-  assert.equal(agent.ast.type, 'Curator_Sequential');
-  assert.ok(Array.isArray(agent.ast.subAgents));
-  assert.ok(agent.ast.subAgents.some((sub: any) => sub.type === 'Curator_While'));
+  const ast: any = 'ast' in agent ? agent.ast : agent;
+  assert.ok(ast);
+  assert.equal(ast.type, 'Curator_Sequential');
+  assert.ok(Array.isArray(ast.subAgents));
+  assert.ok(ast.subAgents.some((sub: any) => sub.type === 'Curator_While'));
 });
 
 test('coffee_evaluator AST specifies coffeescript language', () => {
   const agent = demoPlugin.agents?.coffee_evaluator;
   assert.ok(agent);
-  assert.equal(agent.ast.type, 'Curator_Sequential');
-  const scriptNode = agent.ast.subAgents?.find((sub: any) => sub.type === 'Curator_Script');
+  const ast: any = 'ast' in agent ? agent.ast : agent;
+  assert.ok(ast);
+  assert.equal(ast.type, 'Curator_Sequential');
+  const scriptNode = ast.subAgents?.find((sub: any) => sub.type === 'Curator_Script');
   assert.ok(scriptNode);
   assert.equal(scriptNode.language, 'coffeescript');
 });
@@ -252,5 +256,6 @@ test('GraphQL API resolves metrics, tools, and executes queries', async () => {
   assert.ok(res.data.tools.some((t: any) => t.name === 'calculate_metric'));
   assert.ok(Array.isArray(res.data.agents));
   assert.ok(res.data.agents.some((a: any) => a.name === 'dialog_playground'));
+  await host.stop();
 });
 

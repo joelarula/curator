@@ -16,8 +16,12 @@
     "moduleDetection": "force",
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "paths": {
+      "@prisma/client": ["./src/generated/prisma-sqlite/index.d.ts"]
+    },
+    "noEmitOnError": false
   },
-  "include": ["src/**/*", "prisma/**/*", "scripts/**/*"],
+  "include": ["src/**/*", "prisma-sqlite/**/*", "prisma-mariadb/**/*", "scripts/**/*"],
   "exclude": ["node_modules", "dist"]
 }

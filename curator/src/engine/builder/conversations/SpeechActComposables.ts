@@ -83,21 +83,22 @@ export function propose(options: ProposeOptions): CuratorSequentialNode {
 
 export function inform(options: InformOptions): CuratorSequentialNode {
   const targetRole = options.targetRole || options.role || options.to_role;
-  const target = options.to || (targetRole ? `@role:${targetRole}` : options.topic);
+  const target = options.to || (targetRole ? `@role:${targetRole}` : (options.in_forum || options.topic));
   const senderRole = options.senderRole || options.as_role;
 
   return CuratorCoreBuilder.seq(
     `inform:${target || 'target'}`,
     CuratorCoreBuilder.emitEvent('agent:message', {
-      conversationType: 'dialog',
+      conversationType: options.in_forum ? 'forum' : 'dialog',
       speechAct: 'INFORM',
       target,
+      roomUri: options.in_forum,
       targetRole,
       senderRole: senderRole || '$context.senderRole',
       topic: options.topic,
       payload: options.payload,
       turn: '$context.turn',
-      conversationId: '$context.conversationId',
+      conversationId: options.in_forum || '$context.conversationId',
     })
   );
 }
