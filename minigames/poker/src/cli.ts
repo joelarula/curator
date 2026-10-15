@@ -4,7 +4,13 @@ import readline from 'node:readline';
 import { createHostCli } from '@curator/host';
 import { createPokerHost } from './host.js';
 import { seedPokerDatabase } from './db/seed.js';
-import { renderTable, renderNarratives, renderStandings } from './ui/tableRenderer.js';
+import {
+  renderTable,
+  renderCompactStatus,
+  renderNarratives,
+  renderStandings,
+  formatCard,
+} from './ui/tableRenderer.js';
 import {
   promptGroupChatAction,
   promptGroupChatIntermission,
@@ -20,37 +26,57 @@ import {
 } from './engine/pokerEngine.js';
 import type { PlayerAction, PokerGameState } from './types.js';
 
-/**
- * Generalized group chat turn prompt adapter for table actor choices.
- */
-async function promptHumanAction(
+function createPokerChatContext(
   gameState: PokerGameState,
-  legalChoices: PlayerChoice[],
-  rl: readline.Interface,
+  heroPlayer: any,
   host: any,
   conversation: any,
-  rootRequest: any,
   logTurn: (msg: string) => Promise<void>
-): Promise<PlayerAction> {
+) {
   const humanSpeechTool = host.engine.tools.get('poker_human_speech');
-  const heroPlayer = gameState.players.find((p) => p.isHuman) || gameState.players[0];
 
-  const choices: ChatChoice<PlayerAction>[] = legalChoices.map((c) => ({
-    id: c.id,
-    label: c.label,
-    value: c.action,
-    aliases: [c.action.type, c.id],
-  }));
-
-  return promptGroupChatAction(rl, choices, {
+  return {
     actorName: heroPlayer.name || 'You',
     participants: gameState.players,
+    defaultSpeechAct: 'TABLE_TALK',
+    helpHeader: '=== Poker Table Chat & Interaction Commands ===',
+    availableVerbs: [
+      {
+        name: 'whisper',
+        aliases: ['w'],
+        description: 'Whisper privately to a player',
+        usage: '<player> <msg>',
+        speechAct: 'WHISPER',
+        directed: true,
+      },
+      {
+        name: 'banter',
+        aliases: ['b'],
+        description: 'Banter or trash talk to the table',
+        usage: '<msg>',
+        speechAct: 'BANTER',
+      },
+      {
+        name: 'standings',
+        aliases: ['score', 's'],
+        description: 'View current chip standings and leaderboard',
+      },
+      {
+        name: 'narratives',
+        aliases: ['info', 'n'],
+        description: 'View subjective inner narratives & memories',
+      },
+      {
+        name: 'table',
+        aliases: ['view'],
+        description: 'Redraw the poker table view',
+      },
+    ],
     redrawView: () => {
-      console.clear();
-      console.log(renderTable(gameState, false));
+      console.log('\n' + renderCompactStatus(gameState));
     },
     logTurn,
-    onSpeech: async (text, speechAct, targetParticipantId) => {
+    onSpeech: async (text: string, speechAct: string, targetParticipantId?: string) => {
       if (!humanSpeechTool) return;
       const res: any = await humanSpeechTool.runAsync({
         args: {
@@ -68,7 +94,7 @@ async function promptHumanAction(
       }
       return { aiReply: res?.aiResponse?.text };
     },
-    onCommand: async (cmd, args) => {
+    onCommand: async (cmd: string, args: string) => {
       if (cmd === 'standings' || cmd === 's' || cmd === 'score') {
         const stdRes = getPokerStandings(gameState);
         console.log(renderStandings(stdRes.standings));
@@ -79,13 +105,37 @@ async function promptHumanAction(
         return true;
       }
       if (cmd === 'table' || cmd === 'view') {
-        console.clear();
         console.log(renderTable(gameState, false));
         return true;
       }
       return false;
     },
-  });
+  };
+}
+
+/**
+ * Generalized group chat turn prompt adapter for table actor choices.
+ */
+async function promptHumanAction(
+  gameState: PokerGameState,
+  legalChoices: PlayerChoice[],
+  rl: readline.Interface,
+  host: any,
+  conversation: any,
+  rootRequest: any,
+  logTurn: (msg: string) => Promise<void>
+): Promise<PlayerAction> {
+  const heroPlayer = gameState.players.find((p) => p.isHuman) || gameState.players[0];
+
+  const choices: ChatChoice<PlayerAction>[] = legalChoices.map((c) => ({
+    id: c.id,
+    label: c.label,
+    value: c.action,
+    aliases: [c.action.type, c.id],
+  }));
+
+  const chatCtx = createPokerChatContext(gameState, heroPlayer, host, conversation, logTurn);
+  return promptGroupChatAction(rl, choices, chatCtx);
 }
 
 // 1. Initialize standardized Curator Host CLI
@@ -211,23 +261,19 @@ program
             onHumanTurn: (state, choices) =>
               promptHumanAction(state, choices, rl, host, conversation, rootRequest, logTurn),
             onTableUpdate: (state, actionDesc) => {
-              if (!isAutoplay) {
-                console.clear();
-                console.log(renderTable(state, false));
-                if (actionDesc) console.log(`\x1b[33m▶ ${actionDesc}\x1b[0m`);
+              if (!isAutoplay && actionDesc) {
+                console.log(`\x1b[33m▶ ${actionDesc}\x1b[0m`);
               }
             },
             onStreetDealt: (state, street) => {
               if (!isAutoplay) {
-                console.clear();
-                console.log(renderTable(state, false));
-                console.log(`\n\x1b[1m\x1b[36m[DEALER] Dealing ${street}...\x1b[0m`);
+                const boardCards = state.board.map((c) => formatCard(c)).join(' ');
+                console.log(`\n\x1b[1m\x1b[36m[DEALER] Dealing ${street}: ${boardCards}  (Main Pot: $${state.pot})\x1b[0m`);
               }
             },
             onShowdown: (state, summary) => {
-              console.clear();
+              console.log(`\n\x1b[1m\x1b[32m✔ [SHOWDOWN] ${summary}\x1b[0m`);
               console.log(renderTable(state, true));
-              console.log(`\n\x1b[1m\x1b[32m✔ ${summary}\x1b[0m\n`);
             },
             onTurnLogged: logTurn,
           },
@@ -248,54 +294,10 @@ program
           await new Promise((r) => setTimeout(r, 600));
         } else {
           const heroPlayer = gameState.players.find((p) => p.isHuman) || gameState.players[0];
-          const humanSpeechTool = host.engine.tools.get('poker_human_speech');
-
+          const chatCtx = createPokerChatContext(gameState, heroPlayer, host, conversation, logTurn);
           const intermissionDecision = await promptGroupChatIntermission(
             rl,
-            {
-              actorName: heroPlayer.name || 'You',
-              participants: gameState.players,
-              redrawView: () => {
-                console.clear();
-                console.log(renderTable(gameState, true));
-              },
-              logTurn,
-              onSpeech: async (text, speechAct, targetParticipantId) => {
-                if (!humanSpeechTool) return;
-                const res: any = await humanSpeechTool.runAsync({
-                  args: {
-                    state: gameState,
-                    speechAct,
-                    text,
-                    targetId: targetParticipantId,
-                    speakerId: heroPlayer.id,
-                    speakerName: heroPlayer.name,
-                  },
-                  toolContext: { prisma: host.prisma, conversationId: conversation.id },
-                });
-                if (res?.gameState) {
-                  Object.assign(gameState, res.gameState);
-                }
-                return { aiReply: res?.aiResponse?.text };
-              },
-              onCommand: async (cmd, args) => {
-                if (cmd === 'standings' || cmd === 's' || cmd === 'score') {
-                  const stdRes = getPokerStandings(gameState);
-                  console.log(renderStandings(stdRes.standings));
-                  return true;
-                }
-                if (cmd === 'narratives' || cmd === 'info' || cmd === 'n') {
-                  console.log(renderNarratives(gameState));
-                  return true;
-                }
-                if (cmd === 'table' || cmd === 'view') {
-                  console.clear();
-                  console.log(renderTable(gameState, true));
-                  return true;
-                }
-                return false;
-              },
-            },
+            chatCtx,
             `Hand #${gameState.handNumber} complete. Press ENTER to deal next hand, type to chat with players, or /help`
           );
 

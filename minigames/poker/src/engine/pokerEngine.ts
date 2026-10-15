@@ -975,7 +975,11 @@ export async function playPokerHand(
 
       const actRes = applyPokerAction(state, chosenAction);
       state = actRes.gameState;
-      await handlers.onTableUpdate?.(state, `${activePlayer.name}: ${chosenAction.type} ${chosenAction.amount ? '$' + chosenAction.amount : ''}`);
+      let actionDesc = `${activePlayer.name}: ${chosenAction.type} ${chosenAction.amount ? '$' + chosenAction.amount : ''}`;
+      if (chosenAction.speech) {
+        actionDesc += `\n  [${chosenAction.speechAct || 'TABLE_TALK'}] ${activePlayer.name}: "${chosenAction.speech}"`;
+      }
+      await handlers.onTableUpdate?.(state, actionDesc);
 
       if (state.streetComplete || state.handOver) {
         streetDone = true;
