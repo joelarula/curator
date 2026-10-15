@@ -3,13 +3,18 @@
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
-    "@curator/agent-server": "*"
+    "@curator/agent-server": "file:../../curator",
+    "@curator/host": "file:../../packages/host",
+    "coffeescript": "^2.7.0",
+    "commander": "^14.0.2"
   },
   "devDependencies": {
+    "@types/node": "^22.10.0",
     "tsx": "^4.19.1",
     "typescript": "^5.6.2"
   },
   "scripts": {
-    "play": "tsx src/cli.ts"
+    "play": "node --import ../../curator/node_modules/tsx/dist/loader.mjs src/cli.ts",
+    "test": "node --import ../../curator/node_modules/tsx/dist/loader.mjs --test test/poker_minigame.test.ts"
   }
 }

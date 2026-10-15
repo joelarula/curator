@@ -6,8 +6,9 @@
     "strict": true,
     "esModuleInterop": true,
     "paths": {
-      "@curator/agent-server": ["../../curator/src/index.ts"]
+      "@curator/agent-server": ["../../curator/src/index.ts"],
+      "@curator/host": ["../../packages/host/src/index.ts"]
     }
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "test/**/*"]
 }

@@ -444,4 +444,3 @@ export class SemanticSchemaEngine {
         return datatype.id;
     }
 }
-//# sourceMappingURL=SemanticSchemaEngine.js.map

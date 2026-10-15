@@ -9,4 +9,3 @@ export const logger = winston.createLogger({
         new winston.transports.Console()
     ]
 });
-//# sourceMappingURL=logger.js.map

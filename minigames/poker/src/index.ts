@@ -1,11 +1,6 @@
-import type { CuratorPlugin } from '@curator/agent-server';
-import { deal_cards, reveal_community, apply_bet } from './tools/poker_tools.js';
-
-export const pokerPlugin: CuratorPlugin = {
-  name: 'minigame:poker',
-  tools: {
-    deal_cards,
-    reveal_community,
-    apply_bet
-  }
-};
+export * from './types.js';
+export * from './engine/pokerEvaluator.js';
+export * from './engine/geminiAgent.js';
+export * from './plugins/pokerPlugin.js';
+export * from './ui/tableRenderer.js';
+export * from './scripts/pokerHandScript.js';

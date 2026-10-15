@@ -1762,11 +1762,17 @@ export class CuratorRequestProcessor {
   private async loadConversationHistory(req: any, includeContents?: string): Promise<LlmMessage[]> {
     if (includeContents === 'none') return [];
     
+    const limit = (req.ast as any)?.history_limit ?? (req.context as any)?.historyLimit;
     const pastResponses = await this.prisma.response.findMany({
       where: { conversationId: req.conversationId, requestId: { lt: req.id } },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: limit && limit > 0 ? 'desc' : 'asc' },
+      take: limit && limit > 0 ? limit : undefined,
       include: { request: true }
     });
+    
+    if (limit && limit > 0) {
+      pastResponses.reverse();
+    }
     
     if (pastResponses.length === 0) return [];
 

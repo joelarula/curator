@@ -160,7 +160,172 @@ game('poker_table')
 
 ## 4. Architectural Integration & AST Topology
 
-- **Builder Classes**: `FluentGameBuilder` and `FluentInteractionBuilder` are isomorphic aliases.
-- **Top-Level Factories**: `interaction(uri)`, `ritual(uri)`, `theater(uri)`, `protocol(uri)`, `game(uri)`, `table(uri)`.
-- **Runtime Context**: `$context.interactionPrimitive`, `$context.interactionPhase`, `$context.stance`, `$context.turn`.
-- **Event Bus**: Emits structured envelopes (`interaction:bracket`, `interaction:posture`, `interaction:challenge`, `interaction:expose`, `interaction:ratify`, `interaction:levy`, `interaction:repair`, `interaction:rupture`).
+- **Builder Classes**: `FluentGameBuilder` and `FluentInteractionBuilder` are isomorphic aliases. `FluentTricksterBuilder` extends `FluentGameBuilder` with pre-bound trickster roles and meta-operations.
+- **Top-Level Factories**: `interaction(uri)`, `ritual(uri)`, `theater(uri)`, `protocol(uri)`, `game(uri)`, `table(uri)`, `trickster(containerOrRole, roleOrContainer)`.
+- **Runtime Context**: `$context.interactionPrimitive`, `$context.interactionPhase`, `$context.stance`, `$context.turn`, `$context.tricksterAction`.
+- **Event Bus**: Emits structured envelopes (`interaction:bracket`, `interaction:posture`, `interaction:challenge`, `interaction:expose`, `interaction:ratify`, `interaction:levy`, `interaction:repair`, `interaction:rupture`, `trickster:*`).
+
+---
+
+## 5. The Trickster Agent: Frame Subversion & Semiotic Sabotage
+
+In the functional vocabulary of frames, communicative acts, and game states, the **Trickster** is not merely a "chaotic character" or a "cheater":
+
+- **The Cheater** secretly breaks rules to win within the accepted frame. They need the frame to maintain value in their illicit gains.
+- **The Spoilsport / Vandal** despises the frame and destroys it out of spite, bringing the entire game to a halt.
+- **The Trickster** dances on the boundary itself. They operate on the frame, exploiting the gap between literal syntax and underlying social intention, turning the solemn mechanics of rituals, games, and conversations inside out.
+
+### 5.1 The Deviant Archetype Matrix
+
+| Dimension | The Cheater | The Spoilsport / Vandal | The Trickster |
+| :--- | :--- | :--- | :--- |
+| **Relation to Frame** | Respects it secretly; needs it to profit | Despises it; breaks it down out of spite | Dances on its boundary; bends it into a mirror |
+| **Stance** | Compliant outwardly | Hostile / Refusal | Hyper-playful / Feigned innocence |
+| **Target of Attack** | The score / resource bank | The game's existence | The players' unexamined assumptions |
+| **Showdown Outcome** | Shame, disqualification, or illicit win | Halts the game completely | Humiliates authority, rewrites the game |
+| **Systemic Result** | Corrupts the ledger | Destroys the ledger | Forces the system to evolve |
+
+### 5.2 The 6 Primitives of Trickster Deconstruction
+
+1. **Frame & Bracket: The Parasite of Boundaries**
+   - `hijack_frame`: Treating the "magic circle" as an arbitrary container; smuggling "real-world" stakes into a game, or treating solemn rituals as slapstick games.
+   - `feign_stance` (`perverse_stance`): Feigning absolute compliance; adopting the posture of the most earnest, devout, or harmless participant in the room to disarm defenses.
+   - `asymmetric_buy_in`: Tricking other actors into committing maximum, irreversible stakes while risking nothing of one's own—or risking everything purely for the sport of it.
+
+2. **Posturing & Assertion: Semiotic Sabotage**
+   - `hyper_comply` (`literal_gambit`): Malicious hyper-compliance; following a rule or command to its literal code to catastrophic, absurd extremes, exposing unstated assumptions.
+   - `counterfeit_signal`: Mimicking costly signals at zero cost; projecting postures of authority or weakness with disregard for truth, inducing miscalculated odds.
+   - `bait_escalation`: Provoking an opponent's vanity, greed, or righteousness so that the opponent voluntarily escalates until trapped.
+
+3. **Contestation & Yielding: Inversion and Insubordination**
+   - `deflect_challenge`: Pivoting the conversational frame, redefining terms mid-sentence, or blaming the challenger's lack of vision (*"I didn't lie, you simply assumed"*).
+   - `parody_yield` (`feigned_prostration`): Dropping to knees and apologizing with performative theatrics to buy time, disarm vengeance, and set up the next gambit.
+   - `ungraspable_check`: Refusing to take the expected turn; answering demands with a riddle, laugh, or insult, starving the opponent of the feedback loop needed to complete the contest.
+
+4. **Verification & Revelation: Manufactured Showdowns**
+   - `staged_expose` (`ambush_showdown`): Engineering a public revelation of the other party's hidden hypocrisy, greed, or incompetence while slipping out the side door.
+   - `refuse_ratification`: Rejecting the moral weight of the outcome (*"It was only a game anyway"*), denying judges and audiences the satisfaction of closure.
+
+5. **Settlement & Accounting: Defying the Ledger**
+   - `evade_toll`: Systematically refusing social fines; turning a cage into a stage, or declaring exile a liberation.
+   - `invert_value`: Turning trash into treasure and gold into worthless leaves; disrupting the shared currency of chips, status, holiness, or dignity.
+
+6. **Meta-Acts: Rupture as Generative Art**
+   - `creative_rupture`: Cracking the board to reveal that it was made of cheap cardboard all along, forcing participants to confront their unexamined illusions.
+   - `forced_repair`: Breaking rigid taboos to force society, gods, or players to invent new, more adaptive rules.
+
+### 5.3 Trickster Workflow in CoffeeScript DSL
+
+```coffeescript
+trickster('asgard_hall', 'loki')
+  # 1. Frame Subversion
+  .feign_stance(apparentStance: 'devout_humility', innerIntent: 'expose_divine_vanity')
+  .hijack_frame(newFrame: 'mortal_wager', smuggledStakes: 'divine_immortality')
+  .asymmetric_buy_in(target_role: 'thor', opponentStake: 'mjolnir', selfStake: 0)
+
+  # 2. Semiotic Sabotage
+  .counterfeit_signal(projectedPosture: 'defenseless_cowardice', actualCost: 0)
+  .bait_escalation(target_role: 'thor', baitTarget: 'vanity', provocation: 'Fear of a mortal cat')
+  .hyper_comply(command: 'Drink to the brim', literalInterpretation: 'Drains the ocean')
+
+  # 3. Inversion & Insubordination
+  .deflect_challenge(redefinition: 'The horn could not contain the ocean of your greatness')
+  .parody_yield(theatrics: 'Prostrates dramatically in tears')
+  .ungraspable_check(riddle: 'What gets wetter the more it dries?')
+
+  # 4. Manufactured Showdowns
+  .staged_expose(exposedRole: 'thor', targetHypocrisy: 'Wrestling Old Age itself')
+  .refuse_ratification(dismissalReason: 'It was only an illusion anyway')
+
+  # 5. Defying the Ledger
+  .evade_toll(penaltyEvaded: 'Execution', stageTurned: true)
+  .invert_value(originalCurrency: 'Divine Gold', invertedValue: 'Withered oak leaves')
+
+  # 6. Generative Rupture & Repair
+  .creative_rupture(shatteredIllusion: 'Hall walls are painted parchment')
+  .forced_repair(newRule: 'All divine decrees must be reviewed by the Fool')
+```
+
+---
+
+## 6. Dialogue Games & Public Commitment Stores (Walton & Krabbe / MPST)
+
+To operationalize collaborative multi-agent games, speech acts directly mutate game state, and game state strictly bounds valid dialogue.
+
+### 6.1 The Core Interaction Tuple
+
+The interaction system is formalized as a transition system:
+$$\mathcal{S} = \langle \mathcal{A}, \mathcal{R}, \mathcal{K}, \mathcal{C}, \mathcal{M}, \mathcal{T}, \Gamma \rangle$$
+
+- $\mathcal{A}$ **(Actors / Players)**: Autonomous agents or human participants identified by `ActorId` / `AgentEndpoint`.
+- $\mathcal{R}$ **(Dynamic Roles)**: Fluid conversational roles (`Leader`, `Scout`, `Negotiator`, `Trickster`), decoupled from RBAC permissions.
+- $\mathcal{K}$ **(Shared Environment State)**: Spatial coordinates, board felt, community cards, turn counters, and resources.
+- $\mathcal{C} = \{ C_a \mid a \in \mathcal{A} \}$ **(Public Commitment Stores)**: The running ledger of social, physical, and conditional promises ratified publicly.
+- $\mathcal{M}$ **(Universal Communicative Acts / Locutions)**: Typed messages bearing performatives (`PROPOSE`, `ASSERT`, `QUERY`, `ACCEPT`, `REJECT`, `CHALLENGE`, `EXECUTE_SYNC`).
+- $\mathcal{T}: \mathcal{M} \times \mathcal{S} \to \mathcal{S}'$ **(Transition Function)**: Atomic state transition updating world state $\mathcal{K}$ and commitments $\mathcal{C}$.
+- $\Gamma(s, a)$ **(Protocol / Permissible Moves)**: The set of legal moves available to actor $a$ in current state $s$.
+
+### 6.2 The Protocol State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle: Frame Established
+
+    Idle --> ProposalPending: PROPOSE (Plan / Deal)
+    ProposalPending --> Idle: REJECT / Counter
+    ProposalPending --> ContractActive: ACCEPT (Ratified)
+
+    ContractActive --> CoordinatedExecution: EXECUTE_SYNC
+    ContractActive --> ContestedState: CHALLENGE / VIOLATE (Defection)
+
+    Idle --> InformPending: ASSERT (Information)
+    InformPending --> Idle: ASSIMILATE (Believed)
+    InformPending --> ContestedState: CHALLENGE (Verification)
+
+    ContestedState --> VerificationProtocol: EXPOSE / SHOWDOWN
+    VerificationProtocol --> StateRebalanced: PENALTY / REWARD
+    StateRebalanced --> Idle: CLEAR
+
+    CoordinatedExecution --> Idle: Goal Met / Commitments Cleared
+```
+
+### 6.3 Public Commitment Store & Defection Tracking
+
+A commitment is defined as:
+$$\text{Commitment}(a, \text{action}, \phi, t_{exp})$$
+*"Actor $a$ is committed to performing $\text{action}$ provided condition $\phi$ holds, valid until time $t_{exp}$."*
+
+- **Ratification**: When an actor accepts a proposed contract (`accept_contract`), it moves from `'PENDING'` to `'RATIFIED'`.
+- **Coordinated Execution**: When all participating actors execute their agreed moves (`execute_sync`), commitments move to `'FULFILLED'`.
+- **Defection / Betrayal Tracking**: If an actor fails or violates an agreed commitment (`violate_contract` / `defection`), the engine shifts phase to `'ARBITRATION'`, records `defectionDetected: true`, and applies a systemic deduction to the actor's reputation in `reputationMatrix`.
+- **Deontic Obligation**: Issuing a `query` sets an explicit expectation obligation $\mathcal{O}(\text{target}, \text{REPLY})$ on the receiving player.
+- **Trickster Conditional Ambiguity**: A Trickster exploits this commitment store via `rigged_proposal` / `conditional_ambiguity`, subtly rigging preconditions $\phi$ to void their obligations while extracting compliance from teammates.
+
+### 6.4 Collaborative Turn-Contract in CoffeeScript DSL
+
+```coffeescript
+interaction('dungeon_raid')
+  # 1. Propose contract with condition phi and deadline t_exp
+  .propose_contract(
+    commitmentId: 'chamber_breach',
+    as_role: 'scout',
+    target_role: 'knight',
+    action: 'defend_gate',
+    condition: 'fetch_key',
+    deadlineTick: 12
+  )
+
+  # 2. Deontic Query: O(scout, REPLY)
+  .query(predicate: 'ammo_reserves_sufficient', target_role: 'scout', as_role: 'knight')
+
+  # 3. Epistemic Assertion: Updates belief model
+  .assert_claim(claim: 'north_gate_clear', evidence_ref: 'sensor_scan_09', as_role: 'scout')
+
+  # 4. Ratify Contract into Active Commitment
+  .accept_contract(commitmentId: 'chamber_breach', as_role: 'knight')
+
+  # 5. Synchronized Execution
+  .execute_sync(actionId: 'breach_strike', actors: ['scout', 'knight'])
+```
+
+

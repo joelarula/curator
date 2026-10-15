@@ -10,6 +10,14 @@ import type { ForumRoom } from './ForumRoom.js';
 import type { BroadcastChannel } from './BroadcastChannel.js';
 import type { QADispatcher } from './QADispatcher.js';
 import { ExposurePolicyController } from './exposure/index.js';
+import { ConversationSessionManager } from './ConversationSessionManager.js';
+import type {
+  StartConversationOptions,
+  ConversationJoinOptions,
+  ConversationLeaveOptions,
+  ConversationStateCatchup,
+  ConversationSession,
+} from './types.js';
 
 export interface ConversationRouterOptions {
   localNodeId?: string;
@@ -32,6 +40,7 @@ export class ConversationRouter extends EventEmitter {
   public readonly localNodeId: string;
   public readonly localProjectId: string;
   public readonly exposure: ExposurePolicyController;
+  public readonly sessionManager: ConversationSessionManager;
 
   private manager?: ConversationManager;
   private prisma?: any;
@@ -51,6 +60,19 @@ export class ConversationRouter extends EventEmitter {
     this.exposure.on('exposure_changed', (evt) => this.emit('exposure_changed', evt));
     this.sendRemoteFn = options.sendRemote;
     this.broadcastRemoteFn = options.broadcastRemote;
+
+    this.sessionManager = new ConversationSessionManager({
+      localNodeId: this.localNodeId,
+      localProjectId: this.localProjectId,
+      router: this,
+      manager: this.manager,
+      prisma: this.prisma,
+    });
+    this.sessionManager.on('conversation:joined', (evt) => this.emit('conversation:joined', evt));
+    this.sessionManager.on('conversation:left', (evt) => this.emit('conversation:left', evt));
+    this.sessionManager.on('session:connected', (evt) => this.emit('session:connected', evt));
+    this.sessionManager.on('session:timeout', (evt) => this.emit('session:timeout', evt));
+    this.sessionManager.on('floor:released', (evt) => this.emit('floor:released', evt));
   }
 
   /**
@@ -310,6 +332,15 @@ export class ConversationRouter extends EventEmitter {
       }
     }
 
+    // Inform session manager of lifecycle speech acts
+    if (['JOIN', 'LEAVE', 'HEARTBEAT', 'SYNC'].includes(envelope.speechAct)) {
+      try {
+        await this.sessionManager.processEventIn(envelope);
+      } catch (err) {
+        this.emit('warn', `SessionManager failed to process ${envelope.speechAct}: ${err}`);
+      }
+    }
+
     // Deliver to registered session if matching
     const session = this.sessions.get(envelope.conversationId);
     if (session && 'handleIncoming' in session) {
@@ -328,6 +359,71 @@ export class ConversationRouter extends EventEmitter {
     }
 
     this.emit('message', envelope);
+  }
+
+  /**
+   * Unified Pipeline: Ingests an incoming raw transport event, executes state transitions,
+   * enforces leases and floor controls, and produces outbound response envelopes.
+   */
+  public async processEventIn(
+    rawEvent: any,
+    transportContext: { connectionId?: string; auth?: any } = {}
+  ): Promise<{
+    outboundEnvelopes: AgentMessageEnvelope[];
+    catchup?: ConversationStateCatchup;
+    result?: any;
+  }> {
+    return this.sessionManager.processEventIn(rawEvent, transportContext);
+  }
+
+  /**
+   * Convenience delegate to start a persistent conversation container.
+   */
+  public async startConversation(options: StartConversationOptions) {
+    return this.sessionManager.startConversation(options);
+  }
+
+  /**
+   * Convenience delegate to join a conversation session.
+   */
+  public async joinConversation(
+    conversationId: string,
+    participant: AgentEndpoint,
+    options?: ConversationJoinOptions
+  ) {
+    return this.sessionManager.joinConversation(conversationId, participant, options);
+  }
+
+  /**
+   * Convenience delegate to leave a conversation session.
+   */
+  public async leaveConversation(
+    conversationId: string,
+    agentId: string,
+    options?: ConversationLeaveOptions
+  ) {
+    return this.sessionManager.leaveConversation(conversationId, agentId, options);
+  }
+
+  /**
+   * Convenience delegate to send a session heartbeat.
+   */
+  public heartbeat(sessionId: string): boolean {
+    return this.sessionManager.heartbeat(sessionId);
+  }
+
+  /**
+   * Convenience delegate to check for timed-out sessions.
+   */
+  public checkTimeouts(timeoutMs?: number): ConversationSession[] {
+    return this.sessionManager.checkTimeouts(timeoutMs);
+  }
+
+  /**
+   * Convenience delegate to sync conversation state.
+   */
+  public async syncState(conversationId: string, targetAgentId?: string) {
+    return this.sessionManager.syncState(conversationId, targetAgentId);
   }
 
   private dispatchLocal(envelope: AgentMessageEnvelope, specificRecipient?: AgentEndpoint): void {

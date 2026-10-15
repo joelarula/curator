@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmitOnError": false
+  },
+  "exclude": [
+    "node_modules",
+    "dist",
+    "scripts/**/*",
+    "src/services/SemanticSchemaEngine.ts",
+    "src/bin/cli.ts",
+    "src/engine/workers/scheduledAgentWorker.ts",
+    "src/engine/ScheduledAgentScheduler.ts",
+    "src/tools/process_feed.ts"
+  ]
+}

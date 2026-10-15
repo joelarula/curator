@@ -7,21 +7,27 @@ import { DatabaseSync } from 'node:sqlite';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-function findCuratorRoot(): string {
+function findCuratorRootAndSchema(): { root: string; schemaPath: string } {
   let cur = __dirname;
   while (cur !== path.dirname(cur)) {
-    if (fs.existsSync(path.join(cur, 'prisma', 'sqlite', 'schema.prisma'))) {
-      return cur;
-    }
-    if (fs.existsSync(path.join(cur, 'curator', 'prisma', 'sqlite', 'schema.prisma'))) {
-      return path.join(cur, 'curator');
+    const candidates = [
+      path.join(cur, 'prisma-sqlite', 'schema.prisma'),
+      path.join(cur, 'curator', 'prisma-sqlite', 'schema.prisma'),
+      path.join(cur, 'server', 'prisma', 'sqlite', 'schema.prisma'),
+      path.join(cur, 'prisma', 'sqlite', 'schema.prisma'),
+    ];
+    for (const cand of candidates) {
+      if (fs.existsSync(cand)) {
+        return { root: path.dirname(path.dirname(cand)), schemaPath: cand };
+      }
     }
     cur = path.dirname(cur);
   }
-  return path.resolve(__dirname, '../../..');
+  const fallback = path.resolve(__dirname, '../../../curator/prisma-sqlite/schema.prisma');
+  return { root: path.resolve(__dirname, '../../..'), schemaPath: fallback };
 }
 
-const CURATOR_ROOT = findCuratorRoot();
+const { root: CURATOR_ROOT, schemaPath: SQLITE_SCHEMA_PATH } = findCuratorRootAndSchema();
 const DATA_DIR = path.join(CURATOR_ROOT, 'data');
 
 export async function provisionSqliteDb(name: string, forceReset: boolean = false, options: { databasePath?: string } = {}): Promise<PrismaClient> {
@@ -37,7 +43,8 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
     console.log(`[Curator CLI] Created data directory: ${DATA_DIR}`);
   }
 
-  const dbUrl = `file:${dbPath}`;
+  const normalizedPath = dbPath.replace(/\\/g, '/');
+  const dbUrl = `file:${normalizedPath}`;
 
   if (forceReset && fs.existsSync(dbPath)) {
     console.log(`[Curator CLI] 🗄️ Force resetting database: ${name}`);
@@ -65,7 +72,7 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
   if (isNew || !hasSchema || forceReset) {
     console.log(`[Curator CLI] 🗄️ Provisioning new database: ${name}`);
     console.log(`[Curator CLI] Applying schema...`);
-    const sqliteSchemaPath = path.join(CURATOR_ROOT, 'prisma', 'sqlite', 'schema.prisma');
+    const sqliteSchemaPath = SQLITE_SCHEMA_PATH;
     const pushFlags = forceReset ? '--force-reset' : '--accept-data-loss';
     execSync(
       `npx prisma db push ${pushFlags} --schema="${sqliteSchemaPath}" --url="${dbUrl}"`,

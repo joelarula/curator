@@ -1,4 +1,5 @@
 import { LlmFactory } from './llm/LlmFactory.js';
+import { extendCoffeeAstVerbs } from './CoffeeVerbs.js';
 export class CuratorEngine {
     constructor() {
         this.tools = new Map();
@@ -30,6 +31,9 @@ export class CuratorEngine {
             Object.entries(plugin.llmProviders).forEach(([k, v]) => {
                 LlmFactory.registerProvider(k, v);
             });
+        }
+        if (plugin.vocabularies) {
+            extendCoffeeAstVerbs(plugin.vocabularies);
         }
         if (typeof plugin.onInit === 'function') {
             try {
@@ -110,4 +114,3 @@ export class CuratorEngine {
 }
 // Singleton registry instance
 export const curatorEngine = new CuratorEngine();
-//# sourceMappingURL=CuratorEngine.js.map

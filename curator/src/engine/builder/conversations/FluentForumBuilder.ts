@@ -104,6 +104,19 @@ export class FluentForumBuilder {
     return this;
   }
 
+  leave(options: { reason?: string; concede?: boolean; [k: string]: any } = {}): this {
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'LEAVE',
+      roomUri: this.roomUri,
+      senderRole: this.activeRole || options.as_role || '$context.senderRole',
+      payload: { action: 'leave', ...options },
+      turn: '$context.turn',
+      conversationId: this.roomUri,
+    }));
+    return this;
+  }
+
   build(): CuratorSequentialNode {
     return CuratorCoreBuilder.seq(`forum:${this.roomUri}`, ...this.steps);
   }

@@ -16,6 +16,10 @@ const VALID_SPEECH_ACTS: Set<SpeechAct> = new Set([
   'VOTE',
   'SYNTHESIZE',
   'ACK',
+  'JOIN',
+  'LEAVE',
+  'HEARTBEAT',
+  'SYNC',
 ]);
 
 const VALID_CONVERSATION_TYPES: Set<ConversationType> = new Set([

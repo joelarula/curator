@@ -406,3 +406,181 @@ export function isValidPhaseTransition(current: UniversalGamePhase, next: Univer
   return false;
 }
 
+// ============================================================================
+// 3. Deviant Archetype Typology (Cheater, Spoilsport, Trickster)
+// ============================================================================
+
+export type DeviantArchetype = 'CHEATER' | 'SPOILSPORT' | 'TRICKSTER';
+
+export interface DeviantArchetypeDefinition {
+  readonly archetype: DeviantArchetype;
+  readonly name: string;
+  readonly relationToFrame: string;
+  readonly stance: string;
+  readonly targetOfAttack: string;
+  readonly showdownOutcome: string;
+  readonly systemicResult: string;
+  readonly coreOperations: string[];
+}
+
+export const DEVIANT_ARCHETYPE_MATRIX: Record<DeviantArchetype, DeviantArchetypeDefinition> = {
+  CHEATER: {
+    archetype: 'CHEATER',
+    name: 'The Cheater',
+    relationToFrame: 'Respects it secretly; needs it to profit',
+    stance: 'Compliant outwardly',
+    targetOfAttack: 'The score / resource bank',
+    showdownOutcome: 'Shame, disqualification, or illicit win',
+    systemicResult: 'Corrupts the ledger',
+    coreOperations: ['covert_infraction', 'concealed_hand', 'falsify_score'],
+  },
+  SPOILSPORT: {
+    archetype: 'SPOILSPORT',
+    name: 'The Spoilsport / Vandal',
+    relationToFrame: 'Despises it; breaks it down out of spite',
+    stance: 'Hostile / Refusal',
+    targetOfAttack: "The game's existence",
+    showdownOutcome: 'Halts the game completely',
+    systemicResult: 'Destroys the ledger',
+    coreOperations: ['table_flip', 'refuse_turn', 'vandalize_rules'],
+  },
+  TRICKSTER: {
+    archetype: 'TRICKSTER',
+    name: 'The Trickster',
+    relationToFrame: 'Dances on its boundary; bends it into a mirror',
+    stance: 'Hyper-playful / Feigned innocence',
+    targetOfAttack: "The players' unexamined assumptions",
+    showdownOutcome: 'Humiliates the authority, rewrites the game',
+    systemicResult: 'Forces the system to evolve',
+    coreOperations: [
+      'hijack_frame',
+      'feign_stance',
+      'asymmetric_buy_in',
+      'hyper_comply',
+      'literal_gambit',
+      'counterfeit_signal',
+      'bait_escalation',
+      'deflect_challenge',
+      'parody_yield',
+      'ungraspable_check',
+      'staged_expose',
+      'refuse_ratification',
+      'evade_toll',
+      'invert_value',
+      'creative_rupture',
+      'forced_repair',
+    ],
+  },
+};
+
+export function getDeviantArchetypeDefinition(archetype: DeviantArchetype): DeviantArchetypeDefinition {
+  return DEVIANT_ARCHETYPE_MATRIX[archetype];
+}
+
+// ============================================================================
+// 4. Formal Dialogue Games & Public Commitment Store (Walton & Krabbe / MPST)
+// ============================================================================
+
+export type Performative =
+  | 'PROPOSE'
+  | 'ACCEPT'
+  | 'REJECT'
+  | 'ASSERT'
+  | 'QUERY'
+  | 'CHALLENGE'
+  | 'EXECUTE_SYNC';
+
+export type CommitmentStatus =
+  | 'PENDING'
+  | 'RATIFIED'
+  | 'FULFILLED'
+  | 'VIOLATED'
+  | 'REJECTED';
+
+export type DialoguePhase =
+  | 'IDLE'
+  | 'STRATEGY'
+  | 'EXECUTION'
+  | 'ARBITRATION';
+
+/**
+ * Public Commitment in store C_a: Commitment(a, action, phi, t_exp).
+ * Formalizes Walton & Krabbe dialectical commitments and Deontic obligations.
+ */
+export interface Commitment {
+  id: string;
+  obligor: string;        // Who must act (ActorId / Role)
+  beneficiary: string;    // Who benefits (ActorId / Role | "BROADCAST")
+  actionPayload: any;     // Promised game action / move
+  condition?: string;     // Precondition phi
+  deadlineTick?: number;  // Turn / timestamp t_exp
+  status: CommitmentStatus;
+  createdAtTurn?: number;
+  violatedReason?: string;
+  meta?: Record<string, any>;
+}
+
+/**
+ * Deontic Obligation O(target, REPLY) resulting from an open QUERY.
+ */
+export interface DeonticObligation {
+  id: string;
+  targetRole: string;
+  demandedAct: string;    // e.g. "REPLY"
+  query: string;
+  issuedByRole: string;
+  turn: number;
+}
+
+/**
+ * Shared state for the Dialogue Game and Public Commitment Store.
+ */
+export interface GameDialogueState {
+  currentPhase: DialoguePhase;
+  activeCommitments: Record<string, Commitment>;
+  openQuestions: DeonticObligation[];
+  reputationMatrix: Record<string, number>;
+}
+
+// ============================================================================
+// 5. Dual-Track Interaction Architecture: Spontaneous Ambient Speech Acts
+// ============================================================================
+
+/**
+ * Ambient out-of-turn speech acts that occur between formal game turns:
+ * table talk, banter, whispers, backchannels, interjections, and psychological warfare.
+ */
+export type AmbientSpeechActType =
+  | 'TABLE_TALK'     // General table commentary, reading hands, psychological probe
+  | 'BANTER'         // Playful social sparring, humor
+  | 'GOSSIP'         // Social rumors, anecdotes, gossip about participants or external figures
+  | 'SMALL_TALK'     // Casual chit-chat (weather, drinks, hobbies, daily life)
+  | 'SIDE_ACTIVITY'  // Ambient parallel physical/mundane actions (sipping tea, stacking chips, checking phone)
+  | 'WHISPER'        // Bilateral private side-channel between specific actors
+  | 'SIDE_CHANNEL'   // Backchannel communication
+  | 'INTERJECT'      // Spontaneous out-of-turn reaction (gasp, laugh, expletive)
+  | 'PROVOKE'        // Psychological tilt induction
+  | 'LEAK_TELL';     // Inadvertent or staged behavioral signal
+
+export interface AmbientSpeechActOptions {
+  utterance?: string;
+  as_role?: string;
+  target_role?: string | string[];
+  subject?: string;
+  topic?: string;
+  tone?: 'playful' | 'provocative' | 'solemn' | 'conspiratorial' | 'panicked' | 'stoic' | 'sarcastic' | 'idle' | 'friendly';
+  epistemicImpact?: Record<string, any>;
+  affinityDelta?: number;
+  tiltDelta?: number;
+  suspicionDelta?: number;
+  temperature?: number;
+  prompt?: string;
+  agentName?: string;
+  outOfTurn?: boolean;
+  advancesGameTurn?: boolean;
+  table?: string;
+  container?: string;
+  [k: string]: any;
+}
+
+

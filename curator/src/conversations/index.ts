@@ -6,4 +6,6 @@ export * from './BroadcastChannel.js';
 export * from './ForumRoom.js';
 export * from './QADispatcher.js';
 export * from './ConversationRouter.js';
+export * from './ConversationSessionManager.js';
 export * from './exposure/index.js';
+export * from './AgentInteractionContextManager.js';

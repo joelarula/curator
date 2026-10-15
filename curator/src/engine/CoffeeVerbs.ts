@@ -151,3 +151,45 @@ export async function compileCoffeeScriptToAST(
 
   return validation.node!;
 }
+
+/**
+ * Evaluates any natural CoffeeScript code snippet in a sandboxed context and returns the exported result.
+ */
+export async function evaluateCoffeeScript<T = any>(
+  coffeeScriptCode: string,
+  initialContext: Record<string, any> = {}
+): Promise<T> {
+  const coffee = (await import('coffeescript')).default;
+  const compiledJs = coffee.compile(coffeeScriptCode, { bare: true, header: false });
+
+  const sandbox: Record<string, any> = {
+    console,
+    context: initialContext,
+    ...coffeeAstVerbs,
+    ...vocabularyRegistry.getAll(),
+    exports: {},
+    module: { exports: {} },
+  };
+
+  const vmContext = vm.createContext(sandbox);
+  let result = vm.runInContext(compiledJs, vmContext);
+
+  if (sandbox.module?.exports && Object.keys(sandbox.module.exports).length > 0) {
+    result = sandbox.module.exports.default || sandbox.module.exports.run || sandbox.module.exports;
+  } else if (sandbox.exports?.default || sandbox.exports?.run) {
+    result = sandbox.exports.default || sandbox.exports.run;
+  }
+
+  return result as T;
+}
+
+/**
+ * Compiles a raw CoffeeScript string into JavaScript.
+ */
+export async function compileCoffeeScript(
+  coffeeScriptCode: string,
+  options: Record<string, any> = { bare: true, header: false }
+): Promise<string> {
+  const coffee = (await import('coffeescript')).default;
+  return coffee.compile(coffeeScriptCode, options);
+}

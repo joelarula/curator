@@ -29,4 +29,3 @@ export function defineTool(opts) {
         },
     };
 }
-//# sourceMappingURL=CuratorTool.js.map

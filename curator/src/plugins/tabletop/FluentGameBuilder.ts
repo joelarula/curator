@@ -4,6 +4,8 @@ import {
   UNIVERSAL_GAME_PHASE_MATRIX,
   UNIVERSAL_INTERACTION_MATRIX,
   type UniversalInteractionPrimitive,
+  type AmbientSpeechActOptions,
+  type AmbientSpeechActType,
 } from './matrix.js';
 
 /**
@@ -19,7 +21,7 @@ import {
  * 6. Meta-Acts (Rules of the Rule-Set: Repair, Rupture)
  */
 export class FluentGameBuilder {
-  private steps: CuratorAstNode[] = [];
+  protected steps: CuratorAstNode[] = [];
 
   constructor(public tableUri: string) {}
 
@@ -1025,8 +1027,1337 @@ export class FluentGameBuilder {
   }
 
   // ==========================================================================
-  // BUILD
+  // 7. TRICKSTER META-OPERATIONS (Frame Subversion & Semiotic Sabotage)
   // ==========================================================================
+
+  hijack_frame(options: {
+    newFrame?: string;
+    targetFrame?: string;
+    smuggledStakes?: any;
+    slapstick?: boolean;
+    as_role?: string;
+    [k: string]: any;
+  } = {}): this {
+    const role = options.as_role || '$context.senderRole';
+    this.steps.push(CuratorCoreBuilder.setState({
+      interactionPrimitive: 'FRAME_BOUNDARY',
+      tricksterAction: 'FRAME_HIJACK',
+      frameHijacked: true,
+      frame: options.newFrame || 'subverted_frame',
+      smuggledStakes: options.smuggledStakes || null,
+      turn: '$context.turn + 1',
+    }));
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'PROPOSE',
+      roomUri: this.tableUri,
+      senderRole: role,
+      topic: 'trickster:hijack_frame',
+      payload: { action: 'hijack_frame', actor: role, ...options },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
+
+  feign_stance(options: {
+    apparentStance?: string;
+    target?: string;
+    pietyLevel?: string;
+    innerIntent?: string;
+    as_role?: string;
+    [k: string]: any;
+  } = {}): this {
+    const role = options.as_role || '$context.senderRole';
+    const apparent = options.apparentStance || 'pious_innocence';
+    this.steps.push(CuratorCoreBuilder.setState({
+      interactionPrimitive: 'FRAME_BOUNDARY',
+      tricksterAction: 'PERVERSE_STANCE',
+      apparentStance: apparent,
+      innerIntent: options.innerIntent || 'subversive_critique',
+      turn: '$context.turn + 1',
+    }));
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'INFORM',
+      roomUri: this.tableUri,
+      senderRole: role,
+      topic: 'trickster:feign_stance',
+      payload: { action: 'feign_stance', actor: role, apparentStance: apparent, ...options },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
+
+  perverse_stance(options: any = {}): this {
+    return this.feign_stance(options);
+  }
+
+  asymmetric_buy_in(options: {
+    target_role?: string;
+    opponentStake?: any;
+    selfStake?: any;
+    bait?: string;
+    as_role?: string;
+    [k: string]: any;
+  } = {}): this {
+    const role = options.as_role || '$context.senderRole';
+    this.steps.push(CuratorCoreBuilder.setState({
+      interactionPrimitive: 'FRAME_BOUNDARY',
+      tricksterAction: 'ASYMMETRIC_BUY_IN',
+      opponentStake: options.opponentStake,
+      selfStake: options.selfStake ?? 0,
+      turn: '$context.turn + 1',
+    }));
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'REQUEST',
+      roomUri: this.tableUri,
+      senderRole: role,
+      topic: 'trickster:asymmetric_buy_in',
+      payload: { action: 'asymmetric_buy_in', actor: role, ...options },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
+
+  hyper_comply(options: {
+    ruleOrCommand?: string;
+    command?: string;
+    literalInterpretation?: string;
+    extremeResult?: any;
+    exposedAssumption?: string;
+    as_role?: string;
+    [k: string]: any;
+  } = {}): this {
+    const role = options.as_role || '$context.senderRole';
+    const literal = options.literalInterpretation || options.command || options.ruleOrCommand || 'literal_code';
+    this.steps.push(CuratorCoreBuilder.setState({
+      interactionPrimitive: 'POSTURING_ASSERTION',
+      tricksterAction: 'MALICIOUS_HYPER_COMPLIANCE',
+      literalInterpretation: literal,
+      extremeResult: options.extremeResult,
+      exposedAssumption: options.exposedAssumption,
+      turn: '$context.turn + 1',
+    }));
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'ASSERT',
+      roomUri: this.tableUri,
+      senderRole: role,
+      topic: 'trickster:hyper_comply',
+      payload: { action: 'hyper_comply', actor: role, literalInterpretation: literal, ...options },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
+
+  literal_gambit(options: any = {}): this {
+    return this.hyper_comply(options);
+  }
+
+  counterfeit_signal(options: {
+    mimickedSignal?: string;
+    projectedPosture?: string;
+    apparentCost?: any;
+    actualCost?: number;
+    targetBelief?: string;
+    as_role?: string;
+    [k: string]: any;
+  } = {}): this {
+    const role = options.as_role || '$context.senderRole';
+    this.steps.push(CuratorCoreBuilder.setState({
+      interactionPrimitive: 'POSTURING_ASSERTION',
+      tricksterAction: 'COUNTERFEIT_SIGNAL',
+      mimickedSignal: options.mimickedSignal || options.projectedPosture,
+      actualCost: options.actualCost ?? 0,
+      turn: '$context.turn + 1',
+    }));
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'ASSERT',
+      roomUri: this.tableUri,
+      senderRole: role,
+      topic: 'trickster:counterfeit_signal',
+      payload: { action: 'counterfeit_signal', actor: role, ...options },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
+
+  bait_escalation(options: {
+    target_role?: string;
+    baitTarget?: 'vanity' | 'greed' | 'righteousness' | 'fear';
+    provocation?: string;
+    expectedEscalation?: any;
+    as_role?: string;
+    [k: string]: any;
+  } = {}): this {
+    const role = options.as_role || '$context.senderRole';
+    this.steps.push(CuratorCoreBuilder.setState({
+      interactionPrimitive: 'POSTURING_ASSERTION',
+      tricksterAction: 'BAITING_ESCALATION',
+      targetVulnerability: options.baitTarget || 'vanity',
+      turn: '$context.turn + 1',
+    }));
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'PROPOSE',
+      roomUri: this.tableUri,
+      senderRole: role,
+      topic: 'trickster:bait_escalation',
+      payload: { action: 'bait_escalation', actor: role, ...options },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
+
+  deflect_challenge(options: {
+    challenger?: string;
+    redefinition?: string;
+    pivotFrame?: string;
+    deflectionReason?: string;
+    as_role?: string;
+    [k: string]: any;
+  } = {}): this {
+    const role = options.as_role || '$context.senderRole';
+    this.steps.push(CuratorCoreBuilder.setState({
+      interactionPrimitive: 'YIELDING_CONTESTATION',
+      tricksterAction: 'DEFLECT_CHALLENGE',
+      redefinition: options.redefinition,
+      challengeDeflected: true,
+      turn: '$context.turn + 1',
+    }));
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'ASSERT',
+      roomUri: this.tableUri,
+      senderRole: role,
+      topic: 'trickster:deflect_challenge',
+      payload: { action: 'deflect_challenge', actor: role, ...options },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
+
+  parody_yield(options: {
+    theatrics?: string;
+    feignedProstration?: boolean;
+    hiddenMotive?: string;
+    as_role?: string;
+    [k: string]: any;
+  } = {}): this {
+    const role = options.as_role || '$context.senderRole';
+    this.steps.push(CuratorCoreBuilder.setState({
+      interactionPrimitive: 'YIELDING_CONTESTATION',
+      tricksterAction: 'PARODY_YIELD',
+      feignedSubmission: true,
+      hiddenMotive: options.hiddenMotive || 'disarm_vengeance',
+      turn: '$context.turn + 1',
+    }));
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'REJECT',
+      roomUri: this.tableUri,
+      senderRole: role,
+      topic: 'trickster:parody_yield',
+      payload: { action: 'parody_yield', actor: role, ...options },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
+
+  feigned_prostration(options: any = {}): this {
+    return this.parody_yield(options);
+  }
+
+  ungraspable_check(options: {
+    riddle?: string;
+    evasion?: string;
+    as_role?: string;
+    [k: string]: any;
+  } = {}): this {
+    const role = options.as_role || '$context.senderRole';
+    this.steps.push(CuratorCoreBuilder.setState({
+      interactionPrimitive: 'YIELDING_CONTESTATION',
+      tricksterAction: 'UNGRASPABLE_CHECK',
+      feedbackLoopStarved: true,
+      riddle: options.riddle,
+      turn: '$context.turn + 1',
+    }));
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'ACCEPT',
+      roomUri: this.tableUri,
+      senderRole: role,
+      topic: 'trickster:ungraspable_check',
+      payload: { action: 'ungraspable_check', actor: role, ...options },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
+
+  staged_expose(options: {
+    exposedRole?: string;
+    targetHypocrisy?: string;
+    evidence?: any;
+    escapeRoute?: string;
+    as_role?: string;
+    [k: string]: any;
+  } = {}): this {
+    const role = options.as_role || '$context.senderRole';
+    this.steps.push(CuratorCoreBuilder.setState({
+      interactionPrimitive: 'VERIFICATION_REVELATION',
+      tricksterAction: 'STAGED_EXPOSE',
+      exposedHypocrite: options.exposedRole,
+      ambushStaged: true,
+      turn: '$context.turn + 1',
+    }));
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'SYNTHESIZE',
+      roomUri: this.tableUri,
+      senderRole: role,
+      topic: 'trickster:staged_expose',
+      payload: { action: 'staged_expose', actor: role, ...options },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
+
+  ambush_showdown(options: any = {}): this {
+    return this.staged_expose(options);
+  }
+
+  refuse_ratification(options: {
+    dismissalReason?: string;
+    partingMockery?: string;
+    deniedClosure?: boolean;
+    as_role?: string;
+    [k: string]: any;
+  } = {}): this {
+    const role = options.as_role || '$context.senderRole';
+    this.steps.push(CuratorCoreBuilder.setState({
+      interactionPrimitive: 'VERIFICATION_REVELATION',
+      tricksterAction: 'REFUSE_RATIFICATION',
+      moralWeightRejected: true,
+      closureDenied: true,
+      turn: '$context.turn + 1',
+    }));
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'REJECT',
+      roomUri: this.tableUri,
+      senderRole: role,
+      topic: 'trickster:refuse_ratification',
+      payload: { action: 'refuse_ratification', actor: role, ...options },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
+
+  evade_toll(options: {
+    penaltyEvaded?: any;
+    reinterpretation?: string;
+    stageTurned?: boolean;
+    as_role?: string;
+    [k: string]: any;
+  } = {}): this {
+    const role = options.as_role || '$context.senderRole';
+    this.steps.push(CuratorCoreBuilder.setState({
+      interactionPrimitive: 'SETTLEMENT_ACCOUNTING',
+      tricksterAction: 'TOLL_EVASION',
+      tollPaid: false,
+      cageTurnedToStage: options.stageTurned ?? true,
+      turn: '$context.turn + 1',
+    }));
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'INFORM',
+      roomUri: this.tableUri,
+      senderRole: role,
+      topic: 'trickster:evade_toll',
+      payload: { action: 'evade_toll', actor: role, ...options },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
+
+  invert_value(options: {
+    originalCurrency?: string;
+    invertedValue?: string;
+    absurdityRatio?: any;
+    as_role?: string;
+    [k: string]: any;
+  } = {}): this {
+    const role = options.as_role || '$context.senderRole';
+    this.steps.push(CuratorCoreBuilder.setState({
+      interactionPrimitive: 'SETTLEMENT_ACCOUNTING',
+      tricksterAction: 'VALUE_INVERSION',
+      currencyDisrupted: true,
+      goldToLeaves: true,
+      turn: '$context.turn + 1',
+    }));
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'INFORM',
+      roomUri: this.tableUri,
+      senderRole: role,
+      topic: 'trickster:invert_value',
+      payload: { action: 'invert_value', actor: role, ...options },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
+
+  creative_rupture(options: {
+    revelation?: string;
+    shatteredIllusion?: string;
+    as_role?: string;
+    [k: string]: any;
+  } = {}): this {
+    const role = options.as_role || '$context.senderRole';
+    this.steps.push(CuratorCoreBuilder.setState({
+      interactionPrimitive: 'META_ACTS',
+      tricksterAction: 'CREATIVE_RUPTURE',
+      illusionShattered: options.shatteredIllusion || 'revealing_cardboard_board',
+      turn: '$context.turn + 1',
+    }));
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'REJECT',
+      roomUri: this.tableUri,
+      senderRole: role,
+      topic: 'trickster:creative_rupture',
+      payload: { action: 'creative_rupture', actor: role, ...options },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
+
+  forced_repair(options: {
+    unexaminedAssumption?: string;
+    newRule?: string;
+    evolutionaryOutcome?: string;
+    as_role?: string;
+    [k: string]: any;
+  } = {}): this {
+    const role = options.as_role || '$context.senderRole';
+    this.steps.push(CuratorCoreBuilder.setState({
+      interactionPrimitive: 'META_ACTS',
+      tricksterAction: 'FORCED_REPAIR',
+      systemicEvolution: true,
+      newRule: options.newRule,
+      turn: '$context.turn + 1',
+    }));
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'REQUEST',
+      roomUri: this.tableUri,
+      senderRole: role,
+      topic: 'trickster:forced_repair',
+      payload: { action: 'forced_repair', actor: role, ...options },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
+
+  // ==========================================================================
+  // 8. DIALOGUE GAMES & PUBLIC COMMITMENT STORES (Walton & Krabbe / Deontic)
+  // ==========================================================================
+
+  /**
+   * Propose a collaborative contract / initiative (Commissive / Directive).
+   * Appends a pending conditional commitment to the shared Commitment Store C.
+   * e.g., "If you defend the gate, I will fetch the key"
+   */
+  propose_contract(options: {
+    commitmentId?: string;
+    id?: string;
+    action?: any;
+    actionPayload?: any;
+    condition?: string;
+    terms?: any;
+    deadline?: number;
+    deadlineTick?: number;
+    as_role?: string;
+    target_role?: string;
+    [k: string]: any;
+  }): this {
+    const role = options.as_role || '$context.senderRole';
+    const target = options.target_role || 'BROADCAST';
+    const cId = options.commitmentId || options.id || `cmt_${Date.now()}`;
+    const payload = options.actionPayload || options.action || options.terms;
+
+    this.steps.push(CuratorCoreBuilder.setState({
+      interactionPrimitive: 'POSTURING_ASSERTION',
+      currentPhase: 'STRATEGY',
+      proposalPending: true,
+      lastCommitmentId: cId,
+      [`commitment_${cId}`]: {
+        id: cId,
+        obligor: role,
+        beneficiary: target,
+        actionPayload: payload,
+        condition: options.condition || null,
+        deadlineTick: options.deadlineTick || options.deadline || 10,
+        status: 'PENDING',
+      },
+      turn: '$context.turn + 1',
+    }));
+
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'PROPOSE',
+      roomUri: this.tableUri,
+      senderRole: role,
+      targetRole: target !== 'BROADCAST' ? target : undefined,
+      topic: 'dialogue:propose',
+      payload: {
+        action: 'propose_contract',
+        commitmentId: cId,
+        obligor: role,
+        beneficiary: target,
+        actionPayload: payload,
+        condition: options.condition,
+        deadlineTick: options.deadlineTick || options.deadline,
+        ...options,
+      },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
+
+  propose(options: any): this {
+    return this.propose_contract(options);
+  }
+
+  /**
+   * Ratifies a proposed collaborative contract.
+   * Moves a proposal from 'PENDING' to 'RATIFIED' in the public Commitment Store.
+   */
+  accept_contract(options: {
+    commitmentId?: string;
+    id?: string;
+    as_role?: string;
+    [k: string]: any;
+  } = {}): this {
+    const role = options.as_role || '$context.senderRole';
+    const cId = options.commitmentId || options.id || '$context.lastCommitmentId';
+
+    this.steps.push(CuratorCoreBuilder.setState({
+      interactionPrimitive: 'YIELDING_CONTESTATION',
+      currentPhase: 'EXECUTION',
+      proposalPending: false,
+      contractActive: true,
+      [`commitment_${cId}_status`]: 'RATIFIED',
+      lastRatifiedCommitment: cId,
+      turn: '$context.turn + 1',
+    }));
+
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'ACCEPT',
+      roomUri: this.tableUri,
+      senderRole: role,
+      topic: 'dialogue:accept',
+      payload: { action: 'accept_contract', commitmentId: cId, ...options },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
+
+  accept(options: any = {}): this {
+    return this.accept_contract(options);
+  }
+
+  /**
+   * Rejects a proposed contract or cancels initiative.
+   */
+  reject_contract(options: {
+    commitmentId?: string;
+    id?: string;
+    as_role?: string;
+    reason?: string;
+    [k: string]: any;
+  } = {}): this {
+    const role = options.as_role || '$context.senderRole';
+    const cId = options.commitmentId || options.id || '$context.lastCommitmentId';
+
+    this.steps.push(CuratorCoreBuilder.setState({
+      interactionPrimitive: 'YIELDING_CONTESTATION',
+      currentPhase: 'IDLE',
+      proposalPending: false,
+      [`commitment_${cId}_status`]: 'REJECTED',
+      rejectionReason: options.reason || 'declined',
+      turn: '$context.turn + 1',
+    }));
+
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'REJECT',
+      roomUri: this.tableUri,
+      senderRole: role,
+      topic: 'dialogue:reject',
+      payload: { action: 'reject_contract', commitmentId: cId, ...options },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
+
+  reject(options: any = {}): this {
+    return this.reject_contract(options);
+  }
+
+  /**
+   * Epistemic assertion sharing private knowledge or game state.
+   * Triggers a window for verification or dialectical challenge.
+   */
+  assert_claim(options: {
+    claim: string;
+    evidence_ref?: any;
+    as_role?: string;
+    [k: string]: any;
+  }): this {
+    const role = options.as_role || '$context.senderRole';
+
+    this.steps.push(CuratorCoreBuilder.setState({
+      interactionPrimitive: 'POSTURING_ASSERTION',
+      informPending: true,
+      lastAssertion: options.claim,
+      lastEvidence: options.evidence_ref || null,
+      turn: '$context.turn + 1',
+    }));
+
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'ASSERT',
+      roomUri: this.tableUri,
+      senderRole: role,
+      topic: 'dialogue:assert',
+      payload: { action: 'assert_claim', evidence: options.evidence_ref, ...options },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
+
+  assert(options: any): this {
+    return this.assert_claim(options);
+  }
+
+  /**
+   * Directive query soliciting missing information or intent.
+   * Sets a Deontic expectation obligation O(target, REPLY) on the receiving player.
+   */
+  query(options: {
+    predicate?: string;
+    query?: string;
+    target_role?: string;
+    as_role?: string;
+    [k: string]: any;
+  }): this {
+    const role = options.as_role || '$context.senderRole';
+    const target = options.target_role || 'BROADCAST';
+    const pred = options.predicate || options.query || 'status';
+
+    this.steps.push(CuratorCoreBuilder.setState({
+      interactionPrimitive: 'YIELDING_CONTESTATION',
+      deonticObligation: `O(${target}, REPLY)`,
+      openQuestion: pred,
+      turn: '$context.turn + 1',
+    }));
+
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'QUERY',
+      roomUri: this.tableUri,
+      senderRole: role,
+      targetRole: target !== 'BROADCAST' ? target : undefined,
+      topic: 'dialogue:query',
+      payload: { action: 'query', predicate: pred, targetRole: target, ...options },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
+
+  /**
+   * Synchronized trigger where multiple players execute their agreed actions simultaneously.
+   * Advances active contracts to FULFILLED and returns Dialogue state to IDLE.
+   */
+  execute_sync(options: {
+    actionId?: string;
+    actionPayload?: any;
+    actors?: string[];
+    commitmentIds?: string[];
+    as_role?: string;
+    [k: string]: any;
+  } = {}): this {
+    const role = options.as_role || '$context.senderRole';
+    const actId = options.actionId || `sync_${Date.now()}`;
+
+    this.steps.push(CuratorCoreBuilder.setState({
+      interactionPrimitive: 'VERIFICATION_REVELATION',
+      currentPhase: 'IDLE',
+      contractActive: false,
+      lastSyncExecution: actId,
+      commitmentsFulfilled: true,
+      turn: '$context.turn + 1',
+    }));
+
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'ACCEPT',
+      roomUri: this.tableUri,
+      senderRole: role,
+      topic: 'dialogue:execute_sync',
+      payload: { action: 'execute_sync', actionId: actId, actors: options.actors || [], ...options },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
+
+  /**
+   * Defection & Betrayal Tracking:
+   * Records failure to perform an agreed commitment phi, applies a systemic
+   * reputation penalty in the ledger, and shifts phase to ARBITRATION.
+   */
+  violate_contract(options: {
+    commitmentId?: string;
+    id?: string;
+    actor?: string;
+    as_role?: string;
+    defectionReason?: string;
+    reputationPenalty?: number;
+    [k: string]: any;
+  } = {}): this {
+    const role = options.actor || options.as_role || '$context.senderRole';
+    const cId = options.commitmentId || options.id || '$context.lastCommitmentId';
+    const penalty = options.reputationPenalty ?? 15;
+
+    this.steps.push(CuratorCoreBuilder.setState({
+      interactionPrimitive: 'YIELDING_CONTESTATION',
+      currentPhase: 'ARBITRATION',
+      [`commitment_${cId}_status`]: 'VIOLATED',
+      defectionDetected: true,
+      defector: role,
+      reputationPenalty: penalty,
+      [`reputation_${role}`]: `$context.reputation_${role} - ${penalty}`,
+      turn: '$context.turn + 1',
+    }));
+
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'REJECT',
+      roomUri: this.tableUri,
+      senderRole: role,
+      topic: 'dialogue:defection',
+      payload: {
+        action: 'violate_contract',
+        commitmentId: cId,
+        defector: role,
+        reputationPenalty: penalty,
+        reason: options.defectionReason || 'unfulfilled_contract',
+        ...options,
+      },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
+
+  defection(options: any = {}): this {
+    return this.violate_contract(options);
+  }
+
+  /**
+   * Explicitly marks a commitment as fulfilled without full execute_sync.
+   */
+  fulfill_contract(options: {
+    commitmentId?: string;
+    id?: string;
+    as_role?: string;
+    [k: string]: any;
+  } = {}): this {
+    const role = options.as_role || '$context.senderRole';
+    const cId = options.commitmentId || options.id || '$context.lastCommitmentId';
+
+    this.steps.push(CuratorCoreBuilder.setState({
+      interactionPrimitive: 'SETTLEMENT_ACCOUNTING',
+      [`commitment_${cId}_status`]: 'FULFILLED',
+      turn: '$context.turn + 1',
+    }));
+
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'INFORM',
+      roomUri: this.tableUri,
+      senderRole: role,
+      topic: 'dialogue:fulfill',
+      payload: { action: 'fulfill_contract', commitmentId: cId, ...options },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
+
+  // ==========================================================================
+  // 8. DUAL-TRACK INTERACTION: Spontaneous Ambient Speech Acts & Table Talk
+  // ==========================================================================
+
+  /**
+   * Spontaneous out-of-turn Table Talk:
+   * Enables players or observers to speak, banter, or read each other between turns.
+   *
+   * Crucial dual-track invariant:
+   * - Does NOT advance formal game turn ($context.turn is NOT incremented).
+   * - Does NOT alter formal game phase ($context.gamePhase remains untouched).
+   * - Updates epistemic & conversational context ($context.banterCount, $context.tilt, etc.).
+   * - Broadcasts an agent:message envelope to the table (recipients: '*').
+   */
+  table_talk(
+    utteranceOrOptions?: string | AmbientSpeechActOptions,
+    options: AmbientSpeechActOptions = {}
+  ): this {
+    const opts = typeof utteranceOrOptions === 'string'
+      ? { utterance: utteranceOrOptions, ...options }
+      : (utteranceOrOptions || options);
+
+    const speaker = opts.as_role || '$context.senderRole || "player"';
+    const utterance = opts.utterance || opts.prompt || '...';
+    const tone = opts.tone || 'playful';
+    const topic = opts.topic || 'table_talk:banter';
+
+    const stateUpdates: Record<string, any> = {
+      lastAmbientAct: 'TABLE_TALK',
+      lastAmbientSpeaker: speaker,
+      lastAmbientUtterance: utterance,
+      banterCount: '$context.banterCount + 1',
+      ...(opts.epistemicImpact || {}),
+    };
+
+    if (opts.tiltDelta) {
+      const target = opts.target_role || speaker;
+      stateUpdates[`tilt_${target}`] = `$context.tilt_${target} + ${opts.tiltDelta}`;
+    }
+
+    if (opts.suspicionDelta) {
+      const target = opts.target_role || speaker;
+      stateUpdates[`suspicion_${target}`] = `$context.suspicion_${target} + ${opts.suspicionDelta}`;
+    }
+
+    this.steps.push(CuratorCoreBuilder.setState(stateUpdates));
+
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      communicationForm: 'polylogue',
+      turnDynamics: 'moderated_floor',
+      speechAct: 'INFORM',
+      roomUri: this.tableUri,
+      senderRole: speaker,
+      recipients: '*',
+      topic,
+      payload: {
+        action: 'table_talk',
+        ambientAct: 'TABLE_TALK',
+        utterance,
+        speaker,
+        tone,
+        outOfTurn: true,
+        temperature: opts.temperature ?? 0.7,
+        prompt: opts.prompt,
+        ...opts,
+      },
+      turn: '$context.turn', // Stays on current formal turn!
+      conversationId: this.tableUri,
+    }));
+
+    return this;
+  }
+
+  /**
+   * Playful verbal sparring and banter between turns.
+   */
+  banter(
+    utteranceOrOptions?: string | AmbientSpeechActOptions,
+    options: AmbientSpeechActOptions = {}
+  ): this {
+    const opts = typeof utteranceOrOptions === 'string'
+      ? { utterance: utteranceOrOptions, tone: 'playful' as const, ...options }
+      : { tone: 'playful' as const, ...(utteranceOrOptions || options) };
+    return this.table_talk(opts);
+  }
+
+  /**
+   * Spontaneous Social Gossip:
+   * Ambient side-activity where participants share anecdotes, rumors, or commentary
+   * about a third party, fellow player, or outside event without affecting formal game turns.
+   * Can be shared publicly (recipients: '*') or privately shared (recipients: [target_role]).
+   *
+   * Crucial insight: Gossip is NOT inherently a Trickster subversion; it is a universal
+   * human side-activity that occurs naturally at every card table, ritual, and gathering.
+   */
+  gossip(
+    rumorOrOptions?: string | AmbientSpeechActOptions,
+    options: AmbientSpeechActOptions = {}
+  ): this {
+    const opts = typeof rumorOrOptions === 'string'
+      ? { utterance: rumorOrOptions, ...options }
+      : (rumorOrOptions || options);
+
+    const speaker = opts.as_role || '$context.senderRole || "player"';
+    const utterance = opts.utterance || opts.prompt || '...';
+    const subject = opts.subject || 'someone';
+    const target = opts.target_role;
+    const isPrivate = Boolean(target);
+    const tone = opts.tone || 'conspiratorial';
+    const topic = opts.topic || (subject ? `gossip:${subject}` : 'gossip:social');
+
+    const stateUpdates: Record<string, any> = {
+      lastAmbientAct: 'GOSSIP',
+      lastGossipSpeaker: speaker,
+      lastGossipSubject: subject,
+      lastGossipUtterance: utterance,
+      gossipCount: '$context.gossipCount + 1',
+      ...(opts.epistemicImpact || {}),
+    };
+
+    if (opts.affinityDelta) {
+      const recipient = target || 'all';
+      stateUpdates[`affinity_${speaker}_${recipient}`] = `$context.affinity_${speaker}_${recipient} + ${opts.affinityDelta}`;
+    }
+
+    if (opts.suspicionDelta) {
+      stateUpdates[`suspicion_${subject}`] = `$context.suspicion_${subject} + ${opts.suspicionDelta}`;
+    }
+
+    this.steps.push(CuratorCoreBuilder.setState(stateUpdates));
+
+    const recipients = isPrivate ? (Array.isArray(target) ? target : [target]) : '*';
+
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: isPrivate ? 'dialog' : 'forum',
+      communicationForm: isPrivate ? 'dialogue' : 'polylogue',
+      turnDynamics: isPrivate ? 'private_reflection' : 'moderated_floor',
+      speechAct: 'INFORM',
+      roomUri: this.tableUri,
+      senderRole: speaker,
+      recipients,
+      topic,
+      payload: {
+        ...opts,
+        action: 'gossip',
+        ambientAct: 'GOSSIP',
+        speaker,
+        subject,
+        utterance,
+        tone,
+        outOfTurn: true,
+        private: isPrivate,
+        temperature: opts.temperature ?? 0.8,
+      },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+
+    return this;
+  }
+
+  /**
+   * Universal Small Talk:
+   * Casual, mundane conversation (the weather, drinks, food, day-to-day life)
+   * that maintains social rapport between turns.
+   */
+  small_talk(
+    utteranceOrOptions?: string | AmbientSpeechActOptions,
+    options: AmbientSpeechActOptions = {}
+  ): this {
+    const opts = typeof utteranceOrOptions === 'string'
+      ? { utterance: utteranceOrOptions, tone: 'friendly' as const, ...options }
+      : { tone: 'friendly' as const, ...(utteranceOrOptions || options) };
+
+    const speaker = opts.as_role || '$context.senderRole || "player"';
+    const utterance = opts.utterance || opts.prompt || 'Nice day outside.';
+    const topic = opts.topic || 'small_talk:casual';
+
+    this.steps.push(CuratorCoreBuilder.setState({
+      lastAmbientAct: 'SMALL_TALK',
+      lastAmbientSpeaker: speaker,
+      lastAmbientUtterance: utterance,
+      smallTalkCount: '$context.smallTalkCount + 1',
+      ...(opts.epistemicImpact || {}),
+    }));
+
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      communicationForm: 'polylogue',
+      turnDynamics: 'moderated_floor',
+      speechAct: 'INFORM',
+      roomUri: this.tableUri,
+      senderRole: speaker,
+      recipients: '*',
+      topic,
+      payload: {
+        ...opts,
+        action: 'small_talk',
+        ambientAct: 'SMALL_TALK',
+        speaker,
+        utterance,
+        tone: opts.tone || 'friendly',
+        outOfTurn: true,
+        temperature: opts.temperature ?? 0.7,
+      },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+
+    return this;
+  }
+
+  /**
+   * Ambient Side Activity / Micro-Action:
+   * Tangential bodily or mundane actions happening around the game (e.g. pouring tea,
+   * stacking chips, adjusting chair, checking watch) that ground the interaction order.
+   */
+  side_activity(
+    activityOrOptions?: string | AmbientSpeechActOptions,
+    options: AmbientSpeechActOptions = {}
+  ): this {
+    const opts = typeof activityOrOptions === 'string'
+      ? { utterance: activityOrOptions, ...options }
+      : (activityOrOptions || options);
+
+    const actor = opts.as_role || '$context.senderRole || "player"';
+    const activity = opts.utterance || 'sips drink';
+    const topic = opts.topic || 'ambient:side_activity';
+
+    this.steps.push(CuratorCoreBuilder.setState({
+      lastAmbientAct: 'SIDE_ACTIVITY',
+      lastSideActivityActor: actor,
+      lastSideActivity: activity,
+      sideActivityCount: '$context.sideActivityCount + 1',
+      ...(opts.epistemicImpact || {}),
+    }));
+
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      communicationForm: 'polylogue',
+      turnDynamics: 'moderated_floor',
+      speechAct: 'INFORM',
+      roomUri: this.tableUri,
+      senderRole: actor,
+      recipients: '*',
+      topic,
+      payload: {
+        ...opts,
+        action: 'side_activity',
+        ambientAct: 'SIDE_ACTIVITY',
+        actor,
+        activity,
+        outOfTurn: true,
+      },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+
+    return this;
+  }
+
+  /**
+   * Private Bilateral Whisper / Side-Channel:
+   * Enables covert, out-of-turn communication between two actors (e.g. secret allies,
+   * conspirators, or side betters) invisible to the rest of the table.
+   *
+   * Form: conversationType: 'dialog', communicationForm: 'dialogue', recipients: [targetRole].
+   */
+  whisper(
+    targetOrOptions: string | AmbientSpeechActOptions,
+    utteranceOrOptions?: string | AmbientSpeechActOptions,
+    options: AmbientSpeechActOptions = {}
+  ): this {
+    let opts: AmbientSpeechActOptions;
+    if (typeof targetOrOptions === 'string') {
+      if (typeof utteranceOrOptions === 'string') {
+        opts = { target_role: targetOrOptions, utterance: utteranceOrOptions, ...options };
+      } else {
+        opts = { target_role: targetOrOptions, ...(utteranceOrOptions || options) };
+      }
+    } else {
+      opts = { ...(targetOrOptions || options) };
+    }
+
+    const speaker = opts.as_role || '$context.senderRole || "player"';
+    const target = opts.target_role || '$context.whisperTarget';
+    const utterance = opts.utterance || opts.prompt || '...';
+    const tone = opts.tone || 'conspiratorial';
+    const topic = opts.topic || 'whisper:side_channel';
+
+    const stateUpdates: Record<string, any> = {
+      lastAmbientAct: 'WHISPER',
+      lastWhisperSpeaker: speaker,
+      lastWhisperTarget: target,
+      whisperCount: '$context.whisperCount + 1',
+      ...(opts.epistemicImpact || {}),
+    };
+
+    if (opts.suspicionDelta) {
+      stateUpdates[`suspicion_${target}`] = `$context.suspicion_${target} + ${opts.suspicionDelta}`;
+    }
+
+    this.steps.push(CuratorCoreBuilder.setState(stateUpdates));
+
+    const recipients = Array.isArray(target) ? target : [target];
+
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'dialog',
+      communicationForm: 'dialogue',
+      turnDynamics: 'private_reflection',
+      speechAct: 'INFORM',
+      roomUri: this.tableUri,
+      senderRole: speaker,
+      recipients,
+      topic,
+      payload: {
+        action: 'whisper',
+        ambientAct: 'WHISPER',
+        utterance,
+        speaker,
+        target,
+        tone,
+        outOfTurn: true,
+        private: true,
+        temperature: opts.temperature ?? 0.8,
+        ...opts,
+      },
+      turn: '$context.turn', // Stays on current formal turn!
+      conversationId: this.tableUri,
+    }));
+
+    return this;
+  }
+
+  side_channel(
+    targetOrOptions: string | AmbientSpeechActOptions,
+    utteranceOrOptions?: string | AmbientSpeechActOptions,
+    options: AmbientSpeechActOptions = {}
+  ): this {
+    return this.whisper(targetOrOptions, utteranceOrOptions, options);
+  }
+
+  /**
+   * Spontaneous Interjection:
+   * An involuntary or sudden exclamation (gasp, scoff, exclamation of surprise, sudden tell)
+   * triggered between turns, immediately populating the ambient telemetry.
+   */
+  interject(
+    reactionOrOptions?: string | AmbientSpeechActOptions,
+    options: AmbientSpeechActOptions = {}
+  ): this {
+    const opts = typeof reactionOrOptions === 'string'
+      ? { utterance: reactionOrOptions, ...options }
+      : (reactionOrOptions || options);
+
+    const speaker = opts.as_role || '$context.senderRole || "observer"';
+    const utterance = opts.utterance || '!';
+    const topic = opts.topic || 'ambient:interjection';
+
+    this.steps.push(CuratorCoreBuilder.setState({
+      lastAmbientAct: 'INTERJECT',
+      lastInterjection: utterance,
+      interjectionSpeaker: speaker,
+      interjectionCount: '$context.interjectionCount + 1',
+      ...(opts.epistemicImpact || {}),
+    }));
+
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      communicationForm: 'polylogue',
+      turnDynamics: 'moderated_floor',
+      speechAct: 'INFORM',
+      roomUri: this.tableUri,
+      senderRole: speaker,
+      recipients: '*',
+      topic,
+      payload: {
+        action: 'interject',
+        ambientAct: 'INTERJECT',
+        utterance,
+        speaker,
+        outOfTurn: true,
+        ...opts,
+      },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+
+    return this;
+  }
+
+  /**
+   * Dual-Track Parallelism:
+   * Runs the synchronous game state engine in parallel with an asynchronous
+   * ambient conversation observer swarm or heckler/commentator thread.
+   */
+  parallel_ambient(
+    ambientThread: CuratorAstNode | { build: () => CuratorAstNode }
+  ): this {
+    const ambientNode = typeof (ambientThread as any)?.build === 'function'
+      ? (ambientThread as any).build()
+      : ambientThread;
+
+    const currentGameSeq = CuratorCoreBuilder.seq(`${this.tableUri}:game_thread`, ...this.steps);
+    this.steps = [
+      CuratorCoreBuilder.parallel(`${this.tableUri}:dual_track`, currentGameSeq, ambientNode)
+    ];
+    return this;
+  }
+
+  /**
+   * Session Connection / Join:
+   * Formal connection handshake registering participant, acquiring conversational role,
+   * requesting ephemeral capability leases, and receiving initial state catch-up.
+   */
+  join(options: {
+    agentId?: string;
+    as_role?: string;
+    conversationalRole?: string;
+    capabilities?: string[];
+    leaseDurationMs?: number;
+    [k: string]: any;
+  } = {}): this {
+    const role = options.conversationalRole || options.as_role || '$context.senderRole || "player"';
+    const agentId = options.agentId || '$context.agentId || "agent"';
+
+    this.steps.push(CuratorCoreBuilder.setState({
+      lastLifecycleAct: 'JOIN',
+      lastJoinedAgent: agentId,
+      lastJoinedRole: role,
+      activeParticipantCount: '$context.activeParticipantCount + 1',
+    }));
+
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'JOIN',
+      roomUri: this.tableUri,
+      senderRole: role,
+      recipients: '*',
+      topic: 'session:join',
+      payload: {
+        action: 'join',
+        agentId,
+        conversationalRole: role,
+        capabilities: options.capabilities || [],
+        leaseDurationMs: options.leaseDurationMs,
+        ...options,
+      },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+
+    return this;
+  }
+
+  connect(options: any = {}): this {
+    return this.join(options);
+  }
+
+  /**
+   * Session Leave / Concession:
+   * Graceful exit or formal concession yielding floor, recalibrating quorum,
+   * and revoking ephemeral leases.
+   */
+  leave(options: {
+    agentId?: string;
+    as_role?: string;
+    reason?: string;
+    concede?: boolean;
+    graceful?: boolean;
+    [k: string]: any;
+  } = {}): this {
+    const role = options.as_role || '$context.senderRole || "player"';
+    const agentId = options.agentId || '$context.agentId || "agent"';
+
+    this.steps.push(CuratorCoreBuilder.setState({
+      lastLifecycleAct: 'LEAVE',
+      lastLeftAgent: agentId,
+      conceded: options.concede === true,
+      activeParticipantCount: '$context.activeParticipantCount - 1',
+    }));
+
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'LEAVE',
+      roomUri: this.tableUri,
+      senderRole: role,
+      recipients: '*',
+      topic: 'session:leave',
+      payload: {
+        action: 'leave',
+        agentId,
+        reason: options.reason || 'normal_leave',
+        concede: options.concede === true,
+        graceful: options.graceful !== false,
+        ...options,
+      },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+
+    return this;
+  }
+
+  /**
+   * Heartbeat Presence Verification.
+   */
+  heartbeat(sessionId?: string): this {
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'HEARTBEAT',
+      roomUri: this.tableUri,
+      recipients: '*',
+      topic: 'session:heartbeat',
+      payload: { action: 'heartbeat', sessionId: sessionId || '$context.sessionId' },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
+
+  /**
+   * State Synchronization / Catch-Up.
+   */
+  sync_state(target?: string): this {
+    this.steps.push(CuratorCoreBuilder.emitEvent('agent:message', {
+      conversationType: 'forum',
+      speechAct: 'SYNC',
+      roomUri: this.tableUri,
+      recipients: target ? [target] : '*',
+      topic: 'session:sync',
+      payload: { action: 'sync_state' },
+      turn: '$context.turn',
+      conversationId: this.tableUri,
+    }));
+    return this;
+  }
 
   build(): CuratorSequentialNode {
     const name = this.tableUri.includes(':') ? this.tableUri : `game:${this.tableUri}`;

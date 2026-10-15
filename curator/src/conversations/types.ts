@@ -48,7 +48,11 @@ export type SpeechAct =
   | 'REJECT'          // Reject a proposal with rationale
   | 'VOTE'            // Submit a ballot in a forum deliberation
   | 'SYNTHESIZE'      // Conclude a topic with consensus findings
-  | 'ACK';            // Technical delivery acknowledgment
+  | 'ACK'             // Technical delivery acknowledgment
+  | 'JOIN'            // Participant connects, requests role, initiates handshake
+  | 'LEAVE'           // Participant disconnects, concedes, or yields floor
+  | 'HEARTBEAT'       // Liveness check and presence refresh
+  | 'SYNC';           // State catch-up: snapshot of context, active commitments, turn
 
 export interface AgentEndpoint {
   nodeId: string;        // Node identifier (e.g. 'local' for intra-node, or remote 'host-alpha')
@@ -136,3 +140,64 @@ export interface CreateAgentEnvelopeOptions<T = any> {
   expiresInMs?: number;
   maxHops?: number;
 }
+
+// ============================================================================
+// Session & Real-Time Connection Lifecycle Types
+// ============================================================================
+
+export type SessionStatus = 'connected' | 'reconnecting' | 'disconnected' | 'timed_out';
+
+export interface ConversationSession {
+  sessionId: string;
+  conversationId: string;
+  connectionId?: string;
+  participant: AgentEndpoint;
+  conversationalRole?: string;
+  activeLeases?: string[];
+  connectedAt: string;
+  lastHeartbeat: string;
+  status: SessionStatus;
+  metadata?: Record<string, unknown>;
+}
+
+export interface StartConversationOptions {
+  conversationId: string;
+  conversationType: ConversationType;
+  roomUri?: string;
+  topic?: string;
+  governanceMode?: ForumGovernanceMode;
+  requiredVotes?: number;
+  ruleset?: string;
+  initialState?: Record<string, unknown>;
+  initialParticipants?: AgentEndpoint[];
+  projectId?: string;
+  userId?: string;
+}
+
+export interface ConversationJoinOptions {
+  token?: string;
+  as_role?: string;
+  conversationalRole?: string;
+  connectionId?: string;
+  capabilities?: string[];
+  leaseDurationMs?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ConversationLeaveOptions {
+  reason?: string;
+  graceful?: boolean;
+  concede?: boolean;
+}
+
+export interface ConversationStateCatchup {
+  conversationId: string;
+  conversationType: ConversationType;
+  turn: number;
+  contextState: Record<string, unknown>;
+  participants: AgentEndpoint[];
+  activeSpeaker?: string;
+  recentTurns: AgentMessageEnvelope[];
+  commitments?: Record<string, unknown>;
+}
+

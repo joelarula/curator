@@ -1,4 +1,4 @@
-import AjvModule, {} from 'ajv';
+import AjvModule from 'ajv';
 const Ajv = AjvModule.default || AjvModule;
 export const CURRENT_AST_VERSION = 1;
 export const AST_LIMITS = {
@@ -255,4 +255,3 @@ export function assertValidCuratorAst(value) {
 export function withCurrentAstVersion(value) {
     return { ...value, astVersion: CURRENT_AST_VERSION };
 }
-//# sourceMappingURL=CuratorAstValidation.js.map

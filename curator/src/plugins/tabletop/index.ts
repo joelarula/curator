@@ -5,7 +5,9 @@ import { tabletopVocabularies } from './GameComposables.js';
 export * from './tools.js';
 export * from './matrix.js';
 export * from './FluentGameBuilder.js';
+export * from './FluentTricksterBuilder.js';
 export * from './GameComposables.js';
+
 
 /**
  * Curator Tabletop & Card Game Domain Plugin.

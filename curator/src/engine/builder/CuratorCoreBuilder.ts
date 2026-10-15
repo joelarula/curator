@@ -72,7 +72,8 @@ export class CuratorCoreBuilder {
    * Runs the provided nodes sequentially. Automatically resolves fluent builder instances.
    */
   static seq(name: string, ...nodes: (CuratorAstNode | { build: () => CuratorAstNode } | any)[]): CuratorSequentialNode {
-    const unwrapped = nodes.map(n => (n && typeof n === 'object' && typeof n.build === 'function' ? n.build() : n));
+    const rawList = nodes.length === 1 && Array.isArray(nodes[0]) ? nodes[0] : nodes.flat();
+    const unwrapped = rawList.map(n => (n && typeof n === 'object' && typeof n.build === 'function' ? n.build() : n));
     return { type: 'Curator_Sequential', name, subAgents: unwrapped };
   }
 
@@ -80,7 +81,8 @@ export class CuratorCoreBuilder {
    * Runs the provided nodes in parallel. Automatically resolves fluent builder instances.
    */
   static parallel(name: string, ...nodes: (CuratorAstNode | { build: () => CuratorAstNode } | any)[]): CuratorParallelNode {
-    const unwrapped = nodes.map(n => (n && typeof n === 'object' && typeof n.build === 'function' ? n.build() : n));
+    const rawList = nodes.length === 1 && Array.isArray(nodes[0]) ? nodes[0] : nodes.flat();
+    const unwrapped = rawList.map(n => (n && typeof n === 'object' && typeof n.build === 'function' ? n.build() : n));
     return { type: 'Curator_Parallel', name, subAgents: unwrapped };
   }
 
