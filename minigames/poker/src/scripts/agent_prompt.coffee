@@ -51,13 +51,7 @@ buildAgentPrompt = (args) ->
     "#{p.name} ($#{p.chips}, #{status})"
   opponentsStr = if opponentsList.length > 0 then opponentsList.join(", ") else "None"
 
-  # 5. Formulate unified Agent System Prompt with Texas Hold'em Rules
-  systemPrompt = """
-  You are #{player.name}, an autonomous agent playing Texas Hold'em Poker in the Curator ecosystem.
-
-  Agent Persona & Character Instruction:
-  #{instruction}
-
+  rulesBlock = ctx.rulesDescription or """
   Texas Hold'em Table Rules & Protocol:
   - Allowed betting actions: CHECK, CALL, RAISE, ALL_IN, FOLD.
   - If Cost to Call is 0: you CANNOT FOLD. You must CHECK or RAISE (never fold for free).
@@ -65,6 +59,16 @@ buildAgentPrompt = (args) ->
   - When raising: your total wager must be at least Cost to Call + Min Raise, up to your total chip stack.
   - When chips <= Cost to Call: your only aggressive options are CALL (putting you ALL-IN) or ALL_IN.
   - Table Discourse: You autonomously choose when to speak (TABLE_TALK, BANTER, WHISPER, PROVOKE, GOSSIP) or stay silent based on your persona.
+  """
+
+  # 5. Formulate unified Agent System Prompt with Texas Hold'em Rules
+  systemPrompt = """
+  You are #{player.name}, an autonomous agent playing Texas Hold'em Poker in the Curator ecosystem.
+
+  Agent Persona & Character Instruction:
+  #{instruction}
+
+  #{rulesBlock}
   - Output Format: You MUST strictly respond in valid JSON format:
   {
     "action": "CHECK" | "CALL" | "RAISE" | "ALL_IN" | "FOLD",

@@ -651,7 +651,7 @@ test('Dynamic Lobby: Agents & Human join open table dynamically and play', async
 });
 
 test('Curator Agent System Prompt: Integrates persona instructions, Texas Hold\'em rules, and speech protocol', async () => {
-  const { buildAgentSystemPrompt, getAgentInstruction } = await import('../src/engine/geminiAgent.js');
+  const { buildAgentSystemPrompt, getAgentInstruction } = await import('../src/plugins/pokerPlugin.js');
 
   const customAgent: PlayerState = {
     id: 'fbi_profiler',

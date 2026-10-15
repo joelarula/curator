@@ -61,6 +61,10 @@ export function loadAgentPromptCoffeeScript(): string {
   return loadCoffeeScript('agent_prompt.coffee');
 }
 
+export function loadPokerRulesCoffeeScript(): string {
+  return loadCoffeeScript('poker_rules.coffee');
+}
+
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 
@@ -108,7 +112,10 @@ export function formatAgentPromptCoffeeScript(params: any): any {
     const coffeeCode = loadAgentPromptCoffeeScript();
     cachedPromptBuilder = evaluateCoffeeScriptSync(coffeeCode);
   }
-  return cachedPromptBuilder(params);
+  const rules = getPokerRules();
+  const rulesDescription = rules?.getRulesDescription ? rules.getRulesDescription() : undefined;
+  const enriched = typeof params === 'object' && params !== null ? { rulesDescription, ...params } : params;
+  return cachedPromptBuilder(enriched);
 }
 
 export const POKER_WORKFLOW_COFFEESCRIPT = loadPokerWorkflowCoffeeScript();
@@ -136,6 +143,20 @@ export const getAiAgentTurnAST = getAgentTurnAST;
 
 export async function getPokerActionAST(context?: Record<string, any>): Promise<CuratorAstNode> {
   return compileCoffeeScriptFile('poker_action.coffee', context);
+}
+
+let cachedPokerRules: any = null;
+
+export function getPokerRules(): any {
+  if (!cachedPokerRules) {
+    const coffeeCode = loadPokerRulesCoffeeScript();
+    cachedPokerRules = evaluateCoffeeScriptSync(coffeeCode);
+  }
+  return cachedPokerRules;
+}
+
+export async function getPokerRulesAST(context?: Record<string, any>): Promise<CuratorAstNode> {
+  return compileCoffeeScriptFile('poker_rules.coffee', context);
 }
 
 export async function getAmbientReactionAST(context?: Record<string, any>): Promise<CuratorAstNode> {

@@ -27,6 +27,15 @@ export interface PlayerAction {
   innerMonologue?: string;
 }
 
+export interface AgenticSpeechResult {
+  speakerId: string;
+  speakerName: string;
+  speechAct: SpeechAct;
+  recipientId?: string;
+  text: string;
+  innerMonologue: string;
+}
+
 export type PersonaType = string;
 
 export interface PlayerState {
@@ -34,6 +43,7 @@ export interface PlayerState {
   name: string;
   isHuman: boolean;
   instruction?: string; // Autonomous agent system prompt / persona instruction
+  provider?: string;    // LLM provider identifier (e.g. 'gemini', 'openai', 'mock')
   model?: string;       // LLM model identifier for Curator LLM dispatch
   persona?: PersonaType;
   chips: number;
@@ -86,6 +96,7 @@ export interface PlayerJoinOptions {
   name: string;
   isHuman?: boolean;
   instruction?: string;
+  provider?: string;
   persona?: PersonaType;
   model?: string;
   chips?: number;
