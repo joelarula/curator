@@ -75,8 +75,35 @@ sanitizeAction = (rawAction, toCall = 0, chips = 0, minRaise = 20) ->
     innerMonologue: rawAction?.innerMonologue
   }
 
+getLegalChoices = (toCall = 0, chips = 0, minRaise = 20, currentBet = 0) ->
+  choices = []
+  canCheck = toCall is 0
+
+  if canCheck
+    choices.push { id: 'check', label: 'Check', action: { type: 'CHECK' } }
+    if chips >= minRaise * 2
+      choices.push { id: 'bet_min', label: "Bet $#{minRaise * 2}", action: { type: 'RAISE', amount: minRaise * 2 } }
+    if chips >= minRaise * 5
+      choices.push { id: 'bet_med', label: "Bet $#{minRaise * 5}", action: { type: 'RAISE', amount: minRaise * 5 } }
+    if chips > 0
+      choices.push { id: 'all_in', label: "All-In ($#{chips})", action: { type: 'ALL_IN', amount: chips } }
+  else
+    if chips > toCall
+      choices.push { id: 'call', label: "Call $#{toCall}", action: { type: 'CALL', amount: toCall } }
+      raiseTotal = toCall + minRaise * 2
+      if chips >= raiseTotal
+        choices.push { id: 'raise_min', label: "Raise to $#{currentBet + minRaise * 2}", action: { type: 'RAISE', amount: raiseTotal } }
+      choices.push { id: 'all_in', label: "All-In ($#{chips})", action: { type: 'ALL_IN', amount: chips } }
+      choices.push { id: 'fold', label: 'Fold', action: { type: 'FOLD' } }
+    else
+      choices.push { id: 'all_in', label: "All-In ($#{chips})", action: { type: 'ALL_IN', amount: chips } }
+      choices.push { id: 'fold', label: 'Fold', action: { type: 'FOLD' } }
+
+  choices
+
 module.exports = {
   tableRules
   getRulesDescription
   sanitizeAction
+  getLegalChoices
 }

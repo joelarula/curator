@@ -18,6 +18,36 @@ export function getTableRules(): any {
   return getPokerRules()?.tableRules || {};
 }
 
+export interface PlayerChoice {
+  id: string;
+  label: string;
+  action: PlayerAction;
+}
+
+export function getLegalChoices(gameState: PokerGameState, playerIdx?: number): PlayerChoice[] {
+  const idx = playerIdx !== undefined ? playerIdx : gameState.activePlayerIdx;
+  const player = gameState.players[idx];
+  if (!player) return [];
+  const toCall = gameState.currentBet - player.streetBet;
+  const rules = getPokerRules();
+  if (rules?.getLegalChoices) {
+    return rules.getLegalChoices(toCall, player.chips, gameState.minRaise || 20, gameState.currentBet);
+  }
+  const choices: PlayerChoice[] = [];
+  if (toCall === 0) {
+    choices.push({ id: 'check', label: 'Check', action: { type: 'CHECK' } });
+    if (player.chips >= 40) choices.push({ id: 'bet_40', label: 'Bet $40', action: { type: 'RAISE', amount: 40 } });
+    if (player.chips >= 100) choices.push({ id: 'bet_100', label: 'Bet $100', action: { type: 'RAISE', amount: 100 } });
+    choices.push({ id: 'all_in', label: `All-In ($${player.chips})`, action: { type: 'ALL_IN', amount: player.chips } });
+  } else {
+    choices.push({ id: 'call', label: `Call $${toCall}`, action: { type: 'CALL', amount: toCall } });
+    choices.push({ id: 'raise', label: `Raise to $${gameState.currentBet + 40}`, action: { type: 'RAISE', amount: toCall + 40 } });
+    choices.push({ id: 'all_in', label: `All-In ($${player.chips})`, action: { type: 'ALL_IN', amount: player.chips } });
+    choices.push({ id: 'fold', label: 'Fold', action: { type: 'FOLD' } });
+  }
+  return choices;
+}
+
 export function createDeck(): Card[] {
   const rules = getTableRules();
   const suits: Suit[] = rules.deck?.suits || ['♠', '♥', '♦', '♣'];
@@ -897,4 +927,73 @@ export function getPokerStandings(rawState: PokerGameState): { standings: Player
   standings.sort((a, b) => b.finalChips - a.finalChips);
   standings.forEach((s, idx) => { s.rank = idx + 1; });
   return { standings };
+}
+
+export interface PlayHandHandlers {
+  onHumanTurn?: (state: PokerGameState, choices: PlayerChoice[]) => Promise<PlayerAction> | PlayerAction;
+  onTableUpdate?: (state: PokerGameState, actionDesc?: string) => Promise<void> | void;
+  onStreetDealt?: (state: PokerGameState, street: string) => Promise<void> | void;
+  onShowdown?: (state: PokerGameState, winnerSummary: string) => Promise<void> | void;
+  onTurnLogged?: (content: string) => Promise<void> | void;
+  isAutoplay?: boolean;
+}
+
+/**
+ * Orchestrates a complete single Texas Hold'em hand across all betting streets
+ * (Preflop -> Flop -> Turn -> River -> Showdown & Pot Distribution)
+ * without duplicating state machine logic in client runners.
+ */
+export async function playPokerHand(
+  initialState: PokerGameState,
+  handlers: PlayHandHandlers = {},
+  toolContext?: { prisma?: any; conversationId?: any }
+): Promise<{ gameState: PokerGameState; winnerSummary: string }> {
+  // 1. Start Hand (rotates button, posts blinds, deals hole cards)
+  const startRes = startPokerHand(initialState);
+  let state = startRes.gameState;
+  await handlers.onTurnLogged?.(`Hand #${state.handNumber} started. Button is Seat ${state.buttonIdx} (${state.players[state.buttonIdx].name}).`);
+
+  // 2. Street Wagering Loop (PREFLOP -> FLOP -> TURN -> RIVER)
+  while (!state.handOver && state.currentStreet !== 'SHOWDOWN') {
+    let streetDone = false;
+    while (!streetDone && !state.handOver) {
+      const activeIdx = state.activePlayerIdx;
+      const activePlayer = state.players[activeIdx];
+
+      let chosenAction: PlayerAction;
+      if (activePlayer.isHuman) {
+        const legalChoices = getLegalChoices(state, activeIdx);
+        if (handlers.isAutoplay || !handlers.onHumanTurn) {
+          const passive = legalChoices.find((c) => c.action.type === 'CHECK' || c.action.type === 'CALL');
+          chosenAction = passive ? passive.action : legalChoices[0].action;
+        } else {
+          chosenAction = await handlers.onHumanTurn(state, legalChoices);
+        }
+      } else {
+        chosenAction = await agenticDecidePokerAction(activePlayer, state);
+      }
+
+      const actRes = applyPokerAction(state, chosenAction);
+      state = actRes.gameState;
+      await handlers.onTableUpdate?.(state, `${activePlayer.name}: ${chosenAction.type} ${chosenAction.amount ? '$' + chosenAction.amount : ''}`);
+
+      if (state.streetComplete || state.handOver) {
+        streetDone = true;
+      }
+    }
+
+    if (!state.handOver) {
+      const dealRes = dealPokerStreet(state);
+      state = dealRes.gameState;
+      await handlers.onStreetDealt?.(state, state.currentStreet);
+    }
+  }
+
+  // 3. Showdown & Pot Distribution
+  const showRes = distributePokerPots(state);
+  state = showRes.gameState;
+  await handlers.onShowdown?.(state, showRes.winnerSummary);
+  await handlers.onTurnLogged?.(`Hand #${state.handNumber} Result: ${showRes.winnerSummary}`);
+
+  return { gameState: state, winnerSummary: showRes.winnerSummary };
 }

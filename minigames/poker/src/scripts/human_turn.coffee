@@ -4,6 +4,10 @@
 # ==============================================================================
 
 seq "poker:human_turn", [
+  tool "poker_get_choices",
+    state: "$context.gameState"
+    playerIdx: "$context.gameState.activePlayerIdx"
+
   emit_event "poker:awaiting_human_action",
     player: "$context.gameState.players[$context.gameState.activePlayerIdx].id"
     name: "$context.gameState.players[$context.gameState.activePlayerIdx].name"
@@ -11,7 +15,9 @@ seq "poker:human_turn", [
     toCall: "$context.gameState.currentBet - $context.gameState.players[$context.gameState.activePlayerIdx].streetBet"
     pot: "$context.gameState.pot"
     street: "$context.gameState.currentStreet"
+    choices: "$context.poker_get_choices.choices"
 
   wait_event "poker:human_action", "humanAction"
-  assign "action", "$context.humanAction"
+  tool "poker_apply_action",
+    action: "$context.humanAction"
 ]

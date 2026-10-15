@@ -44,19 +44,25 @@ seq "poker:dynamic_engine", [
           while_loop "not $context.gameState.streetComplete and not $context.gameState.handOver",
             seq "poker:turn_step", [
               if_else "$context.gameState.players[$context.gameState.activePlayerIdx].isHuman",
-                seq("poker:human_input", [
-                  emit_event "poker:awaiting_human_action", player: "$context.gameState.players[$context.gameState.activePlayerIdx].id"
+                seq("poker:human_agent_flow", [
+                  tool "poker_get_choices", state: "$context.gameState", playerIdx: "$context.gameState.activePlayerIdx"
+                  emit_event "poker:awaiting_human_action",
+                    player: "$context.gameState.players[$context.gameState.activePlayerIdx].id"
+                    name: "$context.gameState.players[$context.gameState.activePlayerIdx].name"
+                    chips: "$context.gameState.players[$context.gameState.activePlayerIdx].chips"
+                    toCall: "$context.gameState.currentBet - $context.gameState.players[$context.gameState.activePlayerIdx].streetBet"
+                    pot: "$context.gameState.pot"
+                    street: "$context.gameState.currentStreet"
+                    choices: "$context.poker_get_choices.choices"
                   wait_event "poker:human_action", "humanAction"
-                  assign "action", "$context.humanAction"
+                  tool "poker_apply_action", action: "$context.humanAction"
                 ]),
-                seq("poker:agent_decision", [
+                seq("poker:ai_agent_flow", [
                   tool "poker_ai_decision"
-                  assign "action", "$context.lastAiAction"
+                  tool "poker_apply_action", action: "$context.lastAiAction"
                 ])
-              tool "poker_apply_action", action: "$context.action"
               emit_event "poker:action_taken",
                 player: "$context.gameState.players[$context.gameState.activePlayerIdx].name"
-                action: "$context.action"
             ]
           if_else "not $context.gameState.handOver",
             seq("poker:deal_next_street", [

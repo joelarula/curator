@@ -1,386 +1,376 @@
-import os from 'node:os';
-import path from 'node:path';
+#!/usr/bin/env node
+
 import readline from 'node:readline';
-import {
-  curatorEngine,
-  provisionSqliteDb,
-} from '@curator/agent-server';
-import { pokerPlugin } from './plugins/pokerPlugin.js';
+import { createHostCli } from '@curator/host';
+import { createPokerHost } from './host.js';
+import { seedPokerDatabase } from './db/seed.js';
 import { renderTable, renderNarratives, renderStandings } from './ui/tableRenderer.js';
+import {
+  promptGroupChatAction,
+  promptGroupChatIntermission,
+  askUser,
+  type ChatChoice,
+} from './ui/groupChatPrompt.js';
+import {
+  initPokerLobby,
+  playPokerHand,
+  checkPokerGameOver,
+  getPokerStandings,
+  type PlayerChoice,
+} from './engine/pokerEngine.js';
 import type { PlayerAction, PokerGameState } from './types.js';
 
-// Register the poker plugin into the engine
-curatorEngine.registerPlugin(pokerPlugin);
+/**
+ * Generalized group chat turn prompt adapter for table actor choices.
+ */
+async function promptHumanAction(
+  gameState: PokerGameState,
+  legalChoices: PlayerChoice[],
+  rl: readline.Interface,
+  host: any,
+  conversation: any,
+  rootRequest: any,
+  logTurn: (msg: string) => Promise<void>
+): Promise<PlayerAction> {
+  const humanSpeechTool = host.engine.tools.get('poker_human_speech');
+  const heroPlayer = gameState.players.find((p) => p.isHuman) || gameState.players[0];
 
-function askUser(rl: readline.Interface, query: string): Promise<string> {
-  return new Promise((resolve) => rl.question(query, resolve));
-}
+  const choices: ChatChoice<PlayerAction>[] = legalChoices.map((c) => ({
+    id: c.id,
+    label: c.label,
+    value: c.action,
+    aliases: [c.action.type, c.id],
+  }));
 
-async function main() {
-  console.clear();
-  console.log('\x1b[1m\x1b[36mInitializing Curator Texas Hold\'em MiniApp (SQLite)...\x1b[0m');
-
-  const dbPath = process.env.CURATOR_DATABASE_PATH || path.join(process.env.TEMP || os.tmpdir(), 'curator-poker.db');
-
-  const prisma: any = await provisionSqliteDb('poker-minigame', false, {
-    databasePath: dbPath,
-  });
-
-  // Ensure system user & project exist
-  const user = await prisma.user.upsert({
-    where: { email: 'hero@tabletop.local' },
-    update: {},
-    create: { id: 'hero-user-1', name: 'You (Hero)', email: 'hero@tabletop.local' },
-  });
-
-  const project = await prisma.project.upsert({
-    where: { id: 'poker-project-1' },
-    update: {},
-    create: { id: 'poker-project-1', name: 'Texas Holdem Lounge', userId: user.id },
-  });
-
-  let conversation = await prisma.conversation.findFirst({
-    where: { userId: user.id, projectId: project.id },
-  });
-  if (!conversation) {
-    conversation = await prisma.conversation.create({
-      data: {
-        userId: user.id,
-        projectId: project.id,
-        metadata: { ruleset: 'texas_holdem_nl', maxSeats: 4 },
-      },
-    });
-  }
-
-  const rootRequest = await prisma.request.create({
-    data: {
-      userId: user.id,
-      projectId: project.id,
-      conversationId: conversation.id,
-      toolName: 'poker_session',
-      status: 'NEW',
+  return promptGroupChatAction(rl, choices, {
+    actorName: heroPlayer.name || 'You',
+    participants: gameState.players,
+    redrawView: () => {
+      console.clear();
+      console.log(renderTable(gameState, false));
     },
-  });
-
-  // 1. Initialize Lobby via tool
-  const initTool: any = curatorEngine.tools.get('poker_init_lobby')!;
-  const startHandTool: any = curatorEngine.tools.get('poker_start_hand')!;
-  const aiDecisionTool: any = curatorEngine.tools.get('poker_ai_decision')!;
-  const applyActionTool: any = curatorEngine.tools.get('poker_apply_action')!;
-  const dealStreetTool: any = curatorEngine.tools.get('poker_deal_street')!;
-  const distributePotsTool: any = curatorEngine.tools.get('poker_distribute_pots')!;
-  const humanSpeechTool: any = curatorEngine.tools.get('poker_human_speech')!;
-  const checkGameOverTool: any = curatorEngine.tools.get('poker_check_game_over')!;
-  const getStandingsTool: any = curatorEngine.tools.get('poker_get_standings')!;
-
-
-  let initRes: any = await initTool.runAsync({
-    args: { tableId: String(conversation.id), startingChips: 1000 },
-    toolContext: { prisma, conversationId: conversation.id },
-  });
-  let gameState: PokerGameState = initRes.gameState;
-
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
-  console.log('\x1b[32m✔ Connected to SQLite table database at:\x1b[0m', dbPath);
-  console.log('\x1b[33mPress ENTER to start the session...\x1b[0m');
-  await askUser(rl, '');
-
-  let keepPlaying = true;
-
-  while (keepPlaying) {
-    // Check if hero has busted
-    const heroPlayer = gameState.players.find((p: any) => p.isHuman);
-    if (!heroPlayer || heroPlayer.chips <= 0) {
-      console.log('\n\x1b[31m[GAME OVER] You have busted out of the table!\x1b[0m');
-      break;
-    }
-
-    // 2. Start Hand
-    const handRes: any = await startHandTool.runAsync({
-      args: { state: gameState },
-      toolContext: { prisma, conversationId: conversation.id },
-    });
-    gameState = handRes.gameState;
-
-    // Record turn in standard Curator Response table
-    await prisma.response.create({
-      data: {
-        requestId: rootRequest.id,
-        projectId: project.id,
-        conversationId: conversation.id,
-        content: `Hand #${gameState.handNumber} started. Button is Seat ${gameState.buttonIdx} (${gameState.players[gameState.buttonIdx].name}).`,
-      },
-    });
-
-    // 3. Street Loop (PREFLOP -> FLOP -> TURN -> RIVER)
-    while (!gameState.handOver && gameState.currentStreet !== 'SHOWDOWN') {
-      let streetWageringDone = false;
-
-      while (!streetWageringDone && !gameState.handOver) {
-        const activeIdx = gameState.activePlayerIdx;
-        const activePlayer = gameState.players[activeIdx];
-
-        if (activePlayer.isHuman) {
-          // Human turn loop: event-driven speech acts (T, B, W, N) can happen at any time!
-          let actionChosen = false;
-          let chosenAction: PlayerAction = { type: 'CHECK' };
-
-          while (!actionChosen) {
-            console.clear();
-            console.log(renderTable(gameState, false));
-
-            const toCall = gameState.currentBet - activePlayer.streetBet;
-            console.log('\n\x1b[1m\x1b[32m=== YOUR TURN TO ACT ===\x1b[0m');
-
-            let choicesStr = '';
-            if (toCall === 0) {
-              choicesStr = '  [1] Check   [2] Bet $40   [3] Bet $100   [4] All-In ($' + activePlayer.chips + ')   [5] Fold';
-            } else {
-              choicesStr = '  [1] Call $' + toCall + '   [2] Raise to $' + (gameState.currentBet + 40) + '   [3] All-In ($' + activePlayer.chips + ')   [4] Fold';
-            }
-
-            console.log(choicesStr);
-            console.log('\x1b[90m  [T] 💬 Table Talk   [B] 🗣️ Banter / Trash Talk   [W] 🤫 Whisper to Player   [N] 📖 View Narratives\x1b[0m');
-            const answer = (await askUser(rl, '\n\x1b[33mChoose action or conversational option > \x1b[0m')).trim();
-            const lowerAns = answer.toLowerCase();
-
-            if (lowerAns === 't') {
-              const msg = (await askUser(rl, '\x1b[36mEnter Table Talk message > \x1b[0m')).trim();
-              if (msg) {
-                const spRes: any = await humanSpeechTool.runAsync({
-                  args: { state: gameState, speechAct: 'TABLE_TALK', text: msg },
-                  toolContext: { prisma, conversationId: conversation.id },
-                });
-                gameState = spRes.gameState;
-                await prisma.response.create({
-                  data: {
-                    requestId: rootRequest.id,
-                    projectId: project.id,
-                    conversationId: conversation.id,
-                    content: `[TABLE TALK] You said: "${msg}"`,
-                  },
-                });
-              }
-              continue;
-            }
-
-            if (lowerAns === 'b') {
-              const msg = (await askUser(rl, '\x1b[33mEnter Banter / Trash Talk > \x1b[0m')).trim();
-              if (msg) {
-                const spRes: any = await humanSpeechTool.runAsync({
-                  args: { state: gameState, speechAct: 'BANTER', text: msg },
-                  toolContext: { prisma, conversationId: conversation.id },
-                });
-                gameState = spRes.gameState;
-                await prisma.response.create({
-                  data: {
-                    requestId: rootRequest.id,
-                    projectId: project.id,
-                    conversationId: conversation.id,
-                    content: `[BANTER] You said: "${msg}"`,
-                  },
-                });
-              }
-              continue;
-            }
-
-            if (lowerAns === 'w') {
-              const targetPlayers = gameState.players.filter((p) => !p.isHuman && !p.folded);
-              if (targetPlayers.length === 0) {
-                console.log('\x1b[31mNo active AI players available to whisper to.\x1b[0m');
-                continue;
-              }
-              console.log('\n\x1b[35mSelect player to whisper to:\x1b[0m');
-              targetPlayers.forEach((p, idx) => {
-                console.log(`  [${idx + 1}] ${p.name} ($${p.chips})`);
-              });
-              const targetChoice = (await askUser(rl, `Choose player [1-${targetPlayers.length}] > `)).trim();
-              const selectedIdx = parseInt(targetChoice, 10) - 1;
-              const targetPlayer = (selectedIdx >= 0 && selectedIdx < targetPlayers.length) ? targetPlayers[selectedIdx] : targetPlayers[0];
-              const targetId = targetPlayer.id;
-              const targetName = targetPlayer.name;
-
-              const secretMsg = (await askUser(rl, `\x1b[35mEnter secret whisper to ${targetName} > \x1b[0m`)).trim();
-              if (secretMsg) {
-                const spRes: any = await humanSpeechTool.runAsync({
-                  args: { state: gameState, speechAct: 'WHISPER', targetId, text: secretMsg },
-                  toolContext: { prisma, conversationId: conversation.id },
-                });
-                gameState = spRes.gameState;
-                await prisma.response.create({
-                  data: {
-                    requestId: rootRequest.id,
-                    projectId: project.id,
-                    conversationId: conversation.id,
-                    content: `[WHISPER to ${targetName}] You: "${secretMsg}"`,
-                  },
-                });
-              }
-              continue;
-            }
-
-            if (lowerAns === 'n') {
-              console.clear();
-              console.log(renderNarratives(gameState));
-              await askUser(rl, '\x1b[33mPress ENTER to return to table action...\x1b[0m');
-              continue;
-            }
-
-            // Formal game move
-            if (toCall === 0) {
-              if (answer === '2') chosenAction = { type: 'RAISE', amount: 40 };
-              else if (answer === '3') chosenAction = { type: 'RAISE', amount: 100 };
-              else if (answer === '4') chosenAction = { type: 'ALL_IN', amount: activePlayer.chips };
-              else if (answer === '5') chosenAction = { type: 'FOLD' };
-              else chosenAction = { type: 'CHECK' };
-            } else {
-              if (answer === '2') chosenAction = { type: 'RAISE', amount: toCall + 40 };
-              else if (answer === '3') chosenAction = { type: 'ALL_IN', amount: activePlayer.chips };
-              else if (answer === '4') chosenAction = { type: 'FOLD' };
-              else chosenAction = { type: 'CALL', amount: toCall };
-            }
-            actionChosen = true;
-          }
-
-          const actRes: any = await applyActionTool.runAsync({
-            args: { state: gameState, action: chosenAction },
-            toolContext: { prisma, conversationId: conversation.id },
-          });
-          gameState = actRes.gameState;
-
-          await prisma.response.create({
-            data: {
-              requestId: rootRequest.id,
-              projectId: project.id,
-              conversationId: conversation.id,
-              content: `You chose: ${chosenAction.type} ${chosenAction.amount ? '$' + chosenAction.amount : ''}`,
-            },
-          });
-        } else {
-          // AI turn
-          const aiDecisionRes: any = await aiDecisionTool.runAsync({
-            args: { state: gameState, playerIdx: activeIdx },
-            toolContext: { prisma, conversationId: conversation.id },
-          });
-          const aiAction = aiDecisionRes.action;
-
-          const actRes: any = await applyActionTool.runAsync({
-            args: { state: gameState, action: aiAction },
-            toolContext: { prisma, conversationId: conversation.id },
-          });
-          gameState = actRes.gameState;
-
-          // Brief delay for realism
-          await new Promise((r) => setTimeout(r, 600));
-
-          console.clear();
-          console.log(renderTable(gameState, false));
-          console.log(`\x1b[33m▶ ${activePlayer.name} performed: ${aiAction.type} ${aiAction.amount ? '$' + aiAction.amount : ''}\x1b[0m`);
-        }
-
-        if (gameState.streetComplete || gameState.handOver) {
-          streetWageringDone = true;
-        }
+    logTurn,
+    onSpeech: async (text, speechAct, targetParticipantId) => {
+      if (!humanSpeechTool) return;
+      const res: any = await humanSpeechTool.runAsync({
+        args: {
+          state: gameState,
+          speechAct,
+          text,
+          targetId: targetParticipantId,
+          speakerId: heroPlayer.id,
+          speakerName: heroPlayer.name,
+        },
+        toolContext: { prisma: host.prisma, conversationId: conversation.id },
+      });
+      if (res?.gameState) {
+        Object.assign(gameState, res.gameState);
       }
-
-      // If hand didn't end early by fold, deal next street!
-      if (!gameState.handOver) {
-        const dealRes: any = await dealStreetTool.runAsync({
-          args: { state: gameState },
-          toolContext: { prisma, conversationId: conversation.id },
-        });
-        gameState = dealRes.gameState;
-
+      return { aiReply: res?.aiResponse?.text };
+    },
+    onCommand: async (cmd, args) => {
+      if (cmd === 'standings' || cmd === 's' || cmd === 'score') {
+        const stdRes = getPokerStandings(gameState);
+        console.log(renderStandings(stdRes.standings));
+        return true;
+      }
+      if (cmd === 'narratives' || cmd === 'info' || cmd === 'n') {
+        console.log(renderNarratives(gameState));
+        return true;
+      }
+      if (cmd === 'table' || cmd === 'view') {
         console.clear();
         console.log(renderTable(gameState, false));
-        console.log(`\n\x1b[1m\x1b[36m[DEALER] Dealing ${gameState.currentStreet}...\x1b[0m`);
-        await new Promise((r) => setTimeout(r, 800));
+        return true;
       }
-    }
-
-    // 4. Showdown & Pot Distribution
-    const showRes: any = await distributePotsTool.runAsync({
-      args: { state: gameState },
-      toolContext: { prisma, conversationId: conversation.id },
-    });
-    gameState = showRes.gameState;
-
-    console.clear();
-    console.log(renderTable(gameState, true)); // Reveal all hole cards
-    console.log(`\n\x1b[1m\x1b[32m✔ ${showRes.winnerSummary}\x1b[0m\n`);
-
-    await prisma.response.create({
-      data: {
-        requestId: rootRequest.id,
-        projectId: project.id,
-        conversationId: conversation.id,
-        content: `Hand #${gameState.handNumber} Result: ${showRes.winnerSummary}`,
-      },
-    });
-
-    const overRes: any = await checkGameOverTool.runAsync({
-      args: { state: gameState },
-      toolContext: { prisma, conversationId: conversation.id },
-    });
-    gameState = overRes.gameState;
-
-    if (overRes.gameOver) {
-      console.log(renderStandings(overRes.standings));
-      console.log(`\n\x1b[1m\x1b[32m✔ [GAME OVER] ${overRes.winner} has conquered the table!\x1b[0m\n`);
-      await prisma.response.create({
-        data: {
-          requestId: rootRequest.id,
-          projectId: project.id,
-          conversationId: conversation.id,
-          content: overRes.report,
-        },
-      });
-      break;
-    }
-
-    let showDone = false;
-    while (!showDone) {
-      const nextPrompt = await askUser(
-        rl,
-        '\x1b[33mPress ENTER for next hand, [s] for standings, [n] for subjective narratives, or [q] to exit > \x1b[0m'
-      );
-      const cleanPrompt = nextPrompt.toLowerCase().trim();
-      if (cleanPrompt === 'q') {
-        keepPlaying = false;
-        showDone = true;
-      } else if (cleanPrompt === 's') {
-        const stdRes: any = await getStandingsTool.runAsync({
-          args: { state: gameState },
-          toolContext: { prisma, conversationId: conversation.id },
-        });
-        console.log(renderStandings(stdRes.standings));
-        await askUser(rl, '\x1b[33mPress ENTER to return to showdown summary...\x1b[0m');
-      } else if (cleanPrompt === 'n') {
-        console.clear();
-        console.log(renderNarratives(gameState));
-        await askUser(rl, '\x1b[33mPress ENTER to return to showdown summary...\x1b[0m');
-      } else {
-        showDone = true;
-      }
-    }
-  }
-
-  // Print final session standings
-  const finalStandingsRes: any = await getStandingsTool.runAsync({
-    args: { state: gameState },
-    toolContext: { prisma, conversationId: conversation.id },
+      return false;
+    },
   });
-  console.log(renderStandings(finalStandingsRes.standings));
-
-  rl.close();
-  console.log('\n\x1b[36mThank you for playing at Curator High Roller Lounge! Table session saved to SQLite.\x1b[0m\n');
 }
 
-main().catch((err) => {
-  console.error('[Poker CLI Fatal Error]:', err);
-  process.exit(1);
+// 1. Initialize standardized Curator Host CLI
+const program = createHostCli(createPokerHost, {
+  name: 'poker',
+  description: 'Curator Texas Hold\'em MiniApp & Game Engine powered by CuratorHost and RequestProcessor',
+  version: '1.0.0',
 });
+
+// 2. Add 'play' command (default process runner)
+program
+  .command('play', { isDefault: true })
+  .description('Play an interactive or autoplay Texas Hold\'em session in a live host process')
+  .option('-c, --chips <amount>', 'Starting chips for each player', '1000')
+  .option('-s, --seats <count>', 'Number of player seats at the table (2-6)', '4')
+  .option('--sb <amount>', 'Small blind amount', '10')
+  .option('--bb <amount>', 'Big blind amount', '20')
+  .option('-h, --hands <count>', 'Maximum number of hands to play (unlimited by default)')
+  .option('--autoplay', 'Run autonomous simulation without interactive input pauses', false)
+  .option('--db <path>', 'Custom SQLite database path')
+  .option('-r, --reset', 'Reset and wipe the database before playing', false)
+  .option('--poll-interval <ms>', 'CuratorRequestProcessor polling interval in milliseconds', '500')
+  .option('-v, --verbose', 'Show verbose RequestProcessor worker logs', false)
+  .action(async (opts) => {
+    console.clear();
+    console.log('\x1b[1m\x1b[36mInitializing Curator Texas Hold\'em Table Process...\x1b[0m');
+
+    const startingChips = parseInt(opts.chips, 10) || 1000;
+    const maxSeats = Math.min(6, Math.max(2, parseInt(opts.seats, 10) || 4));
+    const smallBlind = parseInt(opts.sb, 10) || 10;
+    const bigBlind = parseInt(opts.bb, 10) || 20;
+    const maxHands = opts.hands ? parseInt(opts.hands, 10) : undefined;
+    const isAutoplay = Boolean(opts.autoplay);
+    const pollInterval = parseInt(opts.pollInterval, 10) || 500;
+
+    // 1. Provision / connect SQLite database
+    const { prisma, project, conversation, rootRequest, dbPath } = await seedPokerDatabase({
+      databasePath: opts.db,
+      forceReset: opts.reset,
+      maxSeats,
+    });
+
+    // 2. Bootstrap CuratorHost runtime with registered PokerPlugin & CuratorRequestProcessor
+    const host = await createPokerHost({
+      databasePath: dbPath,
+      quiet: !opts.verbose,
+      intervalMs: pollInterval,
+    });
+
+    // Start background CuratorRequestProcessor polling loop
+    await host.start(pollInterval);
+    console.log(`\x1b[32m✔ CuratorHost & RequestProcessor running (polling every ${pollInterval}ms)\x1b[0m`);
+    console.log('\x1b[32m✔ Connected to SQLite table database at:\x1b[0m', dbPath);
+
+    // Graceful process termination handling
+    let isShuttingDown = false;
+    const handleShutdown = async () => {
+      if (isShuttingDown) return;
+      isShuttingDown = true;
+      console.log('\n\x1b[33m[Host Process] Gracefully stopping CuratorRequestProcessor and table session...\x1b[0m');
+      try {
+        await host.stop();
+      } catch (_) {}
+      process.exit(0);
+    };
+
+    process.on('SIGINT', handleShutdown);
+    process.on('SIGTERM', handleShutdown);
+
+    // Turn response helper
+    async function logTurn(content: string) {
+      try {
+        await prisma.response.create({
+          data: {
+            requestId: rootRequest.id,
+            projectId: project.id,
+            conversationId: conversation.id,
+            content,
+          },
+        });
+      } catch (_) {}
+    }
+
+    // Initialize table lobby
+    const initRes = initPokerLobby({ tableId: String(conversation.id), startingChips });
+    let gameState: PokerGameState = initRes.gameState;
+    gameState.smallBlind = smallBlind;
+    gameState.bigBlind = bigBlind;
+
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+
+    if (!isAutoplay) {
+      console.log('\x1b[33mPress ENTER to start the session...\x1b[0m');
+      await askUser(rl, '');
+    }
+
+    let keepPlaying = true;
+    let handCounter = 0;
+
+    try {
+      while (keepPlaying) {
+        if (maxHands && handCounter >= maxHands) {
+          console.log(`\n\x1b[36m[SESSION COMPLETED] Reached target limit of ${maxHands} hand(s).\x1b[0m`);
+          break;
+        }
+
+        const heroPlayer = gameState.players.find((p) => p.isHuman);
+        if (!heroPlayer || heroPlayer.chips <= 0) {
+          console.log('\n\x1b[31m[GAME OVER] You have busted out of the table!\x1b[0m');
+          break;
+        }
+
+        handCounter++;
+
+        // Orchestrate single hand via engine state machine
+        const { gameState: nextState, winnerSummary } = await playPokerHand(
+          gameState,
+          {
+            isAutoplay,
+            onHumanTurn: (state, choices) =>
+              promptHumanAction(state, choices, rl, host, conversation, rootRequest, logTurn),
+            onTableUpdate: (state, actionDesc) => {
+              if (!isAutoplay) {
+                console.clear();
+                console.log(renderTable(state, false));
+                if (actionDesc) console.log(`\x1b[33m▶ ${actionDesc}\x1b[0m`);
+              }
+            },
+            onStreetDealt: (state, street) => {
+              if (!isAutoplay) {
+                console.clear();
+                console.log(renderTable(state, false));
+                console.log(`\n\x1b[1m\x1b[36m[DEALER] Dealing ${street}...\x1b[0m`);
+              }
+            },
+            onShowdown: (state, summary) => {
+              console.clear();
+              console.log(renderTable(state, true));
+              console.log(`\n\x1b[1m\x1b[32m✔ ${summary}\x1b[0m\n`);
+            },
+            onTurnLogged: logTurn,
+          },
+          { prisma, conversationId: conversation.id }
+        );
+
+        gameState = nextState;
+
+        const overRes = checkPokerGameOver(gameState);
+        if (overRes.gameOver) {
+          console.log(renderStandings(overRes.standings));
+          console.log(`\n\x1b[1m\x1b[32m✔ [GAME OVER] ${overRes.winner} has conquered the table!\x1b[0m\n`);
+          await logTurn(overRes.report);
+          break;
+        }
+
+        if (isAutoplay) {
+          await new Promise((r) => setTimeout(r, 600));
+        } else {
+          const heroPlayer = gameState.players.find((p) => p.isHuman) || gameState.players[0];
+          const humanSpeechTool = host.engine.tools.get('poker_human_speech');
+
+          const intermissionDecision = await promptGroupChatIntermission(
+            rl,
+            {
+              actorName: heroPlayer.name || 'You',
+              participants: gameState.players,
+              redrawView: () => {
+                console.clear();
+                console.log(renderTable(gameState, true));
+              },
+              logTurn,
+              onSpeech: async (text, speechAct, targetParticipantId) => {
+                if (!humanSpeechTool) return;
+                const res: any = await humanSpeechTool.runAsync({
+                  args: {
+                    state: gameState,
+                    speechAct,
+                    text,
+                    targetId: targetParticipantId,
+                    speakerId: heroPlayer.id,
+                    speakerName: heroPlayer.name,
+                  },
+                  toolContext: { prisma: host.prisma, conversationId: conversation.id },
+                });
+                if (res?.gameState) {
+                  Object.assign(gameState, res.gameState);
+                }
+                return { aiReply: res?.aiResponse?.text };
+              },
+              onCommand: async (cmd, args) => {
+                if (cmd === 'standings' || cmd === 's' || cmd === 'score') {
+                  const stdRes = getPokerStandings(gameState);
+                  console.log(renderStandings(stdRes.standings));
+                  return true;
+                }
+                if (cmd === 'narratives' || cmd === 'info' || cmd === 'n') {
+                  console.log(renderNarratives(gameState));
+                  return true;
+                }
+                if (cmd === 'table' || cmd === 'view') {
+                  console.clear();
+                  console.log(renderTable(gameState, true));
+                  return true;
+                }
+                return false;
+              },
+            },
+            `Hand #${gameState.handNumber} complete. Press ENTER to deal next hand, type to chat with players, or /help`
+          );
+
+          if (intermissionDecision === 'QUIT') {
+            keepPlaying = false;
+          }
+        }
+      }
+    } finally {
+      rl.close();
+      const finalStandingsRes = getPokerStandings(gameState);
+      console.log(renderStandings(finalStandingsRes.standings));
+      console.log('\n\x1b[36mStopping CuratorHost worker...\x1b[0m');
+      await host.stop();
+      console.log('\x1b[32m✔ Host stopped cleanly. Table session saved to SQLite.\x1b[0m\n');
+    }
+  });
+
+// 3. Add 'sim' command for automated batch benchmark simulation
+program
+  .command('sim')
+  .description('Run a headless batch simulation of N hands for testing and balance benchmarks')
+  .option('-h, --hands <count>', 'Number of hands to simulate', '5')
+  .option('-c, --chips <amount>', 'Starting chips for each player', '1000')
+  .option('-s, --seats <count>', 'Number of seats at table', '4')
+  .option('--db <path>', 'Custom SQLite database path')
+  .option('-r, --reset', 'Reset database before running', true)
+  .option('--poll-interval <ms>', 'Processor poll interval in ms', '500')
+  .action(async (opts) => {
+    const numHands = parseInt(opts.hands, 10) || 5;
+    const startingChips = parseInt(opts.chips, 10) || 1000;
+    const maxSeats = Math.min(6, Math.max(2, parseInt(opts.seats, 10) || 4));
+
+    console.log(`\x1b[1m\x1b[36m[Curator Poker Sim] Starting headless simulation of ${numHands} hands...\x1b[0m`);
+
+    const { prisma, conversation, dbPath } = await seedPokerDatabase({
+      databasePath: opts.db,
+      forceReset: opts.reset,
+      maxSeats,
+    });
+
+    const host = await createPokerHost({
+      databasePath: dbPath,
+      quiet: true,
+      intervalMs: parseInt(opts.pollInterval, 10) || 500,
+    });
+
+    await host.start();
+
+    const initRes = initPokerLobby({ tableId: String(conversation.id), startingChips });
+    let gameState: PokerGameState = initRes.gameState;
+
+    try {
+      for (let h = 1; h <= numHands; h++) {
+        const { gameState: nextState, winnerSummary } = await playPokerHand(
+          gameState,
+          { isAutoplay: true },
+          { prisma, conversationId: conversation.id }
+        );
+        gameState = nextState;
+        console.log(`  Hand #${h}: ${winnerSummary}`);
+
+        const overRes = checkPokerGameOver(gameState);
+        if (overRes.gameOver) {
+          console.log(`\n\x1b[32m[Game Over] ${overRes.winner} won the table!\x1b[0m`);
+          break;
+        }
+      }
+
+      const finalStandingsRes = getPokerStandings(gameState);
+      console.log('\n' + renderStandings(finalStandingsRes.standings));
+    } finally {
+      await host.stop();
+      console.log('\x1b[32m✔ Simulation complete. Host stopped cleanly.\x1b[0m\n');
+    }
+  });
+
+program.parse(process.argv);

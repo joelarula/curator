@@ -15,6 +15,7 @@ import {
   processHumanSpeech,
   checkPokerGameOver,
   getPokerStandings,
+  getLegalChoices,
 } from '../engine/pokerEngine.js';
 
 // Re-export domain logic for consumer backwards-compatibility
@@ -271,6 +272,23 @@ export const pokerGetStandingsTool = defineTool({
   },
 });
 
+export const pokerGetChoicesTool = defineTool({
+  name: 'poker_get_choices',
+  description: 'Calculates the dynamically allowed legal choices and actions for a player based on table rules',
+  parameters: {
+    type: 'object',
+    properties: {
+      state: { type: 'object' },
+      playerIdx: { type: 'number' },
+    },
+    required: ['state'],
+  },
+  execute: async (args, ctx) => {
+    const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
+    return { choices: getLegalChoices(rawState, args?.playerIdx) };
+  },
+});
+
 // ----------------------------------------------------------------------------
 // Curator Poker Plugin Definition
 // ----------------------------------------------------------------------------
@@ -293,6 +311,7 @@ export const pokerPlugin: CuratorPlugin = {
     poker_human_speech: pokerHumanSpeechTool,
     poker_check_game_over: pokerCheckGameOverTool,
     poker_get_standings: pokerGetStandingsTool,
+    poker_get_choices: pokerGetChoicesTool,
   },
   scripts: {
     poker_workflow: {
