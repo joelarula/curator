@@ -2,11 +2,16 @@
   "name": "@minigames/poker",
   "version": "1.0.0",
   "type": "module",
+  "bin": {
+    "poker": "./bin/poker.mjs"
+  },
   "dependencies": {
     "@curator/agent-server": "file:../../curator",
     "@curator/host": "file:../../packages/host",
     "coffeescript": "^2.7.0",
-    "commander": "^14.0.2"
+    "commander": "^14.0.2",
+    "graphql": "^16.14.2",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
@@ -14,11 +19,12 @@
     "typescript": "^5.6.2"
   },
   "scripts": {
-    "play": "node --import ../../curator/node_modules/tsx/dist/loader.mjs src/cli.ts",
-    "play:direct": "node --import ../../curator/node_modules/tsx/dist/loader.mjs src/cli.ts play --direct",
-    "run": "node --import ../../curator/node_modules/tsx/dist/loader.mjs src/cli.ts run",
-    "serve": "node --import ../../curator/node_modules/tsx/dist/loader.mjs src/cli.ts serve",
-    "seed": "node --import ../../curator/node_modules/tsx/dist/loader.mjs src/db/seed.ts",
-    "test": "node --import ../../curator/node_modules/tsx/dist/loader.mjs --test test/poker_minigame.test.ts"
+    "play": "node src/cli.ts play",
+    "play:direct": "node src/cli.ts play --direct",
+    "serve": "node src/cli.ts serve",
+    "seed": "node src/cli.ts seed",
+    "test": "node --import ../../curator/node_modules/tsx/dist/loader.mjs --test test/concurrent_tables.test.ts test/graphql_tables.test.ts test/poker_minigame.test.ts",
+    "test:concurrent": "node --import ../../curator/node_modules/tsx/dist/loader.mjs --test test/concurrent_tables.test.ts",
+    "test:graphql": "node --import ../../curator/node_modules/tsx/dist/loader.mjs --test test/graphql_tables.test.ts"
   }
 }

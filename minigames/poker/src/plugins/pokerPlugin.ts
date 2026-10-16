@@ -1,6 +1,6 @@
-import { defineTool, type CuratorPlugin } from '@curator/agent-server';
-import type { PokerGameState, PlayerAction } from '../types.js';
-import { loadCoffeeScript } from '../scripts/pokerHandScript.js';
+import { defineTool, type CuratorPlugin } from '../curator.js';
+import type { PokerGameState, PlayerAction } from '../types.ts';
+import { loadCoffeeScript } from '../scripts/pokerHandScript.ts';
 import {
   initPokerLobby,
   joinPokerLobby,
@@ -16,10 +16,10 @@ import {
   checkPokerGameOver,
   getPokerStandings,
   getLegalChoices,
-} from '../engine/pokerEngine.js';
+} from '../engine/pokerEngine.ts';
 
 // Re-export domain logic for consumer backwards-compatibility
-export * from '../engine/pokerEngine.js';
+export * from '../engine/pokerEngine.ts';
 
 // ----------------------------------------------------------------------------
 // Curator Tool Registrations
@@ -58,7 +58,7 @@ export const pokerInitLobbyTool = defineTool({
       },
     },
   },
-  execute: async (args) => {
+  execute: async (args: any) => {
     return initPokerLobby(args);
   },
 });
@@ -118,7 +118,7 @@ export const pokerStartHandTool = defineTool({
       state: { type: 'object' },
     },
   },
-  execute: async (args, ctx) => {
+  execute: async (args: any, ctx: any) => {
     const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
     return startPokerHand(rawState);
   },
@@ -134,7 +134,7 @@ export const pokerAiDecisionTool = defineTool({
       playerIdx: { type: 'number' },
     },
   },
-  execute: async (args, ctx) => {
+  execute: async (args: any, ctx: any) => {
     const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
     const idx = args?.playerIdx ?? rawState.activePlayerIdx;
     const player = rawState.players[idx];
@@ -154,7 +154,7 @@ export const pokerApplyActionTool = defineTool({
       action: { type: 'object' },
     },
   },
-  execute: async (args, ctx) => {
+  execute: async (args: any, ctx: any) => {
     const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
     const action = (args?.action || ctx?.context?.lastAction || { type: 'CHECK' }) as PlayerAction;
     return applyPokerAction(rawState, action);
@@ -200,7 +200,7 @@ export const pokerDistributePotsTool = defineTool({
       state: { type: 'object' },
     },
   },
-  execute: async (args, ctx) => {
+  execute: async (args: any, ctx: any) => {
     const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
     return distributePokerPots(rawState);
   },
@@ -215,7 +215,7 @@ export const pokerRotateDealerTool = defineTool({
       state: { type: 'object' },
     },
   },
-  execute: async (args, ctx) => {
+  execute: async (args: any, ctx: any) => {
     const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
     return rotatePokerDealer(rawState);
   },
@@ -251,7 +251,7 @@ export const pokerCheckGameOverTool = defineTool({
       state: { type: 'object' },
     },
   },
-  execute: async (args, ctx) => {
+  execute: async (args: any, ctx: any) => {
     const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
     return checkPokerGameOver(rawState);
   },
@@ -266,7 +266,7 @@ export const pokerGetStandingsTool = defineTool({
       state: { type: 'object' },
     },
   },
-  execute: async (args, ctx) => {
+  execute: async (args: any, ctx: any) => {
     const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
     return getPokerStandings(rawState);
   },
@@ -283,7 +283,7 @@ export const pokerGetChoicesTool = defineTool({
     },
     required: ['state'],
   },
-  execute: async (args, ctx) => {
+  execute: async (args: any, ctx: any) => {
     const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
     return { choices: getLegalChoices(rawState, args?.playerIdx) };
   },

@@ -1,10 +1,9 @@
-import { CuratorBuilder as Curator } from '@curator/agent-server';
-import type { CuratorSequentialNode } from '@curator/agent-server';
+import { CuratorBuilder as Curator, type CuratorSequentialNode } from '../curator.js';
 import {
   getHumanTurnAST,
   getAgentTurnAST,
   getPokerWorkflowAST,
-} from './pokerHandScript.js';
+} from './pokerHandScript.ts';
 
 export async function run({ prisma, conversationId }: { prisma: any, conversationId: string }): Promise<CuratorSequentialNode> {
   console.log('Seeding Expressive Multiplayer Poker Game using Modular CoffeeScript ASTs...');

@@ -1,5 +1,5 @@
-import type { PokerGameState, Card, PlayerState, PlayerStanding } from '../types.js';
-import { evaluateBestHand } from '../engine/pokerEvaluator.js';
+import type { PokerGameState, Card, PlayerState, PlayerStanding } from '../types.ts';
+import { evaluateBestHand } from '../engine/pokerEvaluator.ts';
 
 export function formatCard(c?: Card): string {
   if (!c) return '[ -- ]';

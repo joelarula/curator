@@ -119,14 +119,16 @@ export class CuratorCoreBuilder {
   /**
    * Execute a registered tool.
    */
-  static tool(toolName: string, args?: Record<string, any>): CuratorToolNode {
+  static tool(toolName: string, args?: Record<string, any>, as?: string): CuratorToolNode {
     const evaluatedArgs: Record<string, any> = {};
     if (args) {
       for (const [k, v] of Object.entries(args)) {
         evaluatedArgs[k] = typeof v === 'function' ? `(${v.toString()})(context)` : v;
       }
     }
-    return { type: 'Curator_Tool', toolName, args: evaluatedArgs };
+    const node: CuratorToolNode = { type: 'Curator_Tool', toolName, args: evaluatedArgs };
+    if (as) node.as = as;
+    return node;
   }
 
   /**

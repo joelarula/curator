@@ -164,6 +164,9 @@ export interface CuratorToolNode extends CuratorBaseNode {
   type: 'Curator_Tool';
   toolName: string;
   args?: Record<string, any>;
+  /** Optional context key to store tool output under in request context */
+  as?: string;
+  outputKey?: string;
   /** @deprecated Use args. Legacy scripts are normalized at the AST boundary. */
   parameters?: Record<string, any>;
 }

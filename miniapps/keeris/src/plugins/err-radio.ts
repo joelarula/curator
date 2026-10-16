@@ -16,6 +16,7 @@ export function createErrRadioPlugin(db: any) {
     tools: {
       vikerraadio_discover_episodes: {
         name: 'vikerraadio_discover_episodes',
+        outputKey: 'discovery',
         description: 'Discover available episodes from Vikerraadio/ERR archive API for any series content ID.',
         parameters: {
           type: 'object',

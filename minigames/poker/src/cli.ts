@@ -1,19 +1,18 @@
 #!/usr/bin/env node
 
-import { createHostCli } from '@curator/host';
-import { createPokerHost } from './host.js';
-import { createPokerServer } from './server/pokerServer.js';
-import { runPokerClient } from './client/pokerClient.js';
-import { createPokerDirectRunner } from './runner/pokerDirectRunner.js';
+// 1. Immediate bootstrap log executed on millisecond 0 (before heavy imports)
+console.log('\x1b[36m[Poker CLI] Booting Texas Hold\'em Engine...\x1b[0m', process.argv.slice(2).join(' ') || '(default play)');
 
-// 1. Initialize standardized Curator Host CLI
-const program = createHostCli(createPokerHost, {
-  name: 'poker',
-  description: 'Curator Texas Hold\'em MiniApp & Game Engine powered by CuratorHost and RequestProcessor',
-  version: '1.0.0',
-});
+import { Command } from 'commander';
 
-// 2. Add 'serve' command for running the standalone AST-driven server (Mode A)
+const program = new Command();
+
+program
+  .name('poker')
+  .description('Curator Texas Hold\'em MiniApp & Game Engine powered by CuratorHost and RequestProcessor')
+  .version('1.0.0');
+
+// 2. Standalone AST-driven Poker Server command (Mode A)
 program
   .command('serve')
   .description('Start the standalone AST-driven Poker Server with WebSocket streaming and RequestProcessor')
@@ -28,6 +27,9 @@ program
   .option('--poll-interval <ms>', 'Processor poll interval in ms', '300')
   .option('-v, --verbose', 'Verbose logging', false)
   .action(async (opts) => {
+    console.log(`\x1b[36m[Poker CLI] Loading server runtime and AST engine...\x1b[0m`);
+    const { createPokerServer } = await import('./server/pokerServer.ts');
+
     console.log(`\x1b[1m\x1b[36mStarting Curator Texas Hold'em Server on ${opts.host}:${opts.port}...\x1b[0m`);
     const serverInstance = await createPokerServer({
       port: parseInt(opts.port, 10) || 4000,
@@ -56,46 +58,61 @@ program
     process.on('SIGTERM', shutdown);
   });
 
-// 3. Add 'run' command for direct synchronous execution (Mode B)
-program
-  .command('run')
-  .description('Run Texas Hold\'em locally in synchronous step mode (no network server required)')
-  .option('-c, --chips <amount>', 'Starting chips for each player', '1000')
-  .option('-s, --seats <count>', 'Number of player seats at the table (2-6)', '4')
-  .option('--sb <amount>', 'Small blind amount', '10')
-  .option('--bb <amount>', 'Big blind amount', '20')
-  .option('--db <path>', 'Custom SQLite database path')
-  .option('-r, --reset', 'Reset database before running', false)
-  .option('--name <player>', 'Your player name', 'You')
-  .action(async (opts) => {
-    const runner = await createPokerDirectRunner({
-      databasePath: opts.db,
-      forceReset: Boolean(opts.reset),
-      maxSeats: parseInt(opts.seats, 10) || 4,
-      startingChips: parseInt(opts.chips, 10) || 1000,
-      smallBlind: parseInt(opts.sb, 10) || 10,
-      bigBlind: parseInt(opts.bb, 10) || 20,
-    });
-    await runner.runInteractiveCli({ playerName: opts.name });
-  });
-
-// 4. Add 'play' command (supports both network client and --direct)
+// 3. Play command (Single tabletop chat experience: direct in-process or remote network client)
 program
   .command('play', { isDefault: true })
-  .description('Play Texas Hold\'em (network client or direct execution)')
-  .option('--direct', 'Run direct synchronous execution mode locally', false)
+  .description('Play Texas Hold\'em (network client or lightweight direct execution)')
+  .option('--direct', 'Run direct lightweight execution mode locally (zero network APIs)', false)
   .option('--server <url>', 'Poker server URL', 'http://127.0.0.1:4000')
+  .option('-t, --table <id>', 'Target table/conversation ID to join')
+  .option('-c, --chips <amount>', 'Starting chips for each player (direct mode)', '1000')
+  .option('-s, --seats <count>', 'Number of player seats at the table (2-6, direct mode)', '4')
+  .option('--sb <amount>', 'Small blind amount (direct mode)', '10')
+  .option('--bb <amount>', 'Big blind amount (direct mode)', '20')
+  .option('--db <path>', 'Custom SQLite database path (direct mode)')
+  .option('-r, --reset', 'Reset database before running (direct mode)', false)
   .option('--name <player>', 'Your player name', 'You')
   .action(async (opts) => {
+    console.log('\x1b[36m[Poker CLI] Loading tabletop client runtime...\x1b[0m');
+    const { runPokerClient } = await import('./client/pokerClient.ts');
+
     if (opts.direct) {
-      const runner = await createPokerDirectRunner();
-      await runner.runInteractiveCli({ playerName: opts.name });
+      console.log('\x1b[36m[Poker CLI] Launching direct lightweight in-process execution...\x1b[0m');
+      await runPokerClient({
+        direct: true,
+        databasePath: opts.db,
+        forceReset: Boolean(opts.reset),
+        maxSeats: parseInt(opts.seats, 10) || 4,
+        startingChips: parseInt(opts.chips, 10) || 1000,
+        smallBlind: parseInt(opts.sb, 10) || 10,
+        bigBlind: parseInt(opts.bb, 10) || 20,
+        playerName: opts.name,
+      });
     } else {
+      console.log(`\x1b[36m[Poker CLI] Connecting to Poker Server at ${opts.server}...\x1b[0m`);
       await runPokerClient({
         serverUrl: opts.server,
+        tableId: opts.table,
         playerName: opts.name,
       });
     }
   });
+
+// 4. Standard Curator Host commands (seed, status, exec, run, trigger, chat, agent)
+// Attached dynamically with lazy factory so heavy host modules only load if invoked
+const hostCommands = ['seed', 'status', 'exec', 'run', 'trigger', 'chat', 'agent'];
+for (const cmd of hostCommands) {
+  program
+    .command(cmd === 'exec' ? 'exec <toolName>' : cmd === 'run' ? 'run <agentName>' : cmd === 'trigger' ? 'trigger <agentName>' : cmd === 'chat' ? 'chat [agentName]' : cmd === 'agent' ? 'agent <agentName>' : cmd)
+    .allowUnknownOption(true)
+    .description(`Curator Host command: ${cmd}`)
+    .action(async (...args) => {
+      console.log(`\x1b[36m[Poker CLI] Loading CuratorHost for "${cmd}"...\x1b[0m`);
+      const { createHostCli } = await import('./curatorHost.js');
+      const { createPokerHost } = await import('./host.ts');
+      const subProgram = createHostCli(createPokerHost, { name: 'poker' });
+      await subProgram.parseAsync(process.argv);
+    });
+}
 
 program.parse(process.argv);

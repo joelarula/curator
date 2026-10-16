@@ -181,6 +181,7 @@ export function buildPipelineScrapeAST({
       {
         type: 'Curator_Tool',
         toolName: 'vikerraadio_discover_episodes',
+        as: 'discovery',
         args: { seriesContentId: String(seriesContentId), limit },
       },
       {
@@ -212,6 +213,7 @@ export function buildRescrapeMissingAST(options: { limit?: number; programId?: n
       {
         type: 'Curator_Tool',
         toolName: 'vikerraadio_discover_missing_episodes',
+        as: 'discovery',
         args: { limit: options.limit ?? 50, programId: options.programId },
       },
       {

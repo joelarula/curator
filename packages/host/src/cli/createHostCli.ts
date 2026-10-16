@@ -6,6 +6,7 @@ export interface HostCliOptions {
   description?: string;
   version?: string;
   defaultTimeout?: number;
+  program?: Command;
 }
 
 function parseJsonArg(str: string): any {
@@ -31,18 +32,21 @@ export function createHostCli(
   hostFactory: () => Promise<CuratorHost>,
   options: HostCliOptions = {}
 ): Command {
-  const program = new Command();
+  const program = options.program || new Command();
 
-  program
-    .name(options.name || 'curator-host')
-    .description(options.description || 'Curator Host Command Line Interface')
-    .version(options.version || '1.0.0');
+  if (!options.program) {
+    program
+      .name(options.name || 'curator-host')
+      .description(options.description || 'Curator Host Command Line Interface')
+      .version(options.version || '1.0.0');
+  }
 
   // 1. Database Seeding
   program
     .command('seed')
     .description('Idempotently initialize database and seed tools and agent workflows')
     .action(async () => {
+      console.log('[Host CLI] Initializing host and database...');
       const host = await hostFactory();
       try {
         console.log(`[Host CLI] Seeding host tools and agents...`);
@@ -59,6 +63,7 @@ export function createHostCli(
     .description('Directly execute a registered Curator tool in-process and print output')
     .option('-a, --args <json>', 'JSON arguments passed to the tool', '{}')
     .action(async (toolName: string, opts: { args: string }) => {
+      console.log(`[Host CLI] Booting host runtime to execute "${toolName}"...`);
       const host = await hostFactory();
       try {
         const tool = host.engine.tools.get(toolName);

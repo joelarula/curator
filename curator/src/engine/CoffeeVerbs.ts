@@ -6,8 +6,8 @@ import { vocabularyRegistry, type VocabularyComposable } from './builder/Vocabul
 
 export const coffeeAstVerbs: Record<string, any> = {
   // 1. Tool execution
-  tool: (toolName: string, args?: Record<string, any>) =>
-    CuratorBuilder.tool(toolName, args),
+  tool: (toolName: string, args?: Record<string, any>, as?: string) =>
+    CuratorBuilder.tool(toolName, args, as),
 
   // 2. Human in the loop / prompts
   prompt: (promptText: string, inputType: 'text' | 'choices' | 'file' = 'text', choices?: string[]) =>

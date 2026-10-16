@@ -7,13 +7,13 @@ import {
   agenticDecidePokerAction,
   pokerPlugin,
   getPokerWorkflowAST,
-} from '../src/index.js';
+} from '../src/index.ts';
 import {
   curatorEngine,
   provisionSqliteDb,
   LlmFactory,
 } from '@curator/agent-server';
-import type { Card, PlayerState, PokerGameState } from '../src/types.js';
+import type { Card, PlayerState, PokerGameState } from '../src/types.ts';
 
 class MockPokerLlmProvider {
   readonly providerName = 'gemini';
@@ -651,7 +651,7 @@ test('Dynamic Lobby: Agents & Human join open table dynamically and play', async
 });
 
 test('Curator Agent System Prompt: Integrates persona instructions, Texas Hold\'em rules, and speech protocol', async () => {
-  const { buildAgentSystemPrompt, getAgentInstruction } = await import('../src/plugins/pokerPlugin.js');
+  const { buildAgentSystemPrompt, getAgentInstruction } = await import('../src/plugins/pokerPlugin.ts');
 
   const customAgent: PlayerState = {
     id: 'fbi_profiler',
@@ -826,7 +826,7 @@ test('Modular CoffeeScript Architecture: Compiles all decoupled workflows to Cur
     getAgentTurnAST,
     getPokerActionAST,
     getAmbientReactionAST,
-  } = await import('../src/scripts/pokerHandScript.js');
+  } = await import('../src/scripts/pokerHandScript.ts');
 
   const workflowAst: any = await getPokerWorkflowAST();
   assert.equal(workflowAst.type, 'Curator_Sequential');
@@ -863,7 +863,7 @@ test('Modular CoffeeScript Architecture: Compiles all decoupled workflows to Cur
 });
 
 test('Poker Client-Server Architecture: Server boots, accepts WebSocket client, streams events', async () => {
-  const { createPokerServer } = await import('../src/server/pokerServer.js');
+  const { createPokerServer } = await import('../src/server/pokerServer.ts');
   const { WebSocket } = await import('ws');
 
   const testDb = path.join(process.env.TEMP || os.tmpdir(), `curator_test_server_${Date.now()}.db`);
@@ -892,11 +892,11 @@ test('Poker Client-Server Architecture: Server boots, accepts WebSocket client, 
   await serverInstance.stop();
 });
 
-test('Poker Direct Synchronous Execution: Runs AST workflow step-by-step from human turn to human turn', async () => {
-  const { createPokerDirectRunner } = await import('../src/runner/pokerDirectRunner.js');
+test('Poker Direct Synchronous Execution: Runs AST workflow step-by-step from human turn to human turn (Zero Outer APIs)', async () => {
+  const { createPokerGameSession } = await import('../src/session/pokerSession.ts');
   const testDb = path.join(process.env.TEMP || os.tmpdir(), `curator_test_direct_${Date.now()}.db`);
 
-  const runner = await createPokerDirectRunner({
+  const session = await createPokerGameSession({
     databasePath: testDb,
     forceReset: true,
     maxSeats: 4,
@@ -904,7 +904,7 @@ test('Poker Direct Synchronous Execution: Runs AST workflow step-by-step from hu
   });
 
   // 1. Initial synchronous step advances until human turn or hand start
-  const step1 = await runner.stepUntilHumanTurnOrEnd(50);
+  const step1 = await session.stepUntilHumanTurn(session.tableId, 50);
   assert(step1.gameState !== null);
   assert.equal(step1.gameState?.players.length, 4);
 
@@ -913,12 +913,33 @@ test('Poker Direct Synchronous Execution: Runs AST workflow step-by-step from hu
     assert.equal(step1.humanTurn.street, 'PREFLOP');
     assert(step1.humanTurn.choices.length > 0);
 
-    // 3. Submit human action (e.g. CALL or CHECK) and advance to next turn
-    const step2 = await runner.submitActionAndStep({ type: 'CALL', amount: 20 });
+    // 3. Submit human action and advance to next turn directly in Curator
+    const step2 = await session.submitHumanActionAndStep({ type: 'CALL', amount: 20 }, session.tableId);
     assert(step2.gameState !== null);
   }
 
-  await runner.session.close();
+  await session.close();
+});
+
+test('Poker Direct Channel: In-process channel executes AST from action A to action B with zero network sockets', async () => {
+  const { createDirectSessionChannel } = await import('../src/client/pokerClient.ts');
+  const testDb = path.join(process.env.TEMP || os.tmpdir(), `curator_test_direct_chan_${Date.now()}.db`);
+
+  const channel = await createDirectSessionChannel({
+    databasePath: testDb,
+    forceReset: true,
+    maxSeats: 4,
+    startingChips: 1000,
+  });
+
+  let eventsReceived: string[] = [];
+  channel.onEvent((ev) => eventsReceived.push(ev.type));
+
+  await channel.start?.();
+  assert(eventsReceived.includes('poker:new_round') || eventsReceived.includes('poker:lobby_ready'));
+
+  await channel.submitAction({ type: 'CALL', amount: 20 });
+  await channel.close();
 });
 
 

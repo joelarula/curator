@@ -18,6 +18,9 @@ export interface CuratorEvent<T = any> {
   type: CuratorEventType;
   payload: T;
   timestamp: number;
+  sessionId?: string;
+  tableId?: string;
+  conversationId?: number;
 }
 
 export interface CuratorLogEntry {
@@ -59,10 +62,23 @@ export class CuratorHostEvents extends EventEmitter {
       if (this.recentLogs.length > this.maxLogs) this.recentLogs.shift();
     }
 
+    const sessionId = (payload && typeof payload === 'object' && payload.sessionId)
+      ? String(payload.sessionId)
+      : undefined;
+    const tableId = (payload && typeof payload === 'object' && payload.tableId !== undefined)
+      ? String(payload.tableId)
+      : (payload && typeof payload === 'object' && payload.conversationId !== undefined ? String(payload.conversationId) : undefined);
+    const conversationId = (payload && typeof payload === 'object' && payload.conversationId !== undefined)
+      ? Number(payload.conversationId)
+      : undefined;
+
     const event: CuratorEvent = {
       type,
       payload,
       timestamp: Date.now(),
+      ...(sessionId ? { sessionId } : {}),
+      ...(tableId ? { tableId } : {}),
+      ...(conversationId ? { conversationId } : {}),
     };
 
     // Emit typed event, wildcard event, and generic 'event'
@@ -75,6 +91,15 @@ export class CuratorHostEvents extends EventEmitter {
       const message = JSON.stringify(event);
       for (const client of this.clients) {
         if (client.readyState === WebSocket.OPEN) {
+          const clientFilter = (client as any).tableFilter;
+          if (clientFilter) {
+            const eventTable = payload?.tableId !== undefined
+              ? String(payload.tableId)
+              : (payload?.conversationId !== undefined ? String(payload.conversationId) : undefined);
+            if (eventTable && eventTable !== clientFilter) {
+              continue;
+            }
+          }
           try {
             client.send(message);
           } catch (_) {}
@@ -107,9 +132,33 @@ export class CuratorHostEvents extends EventEmitter {
       path: wsPath,
     });
 
-    this.wss.on('connection', (ws: WebSocket) => {
+    this.wss.on('connection', (ws: WebSocket, req: any) => {
       this.clients.add(ws);
       (ws as any).isAlive = true;
+
+      let sessionId: string | undefined = undefined;
+      if (req?.headers && req.headers['x-session-id']) {
+        sessionId = String(req.headers['x-session-id']);
+      }
+
+      if (req?.url) {
+        try {
+          const url = new URL(req.url, 'http://localhost');
+          const tableFilter = url.searchParams.get('table') || url.searchParams.get('tableId') || url.searchParams.get('conversationId');
+          if (tableFilter) {
+            (ws as any).tableFilter = String(tableFilter);
+          }
+          const qSessionId = url.searchParams.get('sessionId') || url.searchParams.get('session');
+          if (qSessionId) {
+            sessionId = String(qSessionId);
+          }
+        } catch (_) {}
+      }
+
+      if (!sessionId) {
+        sessionId = `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      }
+      (ws as any).sessionId = sessionId;
 
       ws.on('pong', () => {
         (ws as any).isAlive = true;
@@ -122,6 +171,7 @@ export class CuratorHostEvents extends EventEmitter {
             type: 'log',
             payload: { message: log.message },
             timestamp: Date.now(),
+            sessionId,
           }));
         }
       }
@@ -130,7 +180,8 @@ export class CuratorHostEvents extends EventEmitter {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
           type: 'connected',
-          payload: { message: 'Curator WebSocket stream active' },
+          sessionId,
+          payload: { sessionId, message: 'Curator WebSocket stream active' },
           timestamp: Date.now(),
         }));
       }
@@ -138,8 +189,16 @@ export class CuratorHostEvents extends EventEmitter {
       ws.on('message', (data) => {
         try {
           const msg = JSON.parse(data.toString());
+          if (msg.sessionId) {
+            (ws as any).sessionId = String(msg.sessionId);
+          }
           if (msg.type === 'ping') {
-            ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+            ws.send(JSON.stringify({ type: 'pong', sessionId: (ws as any).sessionId, timestamp: Date.now() }));
+          } else if (msg.type === 'subscribe') {
+            const table = msg.tableId ?? msg.table ?? msg.conversationId;
+            if (table !== undefined && table !== null) {
+              (ws as any).tableFilter = String(table);
+            }
           }
         } catch (_) {}
       });

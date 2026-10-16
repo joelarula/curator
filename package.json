@@ -15,7 +15,10 @@
     "dev:frontend": "npm run dev --prefix frontend",
     "dev": "npx concurrently \"npm run dev:server\" \"npm run dev:frontend\"",
     "build:static": "npm run build:static --prefix frontend",
-    "preview:static": "npm run preview:static --prefix frontend"
+    "preview:static": "npm run preview:static --prefix frontend",
+    "poker": "npm --prefix minigames/poker run play --",
+    "poker:direct": "npm --prefix minigames/poker run play:direct",
+    "poker:serve": "npm --prefix minigames/poker run serve"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",

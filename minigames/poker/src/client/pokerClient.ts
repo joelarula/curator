@@ -1,24 +1,40 @@
 import readline from 'node:readline';
 import { WebSocket } from 'ws';
 import {
-  renderTable,
-  renderCompactStatus,
-  renderNarratives,
-  renderStandings,
-  formatCard,
-} from '../ui/tableRenderer.js';
-import { getPokerStandings } from '../engine/pokerEngine.js';
+  createPokerGameSession,
+  type PokerGameSession,
+  type PokerSessionOptions,
+} from '../session/pokerSession.ts';
+import { renderPokerEvent } from '../ui/pokerUiEvents.ts';
+import { renderTable } from '../ui/tableRenderer.ts';
 import {
   promptGroupChatAction,
   askUser,
+  createPokerChatContext,
   type ChatChoice,
-  type GroupChatContext,
-} from '../ui/groupChatPrompt.js';
-import type { PlayerAction, PokerGameState } from '../types.js';
+} from '../ui/groupChatPrompt.ts';
+import type { PlayerAction, PokerGameState } from '../types.ts';
 
-export interface PokerClientOptions {
+export interface PokerClientOptions extends PokerSessionOptions {
+  direct?: boolean;
   serverUrl?: string;
   playerName?: string;
+  tableId?: string | number;
+}
+
+/**
+ * Universal interface for poker game communication.
+ * Allows identical terminal UI execution over a remote WebSocket
+ * or via lightweight in-process direct Curator AST execution.
+ */
+export interface PokerGameChannel {
+  sessionId?: string;
+  tableId?: string;
+  onEvent(handler: (event: any) => void): () => void;
+  submitAction(action: PlayerAction): Promise<void>;
+  submitSpeech(speech: { text: string; speechAct?: string; targetId?: string }): Promise<any>;
+  start?(): Promise<void>;
+  close(): Promise<void>;
 }
 
 export function normalizeWsUrl(inputUrl?: string): string {
@@ -35,17 +51,122 @@ export function normalizeWsUrl(inputUrl?: string): string {
 }
 
 /**
- * Pure Poker CLI Client.
- * Communicates exclusively with the Poker Server via WebSockets.
- * Zero direct database access or local game engine loops.
+ * Creates a network-backed channel communicating with an external Poker Server over WebSockets.
  */
-export async function runPokerClient(options: PokerClientOptions = {}): Promise<void> {
-  const wsUrl = normalizeWsUrl(options.serverUrl);
-  const playerName = options.playerName || 'You';
+export async function createWebSocketChannel(options: PokerClientOptions = {}): Promise<PokerGameChannel> {
+  const rawWsUrl = normalizeWsUrl(options.serverUrl);
+  const targetTableId = options.tableId !== undefined ? String(options.tableId) : undefined;
+  const wsUrl = targetTableId
+    ? `${rawWsUrl}${rawWsUrl.includes('?') ? '&' : '?'}table=${encodeURIComponent(targetTableId)}`
+    : rawWsUrl;
 
-  console.clear();
-  console.log('\x1b[1m\x1b[36m=== Curator Texas Hold\'em Network Client ===\x1b[0m');
   console.log(`\x1b[90mConnecting to Curator Poker Server at ${wsUrl}...\x1b[0m\n`);
+
+  const ws = new WebSocket(wsUrl);
+  const listeners: Set<(event: any) => void> = new Set();
+  let clientSessionId: string | undefined = undefined;
+
+  await new Promise<void>((resolve, reject) => {
+    (ws as any).once('open', () => {
+      if (targetTableId) {
+        ws.send(JSON.stringify({ type: 'subscribe', tableId: targetTableId }));
+      }
+      resolve();
+    });
+    (ws as any).once('error', (err: any) => reject(err));
+  });
+
+  ws.on('message', (raw: any) => {
+    try {
+      const event = JSON.parse(raw.toString());
+      if (event.type === 'connected' && event.sessionId) {
+        clientSessionId = event.sessionId;
+      }
+      for (const listener of listeners) {
+        listener(event);
+      }
+    } catch (_) {}
+  });
+
+  return {
+    sessionId: clientSessionId,
+    tableId: targetTableId,
+    onEvent(handler: (event: any) => void) {
+      listeners.add(handler);
+      return () => listeners.delete(handler);
+    },
+    async submitAction(action: PlayerAction) {
+      ws.send(
+        JSON.stringify({
+          type: 'poker:human_action',
+          tableId: targetTableId,
+          sessionId: clientSessionId,
+          payload: action,
+        })
+      );
+    },
+    async submitSpeech(speech: { text: string; speechAct?: string; targetId?: string }) {
+      ws.send(
+        JSON.stringify({
+          type: 'poker:speech',
+          tableId: targetTableId,
+          sessionId: clientSessionId,
+          payload: speech,
+        })
+      );
+    },
+    async close() {
+      try {
+        ws.close();
+      } catch (_) {}
+    },
+  };
+}
+
+/**
+ * Creates a lightweight in-process direct Curator channel.
+ * Zero outer APIs, zero network/TCP ports, pure direct AST execution from human action A to B.
+ */
+export async function createDirectSessionChannel(options: PokerSessionOptions = {}): Promise<PokerGameChannel & { session: PokerGameSession }> {
+  console.log('\x1b[90m[Curator] Initializing direct in-process game session...\x1b[0m');
+  const session = await createPokerGameSession(options);
+  console.log(`\x1b[32m✔ [Curator] Game session active on Table #${session.tableId}.\x1b[0m`);
+
+  return {
+    session,
+    tableId: session.tableId,
+    onEvent(handler: (event: any) => void) {
+      return session.host.events.onEvent(handler);
+    },
+    async submitAction(action: PlayerAction) {
+      console.log(`\x1b[90m[Curator] Submitting action ${action.type} and stepping AST to next turn...\x1b[0m`);
+      await session.submitHumanAction(action, session.tableId);
+      await session.stepUntilHumanTurn(session.tableId);
+    },
+    async submitSpeech(speech: { text: string; speechAct?: string; targetId?: string }) {
+      return session.submitHumanSpeech({ ...speech, tableId: session.tableId });
+    },
+    async start() {
+      console.log('\x1b[90m[Curator] Stepping AST workflow to first human turn...\x1b[0m');
+      await session.stepUntilHumanTurn(session.tableId);
+    },
+    async close() {
+      await session.close();
+    },
+  };
+}
+
+/**
+ * Standardized Poker Terminal UI runner.
+ * Takes any PokerGameChannel (WebSocket or Direct in-process) and manages
+ * the user interaction loop, event streaming, and group chat prompts.
+ */
+export async function runPokerClientUi(channel: PokerGameChannel, playerName: string = 'You'): Promise<void> {
+  console.log("\n\x1b[1m\x1b[36m=== Curator Texas Hold'em ===\x1b[0m");
+  if (channel.tableId) {
+    console.log(`\x1b[35mTable: #${channel.tableId}\x1b[0m`);
+  }
+  console.log('\x1b[90mPowered by Curator AST and RequestProcessor...\x1b[0m\n');
 
   const rl = readline.createInterface({
     input: process.stdin,
@@ -53,210 +174,101 @@ export async function runPokerClient(options: PokerClientOptions = {}): Promise<
   });
 
   return new Promise((resolve) => {
-    let ws: WebSocket;
-    try {
-      ws = new WebSocket(wsUrl);
-    } catch (err: any) {
-      console.error(`\x1b[31mFailed to connect to ${wsUrl}: ${err.message}\x1b[0m`);
-      rl.close();
-      resolve();
-      return;
-    }
-
     let currentGameState: PokerGameState | null = null;
     let isWaitingForTurn = false;
 
-    const cleanup = () => {
+    const cleanup = async () => {
       rl.close();
-      try {
-        ws.close();
-      } catch (_) {}
+      unsubscribe();
+      await channel.close();
       resolve();
     };
 
-    process.on('SIGINT', () => {
-      console.log('\n\x1b[33m[Client] Disconnecting from table...\x1b[0m');
-      cleanup();
+    process.on('SIGINT', async () => {
+      console.log('\n\x1b[33m[Game] Exiting table...\x1b[0m');
+      await cleanup();
+      process.exit(0);
     });
 
-    ws.on('open', () => {
-      console.log('\x1b[32m✔ Connected to table stream.\x1b[0m');
-      console.log('\x1b[90mWaiting for dealer to start hand...\x1b[0m\n');
-    });
-
-    ws.on('error', (err: any) => {
-      console.error(`\x1b[31m[WebSocket Error] ${err?.message || err}\x1b[0m`);
-    });
-
-    ws.on('close', () => {
-      console.log('\n\x1b[33m[Client] Disconnected from server.\x1b[0m');
-      cleanup();
-    });
-
-    ws.on('message', async (raw: any) => {
-      let event: any;
-      try {
-        event = JSON.parse(raw.toString());
-      } catch {
-        return;
-      }
-
+    const unsubscribe = channel.onEvent(async (event: any) => {
       const { type, payload } = event;
 
-      // Update cached state if payload carries gameState
       if (payload?.gameState) {
         currentGameState = payload.gameState;
       } else if (payload?.state) {
         currentGameState = payload.state;
       }
 
-      switch (type) {
-        case 'connected':
-          break;
+      renderPokerEvent(event, currentGameState);
 
-        case 'poker:lobby_ready':
-          console.log(`\x1b[32m✔ Lobby ready: Table #${payload?.tableId}\x1b[0m`);
-          break;
+      if (type === 'poker:game_over') {
+        await cleanup();
+        return;
+      }
 
-        case 'poker:new_round':
-          console.log(`\n\x1b[1m\x1b[36m--- Hand #${payload?.handNumber} Starting ---\x1b[0m`);
-          break;
+      if (type === 'poker:awaiting_human_action') {
+        if (isWaitingForTurn) return;
+        isWaitingForTurn = true;
 
-        case 'poker:phase_deal':
-        case 'poker:phase_street': {
-          const street = payload?.street || 'FLOP';
-          const boardStr = currentGameState?.board?.map((c) => formatCard(c)).join(' ') || '';
-          const potStr = currentGameState ? ` (Pot: $${currentGameState.pot})` : '';
-          console.log(`\n\x1b[1m\x1b[36m[DEALER] Dealing ${street}: ${boardStr}${potStr}\x1b[0m`);
-          break;
+        if (currentGameState) {
+          console.log('\n' + renderTable(currentGameState, false));
         }
 
-        case 'poker:action_taken': {
-          const pName = payload?.player || 'Player';
-          const act = payload?.action?.type || payload?.action || 'ACT';
-          const amt = payload?.action?.amount ? ` $${payload.action.amount}` : '';
-          console.log(`\x1b[33m▶ ${pName}: ${act}${amt}\x1b[0m`);
-          break;
-        }
+        const legalChoices = payload?.choices || [];
+        const choices: ChatChoice<PlayerAction>[] = legalChoices.map((c: any) => ({
+          id: c.id,
+          label: c.label,
+          value: c.action,
+          aliases: [c.action?.type, c.id],
+        }));
 
-        case 'poker:speech_response': {
-          const spk = payload?.speaker || 'Player';
-          const act = payload?.speechAct || 'TABLE_TALK';
-          console.log(`\x1b[35m[${act}] ${spk}: "${payload?.text}"\x1b[0m`);
-          if (payload?.aiReply) {
-            console.log(`\x1b[36m[REPLY] "${payload.aiReply}"\x1b[0m`);
-          }
-          break;
-        }
+        const chatCtx = createPokerChatContext({
+          actorName: playerName,
+          getGameState: () => currentGameState,
+          onSpeech: async (text: string, speechAct: string, targetParticipantId?: string) => {
+            const reply = await channel.submitSpeech({ text, speechAct, targetId: targetParticipantId });
+            if (reply?.aiResponse?.text) {
+              console.log(`\x1b[36m[REPLY] "${reply.aiResponse.text}"\x1b[0m`);
+            }
+          },
+        });
 
-        case 'poker:phase_settle':
-        case 'poker:showdown':
-          console.log(`\n\x1b[1m\x1b[32m✔ [SHOWDOWN] ${payload?.winnerSummary || 'Hand completed.'}\x1b[0m`);
-          if (currentGameState) {
-            console.log(renderTable(currentGameState, true));
-          }
-          break;
-
-        case 'poker:game_over':
-          console.log(`\n\x1b[1m\x1b[32m✔ [GAME OVER] Conquered the table!\x1b[0m\n`);
-          if (payload?.standings) {
-            console.log(renderStandings(payload.standings));
-          }
-          cleanup();
-          break;
-
-        case 'poker:awaiting_human_action': {
-          if (isWaitingForTurn) return;
-          isWaitingForTurn = true;
-
-          const legalChoices = payload?.choices || [];
-          const choices: ChatChoice<PlayerAction>[] = legalChoices.map((c: any) => ({
-            id: c.id,
-            label: c.label,
-            value: c.action,
-            aliases: [c.action?.type, c.id],
-          }));
-
-          const chatCtx: GroupChatContext = {
-            actorName: playerName,
-            participants: currentGameState?.players || [],
-            defaultSpeechAct: 'TABLE_TALK',
-            helpHeader: '=== Poker Table Chat & Interaction Commands ===',
-            availableVerbs: [
-              {
-                name: 'whisper',
-                aliases: ['w'],
-                description: 'Whisper privately to a player',
-                usage: '<player> <msg>',
-                speechAct: 'WHISPER',
-                directed: true,
-              },
-              {
-                name: 'banter',
-                aliases: ['b'],
-                description: 'Banter or trash talk to the table',
-                usage: '<msg>',
-                speechAct: 'BANTER',
-              },
-              {
-                name: 'standings',
-                aliases: ['score', 's'],
-                description: 'View current chip standings and leaderboard',
-                handler: async () => {
-                  if (currentGameState) {
-                    const stdRes = getPokerStandings(currentGameState);
-                    console.log(renderStandings(stdRes.standings));
-                  }
-                  return true;
-                },
-              },
-              {
-                name: 'narratives',
-                aliases: ['info', 'n'],
-                description: 'View subjective inner narratives & memories',
-                handler: async () => {
-                  if (currentGameState) console.log(renderNarratives(currentGameState));
-                  return true;
-                },
-              },
-              {
-                name: 'table',
-                aliases: ['view'],
-                description: 'Redraw the poker table view',
-                handler: async () => {
-                  if (currentGameState) console.log(renderTable(currentGameState, false));
-                  return true;
-                },
-              },
-            ],
-            redrawView: () => {
-              if (currentGameState) console.log('\n' + renderCompactStatus(currentGameState));
-            },
-            onSpeech: async (text: string, speechAct: string, targetParticipantId?: string) => {
-              ws.send(
-                JSON.stringify({
-                  type: 'poker:speech',
-                  payload: { text, speechAct, targetId: targetParticipantId },
-                })
-              );
-            },
-          };
-
-          try {
-            const chosenAction = await promptGroupChatAction(rl, choices, chatCtx);
-            // Send selected action to server via WebSocket to resume AST workflow
-            ws.send(
-              JSON.stringify({
-                type: 'poker:human_action',
-                payload: chosenAction,
-              })
-            );
-          } finally {
-            isWaitingForTurn = false;
-          }
-          break;
+        try {
+          const chosenAction = await promptGroupChatAction(rl, choices, chatCtx);
+          console.log(`\x1b[33m▶ ${playerName}: ${chosenAction.type}${chosenAction.amount ? ` $${chosenAction.amount}` : ''}\x1b[0m`);
+          await channel.submitAction(chosenAction);
+        } finally {
+          isWaitingForTurn = false;
         }
       }
     });
+
+    // If channel has an initial start routine (e.g. direct in-process mode), run it
+    if (typeof channel.start === 'function') {
+      channel.start().catch((err) => {
+        console.error(`\x1b[31m[Start Error] ${err?.message || err}\x1b[0m`);
+      });
+    }
   });
+}
+
+/**
+ * Primary entry point for playing Poker in the terminal.
+ * Supports both network client mode (via WebSocket) and direct lightweight in-process mode.
+ */
+export async function runPokerClient(options: PokerClientOptions = {}): Promise<void> {
+  const playerName = options.playerName || 'You';
+
+  if (options.direct) {
+    const directChannel = await createDirectSessionChannel(options);
+    await runPokerClientUi(directChannel, playerName);
+  } else {
+    try {
+      const wsChannel = await createWebSocketChannel(options);
+      await runPokerClientUi(wsChannel, playerName);
+    } catch (err: any) {
+      console.error(`\x1b[31mFailed to connect to server: ${err.message}\x1b[0m`);
+      console.log('\x1b[33mTip: Use "poker play --direct" for lightweight in-process play without a server.\x1b[0m');
+    }
+  }
 }

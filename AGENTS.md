@@ -277,6 +277,8 @@ Minimum expected reporting in handoff:
 - Assuming backup docs match active schema
 - Hardcoding local URLs instead of honoring configured env values
 - Shipping frontend integration without confirming server response shape
+- **Static imports in CLI entry points (`src/cli.ts`)**: In ECMAScript Modules (ESM), static `import` statements are hoisted and evaluated *before* any runtime code executes. In network/SMB workspace setups, statically importing servers/clients freezes startup for 30–45s before even line 1 can log. Keep top-level CLI entry points ultra-lean (`commander` only) and dynamically load heavy dependencies (`await import(...)`) inside `.action(...)` handlers.
+- **Using tsx loader instead of native Node for CLI scripts**: Node 22.5+ and Node 24 natively strip and run TypeScript files (`node src/cli.ts`), exactly as proven in `miniapps/keeris/package.json` (`"scrape": "node src/cli.ts scrape"`). Avoid wrapping scripts with external loader flags (`node --import .../tsx/...`).
 
 ## 12. Preferred implementation style
 

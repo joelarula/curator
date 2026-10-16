@@ -1,8 +1,8 @@
-import { seedPokerDatabase } from '../db/seed.js';
-import { createPokerHost } from '../host.js';
-import { getPokerWorkflowAST } from '../scripts/pokerHandScript.js';
-import type { CuratorHost } from '@curator/host';
-import type { PlayerAction, PokerGameState } from '../types.js';
+import { seedPokerDatabase } from '../db/seed.ts';
+import { createPokerHost } from '../host.ts';
+import { getPokerWorkflowAST } from '../scripts/pokerHandScript.ts';
+import type { CuratorHost } from '../curatorHost.js';
+import type { PlayerAction, PokerGameState } from '../types.ts';
 
 export interface PokerSessionOptions {
   databasePath?: string;
@@ -12,6 +12,7 @@ export interface PokerSessionOptions {
   smallBlind?: number;
   bigBlind?: number;
   verbose?: boolean;
+  quiet?: boolean;
   intervalMs?: number;
 }
 
@@ -26,6 +27,32 @@ export interface HumanTurnPromptInfo {
   choices: any[];
 }
 
+export interface CreateTableOptions {
+  title?: string;
+  maxSeats?: number;
+  startingChips?: number;
+  smallBlind?: number;
+  bigBlind?: number;
+}
+
+export interface PokerTableInfo {
+  tableId: string;
+  conversationId: number;
+  title: string;
+  createdAt: Date;
+  gameState: PokerGameState | null;
+  waitingForHuman: boolean;
+  humanTurn: HumanTurnPromptInfo | null;
+}
+
+export interface DirectStepResult {
+  done: boolean;
+  waitingForHuman: boolean;
+  humanTurn: HumanTurnPromptInfo | null;
+  gameState: PokerGameState | null;
+  steps: number;
+}
+
 export interface PokerGameSession {
   readonly tableId: string;
   readonly prisma: any;
@@ -36,10 +63,15 @@ export interface PokerGameSession {
   readonly user: any;
   readonly rootRequestId: number;
 
-  getGameState(): Promise<PokerGameState | null>;
-  getWaitingHumanTurn(): Promise<HumanTurnPromptInfo | null>;
-  submitHumanAction(action: PlayerAction): Promise<boolean>;
-  submitHumanSpeech(params: { text: string; speechAct?: string; targetId?: string }): Promise<any>;
+  listTables(): Promise<PokerTableInfo[]>;
+  getTable(tableId?: string | number): Promise<PokerTableInfo | null>;
+  createTable(options?: CreateTableOptions): Promise<PokerTableInfo>;
+  getGameState(tableId?: string | number): Promise<PokerGameState | null>;
+  getWaitingHumanTurn(tableId?: string | number): Promise<HumanTurnPromptInfo | null>;
+  submitHumanAction(action: PlayerAction, tableId?: string | number, sessionId?: string): Promise<boolean>;
+  submitHumanSpeech(params: { text: string; speechAct?: string; targetId?: string; tableId?: string | number; sessionId?: string }): Promise<any>;
+  stepUntilHumanTurn(tableId?: string | number, maxSteps?: number): Promise<DirectStepResult>;
+  submitHumanActionAndStep(action: PlayerAction, tableId?: string | number, sessionId?: string, maxSteps?: number): Promise<DirectStepResult>;
   close(): Promise<void>;
 }
 
@@ -53,6 +85,10 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
   const smallBlind = options.smallBlind || 10;
   const bigBlind = options.bigBlind || 20;
 
+  if (!options.quiet) {
+    console.log(`\x1b[90m[Poker Session] Provisioning SQLite tables at ${options.databasePath || 'curator-poker.db'}...\x1b[0m`);
+  }
+
   // 1. Provision SQLite database
   const seed = await seedPokerDatabase({
     databasePath: options.databasePath,
@@ -62,14 +98,22 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
 
   const { prisma, user, project, conversation, dbPath } = seed;
 
+  if (!options.quiet) {
+    console.log(`\x1b[90m[Poker Session] Booting CuratorHost runtime (interval: ${options.intervalMs ?? 500}ms)...\x1b[0m`);
+  }
+
   // 2. Instantiate CuratorHost
   const host = await createPokerHost({
     databasePath: dbPath,
-    quiet: !options.verbose,
+    quiet: options.quiet ?? false,
     intervalMs: options.intervalMs ?? 500,
   });
 
-  // 3. Compile and enqueue the declarative Poker Engine AST workflow
+  if (!options.quiet) {
+    console.log(`\x1b[90m[Poker Session] Compiling declarative CoffeeScript workflow AST...\x1b[0m`);
+  }
+
+  // 3. Compile and enqueue the declarative Poker Engine AST workflow for initial table
   const workflowAst = await getPokerWorkflowAST();
   const rootRequest = await prisma.request.create({
     data: {
@@ -88,13 +132,19 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
     },
   });
 
-  const tableId = String(conversation.id);
+  if (!options.quiet) {
+    console.log(`\x1b[32m✔ [Poker Session] Table #${conversation.id} initialized with root AST Request #${rootRequest.id}\x1b[0m`);
+  }
 
-  const getGameState = async (): Promise<PokerGameState | null> => {
-    // 1. Check most recent request context with gameState
+  const defaultTableId = String(conversation.id);
+
+  const getGameState = async (tableId?: string | number): Promise<PokerGameState | null> => {
+    const targetConvId = tableId !== undefined ? Number(tableId) : conversation.id;
+
+    // 1. Check most recent request context with gameState for this conversation
     const latestReq = await prisma.request.findFirst({
       where: {
-        conversationId: conversation.id,
+        conversationId: targetConvId,
       },
       orderBy: { updatedAt: 'desc' },
     });
@@ -105,7 +155,7 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
 
     // 2. Check conversation metadata / state
     const conv = await prisma.conversation.findUnique({
-      where: { id: conversation.id },
+      where: { id: targetConvId },
     });
     const cMeta = conv?.metadata as any;
     if (cMeta?.gameState) return cMeta.gameState;
@@ -115,10 +165,12 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
     return null;
   };
 
-  const getWaitingHumanTurn = async (): Promise<HumanTurnPromptInfo | null> => {
+  const getWaitingHumanTurn = async (tableId?: string | number): Promise<HumanTurnPromptInfo | null> => {
+    const targetConvId = tableId !== undefined ? Number(tableId) : conversation.id;
+
     const waitingReq = await prisma.request.findFirst({
       where: {
-        conversationId: conversation.id,
+        conversationId: targetConvId,
         status: 'WAITING_FOR_EVENT',
       },
       orderBy: { updatedAt: 'desc' },
@@ -144,10 +196,12 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
     };
   };
 
-  const submitHumanAction = async (action: PlayerAction): Promise<boolean> => {
+  const submitHumanAction = async (action: PlayerAction, tableId?: string | number, sessionId?: string): Promise<boolean> => {
+    const targetConvId = tableId !== undefined ? Number(tableId) : conversation.id;
+
     const waitingReqs = await prisma.request.findMany({
       where: {
-        conversationId: conversation.id,
+        conversationId: targetConvId,
         status: 'WAITING_FOR_EVENT',
       },
     });
@@ -168,6 +222,13 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
           }
         }
 
+        if (sessionId) {
+          updatedContext.sessionId = sessionId;
+          if (updatedContext.state) {
+            updatedContext.state.sessionId = sessionId;
+          }
+        }
+
         await prisma.request.update({
           where: { id: req.id },
           data: { status: 'NEW', context: updatedContext },
@@ -177,17 +238,23 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
     }
 
     if (woken) {
-      host.events.broadcast('poker:human_action', action);
+      host.events.broadcast('poker:human_action', {
+        ...action,
+        tableId: String(targetConvId),
+        conversationId: targetConvId,
+        ...(sessionId ? { sessionId } : {}),
+      });
     }
     return woken;
   };
 
-  const submitHumanSpeech = async (params: { text: string; speechAct?: string; targetId?: string }): Promise<any> => {
+  const submitHumanSpeech = async (params: { text: string; speechAct?: string; targetId?: string; tableId?: string | number; sessionId?: string }): Promise<any> => {
+    const targetConvId = params.tableId !== undefined ? Number(params.tableId) : conversation.id;
     const tool = host.engine.tools.get('poker_human_speech');
     if (!tool) return null;
 
     const heroUser = await prisma.user.findFirst({ where: { email: 'hero@tabletop.local' } });
-    const currentGameState = await getGameState();
+    const currentGameState = await getGameState(targetConvId);
 
     const result: any = await tool.runAsync({
       args: {
@@ -198,7 +265,7 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
         speakerId: heroUser?.id || 'hero',
         speakerName: heroUser?.name || 'You',
       },
-      toolContext: { prisma, conversationId: conversation.id },
+      toolContext: { prisma, conversationId: targetConvId },
     });
 
     host.events.broadcast('poker:speech_response', {
@@ -207,9 +274,196 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
       speechAct: params.speechAct || 'TABLE_TALK',
       aiReply: result?.aiResponse?.text,
       targetId: params.targetId,
+      tableId: String(targetConvId),
+      conversationId: targetConvId,
+      ...(params.sessionId ? { sessionId: params.sessionId } : {}),
     });
 
     return result;
+  };
+
+  const createTable = async (tableOpts: CreateTableOptions = {}): Promise<PokerTableInfo> => {
+    const tableSeats = Math.min(6, Math.max(2, tableOpts.maxSeats || maxSeats));
+    const tableChips = tableOpts.startingChips || startingChips;
+    const tableSb = tableOpts.smallBlind || smallBlind;
+    const tableBb = tableOpts.bigBlind || bigBlind;
+
+    const existingCount = await prisma.conversation.count({
+      where: { projectId: project.id },
+    });
+    const title = tableOpts.title || `Table #${existingCount + 1}`;
+
+    const newConv = await prisma.conversation.create({
+      data: {
+        userId: user.id,
+        projectId: project.id,
+        metadata: {
+          tableName: title,
+          maxSeats: tableSeats,
+          startingChips: tableChips,
+          smallBlind: tableSb,
+          bigBlind: tableBb,
+        },
+      },
+    });
+
+    const ast = await getPokerWorkflowAST();
+    await prisma.request.create({
+      data: {
+        userId: user.id,
+        projectId: project.id,
+        conversationId: newConv.id,
+        status: 'NEW',
+        ast: ast as any,
+        context: {
+          tableId: String(newConv.id),
+          startingChips: tableChips,
+          sbAmount: tableSb,
+          bbAmount: tableBb,
+          maxSeats: tableSeats,
+        },
+      },
+    });
+
+    const info: PokerTableInfo = {
+      tableId: String(newConv.id),
+      conversationId: newConv.id,
+      title,
+      createdAt: newConv.createdAt,
+      gameState: null,
+      waitingForHuman: false,
+      humanTurn: null,
+    };
+
+    host.events.broadcast('poker:table_created', {
+      tableId: info.tableId,
+      conversationId: info.conversationId,
+      title: info.title,
+    });
+
+    return info;
+  };
+
+  const listTables = async (): Promise<PokerTableInfo[]> => {
+    const convs = await prisma.conversation.findMany({
+      where: { projectId: project.id },
+      orderBy: { id: 'asc' },
+    });
+
+    const list: PokerTableInfo[] = [];
+    for (const c of convs) {
+      const gState = await getGameState(c.id);
+      const waiting = await getWaitingHumanTurn(c.id);
+      const meta = (c.metadata as any) || {};
+      list.push({
+        tableId: String(c.id),
+        conversationId: c.id,
+        title: meta.tableName || c.title || `Table #${c.id}`,
+        createdAt: c.createdAt,
+        gameState: gState,
+        waitingForHuman: waiting !== null,
+        humanTurn: waiting,
+      });
+    }
+    return list;
+  };
+
+  const getTable = async (tableId?: string | number): Promise<PokerTableInfo | null> => {
+    const targetConvId = tableId !== undefined ? Number(tableId) : conversation.id;
+    const c = await prisma.conversation.findUnique({
+      where: { id: targetConvId },
+    });
+    if (!c) return null;
+    const gState = await getGameState(c.id);
+    const waiting = await getWaitingHumanTurn(c.id);
+    const meta = (c.metadata as any) || {};
+    return {
+      tableId: String(c.id),
+      conversationId: c.id,
+      title: meta.tableName || c.title || `Table #${c.id}`,
+      createdAt: c.createdAt,
+      gameState: gState,
+      waitingForHuman: waiting !== null,
+      humanTurn: waiting,
+    };
+  };
+
+  /**
+   * Advances the Curator RequestProcessor synchronously step-by-step
+   * until a human turn gate is reached (waiting for 'poker:human_action')
+   * or the tournament finishes. Direct in-process execution from state A to state B.
+   */
+  const stepUntilHumanTurn = async (
+    tableId?: string | number,
+    maxSteps: number = 500
+  ): Promise<DirectStepResult> => {
+    let steps = 0;
+    const targetConvId = tableId !== undefined ? Number(tableId) : conversation.id;
+
+    while (steps < maxSteps) {
+      const waiting = await getWaitingHumanTurn(targetConvId);
+      if (waiting) {
+        if (!options.quiet) {
+          console.log(`\x1b[32m✔ [Curator Engine] Action required from ${waiting.name} (chips: $${waiting.chips}, to call: $${waiting.toCall})\x1b[0m`);
+        }
+        return {
+          done: false,
+          waitingForHuman: true,
+          humanTurn: waiting,
+          gameState: await getGameState(targetConvId),
+          steps,
+        };
+      }
+
+      if (!options.quiet && steps === 0) {
+        console.log(`\x1b[90m[Curator Engine] Stepping AST workflow on Table #${targetConvId}...\x1b[0m`);
+      }
+
+      const processed = await host.processor.step({ conversationId: targetConvId });
+      if (processed === 0) {
+        const waitingAfter = await getWaitingHumanTurn(targetConvId);
+        const gameState = await getGameState(targetConvId);
+        if (waitingAfter) {
+          if (!options.quiet) {
+            console.log(`\x1b[32m✔ [Curator Engine] Action required from ${waitingAfter.name} (chips: $${waitingAfter.chips}, to call: $${waitingAfter.toCall})\x1b[0m`);
+          }
+          return {
+            done: false,
+            waitingForHuman: true,
+            humanTurn: waitingAfter,
+            gameState,
+            steps,
+          };
+        }
+        return {
+          done: Boolean(gameState?.gameOver),
+          waitingForHuman: false,
+          humanTurn: null,
+          gameState,
+          steps,
+        };
+      }
+      steps++;
+    }
+
+    const gameState = await getGameState(targetConvId);
+    return {
+      done: Boolean(gameState?.gameOver),
+      waitingForHuman: false,
+      humanTurn: null,
+      gameState,
+      steps,
+    };
+  };
+
+  const submitHumanActionAndStep = async (
+    action: PlayerAction,
+    tableId?: string | number,
+    sessionId?: string,
+    maxSteps: number = 500
+  ): Promise<DirectStepResult> => {
+    await submitHumanAction(action, tableId, sessionId);
+    return stepUntilHumanTurn(tableId, maxSteps);
   };
 
   const close = async (): Promise<void> => {
@@ -217,7 +471,7 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
   };
 
   return {
-    tableId,
+    tableId: defaultTableId,
     prisma,
     host,
     processor: host.processor,
@@ -225,10 +479,15 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
     project,
     user,
     rootRequestId: rootRequest.id,
+    listTables,
+    getTable,
+    createTable,
     getGameState,
     getWaitingHumanTurn,
     submitHumanAction,
     submitHumanSpeech,
+    stepUntilHumanTurn,
+    submitHumanActionAndStep,
     close,
   };
 }

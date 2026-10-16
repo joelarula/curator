@@ -101,11 +101,17 @@ export class CuratorRequestProcessor {
     });
   }
 
+  public isStopped: boolean = false;
+
   public async start(intervalMs: number = 3000) {
+    this.isStopped = false;
     await this.syncToolsToDb();
     await this.syncAgentsToDb();
     logger.info(`[CuratorRequestProcessor] Starting worker ${this.workerId} with ${intervalMs}ms interval...`);
     this.timer = setInterval(() => this.pollRequests(), intervalMs);
+    if ((this.timer as any)?.unref) {
+      (this.timer as any).unref();
+    }
     this.pollRequests();
   }
 
@@ -314,6 +320,7 @@ export class CuratorRequestProcessor {
   private lastScheduleMinuteBucket: number = 0;
 
   public stop() {
+    this.isStopped = true;
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -429,6 +436,7 @@ export class CuratorRequestProcessor {
   }
 
   private async pollRequests() {
+    if (this.isStopped || !this.timer) return;
     if (this.isPolling) return;
     this.isPolling = true;
     try {
@@ -518,17 +526,23 @@ export class CuratorRequestProcessor {
   /**
    * Synchronously polls and executes runnable requests in sequence.
    * Enables direct step execution (e.g. human turn to human turn) in embedded CLI and tests.
+   * Can be filtered to a specific conversation (e.g. specific table) or step all pending tasks.
    */
-  public async step(): Promise<number> {
-    const availableSlots = this.getAvailableConcurrencySlots();
+  public async step(options?: { conversationId?: number; take?: number }): Promise<number> {
+    const availableSlots = options?.take ?? this.getAvailableConcurrencySlots();
     if (availableSlots <= 0) return 0;
 
+    const where: any = {
+      status: 'NEW',
+      pendingDependencies: { lte: 0 },
+      scheduledAt: { lte: new Date() }
+    };
+    if (options?.conversationId !== undefined) {
+      where.conversationId = options.conversationId;
+    }
+
     const requests = await this.prisma.request.findMany({
-      where: {
-        status: 'NEW',
-        pendingDependencies: { lte: 0 },
-        scheduledAt: { lte: new Date() }
-      },
+      where,
       orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
       take: availableSlots
     });
@@ -562,7 +576,9 @@ export class CuratorRequestProcessor {
     } finally {
       this.activeTasks = Math.max(0, this.activeTasks - 1);
       // Immediately evaluate next pending tasks if capacity is available
-      setImmediate(() => this.pollRequests());
+      if (!this.isStopped && this.timer) {
+        setImmediate(() => this.pollRequests());
+      }
     }
   }
 
@@ -720,6 +736,22 @@ export class CuratorRequestProcessor {
     let payload = node.payload ?? req.context?.input;
     if (typeof node.payload === 'string' && node.payload.startsWith('(') && node.payload.endsWith('(context)')) {
       payload = await this.evaluateExpressionAsync(node.payload, req);
+    }
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      if (req.conversationId !== undefined && req.conversationId !== null) {
+        if (payload.conversationId === undefined) {
+          payload.conversationId = req.conversationId;
+        }
+        if (payload.tableId === undefined) {
+          payload.tableId = String(req.conversationId);
+        }
+      }
+      if (payload.sessionId === undefined) {
+        const sessId = req.context?.sessionId || (req.context as any)?.state?.sessionId || req.sessionId;
+        if (sessId) {
+          payload.sessionId = sessId;
+        }
+      }
     }
     this.emit(node.eventName, payload);
     
@@ -1544,9 +1576,15 @@ export class CuratorRequestProcessor {
       const sanitizedOutput = typeof rawOutput === 'string'
         ? SecretService.mask(rawOutput, hydratedSecrets)
         : SecretService.sanitizeContext(rawOutput, hydratedSecrets);
-      const toolKey = this.toolNameToContextKey(ast.toolName);
-      const updatedContext = { ...(req.context || {}), [toolKey]: sanitizedOutput };
+      const updatedContext = { ...(req.context || {}) };
       updatedContext[ast.toolName] = sanitizedOutput;
+
+      // Allow AST node (`as` / `outputKey`) or tool definition (`outputKey` / `contextKey`) to define an alias
+      const toolAlias = (ast as any).as || (ast as any).outputKey || (tool as any)?.outputKey || (tool as any)?.contextKey;
+      if (toolAlias && typeof toolAlias === 'string') {
+        updatedContext[toolAlias] = sanitizedOutput;
+      }
+
       if (sanitizedOutput && typeof sanitizedOutput === 'object' && !Array.isArray(sanitizedOutput)) {
         Object.assign(updatedContext, sanitizedOutput);
       }
@@ -1588,33 +1626,6 @@ export class CuratorRequestProcessor {
 
     await this.saveResponse(req, result);
     await this.completeRequest(req.id, 'COMPLETED');
-  }
-
-  /**
-   * Derives a short context key from a tool name so that downstream nodes can reference
-   * tool output with concise expressions like {{discovery.data}} or {{episode}}.
-   *
-   * Examples:
-   *   vikerraadio_discover_episodes → discovery
-   *   vikerraadio_process_episode   → episode
-   *   vikerraadio_scrape            → scrape
-   */
-  private toolNameToContextKey(toolName: string): string {
-    // Strip common vendor/platform prefixes
-    const withoutPrefix = toolName.replace(/^(?:vikerraadio|klassikaraadio|err|keeris)_/, '');
-    // Map well-known suffixes to friendly context keys
-    const knownMappings: Record<string, string> = {
-      discover_episodes: 'discovery',
-      process_episode: 'episode',
-      fetch_episode_page: 'page',
-      parse_music_list: 'tracks',
-      parse_episode_text: 'metadata',
-      download_episode: 'download',
-      scrape: 'scrape',
-    };
-    if (knownMappings[withoutPrefix]) return knownMappings[withoutPrefix];
-    // Fallback: use the first underscore-segment
-    return withoutPrefix.split('_')[0] || toolName;
   }
 
   private async handleSetState(ast: any, req: any) {

@@ -30,22 +30,21 @@ Both execution modes share the exact same underlying declarative workflow (`poke
   - Lightweight terminal UI.
   - Communicates exclusively via WebSockets with zero database dependencies.
 
-### Mode B: Direct Synchronous Step Execution
-- **Direct Runner (`npm run run` / `poker run` / `poker play --direct`)**:
-  - Advances execution step-by-step using `CuratorRequestProcessor.step()`.
-  - Runs in-process until `wait_event "poker:human_action"`.
-  - Prompts the human player via terminal input, wakes up the waiting AST node in SQLite, and advances to the next gate.
-  - Zero network overhead, completely deterministic, and ideal for tests or embedded play.
+### Mode B: Direct Lightweight In-Process Play
+- **Direct Play (`npm run play:direct` / `poker play --direct`)**:
+  - Direct in-process execution with **zero outer APIs or network sockets**.
+  - Synchronously steps Curator AST from human action A to next turn gate B.
+  - Same rich interactive tabletop chat experience (choices, `/whisper`, `/banter`, inner narratives) with zero network overhead.
 
 ---
 
 ## 🚀 Quick Start
 
-### 1. Direct Local Play (Mode B)
+### 1. Direct Local Play (Mode B - zero network sockets)
 ```bash
-npm run run
-# or
 npm run play:direct
+# or
+poker play --direct
 ```
 
 ### 2. Client-Server Play (Mode A)

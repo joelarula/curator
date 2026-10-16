@@ -1,6 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
-import { provisionSqliteDb } from '@curator/agent-server';
+import { provisionSqliteDb } from '../curator.js';
 
 export interface PokerSeedOptions {
   dbName?: string;

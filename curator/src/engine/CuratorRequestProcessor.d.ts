@@ -59,16 +59,7 @@ export declare class CuratorRequestProcessor {
     private resolveActorPermissions;
     private checkToolAccess;
     private handleTool;
-    /**
-     * Derives a short context key from a tool name so that downstream nodes can reference
-     * tool output with concise expressions like {{discovery.data}} or {{episode}}.
-     *
-     * Examples:
-     *   vikerraadio_discover_episodes → discovery
-     *   vikerraadio_process_episode   → episode
-     *   vikerraadio_scrape            → scrape
-     */
-    private toolNameToContextKey;
+
     private handleSetState;
     /**
      * Curator_Interrupt handler — Play / Pause / Stop for a conversation.

@@ -1,8 +1,8 @@
 import os from 'node:os';
 import path from 'node:path';
-import { createCuratorHost, type CuratorHost } from '@curator/host';
-import { curatorEngine } from '@curator/agent-server';
-import { pokerPlugin } from './plugins/pokerPlugin.js';
+import { createCuratorHost, type CuratorHost } from './curatorHost.js';
+import { curatorEngine } from './curator.js';
+import { pokerPlugin } from './plugins/pokerPlugin.ts';
 
 export interface PokerHostOptions {
   name?: string;
@@ -32,7 +32,12 @@ export async function createPokerHost(options: PokerHostOptions = {}): Promise<C
     intervalMs: options.intervalMs ?? 500,
     logger: options.quiet
       ? { log: () => {}, info: () => {}, warn: console.warn, error: console.error }
-      : { log: console.log, info: () => {}, warn: console.warn, error: console.error },
+      : {
+          log: (...args: any[]) => console.log('\x1b[90m[Curator]\x1b[0m', ...args),
+          info: (...args: any[]) => console.log('\x1b[90m[Curator]\x1b[0m', ...args),
+          warn: console.warn,
+          error: console.error,
+        },
     registerPlugins: async () => {
       curatorEngine.registerPlugin(pokerPlugin);
       return curatorEngine;

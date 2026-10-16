@@ -9,10 +9,10 @@ import type {
   AmbientRemark,
   PlayerStanding,
   ActionType,
-} from '../types.js';
-import { evaluateBestHand } from './pokerEvaluator.js';
-import { formatAgentPromptCoffeeScript, getPokerRules } from '../scripts/pokerHandScript.js';
-import { curatorEngine, LlmFactory, GeminiLlmProvider } from '@curator/agent-server';
+} from '../types.ts';
+import { evaluateBestHand } from './pokerEvaluator.ts';
+import { formatAgentPromptCoffeeScript, getPokerRules } from '../scripts/pokerHandScript.ts';
+import { curatorEngine, LlmFactory, GeminiLlmProvider } from '../curator.js';
 
 export function getTableRules(): any {
   return getPokerRules()?.tableRules || {};
