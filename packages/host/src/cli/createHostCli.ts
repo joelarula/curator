@@ -29,7 +29,7 @@ function parseJsonArg(str: string): any {
  * without requiring MiniApps to write boilerplate.
  */
 export function createHostCli(
-  hostFactory: () => Promise<CuratorHost>,
+  hostFactory: (options?: any) => Promise<CuratorHost>,
   options: HostCliOptions = {}
 ): Command {
   const program = options.program || new Command();
@@ -45,9 +45,10 @@ export function createHostCli(
   program
     .command('seed')
     .description('Idempotently initialize database and seed tools and agent workflows')
-    .action(async () => {
+    .option('-r, --reset', 'Force reset and wipe database before seeding', false)
+    .action(async (opts: { reset?: boolean }) => {
       console.log('[Host CLI] Initializing host and database...');
-      const host = await hostFactory();
+      const host = await hostFactory(opts?.reset ? { forceReset: true } : undefined);
       try {
         console.log(`[Host CLI] Seeding host tools and agents...`);
         const result = await host.seed();

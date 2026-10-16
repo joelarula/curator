@@ -17,6 +17,7 @@ export interface PokerHostOptions {
   userName?: string;
   userEmail?: string;
   autoSeed?: boolean;
+  forceReset?: boolean;
   dataDir?: string;
   databasePath?: string;
   intervalMs?: number;
@@ -42,6 +43,7 @@ export async function createPokerHost(options: PokerHostOptions = {}): Promise<C
     userName: options.userName || 'You (Hero)',
     userEmail: options.userEmail || 'hero@tabletop.local',
     autoSeed: options.autoSeed ?? true,
+    forceReset: options.forceReset ?? false,
     dataDir: options.dataDir ?? process.env.DATA_DIR ?? './data',
     curatorDb: {
       path: dbPath,

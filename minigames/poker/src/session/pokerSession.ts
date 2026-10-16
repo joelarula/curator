@@ -92,6 +92,7 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
   // 1. Instantiate CuratorHost (provisions SQLite and seeds tools, scripts, and agents idempotently)
   const host = await createPokerHost({
     databasePath: options.databasePath,
+    forceReset: options.forceReset ?? false,
     quiet: options.quiet ?? false,
     intervalMs: options.intervalMs ?? 500,
   });

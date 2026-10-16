@@ -24,8 +24,9 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
   if (curatorDbUrl && (curatorDbUrl.startsWith('mysql://') || curatorDbUrl.startsWith('mariadb://'))) {
     prisma = await provisionMariadbDb(curatorDbUrl);
   } else {
+    const forceReset = Boolean(config.forceReset ?? config.curatorDb?.forceReset);
     databasePath = config.curatorDb?.path ?? process.env.CURATOR_DATABASE_PATH ?? path.join(dataDir, 'state', 'curator.db');
-    prisma = await provisionSqliteDb(name, false, { databasePath });
+    prisma = await provisionSqliteDb(name, forceReset, { databasePath });
   }
 
   // 2. Ensure system user, project and conversation scoping exist idempotently

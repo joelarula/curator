@@ -18,6 +18,7 @@ export interface CuratorLogger {
 export interface CuratorDbConfig {
   path?: string;
   url?: string;
+  forceReset?: boolean;
 }
 
 export interface CuratorHostRbacConfig {
@@ -32,6 +33,7 @@ export interface CuratorHostConfig {
   userName?: string;
   userEmail?: string;
   autoSeed?: boolean;
+  forceReset?: boolean;
   dataDir?: string;
   curatorDb?: CuratorDbConfig;
   intervalMs?: number;
