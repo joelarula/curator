@@ -1,4 +1,4 @@
-import { CuratorBuilder as Curator, type CuratorSequentialNode } from '../curator.js';
+import { CuratorBuilder as Curator, type CuratorSequentialNode } from '../curator.ts';
 import {
   getHumanTurnAST,
   getAgentTurnAST,

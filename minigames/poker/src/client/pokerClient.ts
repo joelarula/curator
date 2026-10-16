@@ -14,6 +14,7 @@ import {
   type ChatChoice,
 } from '../ui/groupChatPrompt.ts';
 import type { PlayerAction, PokerGameState } from '../types.ts';
+import { getLegalChoices } from '../engine/pokerEngine.ts';
 
 export interface PokerClientOptions extends PokerSessionOptions {
   direct?: boolean;
@@ -214,12 +215,21 @@ export async function runPokerClientUi(channel: PokerGameChannel, playerName: st
           console.log('\n' + renderTable(currentGameState, false));
         }
 
-        const legalChoices = payload?.choices || [];
-        const choices: ChatChoice<PlayerAction>[] = legalChoices.map((c: any) => ({
-          id: c.id,
-          label: c.label,
-          value: c.action,
-          aliases: [c.action?.type, c.id],
+        let rawChoices: any[] = [];
+        if (Array.isArray(payload?.choices)) {
+          rawChoices = payload.choices;
+        } else if (Array.isArray(payload?.choices?.choices)) {
+          rawChoices = payload.choices.choices;
+        }
+        if (rawChoices.length === 0 && currentGameState) {
+          rawChoices = getLegalChoices(currentGameState);
+        }
+
+        const choices: ChatChoice<PlayerAction>[] = rawChoices.map((c: any) => ({
+          id: c.id || c.action?.type?.toLowerCase() || 'action',
+          label: c.label || `${c.action?.type || c.type || 'Action'} ${c.action?.amount || c.amount ? '$' + (c.action?.amount || c.amount) : ''}`.trim(),
+          value: c.action || c,
+          aliases: [c.action?.type, c.type, c.id].filter(Boolean),
         }));
 
         const chatCtx = createPokerChatContext({

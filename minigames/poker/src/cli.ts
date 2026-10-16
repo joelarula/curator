@@ -108,7 +108,7 @@ for (const cmd of hostCommands) {
     .description(`Curator Host command: ${cmd}`)
     .action(async (...args) => {
       console.log(`\x1b[36m[Poker CLI] Loading CuratorHost for "${cmd}"...\x1b[0m`);
-      const { createHostCli } = await import('./curatorHost.js');
+      const { createHostCli } = await import('./curatorHost.ts');
       const { createPokerHost } = await import('./host.ts');
       const subProgram = createHostCli(createPokerHost, { name: 'poker' });
       await subProgram.parseAsync(process.argv);

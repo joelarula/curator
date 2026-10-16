@@ -73,7 +73,7 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
     console.log(`[Curator CLI] 🗄️ Provisioning new database: ${name}`);
     console.log(`[Curator CLI] Applying schema...`);
     const sqliteSchemaPath = SQLITE_SCHEMA_PATH;
-    const pushFlags = forceReset ? '--force-reset' : '--accept-data-loss';
+    const pushFlags = forceReset ? '--force-reset --accept-data-loss' : '--accept-data-loss';
     execSync(
       `npx prisma db push ${pushFlags} --schema="${sqliteSchemaPath}" --url="${dbUrl}"`,
       {

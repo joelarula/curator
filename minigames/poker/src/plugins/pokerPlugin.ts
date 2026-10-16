@@ -1,4 +1,4 @@
-import { defineTool, type CuratorPlugin } from '../curator.js';
+import { defineTool, type CuratorPlugin } from '../curator.ts';
 import type { PokerGameState, PlayerAction } from '../types.ts';
 import { loadCoffeeScript } from '../scripts/pokerHandScript.ts';
 import {
@@ -350,5 +350,56 @@ export const pokerPlugin: CuratorPlugin = {
       body: loadCoffeeScript('ambient_reaction.coffee'),
       run: async () => {},
     },
+    poker_rules: {
+      name: 'poker_rules',
+      description: 'Declarative Texas Hold\'em Table Rules & Game Specification',
+      body: loadCoffeeScript('poker_rules.coffee'),
+      run: async () => {},
+    },
+    agent_prompt: {
+      name: 'agent_prompt',
+      description: 'Dynamic CoffeeScript Agent Prompt Formatter & Context Builder',
+      body: loadCoffeeScript('agent_prompt.coffee'),
+      run: async () => {},
+    },
   },
+  agents: {
+    hero: {
+      id: 'hero',
+      name: 'You (Hero)',
+      scriptName: 'human_turn',
+      schedule: 'manual',
+      enabled: true,
+      instruction: 'You are the human player (Hero) at the high-roller poker table.',
+      persona: 'human',
+      isHuman: true,
+    },
+    viper: {
+      id: 'viper',
+      name: 'Viper (Shark)',
+      scriptName: 'agent_turn',
+      schedule: 'manual',
+      enabled: true,
+      instruction: "You are Viper, a ruthless and mathematically calculating poker shark at a high-stakes Texas Hold'em table. Your tone is cool, precise, psychological, and dismissive of emotional play. You never reveal your exact hole cards. When speaking, you comment on pot odds, variance, and the foolishness of loose play.",
+      persona: 'shark',
+    },
+    maddog: {
+      id: 'maddog',
+      name: 'MadDog (Maniac)',
+      scriptName: 'agent_turn',
+      schedule: 'manual',
+      enabled: true,
+      instruction: 'You are MadDog, a wild and loud poker maniac. You play loose, love bluffing, and shove chips into the middle for maximum adrenaline. Your tone is boisterous, confrontational, taunting, and energetic. Trash-talk, dare people to call, and embrace chaos.',
+      persona: 'maniac',
+    },
+    barnaby: {
+      id: 'barnaby',
+      name: 'Barnaby (Station)',
+      scriptName: 'agent_turn',
+      schedule: 'manual',
+      enabled: true,
+      instruction: 'You are Barnaby, an affable, folksy, and warm calling station. You love chatting at the table, hate folding, and always wonder what the next card will bring. Your tone is grandfatherly, cheerful, gentle, and humorous.',
+      persona: 'station',
+    },
+  } as any,
 };

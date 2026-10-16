@@ -1,11 +1,22 @@
 import os from 'node:os';
 import path from 'node:path';
-import { createCuratorHost, type CuratorHost } from './curatorHost.js';
-import { curatorEngine } from './curator.js';
+import { fileURLToPath } from 'node:url';
+import { createCuratorHost, type CuratorHost } from './curatorHost.ts';
+import { curatorEngine } from './curator.ts';
 import { pokerPlugin } from './plugins/pokerPlugin.ts';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DEFAULT_POKER_DB = path.resolve(__dirname, '../data/poker.db');
 
 export interface PokerHostOptions {
   name?: string;
+  projectId?: string;
+  projectName?: string;
+  userId?: string;
+  userName?: string;
+  userEmail?: string;
+  autoSeed?: boolean;
   dataDir?: string;
   databasePath?: string;
   intervalMs?: number;
@@ -21,10 +32,16 @@ export async function createPokerHost(options: PokerHostOptions = {}): Promise<C
   const dbPath =
     options.databasePath ||
     process.env.CURATOR_DATABASE_PATH ||
-    path.join(process.env.TEMP || os.tmpdir(), 'curator-poker.db');
+    DEFAULT_POKER_DB;
 
   return createCuratorHost({
     name: options.name || 'poker',
+    projectId: options.projectId || 'poker-project-1',
+    projectName: options.projectName || 'Texas Holdem Lounge',
+    userId: options.userId || 'hero-user-1',
+    userName: options.userName || 'You (Hero)',
+    userEmail: options.userEmail || 'hero@tabletop.local',
+    autoSeed: options.autoSeed ?? true,
     dataDir: options.dataDir ?? process.env.DATA_DIR ?? './data',
     curatorDb: {
       path: dbPath,

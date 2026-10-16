@@ -28,18 +28,30 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
     prisma = await provisionSqliteDb(name, false, { databasePath });
   }
 
-  // 2. Ensure system user, project and conversation scoping exist
-  const user = await prisma.user.upsert({
-    where: { email: 'system@local' },
-    update: {},
-    create: { id: '1', name: 'System User', email: 'system@local' },
-  });
+  // 2. Ensure system user, project and conversation scoping exist idempotently
+  const userEmail = config.userEmail || 'system@local';
+  const userName = config.userName || 'System User';
+  const userId = config.userId || '1';
+  const projectName = config.projectName || name;
+  const projectId = config.projectId || '1';
 
-  const project = await prisma.project.upsert({
-    where: { id: '1' },
-    update: {},
-    create: { id: '1', name, userId: user.id },
+  let user = await prisma.user.findFirst({
+    where: { OR: [{ email: userEmail }, { id: userId }] },
   });
+  if (!user) {
+    user = await prisma.user.create({
+      data: { id: userId, name: userName, email: userEmail },
+    });
+  }
+
+  let project = await prisma.project.findFirst({
+    where: { OR: [{ id: projectId }, { name: projectName }] },
+  });
+  if (!project) {
+    project = await prisma.project.create({
+      data: { id: projectId, name: projectName, userId: user.id },
+    });
+  }
 
   let conversation = await prisma.conversation.findFirst({
     where: { userId: user.id, projectId: project.id },
@@ -167,7 +179,11 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
 
     async seed(): Promise<SeedResult> {
       const result = await seedAgentsAndTools(prisma, registeredEngine, {
-        projectName: name,
+        projectName,
+        projectId,
+        userId,
+        userName,
+        userEmail,
         logger,
         rbacManagers: config.rbac?.managers,
       });
@@ -231,6 +247,11 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
       return updated;
     },
   };
+
+  // 7. Seed tools, scripts, and agents if not already in database (idempotent setup)
+  if (config.autoSeed !== false) {
+    await host.seed();
+  }
 
   return host;
 }

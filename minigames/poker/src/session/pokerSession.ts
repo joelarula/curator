@@ -1,7 +1,7 @@
 import { seedPokerDatabase } from '../db/seed.ts';
 import { createPokerHost } from '../host.ts';
 import { getPokerWorkflowAST } from '../scripts/pokerHandScript.ts';
-import type { CuratorHost } from '../curatorHost.js';
+import type { CuratorHost } from '../curatorHost.ts';
 import type { PlayerAction, PokerGameState } from '../types.ts';
 
 export interface PokerSessionOptions {
@@ -86,54 +86,85 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
   const bigBlind = options.bigBlind || 20;
 
   if (!options.quiet) {
-    console.log(`\x1b[90m[Poker Session] Provisioning SQLite tables at ${options.databasePath || 'curator-poker.db'}...\x1b[0m`);
-  }
-
-  // 1. Provision SQLite database
-  const seed = await seedPokerDatabase({
-    databasePath: options.databasePath,
-    forceReset: options.forceReset,
-    maxSeats,
-  });
-
-  const { prisma, user, project, conversation, dbPath } = seed;
-
-  if (!options.quiet) {
     console.log(`\x1b[90m[Poker Session] Booting CuratorHost runtime (interval: ${options.intervalMs ?? 500}ms)...\x1b[0m`);
   }
 
-  // 2. Instantiate CuratorHost
+  // 1. Instantiate CuratorHost (provisions SQLite and seeds tools, scripts, and agents idempotently)
   const host = await createPokerHost({
-    databasePath: dbPath,
+    databasePath: options.databasePath,
     quiet: options.quiet ?? false,
     intervalMs: options.intervalMs ?? 500,
   });
 
-  if (!options.quiet) {
-    console.log(`\x1b[90m[Poker Session] Compiling declarative CoffeeScript workflow AST...\x1b[0m`);
+  const prisma = host.prisma;
+
+  let user = await prisma.user.findFirst({
+    where: { OR: [{ id: 'hero-user-1' }, { email: 'hero@tabletop.local' }] },
+  });
+  if (!user) {
+    user = await prisma.user.findFirst();
   }
 
-  // 3. Compile and enqueue the declarative Poker Engine AST workflow for initial table
-  const workflowAst = await getPokerWorkflowAST();
-  const rootRequest = await prisma.request.create({
-    data: {
-      userId: user.id,
-      projectId: project.id,
-      conversationId: conversation.id,
-      status: 'NEW',
-      ast: workflowAst as any,
-      context: {
-        tableId: String(conversation.id),
-        startingChips,
-        sbAmount: smallBlind,
-        bbAmount: bigBlind,
-        maxSeats,
+  let project = await prisma.project.findFirst({
+    where: { OR: [{ id: 'poker-project-1' }, { name: 'Texas Holdem Lounge' }] },
+  });
+  if (!project) {
+    project = await prisma.project.findFirst();
+  }
+
+  let conversation = await prisma.conversation.findFirst({
+    where: { userId: user.id, projectId: project.id },
+  });
+  if (!conversation) {
+    conversation = await prisma.conversation.create({
+      data: {
+        userId: user.id,
+        projectId: project.id,
+        metadata: {
+          ruleset: 'texas_holdem_nl',
+          maxSeats,
+        },
       },
+    });
+  }
+
+  // 2. Compile and enqueue the declarative Poker Engine AST workflow for initial table if not active
+  let rootRequest = await prisma.request.findFirst({
+    where: {
+      conversationId: conversation.id,
+      status: { in: ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT'] },
     },
+    orderBy: { createdAt: 'desc' },
   });
 
-  if (!options.quiet) {
-    console.log(`\x1b[32m✔ [Poker Session] Table #${conversation.id} initialized with root AST Request #${rootRequest.id}\x1b[0m`);
+  if (!rootRequest) {
+    if (!options.quiet) {
+      console.log(`\x1b[90m[Poker Session] Compiling declarative CoffeeScript workflow AST...\x1b[0m`);
+    }
+    const workflowAst = await getPokerWorkflowAST();
+    rootRequest = await prisma.request.create({
+      data: {
+        userId: user.id,
+        projectId: project.id,
+        conversationId: conversation.id,
+        status: 'NEW',
+        ast: workflowAst as any,
+        context: {
+          tableId: String(conversation.id),
+          startingChips,
+          sbAmount: smallBlind,
+          bbAmount: bigBlind,
+          maxSeats,
+        },
+      },
+    });
+    if (!options.quiet) {
+      console.log(`\x1b[32m✔ [Poker Session] Table #${conversation.id} initialized with root AST Request #${rootRequest.id}\x1b[0m`);
+    }
+  } else {
+    if (!options.quiet) {
+      console.log(`\x1b[32m✔ [Poker Session] Resuming Table #${conversation.id} with active Request #${rootRequest.id}\x1b[0m`);
+    }
   }
 
   const defaultTableId = String(conversation.id);

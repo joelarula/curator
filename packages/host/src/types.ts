@@ -26,6 +26,12 @@ export interface CuratorHostRbacConfig {
 
 export interface CuratorHostConfig {
   name: string;
+  projectId?: string;
+  projectName?: string;
+  userId?: string;
+  userName?: string;
+  userEmail?: string;
+  autoSeed?: boolean;
   dataDir?: string;
   curatorDb?: CuratorDbConfig;
   intervalMs?: number;
@@ -37,6 +43,7 @@ export interface CuratorHostConfig {
 
 export interface SeedResult {
   seededTools: string[];
+  seededScripts: string[];
   seededAgents: string[];
   databasePath?: string;
 }

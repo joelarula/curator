@@ -2,7 +2,7 @@ import http from 'node:http';
 import { WebSocket } from 'ws';
 import { createPokerGameSession, type PokerGameSession, type PokerSessionOptions } from '../session/pokerSession.ts';
 import { executePokerGraphQL, POKER_SCHEMA_SDL } from '../graphql/index.ts';
-import type { CuratorHost } from '../curatorHost.js';
+import type { CuratorHost } from '../curatorHost.ts';
 
 export interface PokerServerOptions extends PokerSessionOptions {
   port?: number;

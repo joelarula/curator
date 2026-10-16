@@ -12,7 +12,7 @@ import type {
 } from '../types.ts';
 import { evaluateBestHand } from './pokerEvaluator.ts';
 import { formatAgentPromptCoffeeScript, getPokerRules } from '../scripts/pokerHandScript.ts';
-import { curatorEngine, LlmFactory, GeminiLlmProvider } from '../curator.js';
+import { curatorEngine, LlmFactory, GeminiLlmProvider } from '../curator.ts';
 
 export function getTableRules(): any {
   return getPokerRules()?.tableRules || {};

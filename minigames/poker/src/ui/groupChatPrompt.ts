@@ -13,7 +13,7 @@ import {
   type GroupChatContext,
   type ChatVerbDefinition,
   type ChatToolDefinition,
-} from '../curatorHost.js';
+} from '../curatorHost.ts';
 import type { PokerGameState } from '../types.ts';
 import { renderTable, renderCompactStatus, renderStandings, renderNarratives } from './tableRenderer.ts';
 import { getPokerStandings } from '../plugins/pokerPlugin.ts';

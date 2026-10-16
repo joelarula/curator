@@ -257,11 +257,16 @@ Avoid mixing unrelated refactors into feature changes.
 
 For any non-trivial change, run all that apply:
 
-- Changed module compiles
-- Targeted tests pass or are reported not run
+- Changed module compiles (`tsc` / fast type-check)
+- Targeted unit check or one-shot command verifies the specific behavior touched
 - Tool registrations match manifest and handler implementation
 - Docs updated for new externally-used behavior
 - No accidental edits in unrelated modules
+
+### 10.1 Targeted testing policy & avoiding heavy suite runs
+- **Focus on targeted tests**: Never run full multi-suite test runners (`npm test`, integration suites) after simple code changes or minor iterations. Full suites boot multiple servers, WebSockets, and run heavy simulation loops taking 60–90+ seconds.
+- **Fast verification over heavy suites**: Prioritize ultra-fast static verification (`tsc --noEmit` or build ~2-3s) and pinpoint one-shot commands (e.g. running a single CLI action or querying SQLite tables in 200ms).
+- **Always ask before running potentially long commands**: If a command, script, or test suite is expected or likely to take more than ~15 seconds, **always ask the user first** before executing it. This empowers the user to decide whether to run it themselves in their own terminal or skip it, avoiding wasting agent execution time and blocking developer momentum.
 
 Minimum expected reporting in handoff:
 - what changed
@@ -271,6 +276,7 @@ Minimum expected reporting in handoff:
 
 ## 11. Common pitfalls to avoid
 
+- **Running full integration test suites after simple changes**: Avoid executing long-running test suites without asking the user first. Use fast targeted verification.
 - Adding a tool handler but forgetting manifest entry
 - Adding manifest entry but forgetting registry mapping
 - Relying on TypeScript augmentation for runtime behavior in scripts
