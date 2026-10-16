@@ -111,6 +111,8 @@ export interface PokerGameState {
   bbIdx: number;
   sbAmount: number;
   bbAmount: number;
+  smallBlind?: number;
+  bigBlind?: number;
   currentStreet: Street;
   board: Card[];
   deck: Card[];

@@ -269,9 +269,10 @@ export class CuratorRequestProcessor {
           where: { enabled: false },
           select: { id: true, name: true, scriptId: true }
         });
+        const totalCount = await this.prisma.agent.count();
         const enabledCount = await this.prisma.agent.count({ where: { enabled: true } });
 
-        if (enabledCount === 0) {
+        if (totalCount > 0 && enabledCount === 0) {
           logger.info(`[CuratorRequestProcessor] All agents are disabled. Cancelling all active/pending/waiting requests in DB...`);
           await this.prisma.request.updateMany({
             where: {
@@ -279,7 +280,7 @@ export class CuratorRequestProcessor {
             },
             data: { status: 'CANCELLED', lockedBy: null, lockedAt: null }
           });
-        } else {
+        } else if (disabledAgents.length > 0) {
           for (const da of disabledAgents) {
             const conditions: any[] = [{ agentId: da.id }, { agentId: da.name }];
             if (da.scriptId) conditions.push({ scriptId: da.scriptId });
@@ -514,6 +515,42 @@ export class CuratorRequestProcessor {
     }
   }
 
+  /**
+   * Synchronously polls and executes runnable requests in sequence.
+   * Enables direct step execution (e.g. human turn to human turn) in embedded CLI and tests.
+   */
+  public async step(): Promise<number> {
+    const availableSlots = this.getAvailableConcurrencySlots();
+    if (availableSlots <= 0) return 0;
+
+    const requests = await this.prisma.request.findMany({
+      where: {
+        status: 'NEW',
+        pendingDependencies: { lte: 0 },
+        scheduledAt: { lte: new Date() }
+      },
+      orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
+      take: availableSlots
+    });
+
+    if (!requests || requests.length === 0) return 0;
+
+    const lockedRequests: any[] = [];
+    for (const req of requests) {
+      const updated = await this.prisma.request.updateMany({
+        where: { id: req.id, status: 'NEW' },
+        data: { status: 'WAITING', lockedBy: this.workerId, lockedAt: new Date() }
+      });
+      if (updated.count > 0) lockedRequests.push(req);
+    }
+
+    for (const req of lockedRequests) {
+      await this.processRequest(req);
+    }
+
+    return lockedRequests.length;
+  }
+
   private async runTask(req: any) {
     this.activeTasks++;
     try {
@@ -541,8 +578,9 @@ export class CuratorRequestProcessor {
 
       let agent: any = null;
       try {
+        const totalAgents = await this.prisma.agent.count();
         const enabledCount = await this.prisma.agent.count({ where: { enabled: true } });
-        if (enabledCount === 0) {
+        if (totalAgents > 0 && enabledCount === 0) {
           logger.info(`[CuratorRequestProcessor] Cancelling request ${req.id}: all agents are disabled.`);
           await this.prisma.request.update({
             where: { id: req.id },
@@ -683,6 +721,7 @@ export class CuratorRequestProcessor {
     if (typeof node.payload === 'string' && node.payload.startsWith('(') && node.payload.endsWith('(context)')) {
       payload = await this.evaluateExpressionAsync(node.payload, req);
     }
+    this.emit(node.eventName, payload);
     
     // Evaluate dynamic targetAgentId
     let targetAgentId = node.targetAgentId;
@@ -690,17 +729,19 @@ export class CuratorRequestProcessor {
       targetAgentId = await this.evaluateExpressionAsync(targetAgentId, req);
     }
 
-    const subscriptions = await this.prisma.eventSubscription.findMany({
-      where: { 
-        eventName: node.eventName, 
-        isActive: true,
-        OR: [
-          { conversationId: req.conversationId },
-          { conversationId: null }
-        ]
-      },
-      include: { agentWorkflow: true }
-    });
+    const subscriptions = this.prisma.eventSubscription
+      ? await this.prisma.eventSubscription.findMany({
+          where: { 
+            eventName: node.eventName, 
+            isActive: true,
+            OR: [
+              { conversationId: req.conversationId },
+              { conversationId: null }
+            ]
+          },
+          include: { agentWorkflow: true }
+        })
+      : [];
 
     let spawnedCount = 0;
     for (const sub of subscriptions) {
@@ -1417,13 +1458,13 @@ export class CuratorRequestProcessor {
     // Evaluate string expressions in toolArgs — supports both {{expr}} templates and (fn)(context) patterns
     const evaluatedArgs: Record<string, any> = {};
     for (const [k, v] of Object.entries(toolArgs)) {
-      if (typeof v === 'string' && (v.startsWith('{{') || (v.startsWith('(') && v.endsWith('(context)')))) {
+      if (typeof v === 'string' && (v.startsWith('{{') || v.startsWith('$') || (v.startsWith('(') && v.endsWith('(context)')))) {
         evaluatedArgs[k] = await this.evaluateExpressionAsync(v, req);
       } else if (typeof v === 'object' && v !== null) {
         // Recursively resolve template strings inside nested arg objects
         const resolved: Record<string, any> = {};
         for (const [ik, iv] of Object.entries(v as Record<string, any>)) {
-          if (typeof iv === 'string' && iv.startsWith('{{')) {
+          if (typeof iv === 'string' && (iv.startsWith('{{') || iv.startsWith('$'))) {
             resolved[ik] = await this.evaluateExpressionAsync(iv, req);
           } else {
             resolved[ik] = iv;
@@ -1502,6 +1543,11 @@ export class CuratorRequestProcessor {
       const toolKey = this.toolNameToContextKey(ast.toolName);
       const updatedContext = { ...(req.context || {}), [toolKey]: sanitizedOutput };
       updatedContext[ast.toolName] = sanitizedOutput;
+      if (sanitizedOutput && typeof sanitizedOutput === 'object' && !Array.isArray(sanitizedOutput)) {
+        if ('gameState' in sanitizedOutput) {
+          updatedContext.gameState = sanitizedOutput.gameState;
+        }
+      }
       req.context = updatedContext;
       try {
         await this.prisma.request.update({
@@ -2179,6 +2225,12 @@ export class CuratorRequestProcessor {
       cleanExpr = cleanExpr.slice(2, -2).trim();
     }
 
+    // Normalize natural CoffeeScript boolean operators into valid JS expressions
+    cleanExpr = cleanExpr
+      .replace(/\bnot\s+/g, '!')
+      .replace(/\s+and\s+/g, ' && ')
+      .replace(/\s+or\s+/g, ' || ');
+
     // Build sandbox: start with state keys at top level, then add well-known aliases,
     // then spread the full req.context so any named tool output (e.g. `discovery`) is accessible.
     const safeSandbox: Record<string, any> = {};
@@ -2195,6 +2247,8 @@ export class CuratorRequestProcessor {
     safeSandbox.state = convState;
     safeSandbox.input = req.context.input;
     safeSandbox.context = req.context;
+    safeSandbox.$context = req.context;
+    safeSandbox.$state = convState;
 
     const vmContext = vm.createContext(safeSandbox);
     try {

@@ -15,6 +15,7 @@
   },
   "scripts": {
     "play": "node --import ../../curator/node_modules/tsx/dist/loader.mjs src/cli.ts",
+    "serve": "node --import ../../curator/node_modules/tsx/dist/loader.mjs src/cli.ts serve",
     "seed": "node --import ../../curator/node_modules/tsx/dist/loader.mjs src/db/seed.ts",
     "test": "node --import ../../curator/node_modules/tsx/dist/loader.mjs --test test/poker_minigame.test.ts"
   }

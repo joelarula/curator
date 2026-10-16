@@ -215,8 +215,8 @@ export function initPokerLobby(args?: any): { gameState: PokerGameState } {
   const rules = getTableRules();
   const startingChips = (args?.startingChips as number) || rules.startingChips || 1000;
   const maxSeats = (args?.maxSeats as number) || rules.maxSeats || 6;
-  const sbAmount = (args?.sbAmount as number) || rules.blinds?.smallBlind || 10;
-  const bbAmount = (args?.bbAmount as number) || rules.blinds?.bigBlind || 20;
+  const sbAmount = (args?.sbAmount as number) || (args?.smallBlind as number) || rules.blinds?.smallBlind || 10;
+  const bbAmount = (args?.bbAmount as number) || (args?.bigBlind as number) || rules.blinds?.bigBlind || 20;
   const revealHandsOnSettle = args?.revealHandsOnSettle !== undefined ? Boolean(args.revealHandsOnSettle) : true;
   const maxHands = args?.maxHands !== undefined ? Number(args.maxHands) : undefined;
 

@@ -862,6 +862,66 @@ test('Modular CoffeeScript Architecture: Compiles all decoupled workflows to Cur
   assert(pokerPlugin.scripts['ambient_reaction']);
 });
 
+test('Poker Client-Server Architecture: Server boots, accepts WebSocket client, streams events', async () => {
+  const { createPokerServer } = await import('../src/server/pokerServer.js');
+  const { WebSocket } = await import('ws');
+
+  const testDb = path.join(process.env.TEMP || os.tmpdir(), `curator_test_server_${Date.now()}.db`);
+  const serverInstance = await createPokerServer({
+    port: 4899,
+    databasePath: testDb,
+    forceReset: true,
+    maxSeats: 4,
+    pollInterval: 100,
+  });
+
+  assert.equal(serverInstance.port, 4899);
+  assert(serverInstance.wsUrl.includes('/api/events'));
+
+  const ws = new WebSocket(serverInstance.wsUrl);
+  const connected = await new Promise<boolean>((resolve) => {
+    ws.on('open', () => resolve(true));
+    ws.on('error', () => resolve(false));
+  });
+  assert.equal(connected, true);
+
+  await new Promise<void>((resolve) => {
+    ws.on('close', () => resolve());
+    ws.close();
+  });
+  await serverInstance.stop();
+});
+
+test('Poker Direct Synchronous Execution: Runs AST workflow step-by-step from human turn to human turn', async () => {
+  const { createPokerDirectRunner } = await import('../src/runner/pokerDirectRunner.js');
+  const testDb = path.join(process.env.TEMP || os.tmpdir(), `curator_test_direct_${Date.now()}.db`);
+
+  const runner = await createPokerDirectRunner({
+    databasePath: testDb,
+    forceReset: true,
+    maxSeats: 4,
+    startingChips: 1000,
+  });
+
+  // 1. Initial synchronous step advances until human turn or hand start
+  const step1 = await runner.stepUntilHumanTurnOrEnd(50);
+  assert(step1.gameState !== null);
+  assert.equal(step1.gameState?.players.length, 4);
+
+  // 2. Either we are at human turn (PREFLOP) or game is advancing
+  if (step1.waitingForHuman && step1.humanTurn) {
+    assert.equal(step1.humanTurn.street, 'PREFLOP');
+    assert(step1.humanTurn.choices.length > 0);
+
+    // 3. Submit human action (e.g. CALL or CHECK) and advance to next turn
+    const step2 = await runner.submitActionAndStep({ type: 'CALL', amount: 20 });
+    assert(step2.gameState !== null);
+  }
+
+  await runner.session.close();
+});
+
+
 
 
 

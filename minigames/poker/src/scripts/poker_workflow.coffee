@@ -17,7 +17,7 @@ seq "poker:dynamic_engine", [
     sbAmount: "$context.sbAmount || 10"
     bbAmount: "$context.bbAmount || 20"
     maxSeats: "$context.maxSeats || 6"
-    players: "$context.players || []"
+    players: "$context.players"
 
   emit_event "poker:lobby_ready",
     tableId: "$context.gameState.tableId"

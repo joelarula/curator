@@ -166,6 +166,9 @@ export class CuratorHostEvents extends EventEmitter {
         client.ping();
       }
     }, 30000);
+    if ((this.pingInterval as any)?.unref) {
+      (this.pingInterval as any).unref();
+    }
 
     return this.wss;
   }

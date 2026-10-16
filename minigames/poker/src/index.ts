@@ -7,3 +7,7 @@ export * from './scripts/pokerHandScript.js';
 export * from './db/seed.js';
 export * from './host.js';
 export * from './ui/groupChatPrompt.js';
+export * from './session/pokerSession.js';
+export * from './runner/pokerDirectRunner.js';
+export * from './server/pokerServer.js';
+export * from './client/pokerClient.js';

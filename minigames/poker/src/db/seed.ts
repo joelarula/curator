@@ -84,7 +84,7 @@ export async function seedPokerDatabase(options: PokerSeedOptions = {}): Promise
       projectId: project.id,
       conversationId: conversation.id,
       toolName: 'poker_session',
-      status: 'NEW',
+      status: 'COMPLETED',
     },
   });
 

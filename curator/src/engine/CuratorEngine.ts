@@ -143,5 +143,9 @@ export class CuratorEngine {
   }
 }
 
-// Singleton registry instance
-export const curatorEngine = new CuratorEngine();
+// Singleton registry instance with global cross-module isolation guarantee
+const GLOBAL_CURATOR_ENGINE_KEY = Symbol.for('curator.engine.instance');
+export const curatorEngine: CuratorEngine =
+  (globalThis as any)[GLOBAL_CURATOR_ENGINE_KEY] ||
+  ((globalThis as any)[GLOBAL_CURATOR_ENGINE_KEY] = new CuratorEngine());
+
