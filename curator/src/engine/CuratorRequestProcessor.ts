@@ -866,6 +866,7 @@ export class CuratorRequestProcessor {
           pendingDependencies: isFirst ? 0 : 1,
           notifyId: currentNotifyId,
           ast: nodeAst,
+          context: isFirst ? req.context : undefined,
           priority: nodeAst.priority ?? 0,
           scheduledAt: this.resolveScheduledAt(nodeAst) ?? null
         }
@@ -908,6 +909,7 @@ export class CuratorRequestProcessor {
           pendingDependencies: 0,
           notifyId: joinReq.id,
           ast: nodeAst,
+          context: req.context,
           priority: nodeAst.priority ?? 0,
           scheduledAt: this.resolveScheduledAt(nodeAst) ?? null
         }
@@ -1522,7 +1524,9 @@ export class CuratorRequestProcessor {
           conversationId: req.conversationId,
           userId: req.userId,
           projectId: req.projectId,
-          prisma: this.prisma
+          prisma: this.prisma,
+          context: req.context,
+          state: req.context?.state
         }
       });
       result = typeof rawOutput === 'string' ? rawOutput : JSON.stringify(rawOutput);
@@ -1544,9 +1548,7 @@ export class CuratorRequestProcessor {
       const updatedContext = { ...(req.context || {}), [toolKey]: sanitizedOutput };
       updatedContext[ast.toolName] = sanitizedOutput;
       if (sanitizedOutput && typeof sanitizedOutput === 'object' && !Array.isArray(sanitizedOutput)) {
-        if ('gameState' in sanitizedOutput) {
-          updatedContext.gameState = sanitizedOutput.gameState;
-        }
+        Object.assign(updatedContext, sanitizedOutput);
       }
       req.context = updatedContext;
       try {
