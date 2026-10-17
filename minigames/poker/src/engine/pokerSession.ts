@@ -256,49 +256,6 @@ export async function createPokerGameSession(
     };
   };
 
-  const submitHumanSpeech = async (params: {
-    text: string;
-    speechAct?: string;
-    targetId?: string;
-    speakerName?: string;
-    speakerId?: string;
-    tableId?: string | number;
-    sessionId?: string;
-  }): Promise<any> => {
-    const targetConvId = params.tableId !== undefined ? Number(params.tableId) : conversation.id;
-    const tool = host.engine.tools.get('poker_human_speech');
-    if (!tool) return null;
-
-    const currentGameState = await getGameState(targetConvId);
-    const speakerName = params.speakerName || 'You';
-    const speakerId = params.speakerId || params.sessionId || 'player-human';
-
-    const result: any = await tool.runAsync({
-      args: {
-        state: currentGameState,
-        speechAct: params.speechAct || 'TABLE_TALK',
-        text: params.text || '',
-        targetId: params.targetId,
-        speakerId,
-        speakerName,
-      },
-      toolContext: { prisma, conversationId: targetConvId },
-    });
-
-    host.events.broadcast('poker:speech_response', {
-      speaker: speakerName,
-      text: params.text,
-      speechAct: params.speechAct || 'TABLE_TALK',
-      aiReply: result?.aiResponse?.text,
-      targetId: params.targetId,
-      tableId: String(targetConvId),
-      conversationId: targetConvId,
-      ...(params.sessionId ? { sessionId: params.sessionId } : {}),
-    });
-
-    return result;
-  };
-
   const send = async (
     eventName: string,
     payload?: any,
@@ -308,24 +265,52 @@ export async function createPokerGameSession(
     const targetConvId = tableId !== undefined ? Number(tableId) : conversation.id;
 
     if (eventName === 'poker:speech') {
-      return submitHumanSpeech({ ...payload, tableId: targetConvId, sessionId });
+      const tool = host.engine.tools.get('poker_human_speech');
+      if (!tool) return null;
+
+      const currentGameState = await getGameState(targetConvId);
+      const speakerName = payload?.speakerName || 'You';
+      const speakerId = payload?.speakerId || sessionId || 'player-human';
+
+      const result: any = await tool.runAsync({
+        args: {
+          state: currentGameState,
+          speechAct: payload?.speechAct || 'TABLE_TALK',
+          text: payload?.text || '',
+          targetId: payload?.targetId,
+          speakerId,
+          speakerName,
+        },
+        toolContext: { prisma, conversationId: targetConvId },
+      });
+
+      host.events.broadcast('poker:speech_response', {
+        speaker: speakerName,
+        text: payload?.text,
+        speechAct: payload?.speechAct || 'TABLE_TALK',
+        aiReply: result?.aiResponse?.text,
+        targetId: payload?.targetId,
+        tableId: String(targetConvId),
+        conversationId: targetConvId,
+        ...(sessionId ? { sessionId } : {}),
+      });
+
+      return result;
     }
+
+    // 2. Normalize canonical event names and payloads
+    let targetEvent = eventName;
+    let targetPayload = payload;
 
     if (eventName === 'poker:pause') {
-      return send('poker:human_action', { type: 'PAUSE' }, targetConvId, sessionId);
+      targetEvent = 'poker:human_action';
+      targetPayload = { type: 'PAUSE' };
+    } else if (eventName === 'poker:resume') {
+      targetEvent = 'poker:resume_action';
+      targetPayload = { type: 'RESUME' };
     }
 
-    if (eventName === 'poker:resume') {
-      return send('poker:resume_action', { type: 'RESUME' }, targetConvId, sessionId);
-    }
-
-    if (eventName === 'poker:human_action' && payload) {
-      if (payload.type === 'RESUME' || payload.type === 'EXIT') {
-        const wokenResume = await send('poker:resume_action', payload, targetConvId, sessionId);
-        if (wokenResume) return true;
-      }
-    }
-
+    // 3. Wake matching waiting requests in the AST state machine
     const waitingReqs = await prisma.request.findMany({
       where: {
         conversationId: targetConvId,
@@ -336,15 +321,23 @@ export async function createPokerGameSession(
     let woken = false;
     for (const req of waitingReqs) {
       const ctx = (req.context as any) || {};
-      if (ctx.waitEvent === eventName) {
+
+      // Match direct target event, or resume action if client sent human_action with RESUME/EXIT while paused
+      const matches =
+        ctx.waitEvent === targetEvent ||
+        (ctx.waitEvent === 'poker:resume_action' &&
+          targetEvent === 'poker:human_action' &&
+          (targetPayload?.type === 'RESUME' || targetPayload?.type === 'EXIT'));
+
+      if (matches) {
         const alias = ctx.payloadAlias;
         const updatedContext = { ...ctx };
         delete updatedContext.waitEvent;
         delete updatedContext.payloadAlias;
 
         if (alias) {
-          updatedContext.state = { ...(updatedContext.state || {}), [alias]: payload };
-          updatedContext[alias] = payload;
+          updatedContext.state = { ...(updatedContext.state || {}), [alias]: targetPayload };
+          updatedContext[alias] = targetPayload;
         }
 
         if (sessionId) {
@@ -363,8 +356,8 @@ export async function createPokerGameSession(
     }
 
     if (woken) {
-      host.events.broadcast(eventName, {
-        payload,
+      host.events.broadcast(targetEvent, {
+        payload: targetPayload,
         tableId: String(targetConvId),
         conversationId: targetConvId,
         ...(sessionId ? { sessionId } : {}),
@@ -483,100 +476,30 @@ export async function createPokerGameSession(
     tableId?: string | number,
     maxSteps: number = 500
   ): Promise<DirectStepResult> => {
-    let steps = 0;
     const targetConvId = tableId !== undefined ? Number(tableId) : conversation.id;
 
-    while (steps < maxSteps) {
-      const waiting = await getWaitingHumanTurn(targetConvId);
-      if (waiting) {
-        if (!options.quiet) {
-          console.log(`\x1b[32m✔ [Curator Engine] Action required from ${waiting.name} (chips: $${waiting.chips}, to call: $${waiting.toCall})\x1b[0m`);
-        }
-        return {
-          done: false,
-          waitingForHuman: true,
-          humanTurn: waiting,
-          gameState: await getGameState(targetConvId),
-          steps,
-        };
-      }
-
-      // Check for any waiting event gate (poker:lobby_choice, poker:table_selected, etc.)
-      const anyWaitingReq = await prisma.request.findFirst({
-        where: {
-          conversationId: targetConvId,
-          status: { in: ['WAITING_FOR_EVENT', 'WAITING_FOR_USER', 'PAUSED'] },
-        },
-        orderBy: { updatedAt: 'desc' },
-      });
-
-      if (anyWaitingReq) {
-        const ctx = (anyWaitingReq.context as any) || {};
-        if (ctx.waitEvent && ctx.waitEvent !== 'poker:human_action') {
-          return {
-            done: false,
-            waitingForHuman: true,
-            humanTurn: null,
-            gameState: await getGameState(targetConvId),
-            steps,
-          };
-        }
-      }
-
-      if (!options.quiet && steps === 0) {
-        console.log(`\x1b[90m[Curator Engine] Stepping AST workflow on Table #${targetConvId}...\x1b[0m`);
-      }
-
-      const processed = await host.processor.step({ conversationId: targetConvId });
-      if (processed === 0) {
-        const waitingAfter = await getWaitingHumanTurn(targetConvId);
-        const gameState = await getGameState(targetConvId);
-        if (waitingAfter) {
-          if (!options.quiet) {
-            console.log(`\x1b[32m✔ [Curator Engine] Action required from ${waitingAfter.name} (chips: $${waitingAfter.chips}, to call: $${waitingAfter.toCall})\x1b[0m`);
-          }
-          return {
-            done: false,
-            waitingForHuman: true,
-            humanTurn: waitingAfter,
-            gameState,
-            steps,
-          };
-        }
-        const anyWaitingAfter = await prisma.request.findFirst({
-          where: {
-            conversationId: targetConvId,
-            status: { in: ['WAITING_FOR_EVENT', 'WAITING_FOR_USER', 'PAUSED'] },
-          },
-          orderBy: { updatedAt: 'desc' },
-        });
-        if (anyWaitingAfter) {
-          return {
-            done: false,
-            waitingForHuman: true,
-            humanTurn: null,
-            gameState,
-            steps,
-          };
-        }
-        return {
-          done: Boolean(gameState?.gameOver),
-          waitingForHuman: false,
-          humanTurn: null,
-          gameState,
-          steps,
-        };
-      }
-      steps++;
+    if (!options.quiet) {
+      console.log(`\x1b[90m[Curator Engine] Stepping AST workflow on Table #${targetConvId}...\x1b[0m`);
     }
 
+    const result = await host.processor.stepUntil({
+      conversationId: targetConvId,
+      maxSteps,
+    });
+
+    const humanTurn = await getWaitingHumanTurn(targetConvId);
     const gameState = await getGameState(targetConvId);
+
+    if (humanTurn && !options.quiet) {
+      console.log(`\x1b[32m✔ [Curator Engine] Action required from ${humanTurn.name} (chips: $${humanTurn.chips}, to call: $${humanTurn.toCall})\x1b[0m`);
+    }
+
     return {
-      done: Boolean(gameState?.gameOver),
-      waitingForHuman: false,
-      humanTurn: null,
+      done: result.done || Boolean(gameState?.gameOver),
+      waitingForHuman: result.waiting,
+      humanTurn,
       gameState,
-      steps,
+      steps: result.steps,
     };
   };
 

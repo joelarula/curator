@@ -23,6 +23,20 @@ export interface CuratorRequestProcessorOptions {
   poolLimit?: number;
 }
 
+export interface StepUntilOptions {
+  conversationId?: number;
+  maxSteps?: number;
+  until?: (req: any) => boolean;
+}
+
+export interface StepUntilResult {
+  steps: number;
+  done: boolean;
+  waiting: boolean;
+  waitingRequest: any | null;
+  waitEvent?: string;
+}
+
 export class CuratorRequestProcessor {
   private prisma: any;
   private timer: NodeJS.Timeout | null = null;
@@ -563,6 +577,102 @@ export class CuratorRequestProcessor {
     }
 
     return lockedRequests.length;
+  }
+
+  /**
+   * Universally steps an AST workflow synchronously in-process
+   * until an asynchronous wait gate is reached (WAITING_FOR_EVENT / WAITING_FOR_USER / PAUSED)
+   * or execution completes.
+   */
+  public async stepUntil(options?: StepUntilOptions): Promise<StepUntilResult> {
+    const maxSteps = options?.maxSteps ?? 500;
+    let steps = 0;
+    const convId = options?.conversationId;
+
+    while (steps < maxSteps) {
+      // 1. Check if currently parked at an asynchronous wait gate
+      const waitingReq = await this.prisma.request.findFirst({
+        where: {
+          ...(convId !== undefined ? { conversationId: convId } : {}),
+          status: { in: ['WAITING_FOR_EVENT', 'WAITING_FOR_USER', 'PAUSED'] },
+        },
+        orderBy: { updatedAt: 'desc' },
+      });
+
+      if (waitingReq) {
+        const ctx = (waitingReq.context as any) || {};
+        return {
+          steps,
+          done: false,
+          waiting: true,
+          waitingRequest: waitingReq,
+          waitEvent: ctx.waitEvent,
+        };
+      }
+
+      // 2. Execute one AST step cycle
+      const processed = await this.step({ conversationId: convId });
+
+      if (processed === 0) {
+        // Re-check wait status in case the last processed task parked into a wait state
+        const finalWait = await this.prisma.request.findFirst({
+          where: {
+            ...(convId !== undefined ? { conversationId: convId } : {}),
+            status: { in: ['WAITING_FOR_EVENT', 'WAITING_FOR_USER', 'PAUSED'] },
+          },
+          orderBy: { updatedAt: 'desc' },
+        });
+
+        if (finalWait) {
+          const ctx = (finalWait.context as any) || {};
+          return {
+            steps,
+            done: false,
+            waiting: true,
+            waitingRequest: finalWait,
+            waitEvent: ctx.waitEvent,
+          };
+        }
+
+        return {
+          steps,
+          done: true,
+          waiting: false,
+          waitingRequest: null,
+        };
+      }
+
+      steps++;
+
+      // 3. Optional custom predicate check
+      if (options?.until) {
+        const latestReq = await this.prisma.request.findFirst({
+          where: {
+            ...(convId !== undefined ? { conversationId: convId } : {}),
+          },
+          orderBy: { updatedAt: 'desc' },
+        });
+        if (latestReq && options.until(latestReq)) {
+          return {
+            steps,
+            done: latestReq.status === 'COMPLETED',
+            waiting:
+              latestReq.status === 'WAITING_FOR_EVENT' ||
+              latestReq.status === 'WAITING_FOR_USER' ||
+              latestReq.status === 'PAUSED',
+            waitingRequest: latestReq,
+            waitEvent: (latestReq.context as any)?.waitEvent,
+          };
+        }
+      }
+    }
+
+    return {
+      steps,
+      done: false,
+      waiting: false,
+      waitingRequest: null,
+    };
   }
 
   private async runTask(req: any) {
