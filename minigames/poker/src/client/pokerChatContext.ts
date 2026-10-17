@@ -1,6 +1,7 @@
 /**
- * Re-exports generalized GroupChatPrompt from @curator/host and provides
- * reusable chat context builder for poker game sessions.
+ * Poker Chat Context & Client Shell Configuration.
+ * Binds Texas Hold'em domain verbs (/whisper, /banter, /table, /standings, /narratives)
+ * and action commands (call, fold, raise, allin, pause, resume, exit) to ClientShell.
  */
 import {
   promptGroupChatAction,
@@ -19,7 +20,7 @@ import {
   type ClientShellConfig,
 } from '../curatorHost.ts';
 import type { PlayerAction, PokerGameState } from '../types.ts';
-import { renderTable, renderCompactStatus, renderStandings, renderNarratives } from './tableRenderer.ts';
+import { renderTable, renderCompactStatus, renderStandings, renderNarratives } from '../ui/tableRenderer.ts';
 import { getPokerStandings } from '../plugins/pokerPlugin.ts';
 
 export {

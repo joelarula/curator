@@ -138,7 +138,7 @@ export function printChatHelp(ctx?: GroupChatContext): void {
     console.log(`  \x1b[1m${'/state'.padEnd(28)}\x1b[0m Inspect current raw state / context`);
     console.log(`  \x1b[1m${'/eval <expr>'.padEnd(28)}\x1b[0m Evaluate expression against state`);
   }
-  console.log(`  \x1b[1m${'/agent <name> [prompt]'.padEnd(28)}\x1b[0m Query or trigger an agent`);
+  console.log(`  \x1b[1m${'/resume, /unpause'.padEnd(28)}\x1b[0m Resume paused session or continue intermission`);
   console.log(`  \x1b[1m${'/help, /?'.padEnd(28)}\x1b[0m Show this help message`);
   console.log(`  \x1b[1m${'/quit, /exit, /q'.padEnd(28)}\x1b[0m Exit the session\n`);
 }
@@ -146,6 +146,7 @@ export function printChatHelp(ctx?: GroupChatContext): void {
 interface CommandDispatchResult {
   handled: boolean;
   shouldQuit?: boolean;
+  shouldResume?: boolean;
 }
 
 async function dispatchSlashCommand(
@@ -163,6 +164,10 @@ async function dispatchSlashCommand(
 
   if (cmd === 'quit' || cmd === 'exit' || cmd === 'q') {
     return { handled: true, shouldQuit: true };
+  }
+
+  if (cmd === 'resume' || cmd === 'unpause' || cmd === 'continue' || cmd === 'r' || cmd === 'c') {
+    return { handled: true, shouldResume: true };
   }
 
   // 1. Core state & eval inspection
@@ -493,9 +498,21 @@ export async function promptGroupChatIntermission(
     console.log(`\n\x1b[90m(${defaultHint})\x1b[0m`);
     const rawInput = (await askUser(rl, `\x1b[1m\x1b[32m${actor} > \x1b[0m`)).trim();
 
-    // Pressing ENTER proceeds!
-    if (!rawInput) {
+    // Pressing ENTER proceeds, or typing resume / continue / unpause
+    const lowerInput = rawInput.toLowerCase();
+    if (
+      !rawInput ||
+      lowerInput === 'resume' ||
+      lowerInput === 'unpause' ||
+      lowerInput === 'continue' ||
+      lowerInput === 'c' ||
+      lowerInput === 'r'
+    ) {
       return 'CONTINUE';
+    }
+
+    if (lowerInput === 'quit' || lowerInput === 'exit' || lowerInput === 'q') {
+      return 'QUIT';
     }
 
     // Slash commands
@@ -507,6 +524,9 @@ export async function promptGroupChatIntermission(
       const result = await dispatchSlashCommand(cmd, rest, ctx, actor, rl);
       if (result.shouldQuit) {
         return 'QUIT';
+      }
+      if (result.shouldResume) {
+        return 'CONTINUE';
       }
       continue;
     }
