@@ -12,8 +12,14 @@ export {
   type GroupChatContext,
   type ChatVerbDefinition,
   type ChatToolDefinition,
+  type ChatActionCommand,
   DEFAULT_CHAT_VERBS,
 } from './cli/groupChatPrompt.js';
+export {
+  ClientShell,
+  createClientShell,
+  type ClientShellConfig,
+} from './cli/clientShell.js';
 export * from './types.js';
 
 

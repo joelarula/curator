@@ -7,14 +7,18 @@ import {
   promptGroupChatIntermission,
   printChatHelp,
   askUser,
+  ClientShell,
+  createClientShell,
   DEFAULT_CHAT_VERBS,
   type ChatParticipant,
   type ChatChoice,
   type GroupChatContext,
   type ChatVerbDefinition,
   type ChatToolDefinition,
+  type ChatActionCommand,
+  type ClientShellConfig,
 } from '../curatorHost.ts';
-import type { PokerGameState } from '../types.ts';
+import type { PlayerAction, PokerGameState } from '../types.ts';
 import { renderTable, renderCompactStatus, renderStandings, renderNarratives } from './tableRenderer.ts';
 import { getPokerStandings } from '../plugins/pokerPlugin.ts';
 
@@ -23,12 +27,16 @@ export {
   promptGroupChatIntermission,
   printChatHelp,
   askUser,
+  ClientShell,
+  createClientShell,
   DEFAULT_CHAT_VERBS,
   type ChatParticipant,
   type ChatChoice,
   type GroupChatContext,
   type ChatVerbDefinition,
   type ChatToolDefinition,
+  type ChatActionCommand,
+  type ClientShellConfig,
 };
 
 export interface CreatePokerChatContextOptions {
@@ -99,6 +107,75 @@ export function createPokerChatContext(opts: CreatePokerChatContextOptions): Gro
           if (state) console.log(renderTable(state, false));
           return true;
         },
+      },
+    ],
+    getState: opts.getGameState,
+    actionCommands: [
+      {
+        name: 'call',
+        aliases: ['check', 'c', 'chk'],
+        description: 'Match current bet or check',
+        parse: () => ({ type: 'CALL' }),
+      },
+      {
+        name: 'fold',
+        aliases: ['f'],
+        description: 'Fold your hand and forfeit the pot',
+        parse: () => ({ type: 'FOLD' }),
+      },
+      {
+        name: 'raise',
+        aliases: ['r', 'bet', 'b'],
+        syntax: 'raise <amount>',
+        usage: '<amount>',
+        description: 'Raise the current bet to a specified amount',
+        parse: (args, tokens) => {
+          const rawAmt = tokens[0] || args;
+          const state = opts.getGameState();
+          if (!rawAmt) {
+            // Default to min raise if no amount specified
+            const currentBet = state?.currentBet || 0;
+            const minRaise = (state?.minRaise || 20);
+            return { type: 'RAISE', amount: currentBet + minRaise };
+          }
+          const amt = parseInt(rawAmt, 10);
+          if (isNaN(amt) || amt <= 0) {
+            console.log(`\x1b[31m[Error] Invalid raise amount: "${rawAmt}". Please specify a positive number.\x1b[0m`);
+            return null;
+          }
+          return { type: 'RAISE', amount: amt };
+        },
+      },
+      {
+        name: 'allin',
+        aliases: ['shove'],
+        syntax: 'allin',
+        description: 'Bet all remaining chips',
+        parse: () => {
+          const state = opts.getGameState();
+          const activeIdx = state?.activePlayerIdx ?? 0;
+          const player = state?.players?.[activeIdx];
+          const chips = player?.chips || 0;
+          return { type: 'ALL_IN', amount: chips };
+        },
+      },
+      {
+        name: 'pause',
+        aliases: ['p', 'hold'],
+        description: 'Pause the current game session',
+        parse: () => ({ type: 'PAUSE' }),
+      },
+      {
+        name: 'resume',
+        aliases: ['unpause', 'cont'],
+        description: 'Resume a paused game session',
+        parse: () => ({ type: 'RESUME' }),
+      },
+      {
+        name: 'exit',
+        aliases: ['quit', 'q'],
+        description: 'Exit table session safely to terminal',
+        parse: () => ({ type: 'EXIT' }),
       },
     ],
     redrawView: () => {

@@ -341,6 +341,10 @@ export async function createPokerServer(options: PokerServerOptions = {}): Promi
           if (woken) {
             await session.stepUntilHumanTurn(tableId);
           }
+        } else if (msg.type === 'poker:pause') {
+          await session.pauseTable(tableId);
+        } else if (msg.type === 'poker:resume') {
+          await session.resumeTable(tableId);
         } else if (msg.type === 'poker:speech') {
           await session.submitHumanSpeech({
             text: msg.payload?.text,

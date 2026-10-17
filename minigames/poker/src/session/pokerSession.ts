@@ -39,6 +39,7 @@ export interface PokerTableInfo {
   conversationId: number;
   title: string;
   createdAt: Date;
+  status?: string;
   gameState: PokerGameState | null;
   waitingForHuman: boolean;
   humanTurn: HumanTurnPromptInfo | null;
@@ -71,6 +72,8 @@ export interface PokerGameSession {
   submitHumanSpeech(params: { text: string; speechAct?: string; targetId?: string; tableId?: string | number; sessionId?: string }): Promise<any>;
   stepUntilHumanTurn(tableId?: string | number, maxSteps?: number): Promise<DirectStepResult>;
   submitHumanActionAndStep(action: PlayerAction, tableId?: string | number, sessionId?: string, maxSteps?: number): Promise<DirectStepResult>;
+  pauseTable(tableId?: string | number): Promise<void>;
+  resumeTable(tableId?: string | number): Promise<DirectStepResult>;
   close(): Promise<void>;
 }
 
@@ -267,7 +270,11 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
     let woken = false;
     for (const req of waitingReqs) {
       const ctx = (req.context as any) || {};
-      if (ctx.waitEvent === 'poker:human_action') {
+      const isTargetEvent =
+        ctx.waitEvent === 'poker:human_action' ||
+        (ctx.waitEvent === 'poker:resume_action' && (action.type === 'RESUME' || action.type === 'EXIT'));
+
+      if (isTargetEvent) {
         const alias = ctx.payloadAlias;
         const updatedContext = { ...ctx };
         delete updatedContext.waitEvent;
@@ -275,9 +282,7 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
 
         if (alias) {
           updatedContext.state = { ...(updatedContext.state || {}), [alias]: action };
-          if (alias === 'humanAction') {
-            updatedContext.humanAction = action;
-          }
+          updatedContext[alias] = action;
         }
 
         if (sessionId) {
@@ -413,11 +418,17 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
       const gState = await getGameState(c.id);
       const waiting = await getWaitingHumanTurn(c.id);
       const meta = (c.metadata as any) || {};
+      const latestReq = await prisma.request.findFirst({
+        where: { conversationId: c.id },
+        orderBy: { updatedAt: 'desc' },
+      });
+      const isPaused = latestReq?.status === 'PAUSED' || (latestReq?.context as any)?.isPaused === true;
       list.push({
         tableId: String(c.id),
         conversationId: c.id,
         title: meta.tableName || c.title || `Table #${c.id}`,
         createdAt: c.createdAt,
+        status: isPaused ? 'PAUSED' : (latestReq?.status || 'ACTIVE'),
         gameState: gState,
         waitingForHuman: waiting !== null,
         humanTurn: waiting,
@@ -524,6 +535,26 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
     return stepUntilHumanTurn(tableId, maxSteps);
   };
 
+  const pauseTable = async (tableId?: string | number): Promise<void> => {
+    const targetConvId = tableId !== undefined ? Number(tableId) : conversation.id;
+    await submitHumanAction({ type: 'PAUSE' }, targetConvId);
+    await stepUntilHumanTurn(targetConvId);
+  };
+
+  const resumeTable = async (tableId?: string | number): Promise<DirectStepResult> => {
+    const targetConvId = tableId !== undefined ? Number(tableId) : conversation.id;
+    const pausedReq = await prisma.request.findFirst({
+      where: { conversationId: targetConvId, status: 'PAUSED' },
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (pausedReq) {
+      await host.resumeRequest(pausedReq.id);
+    } else {
+      await submitHumanAction({ type: 'RESUME' }, targetConvId);
+    }
+    return stepUntilHumanTurn(targetConvId);
+  };
+
   const close = async (): Promise<void> => {
     await host.stop();
   };
@@ -546,6 +577,8 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
     submitHumanSpeech,
     stepUntilHumanTurn,
     submitHumanActionAndStep,
+    pauseTable,
+    resumeTable,
     close,
   };
 }

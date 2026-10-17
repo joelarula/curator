@@ -60,14 +60,42 @@ seq "poker:dynamic_engine", [
                     street: "$context.gameState.currentStreet"
                     choices: "$context.poker_get_choices.choices"
                   wait_event "poker:human_action", "humanAction"
-                  tool "poker_apply_action", state: "$context.gameState", action: "$context.humanAction"
+                  if_else "$context.humanAction?.type == 'PAUSE'",
+                    seq("poker:handle_pause", [
+                      set_state isPaused: true
+                      emit_event "poker:table_paused", tableId: "$context.gameState.tableId"
+                      while_loop "$context.isPaused and not $context.sessionEnded",
+                        seq("poker:wait_resume", [
+                          wait_event "poker:resume_action", "resumeCmd"
+                          if_else "$context.resumeCmd?.type == 'RESUME' or $context.resumeCmd == 'RESUME'",
+                            seq("poker:unpause", [
+                              set_state isPaused: false
+                              emit_event "poker:table_resumed", tableId: "$context.gameState.tableId"
+                            ]),
+                            if_else "$context.resumeCmd?.type == 'EXIT' or $context.resumeCmd == 'EXIT'",
+                              seq("poker:pause_exit", [
+                                set_state sessionEnded: true
+                                set_state isPaused: false
+                                emit_event "poker:session_exited", reason: "user_exit"
+                              ])
+                        ])
+                    ]),
+                    if_else "$context.humanAction?.type == 'EXIT'",
+                      seq("poker:handle_exit", [
+                        set_state sessionEnded: true
+                        emit_event "poker:session_exited", reason: "user_exit"
+                      ]),
+                      seq("poker:apply_human_action", [
+                        tool "poker_apply_action", state: "$context.gameState", action: "$context.humanAction"
+                      ])
                 ]),
                 seq("poker:ai_agent_flow", [
                   tool "poker_ai_decision", state: "$context.gameState"
                   tool "poker_apply_action", state: "$context.gameState", action: "$context.poker_ai_decision.action || $context.action"
                 ])
-              emit_event "poker:action_taken",
-                player: "$context.gameState.players[$context.gameState.activePlayerIdx].name"
+              if_else "not $context.sessionEnded and not $context.isPaused",
+                emit_event "poker:action_taken",
+                  player: "$context.gameState.players[$context.gameState.activePlayerIdx].name"
             ]
           if_else "$context.gameState and not $context.gameState.handOver",
             seq("poker:deal_next_street", [

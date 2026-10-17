@@ -54,6 +54,18 @@ export function renderPokerEvent(
       }
       break;
 
+    case 'poker:table_paused':
+      console.log(`\n\x1b[33m⏸ [PAUSED] Table session paused. Type /resume to continue or /exit to quit.\x1b[0m`);
+      break;
+
+    case 'poker:table_resumed':
+      console.log(`\n\x1b[32m▶ [RESUMED] Table session resumed! Stepping to next action...\x1b[0m`);
+      break;
+
+    case 'poker:session_exited':
+      console.log(`\n\x1b[33m✔ [SESSION ENDED] ${payload?.reason === 'user_exit' ? 'Exited table session.' : (payload?.reason || 'Session closed.')}\x1b[0m\n`);
+      break;
+
     case 'poker:game_over':
       console.log(`\n\x1b[1m\x1b[32m✔ [GAME OVER] Conquered the table!\x1b[0m\n`);
       if (payload?.standings) {

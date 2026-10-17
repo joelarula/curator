@@ -10,7 +10,7 @@ export interface Card {
 
 export type Street = 'PREFLOP' | 'FLOP' | 'TURN' | 'RIVER' | 'SHOWDOWN';
 
-export type ActionType = 'FOLD' | 'CHECK' | 'CALL' | 'RAISE' | 'ALL_IN';
+export type ActionType = 'FOLD' | 'CHECK' | 'CALL' | 'RAISE' | 'ALL_IN' | 'PAUSE' | 'RESUME' | 'EXIT';
 
 /**
  * Unified with Curator's canonical Tabletop & Interaction Matrix speech acts
