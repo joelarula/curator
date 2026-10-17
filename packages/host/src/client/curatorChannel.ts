@@ -37,8 +37,7 @@ export interface DirectChannelTarget {
   conversationId?: number;
   host?: { events: { onEvent(handler: (event: any) => void): () => void } };
   events?: { onEvent(handler: (event: any) => void): () => void };
-  submitEvent(type: string, payload?: any, tableId?: string | number, sessionId?: string): Promise<any>;
-  stepUntilHumanTurn?(tableId?: string | number, maxSteps?: number): Promise<any>;
+  send(type: string, payload?: any, tableId?: string | number, sessionId?: string): Promise<any>;
   step?(tableId?: string | number, maxSteps?: number): Promise<any>;
   close(): Promise<void>;
 }
@@ -166,17 +165,13 @@ export function createDirectChannel(
       return () => {};
     },
     async send(type: string, payload?: any) {
-      await session.submitEvent(type, payload, activeTargetId);
-      if (typeof session.stepUntilHumanTurn === 'function') {
-        await session.stepUntilHumanTurn(activeTargetId);
-      } else if (typeof session.step === 'function') {
+      await session.send(type, payload, activeTargetId);
+      if (typeof session.step === 'function') {
         await session.step(activeTargetId);
       }
     },
     async start() {
-      if (typeof session.stepUntilHumanTurn === 'function') {
-        await session.stepUntilHumanTurn(activeTargetId);
-      } else if (typeof session.step === 'function') {
+      if (typeof session.step === 'function') {
         await session.step(activeTargetId);
       }
     },

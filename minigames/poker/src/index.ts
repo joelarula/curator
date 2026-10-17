@@ -6,7 +6,7 @@ export * from './ui/tableRenderer.ts';
 export * from './db/seed.ts';
 export * from './host.ts';
 export * from './client/pokerChatContext.ts';
-export * from './session/pokerSession.ts';
+export * from './engine/pokerSession.ts';
 export * from './server/pokerServer.ts';
 export * from './client/pokerClient.ts';
 export * from './graphql/index.ts';

@@ -3,7 +3,7 @@ import {
   createPokerGameSession,
   type PokerGameSession,
   type PokerSessionOptions,
-} from '../session/pokerSession.ts';
+} from '../engine/pokerSession.ts';
 import { renderPokerEvent } from '../ui/pokerUiEvents.ts';
 import { renderTable } from '../ui/tableRenderer.ts';
 import {

@@ -891,7 +891,7 @@ test('Poker Client-Server Architecture: Server boots, accepts WebSocket client, 
 
 test('Poker Direct Synchronous Execution: Runs AST workflow step-by-step from human turn to human turn (Zero Outer APIs)', async () => {
   const { createPokerHost } = await import('../src/host.ts');
-  const { createPokerGameSession } = await import('../src/session/pokerSession.ts');
+  const { createPokerGameSession } = await import('../src/engine/pokerSession.ts');
   const testDb = path.join(process.env.TEMP || os.tmpdir(), `curator_test_direct_${Date.now()}.db`);
 
   const host = await createPokerHost({
@@ -905,7 +905,7 @@ test('Poker Direct Synchronous Execution: Runs AST workflow step-by-step from hu
   });
 
   // 1. Initial synchronous step advances until human turn or hand start
-  const step1 = await session.stepUntilHumanTurn(session.tableId, 50);
+  const step1 = await session.step(session.tableId, 50);
   assert(step1.gameState !== null);
   assert.equal(step1.gameState?.players.length, 4);
 
@@ -915,7 +915,8 @@ test('Poker Direct Synchronous Execution: Runs AST workflow step-by-step from hu
     assert(step1.humanTurn.choices.length > 0);
 
     // 3. Submit human action and advance to next turn directly in Curator
-    const step2 = await session.submitHumanActionAndStep({ type: 'CALL', amount: 20 }, session.tableId);
+    await session.send('poker:human_action', { type: 'CALL', amount: 20 }, session.tableId);
+    const step2 = await session.step(session.tableId);
     assert(step2.gameState !== null);
   }
 

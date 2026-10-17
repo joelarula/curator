@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { WebSocket } from 'ws';
-import { createPokerGameSession, type PokerGameSession, type PokerSessionOptions } from '../session/pokerSession.ts';
+import { createPokerGameSession, type PokerGameSession, type PokerSessionOptions } from '../engine/pokerSession.ts';
 import { executePokerGraphQL, POKER_SCHEMA_SDL } from '../graphql/index.ts';
 import { createPokerHost } from '../host.ts';
 import type { CuratorHost } from '../curatorHost.ts';
@@ -187,9 +187,9 @@ export async function createPokerServer(options: PokerServerOptions = {}): Promi
           const body = await parseJsonBody(req);
           const action = body.action || body;
           const sessionId = (req.headers['x-session-id'] as string) || body.sessionId || undefined;
-          const woken = await session.submitHumanAction(action, tableId, sessionId);
+          const woken = await session.send('poker:human_action', action, tableId, sessionId);
           if (woken) {
-            await session.stepUntilHumanTurn(tableId);
+            await session.step(tableId);
           }
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: true, tableId, woken, action, sessionId }));
@@ -204,13 +204,13 @@ export async function createPokerServer(options: PokerServerOptions = {}): Promi
         try {
           const body = await parseJsonBody(req);
           const sessionId = (req.headers['x-session-id'] as string) || body.sessionId || undefined;
-          const result = await session.submitHumanSpeech({
+          const result = await session.send('poker:speech', {
             text: body.text,
             speechAct: body.speechAct,
             targetId: body.targetId,
-            tableId,
-            sessionId,
-          });
+            speakerName: body.speakerName,
+            speakerId: body.speakerId,
+          }, tableId, sessionId);
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: true, tableId, result, sessionId }));
         } catch (err: any) {
@@ -228,7 +228,7 @@ export async function createPokerServer(options: PokerServerOptions = {}): Promi
         const action = parsed.action || parsed;
         const targetTableId = parsed.tableId || session.tableId;
         const sessionId = (req.headers['x-session-id'] as string) || parsed.sessionId || undefined;
-        const woken = await session.submitHumanAction(action, targetTableId, sessionId);
+        const woken = await session.send('poker:human_action', action, targetTableId, sessionId);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, tableId: targetTableId, woken, action, sessionId }));
       } catch (err: any) {
@@ -345,33 +345,10 @@ export async function createPokerServer(options: PokerServerOptions = {}): Promi
           return;
         }
 
-        if (msg.type === 'poker:human_action') {
-          const action = msg.payload || msg.action;
-          const woken = await session.submitHumanAction(action, tableId, sessionId);
+        if (typeof msg.type === 'string' && msg.type.startsWith('poker:')) {
+          const woken = await session.send(msg.type, msg.payload || msg.action, tableId, sessionId);
           if (woken) {
-            await session.stepUntilHumanTurn(tableId);
-          }
-        } else if (msg.type === 'poker:lobby_choice' || msg.type === 'poker:table_selected') {
-          const woken = await session.submitEvent(msg.type, msg.payload, tableId, sessionId);
-          if (woken) {
-            await session.stepUntilHumanTurn(tableId);
-          }
-        } else if (msg.type === 'poker:pause') {
-          await session.pauseTable(tableId);
-        } else if (msg.type === 'poker:resume') {
-          await session.resumeTable(tableId);
-        } else if (msg.type === 'poker:speech') {
-          await session.submitHumanSpeech({
-            text: msg.payload?.text,
-            speechAct: msg.payload?.speechAct,
-            targetId: msg.payload?.targetId,
-            tableId,
-            sessionId,
-          });
-        } else if (typeof msg.type === 'string' && msg.type.startsWith('poker:')) {
-          const woken = await session.submitEvent(msg.type, msg.payload, tableId, sessionId);
-          if (woken) {
-            await session.stepUntilHumanTurn(tableId);
+            await session.step(tableId);
           }
         }
       } catch (_) {}
