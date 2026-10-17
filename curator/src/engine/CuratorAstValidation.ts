@@ -63,7 +63,7 @@ const schema: Record<string, any> = {
     },
     {
       type: 'object',
-      properties: { ...baseProperties, type: { const: 'Curator_Tool' }, toolName: { type: 'string', minLength: 1 }, args: { type: 'object' }, parameters: { type: 'object' } },
+      properties: { ...baseProperties, type: { const: 'Curator_Tool' }, toolName: { type: 'string', minLength: 1 }, args: { type: 'object' }, parameters: { type: 'object' }, as: { type: 'string' }, outputKey: { type: 'string' } },
       required: ['type', 'toolName'],
       additionalProperties: false,
       anyOf: [{ required: ['args'] }, { required: ['parameters'] }, { not: { anyOf: [{ required: ['args'] }, { required: ['parameters'] }] } }],

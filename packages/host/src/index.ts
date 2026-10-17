@@ -20,6 +20,15 @@ export {
   createClientShell,
   type ClientShellConfig,
 } from './cli/clientShell.js';
+export {
+  type CuratorChannel,
+  type WebSocketChannelOptions,
+  type DirectChannelTarget,
+  normalizeWsUrl,
+  createWebSocketChannel,
+  createDirectChannel,
+} from './client/curatorChannel.js';
 export * from './types.js';
+
 
 

@@ -75,9 +75,6 @@ sanitizeAction = (rawAction, toCall = 0, chips = 0, minRaise = 20) ->
   {
     type: actionType
     amount: amount
-    speech: rawAction?.speech
-    speechAct: rawAction?.speechAct or 'TABLE_TALK'
-    innerMonologue: rawAction?.innerMonologue
   }
 
 getLegalChoices = (toCall = 0, chips = 0, minRaise = 20, currentBet = 0) ->

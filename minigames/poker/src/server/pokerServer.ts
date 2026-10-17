@@ -2,6 +2,7 @@ import http from 'node:http';
 import { WebSocket } from 'ws';
 import { createPokerGameSession, type PokerGameSession, type PokerSessionOptions } from '../session/pokerSession.ts';
 import { executePokerGraphQL, POKER_SCHEMA_SDL } from '../graphql/index.ts';
+import { createPokerHost } from '../host.ts';
 import type { CuratorHost } from '../curatorHost.ts';
 
 export interface PokerServerOptions extends PokerSessionOptions {
@@ -50,16 +51,25 @@ export async function createPokerServer(options: PokerServerOptions = {}): Promi
   const pollInterval = options.pollInterval || 300;
 
   if (!options.quiet) {
-    console.log(`\x1b[90m[Poker Server] Initializing Table Session & SQLite database...\x1b[0m`);
+    console.log(`\x1b[90m[Poker Server] Initializing Host runtime & SQLite database...\x1b[0m`);
   }
 
-  // 1. Initialize the shared unified session
-  const session = await createPokerGameSession({
+  const ownsHost = !options.curatorHost;
+
+  // 1. Boot or attach to the process host runtime
+  const host = options.curatorHost || await createPokerHost({
     ...options,
     intervalMs: pollInterval,
   });
 
-  const { prisma, conversation, host } = session;
+  // 2. Initialize the shared poker session inside the host
+  const session = await createPokerGameSession({
+    ...options,
+    curatorHost: host,
+    intervalMs: pollInterval,
+  });
+
+  const { prisma, conversation } = session;
 
   // 2. Create HTTP Server for health, REST APIs, and WebSocket upgrading
   const server = http.createServer(async (req, res) => {
@@ -341,6 +351,11 @@ export async function createPokerServer(options: PokerServerOptions = {}): Promi
           if (woken) {
             await session.stepUntilHumanTurn(tableId);
           }
+        } else if (msg.type === 'poker:lobby_choice' || msg.type === 'poker:table_selected') {
+          const woken = await session.submitEvent(msg.type, msg.payload, tableId, sessionId);
+          if (woken) {
+            await session.stepUntilHumanTurn(tableId);
+          }
         } else if (msg.type === 'poker:pause') {
           await session.pauseTable(tableId);
         } else if (msg.type === 'poker:resume') {
@@ -353,6 +368,11 @@ export async function createPokerServer(options: PokerServerOptions = {}): Promi
             tableId,
             sessionId,
           });
+        } else if (typeof msg.type === 'string' && msg.type.startsWith('poker:')) {
+          const woken = await session.submitEvent(msg.type, msg.payload, tableId, sessionId);
+          if (woken) {
+            await session.stepUntilHumanTurn(tableId);
+          }
         }
       } catch (_) {}
     });
@@ -380,6 +400,9 @@ export async function createPokerServer(options: PokerServerOptions = {}): Promi
       (server as any).closeAllConnections();
     }
     await session.close();
+    if (ownsHost) {
+      await host.stop();
+    }
     await new Promise<void>((resolve) => {
       server.close(() => resolve());
     });

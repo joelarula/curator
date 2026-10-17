@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import {
   evaluateBestHand,
   agenticDecidePokerAction,
@@ -249,11 +253,6 @@ test('Agent Discourse: Autonomous agents attach in-character dialogue and speech
 
   const action = await agenticDecidePokerAction(maddog, dummyState);
   assert(['RAISE', 'CALL', 'CHECK', 'FOLD', 'ALL_IN'].includes(action.type));
-  // When an agent speaks, the speech act is determined dynamically by the agent's character
-  if (action.speech) {
-    assert(typeof action.speech === 'string');
-    assert(['PROVOKE', 'BANTER', 'WHISPER', 'TABLE_TALK'].includes(action.speechAct || 'TABLE_TALK'));
-  }
 });
 
 test('Reactive CoffeeScript AST: Compiles dynamic poker state machine workflow', async () => {
@@ -931,12 +930,12 @@ test('Poker Direct Channel: In-process channel executes AST from action A to act
   });
 
   let eventsReceived: string[] = [];
-  channel.onEvent((ev) => eventsReceived.push(ev.type));
+  channel.on((ev) => eventsReceived.push(ev.type));
 
   await channel.start?.();
   assert(eventsReceived.includes('poker:new_round') || eventsReceived.includes('poker:lobby_ready'));
 
-  await channel.submitAction({ type: 'CALL', amount: 20 });
+  await channel.send('poker:human_action', { type: 'CALL', amount: 20 });
   await channel.close();
 });
 

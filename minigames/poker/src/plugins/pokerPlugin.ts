@@ -313,6 +313,28 @@ export const pokerGetChoicesTool = defineTool({
 // Curator Poker Plugin Definition
 // ----------------------------------------------------------------------------
 
+export const pokerListTablesTool = defineTool({
+  name: 'poker_list_tables',
+  description: 'Lists all available poker tables in the project.',
+  parameters: {
+    type: 'object',
+    properties: {},
+  },
+  execute: async (_args: any, ctx: any) => {
+    const prisma = ctx?.toolContext?.prisma || ctx?.prisma;
+    if (!prisma?.conversation) return { tables: [] };
+    const convs = await prisma.conversation.findMany({
+      orderBy: { id: 'asc' },
+    });
+    const tables = convs.map((c: any) => ({
+      id: String(c.id),
+      tableId: String(c.id),
+      title: c.metadata?.tableName || c.title || `Table #${c.id}`,
+    }));
+    return { tables };
+  },
+});
+
 export const pokerPlugin: CuratorPlugin = {
   name: 'minigame:poker',
   version: '2.0.0',
@@ -321,6 +343,7 @@ export const pokerPlugin: CuratorPlugin = {
     poker_init_lobby: pokerInitLobbyTool,
     poker_join_lobby: pokerJoinLobbyTool,
     poker_leave_lobby: pokerLeaveLobbyTool,
+    poker_list_tables: pokerListTablesTool,
     poker_start_hand: pokerStartHandTool,
     poker_ai_decision: pokerAiDecisionTool,
     poker_apply_action: pokerApplyActionTool,

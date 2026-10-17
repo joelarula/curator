@@ -223,9 +223,6 @@ export async function agenticDecidePokerAction(
     return {
       type: sanitized.type as ActionType,
       amount: sanitized.amount,
-      speech: sanitized.speech,
-      speechAct: sanitized.speechAct || 'TABLE_TALK',
-      innerMonologue: sanitized.innerMonologue,
     };
   }
 
@@ -251,9 +248,6 @@ export async function agenticDecidePokerAction(
     return {
       type: actionType,
       amount,
-      speech: res.speech,
-      speechAct: res.speechAct || 'TABLE_TALK',
-      innerMonologue: res.innerMonologue,
     };
   }
 
@@ -637,18 +631,7 @@ export function applyPokerAction(rawState: PokerGameState, action: PlayerAction)
     actionDesc = `${player.name} goes ALL-IN for $${shoveAmt}!`;
   }
 
-  const remarks = [...(rawState.recentRemarks || [])];
-  if (action.speech) {
-    remarks.push({
-      speakerId: player.id,
-      speakerName: player.name,
-      speechAct: action.speechAct || 'TABLE_TALK',
-      recipientId: action.targetAgentId,
-      text: action.speech,
-      timestamp: Date.now(),
-    });
-  }
-  const recentRemarks = remarks.slice(-8);
+  const recentRemarks = rawState.recentRemarks ? [...rawState.recentRemarks] : [];
 
   const activeSurvivors = rawState.players.filter((p) => !p.folded);
   const handOver = activeSurvivors.length <= 1;
@@ -680,10 +663,6 @@ export function applyPokerAction(rawState: PokerGameState, action: PlayerAction)
     recentRemarks,
     lastActionSummary: actionDesc,
   };
-
-  if (action.innerMonologue) {
-    player.lastMonologue = action.innerMonologue;
-  }
 
   return { gameState: nextState };
 }
@@ -1024,10 +1003,7 @@ export async function playPokerHand(
 
       const actRes = applyPokerAction(state, chosenAction);
       state = actRes.gameState;
-      let actionDesc = `${activePlayer.name}: ${chosenAction.type} ${chosenAction.amount ? '$' + chosenAction.amount : ''}`;
-      if (chosenAction.speech) {
-        actionDesc += `\n  [${chosenAction.speechAct || 'TABLE_TALK'}] ${activePlayer.name}: "${chosenAction.speech}"`;
-      }
+      const actionDesc = `${activePlayer.name}: ${chosenAction.type}${chosenAction.amount ? ' $' + chosenAction.amount : ''}`;
       await handlers.onTableUpdate?.(state, actionDesc);
 
       if (state.streetComplete || state.handOver) {

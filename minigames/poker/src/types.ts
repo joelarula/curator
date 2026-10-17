@@ -21,10 +21,14 @@ export type SpeechAct = AmbientSpeechActType | string;
 export interface PlayerAction {
   type: ActionType;
   amount?: number; // total wagered this street, or raise amount
-  speech?: string;
+}
+
+export interface SpeechAction {
+  text: string;
   speechAct?: SpeechAct;
-  targetAgentId?: string;
-  innerMonologue?: string;
+  targetId?: string;
+  speakerId?: string;
+  speakerName?: string;
 }
 
 export interface AgenticSpeechResult {
