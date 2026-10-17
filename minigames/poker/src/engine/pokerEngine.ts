@@ -1,3 +1,8 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+// @ts-ignore
+import coffee from 'coffeescript';
 import type {
   Card,
   PlayerState,
@@ -11,8 +16,41 @@ import type {
   ActionType,
 } from '../types.ts';
 import { evaluateBestHand } from './pokerEvaluator.ts';
-import { formatAgentPromptCoffeeScript, getPokerRules } from '../scripts/pokerHandScript.ts';
 import { curatorEngine, LlmFactory, GeminiLlmProvider } from '../curator.ts';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const SCRIPTS_DIR = path.resolve(__dirname, '../scripts');
+
+let cachedRules: any = null;
+export function getPokerRules(): any {
+  if (cachedRules) return cachedRules;
+  const filePath = path.join(SCRIPTS_DIR, 'poker_rules.coffee');
+  const code = fs.readFileSync(filePath, 'utf-8').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?|^#\s*---\r?\n[\s\S]*?\r?\n#\s*---\r?\n?/, '');
+  const js = coffee.compile(code, { bare: true, header: false });
+  const mod = { exports: {} as any };
+  const fn = new Function('module', 'exports', js);
+  fn(mod, mod.exports);
+  cachedRules = mod.exports?.default || mod.exports;
+  return cachedRules;
+}
+
+let cachedPromptBuilder: any = null;
+export function formatAgentPromptCoffeeScript(params: any): any {
+  if (!cachedPromptBuilder) {
+    const filePath = path.join(SCRIPTS_DIR, 'agent_prompt.coffee');
+    const code = fs.readFileSync(filePath, 'utf-8').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?|^#\s*---\r?\n[\s\S]*?\r?\n#\s*---\r?\n?/, '');
+    const js = coffee.compile(code, { bare: true, header: false });
+    const mod = { exports: {} as any };
+    const fn = new Function('module', 'exports', js);
+    fn(mod, mod.exports);
+    cachedPromptBuilder = mod.exports?.default || mod.exports;
+  }
+  const rules = getPokerRules();
+  const rulesDescription = rules?.getRulesDescription ? rules.getRulesDescription() : undefined;
+  const enriched = typeof params === 'object' && params !== null ? { rulesDescription, ...params } : params;
+  return cachedPromptBuilder(enriched);
+}
 
 export function getTableRules(): any {
   return getPokerRules()?.tableRules || {};

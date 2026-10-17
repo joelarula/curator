@@ -1,6 +1,5 @@
 import { seedPokerDatabase } from '../db/seed.ts';
 import { createPokerHost } from '../host.ts';
-import { getPokerScriptAST } from '../scripts/pokerHandScript.ts';
 import type { CuratorHost } from '../curatorHost.ts';
 import type { PlayerAction, PokerGameState } from '../types.ts';
 
@@ -125,13 +124,11 @@ export async function ensureInitialTableConversation(
 }
 
 async function getTableWorkflowAST(prisma: any): Promise<any> {
-  try {
-    const script = await prisma.script.findUnique({ where: { name: 'poker_workflow' } });
-    if (script?.ast) {
-      return script.ast;
-    }
-  } catch {}
-  return getPokerScriptAST('poker_workflow');
+  const script = await prisma.script.findUnique({ where: { name: 'poker_workflow' } });
+  if (!script?.ast) {
+    throw new Error('Script "poker_workflow" not found or missing compiled AST in database');
+  }
+  return script.ast;
 }
 
 /**

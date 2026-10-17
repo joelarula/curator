@@ -1,6 +1,8 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineTool, type CuratorPlugin } from '../curator.ts';
 import type { PokerGameState, PlayerAction } from '../types.ts';
-import { loadPokerScriptSources } from '../scripts/pokerHandScript.ts';
 import {
   initPokerLobby,
   joinPokerLobby,
@@ -17,6 +19,24 @@ import {
   getPokerStandings,
   getLegalChoices,
 } from '../engine/pokerEngine.ts';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+/**
+ * Loads raw CoffeeScript file contents for all .coffee files in scripts/.
+ * Curator Core parses headers/metadata and handles registration during plugin registration.
+ */
+export function loadPokerScriptSources(): Record<string, string> {
+  const scriptsDir = path.resolve(__dirname, '../scripts');
+  const files = fs.readdirSync(scriptsDir).filter((f) => f.endsWith('.coffee'));
+  const sources: Record<string, string> = {};
+  for (const file of files) {
+    const id = path.basename(file, '.coffee');
+    sources[id] = fs.readFileSync(path.join(scriptsDir, file), 'utf-8');
+  }
+  return sources;
+}
 
 // Re-export domain logic for consumer backwards-compatibility
 export * from '../engine/pokerEngine.ts';

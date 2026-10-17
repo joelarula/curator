@@ -1,18 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
   evaluateBestHand,
   agenticDecidePokerAction,
   pokerPlugin,
-  getPokerScriptAST,
 } from '../src/index.ts';
 import {
   curatorEngine,
   provisionSqliteDb,
   LlmFactory,
+  compileCoffeeScriptToAST,
 } from '@curator/agent-server';
+
+async function getPokerScriptAST(scriptId: string) {
+  const filePath = path.resolve(__dirname, `../src/scripts/${scriptId}.coffee`);
+  const code = fs.readFileSync(filePath, 'utf-8');
+  return compileCoffeeScriptToAST(code);
+}
 import type { Card, PlayerState, PokerGameState } from '../src/types.ts';
 
 class MockPokerLlmProvider {
@@ -819,8 +826,6 @@ test('Dynamic Seating with Unknown Wallets: Roster seats with default buy-in and
 });
 
 test('Modular CoffeeScript Architecture: Compiles all decoupled workflows to Curator ASTs', async () => {
-  const { getPokerScriptAST } = await import('../src/scripts/pokerHandScript.ts');
-
   const workflowAst: any = await getPokerScriptAST('poker_workflow');
   assert.equal(workflowAst.type, 'Curator_Sequential');
   assert.equal(workflowAst.name, 'poker:dynamic_engine');

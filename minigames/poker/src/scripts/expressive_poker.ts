@@ -1,5 +1,16 @@
-import { CuratorBuilder as Curator, type CuratorSequentialNode } from '../curator.ts';
-import { getPokerScriptAST } from './pokerHandScript.ts';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { CuratorBuilder as Curator, compileCoffeeScriptToAST, type CuratorSequentialNode } from '../curator.ts';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+async function getPokerScriptAST(scriptId: string) {
+  const filePath = path.resolve(__dirname, `${scriptId}.coffee`);
+  const code = fs.readFileSync(filePath, 'utf-8');
+  return compileCoffeeScriptToAST(code);
+}
 
 export async function run({ prisma, conversationId }: { prisma: any, conversationId: string }): Promise<CuratorSequentialNode> {
   console.log('Seeding Expressive Multiplayer Poker Game using Modular CoffeeScript ASTs...');
