@@ -13,10 +13,12 @@ import {
 } from './pokerChatContext.ts';
 import {
   type CuratorChannel,
+  type CuratorHost,
   createWebSocketChannel as createHostWebSocketChannel,
   createDirectChannel,
   normalizeWsUrl,
 } from '../curatorHost.ts';
+import { createPokerHost } from '../host.ts';
 import type { PlayerAction, PokerGameState } from '../types.ts';
 import { getLegalChoices } from '../engine/pokerEngine.ts';
 
@@ -51,13 +53,24 @@ export async function createDirectSessionChannel(
   existingSession?: PokerGameSession
 ): Promise<PokerGameChannel> {
   let session = existingSession;
+  let host: CuratorHost | undefined;
   if (!session) {
     console.log('\x1b[90m[Curator] Initializing direct in-process game session...\x1b[0m');
-    session = await createPokerGameSession(options);
+    host = await createPokerHost(options);
+    session = await createPokerGameSession(host, options);
     console.log(`\x1b[32m✔ [Curator] Game session active on Table #${session.tableId}.\x1b[0m`);
   }
 
-  return createDirectChannel(session, options.tableId);
+  const baseChannel = createDirectChannel(session, options.tableId);
+  return {
+    ...baseChannel,
+    close: async () => {
+      await baseChannel.close();
+      if (host) {
+        await host.stop();
+      }
+    },
+  };
 }
 
 /**

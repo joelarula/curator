@@ -8,6 +8,7 @@ import type { CuratorHost } from '../curatorHost.ts';
 export interface PokerServerOptions extends PokerSessionOptions {
   port?: number;
   host?: string;
+  curatorHost?: CuratorHost;
   pollInterval?: number;
 }
 
@@ -63,9 +64,8 @@ export async function createPokerServer(options: PokerServerOptions = {}): Promi
   });
 
   // 2. Initialize the shared poker session inside the host
-  const session = await createPokerGameSession({
+  const session = await createPokerGameSession(host, {
     ...options,
-    curatorHost: host,
     intervalMs: pollInterval,
   });
 

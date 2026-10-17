@@ -1,10 +1,8 @@
 import { seedPokerDatabase } from '../db/seed.ts';
-import { createPokerHost } from '../host.ts';
 import type { CuratorHost } from '../curatorHost.ts';
 import type { PlayerAction, PokerGameState } from '../types.ts';
 
 export interface PokerSessionOptions {
-  curatorHost?: CuratorHost;
   databasePath?: string;
   forceReset?: boolean;
   tableId?: string | number;
@@ -97,7 +95,7 @@ export async function ensureInitialTableConversation(
   const maxSeats = Math.min(6, Math.max(2, options.maxSeats || 4));
 
   let user = await prisma.user.findFirst({
-    where: { OR: [{ id: 'hero-user-1' }, { email: 'hero@tabletop.local' }] },
+    where: { OR: [{ id: 'system' }, { email: 'system@curator.local' }] },
   });
   if (!user) {
     user = await prisma.user.findFirst();
@@ -143,28 +141,14 @@ async function getTableWorkflowAST(prisma: any): Promise<any> {
  * Creates and initializes the unified PokerGameSession.
  * Provisions the SQLite database, boots CuratorHost, and enqueues the AST root request.
  */
-export async function createPokerGameSession(options: PokerSessionOptions = {}): Promise<PokerGameSession> {
+export async function createPokerGameSession(
+  host: CuratorHost,
+  options: PokerSessionOptions = {}
+): Promise<PokerGameSession> {
   const maxSeats = Math.min(6, Math.max(2, options.maxSeats || 4));
   const startingChips = options.startingChips || 1000;
   const smallBlind = options.smallBlind || 10;
   const bigBlind = options.bigBlind || 20;
-
-  const injectedHost = options.curatorHost;
-  const ownsHost = !injectedHost;
-  let host: CuratorHost;
-  if (injectedHost) {
-    host = injectedHost;
-  } else {
-    if (!options.quiet) {
-      console.log(`\x1b[90m[Poker Session] Booting CuratorHost runtime (interval: ${options.intervalMs ?? 500}ms)...\x1b[0m`);
-    }
-    host = await createPokerHost({
-      databasePath: options.databasePath,
-      forceReset: options.forceReset ?? false,
-      quiet: options.quiet ?? false,
-      intervalMs: options.intervalMs ?? 500,
-    });
-  }
 
   const prisma = host.prisma;
 
@@ -271,13 +255,22 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
     };
   };
 
-  const submitHumanSpeech = async (params: { text: string; speechAct?: string; targetId?: string; tableId?: string | number; sessionId?: string }): Promise<any> => {
+  const submitHumanSpeech = async (params: {
+    text: string;
+    speechAct?: string;
+    targetId?: string;
+    speakerName?: string;
+    speakerId?: string;
+    tableId?: string | number;
+    sessionId?: string;
+  }): Promise<any> => {
     const targetConvId = params.tableId !== undefined ? Number(params.tableId) : conversation.id;
     const tool = host.engine.tools.get('poker_human_speech');
     if (!tool) return null;
 
-    const heroUser = await prisma.user.findFirst({ where: { email: 'hero@tabletop.local' } });
     const currentGameState = await getGameState(targetConvId);
+    const speakerName = params.speakerName || 'You';
+    const speakerId = params.speakerId || params.sessionId || 'player-human';
 
     const result: any = await tool.runAsync({
       args: {
@@ -285,14 +278,14 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
         speechAct: params.speechAct || 'TABLE_TALK',
         text: params.text || '',
         targetId: params.targetId,
-        speakerId: heroUser?.id || 'hero',
-        speakerName: heroUser?.name || 'You',
+        speakerId,
+        speakerName,
       },
       toolContext: { prisma, conversationId: targetConvId },
     });
 
     host.events.broadcast('poker:speech_response', {
-      speaker: heroUser?.name || 'You',
+      speaker: speakerName,
       text: params.text,
       speechAct: params.speechAct || 'TABLE_TALK',
       aiReply: result?.aiResponse?.text,
@@ -642,9 +635,7 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
   };
 
   const close = async (): Promise<void> => {
-    if (ownsHost) {
-      await host.stop();
-    }
+    // Session cleanup hook
   };
 
   return {

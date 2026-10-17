@@ -890,11 +890,15 @@ test('Poker Client-Server Architecture: Server boots, accepts WebSocket client, 
 });
 
 test('Poker Direct Synchronous Execution: Runs AST workflow step-by-step from human turn to human turn (Zero Outer APIs)', async () => {
+  const { createPokerHost } = await import('../src/host.ts');
   const { createPokerGameSession } = await import('../src/session/pokerSession.ts');
   const testDb = path.join(process.env.TEMP || os.tmpdir(), `curator_test_direct_${Date.now()}.db`);
 
-  const session = await createPokerGameSession({
+  const host = await createPokerHost({
     databasePath: testDb,
+    forceReset: true,
+  });
+  const session = await createPokerGameSession(host, {
     forceReset: true,
     maxSeats: 4,
     startingChips: 1000,
@@ -916,6 +920,7 @@ test('Poker Direct Synchronous Execution: Runs AST workflow step-by-step from hu
   }
 
   await session.close();
+  await host.stop();
 });
 
 test('Poker Direct Channel: In-process channel executes AST from action A to action B with zero network sockets', async () => {

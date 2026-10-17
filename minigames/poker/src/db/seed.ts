@@ -13,6 +13,7 @@ export interface PokerSeedOptions {
   forceReset?: boolean;
   userEmail?: string;
   userName?: string;
+  userId?: string;
   projectId?: string;
   projectName?: string;
   ruleset?: string;
@@ -38,8 +39,9 @@ export async function seedPokerDatabase(options: PokerSeedOptions = {}): Promise
     process.env.CURATOR_DATABASE_PATH ||
     DEFAULT_POKER_DB;
 
-  const email = options.userEmail || 'hero@tabletop.local';
-  const userName = options.userName || 'You (Hero)';
+  const email = options.userEmail || 'system@curator.local';
+  const userName = options.userName || 'Curator System';
+  const userId = options.userId || 'system';
   const projectId = options.projectId || 'poker-project-1';
   const projectName = options.projectName || 'Texas Holdem Lounge';
 
@@ -49,7 +51,7 @@ export async function seedPokerDatabase(options: PokerSeedOptions = {}): Promise
     projectName,
     userEmail: email,
     userName,
-    userId: 'hero-user-1',
+    userId,
     databasePath: dbPath,
     quiet: false,
     autoSeed: true,
@@ -58,7 +60,7 @@ export async function seedPokerDatabase(options: PokerSeedOptions = {}): Promise
   const prisma: any = host.prisma;
 
   let user = await prisma.user.findFirst({
-    where: { OR: [{ email }, { id: 'hero-user-1' }] },
+    where: { OR: [{ email }, { id: userId }] },
   });
 
   let project = await prisma.project.findFirst({
