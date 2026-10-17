@@ -156,6 +156,8 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
     processor,
     engine: registeredEngine,
     conversations,
+    user,
+    project,
 
     async start(intervalMs?: number): Promise<void> {
       const interval = intervalMs ?? config.intervalMs ?? 3000;

@@ -1,4 +1,3 @@
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createCuratorHost, type CuratorHost } from './curatorHost.ts';
@@ -13,9 +12,6 @@ export interface PokerHostOptions {
   name?: string;
   projectId?: string;
   projectName?: string;
-  userId?: string;
-  userName?: string;
-  userEmail?: string;
   autoSeed?: boolean;
   forceReset?: boolean;
   dataDir?: string;
@@ -39,9 +35,9 @@ export async function createPokerHost(options: PokerHostOptions = {}): Promise<C
     name: options.name || 'poker',
     projectId: options.projectId || 'poker-project-1',
     projectName: options.projectName || 'Texas Holdem Lounge',
-    userId: options.userId || 'system',
-    userName: options.userName || 'Curator System',
-    userEmail: options.userEmail || 'system@curator.local',
+    userId: 'system',
+    userName: 'Curator System',
+    userEmail: 'system@curator.local',
     autoSeed: options.autoSeed ?? true,
     forceReset: options.forceReset ?? false,
     dataDir: options.dataDir ?? process.env.DATA_DIR ?? './data',

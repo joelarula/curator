@@ -57,6 +57,8 @@ export interface CuratorHost {
   processor: any;
   engine: any;
   conversations: ConversationRouter;
+  user: any;
+  project: any;
   start(intervalMs?: number): Promise<void>;
   stop(): Promise<void>;
   gracefulShutdown(): Promise<void>;

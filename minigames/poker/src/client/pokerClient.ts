@@ -56,7 +56,11 @@ export async function createDirectSessionChannel(
   let host: CuratorHost | undefined;
   if (!session) {
     console.log('\x1b[90m[Curator] Initializing direct in-process game session...\x1b[0m');
-    host = await createPokerHost(options);
+    host = await createPokerHost({
+      databasePath: options.databasePath,
+      forceReset: options.forceReset,
+      quiet: options.quiet,
+    });
     session = await createPokerGameSession(host, options);
     console.log(`\x1b[32m✔ [Curator] Game session active on Table #${session.tableId}.\x1b[0m`);
   }

@@ -1,4 +1,3 @@
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPokerHost } from '../host.ts';
@@ -11,9 +10,6 @@ export interface PokerSeedOptions {
   dbName?: string;
   databasePath?: string;
   forceReset?: boolean;
-  userEmail?: string;
-  userName?: string;
-  userId?: string;
   projectId?: string;
   projectName?: string;
   ruleset?: string;
@@ -39,9 +35,9 @@ export async function seedPokerDatabase(options: PokerSeedOptions = {}): Promise
     process.env.CURATOR_DATABASE_PATH ||
     DEFAULT_POKER_DB;
 
-  const email = options.userEmail || 'system@curator.local';
-  const userName = options.userName || 'Curator System';
-  const userId = options.userId || 'system';
+  const email = 'system@curator.local';
+  const userName = 'Curator System';
+  const userId = 'system';
   const projectId = options.projectId || 'poker-project-1';
   const projectName = options.projectName || 'Texas Holdem Lounge';
 
@@ -49,9 +45,6 @@ export async function seedPokerDatabase(options: PokerSeedOptions = {}): Promise
   const host = await createPokerHost({
     projectId,
     projectName,
-    userEmail: email,
-    userName,
-    userId,
     databasePath: dbPath,
     quiet: false,
     autoSeed: true,

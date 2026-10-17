@@ -1,4 +1,3 @@
-import { seedPokerDatabase } from '../db/seed.ts';
 import type { CuratorHost } from '../curatorHost.ts';
 import type { PlayerAction, PokerGameState } from '../types.ts';
 
@@ -78,44 +77,38 @@ export interface PokerGameSession {
   close(): Promise<void>;
 }
 
-export interface InitialTableContext {
-  user: any;
-  project: any;
-  conversation: any;
-}
-
 /**
- * Resolves the primary user, project, and initial table conversation,
- * creating the conversation if it does not yet exist.
+ * Resolves or creates a table conversation scoped directly to the host's project and user.
  */
-export async function ensureInitialTableConversation(
-  prisma: any,
-  options: { maxSeats?: number } = {}
-): Promise<InitialTableContext> {
+export async function ensureTableConversation(
+  host: CuratorHost,
+  options: { tableId?: string | number; maxSeats?: number } = {}
+): Promise<any> {
+  const prisma = host.prisma;
+  const projectId = host.project.id;
+  const userId = host.user.id;
   const maxSeats = Math.min(6, Math.max(2, options.maxSeats || 4));
 
-  let user = await prisma.user.findFirst({
-    where: { OR: [{ id: 'system' }, { email: 'system@curator.local' }] },
-  });
-  if (!user) {
-    user = await prisma.user.findFirst();
-  }
-
-  let project = await prisma.project.findFirst({
-    where: { OR: [{ id: 'poker-project-1' }, { name: 'Texas Holdem Lounge' }] },
-  });
-  if (!project) {
-    project = await prisma.project.findFirst();
+  if (options.tableId !== undefined) {
+    const targetId = Number(options.tableId);
+    if (!Number.isNaN(targetId)) {
+      const existing = await prisma.conversation.findFirst({
+        where: { id: targetId, projectId },
+      });
+      if (existing) return existing;
+    }
   }
 
   let conversation = await prisma.conversation.findFirst({
-    where: { userId: user.id, projectId: project.id },
+    where: { projectId },
+    orderBy: { id: 'asc' },
   });
+
   if (!conversation) {
     conversation = await prisma.conversation.create({
       data: {
-        userId: user.id,
-        projectId: project.id,
+        userId,
+        projectId,
         metadata: {
           ruleset: 'texas_holdem_nl',
           maxSeats,
@@ -124,7 +117,7 @@ export async function ensureInitialTableConversation(
     });
   }
 
-  return { user, project, conversation };
+  return conversation;
 }
 
 async function getTableWorkflowAST(prisma: any): Promise<any> {
@@ -151,9 +144,14 @@ export async function createPokerGameSession(
   const bigBlind = options.bigBlind || 20;
 
   const prisma = host.prisma;
+  const user = host.user;
+  const project = host.project;
 
-  // 2. Ensure initial table conversation, user, and project scoping
-  const { user, project, conversation } = await ensureInitialTableConversation(prisma, { maxSeats });
+  // 2. Ensure initial table conversation scoped to the host project
+  const conversation = await ensureTableConversation(host, {
+    tableId: options.tableId,
+    maxSeats,
+  });
 
   // 3. Compile and enqueue the declarative Poker Engine AST workflow for initial table if not active
   let rootRequest = await prisma.request.findFirst({
