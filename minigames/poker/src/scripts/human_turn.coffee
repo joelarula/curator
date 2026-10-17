@@ -1,3 +1,8 @@
+# ---
+# id: human_turn
+# name: human_turn
+# description: Human Player Turn Workflow with Awaiting Events & Action Dispatch
+# ---
 # ==============================================================================
 # Human-Driven Agent Turn Workflow
 # Prompts human actor, awaits input event, and sets decision action

@@ -1,6 +1,6 @@
 import { seedPokerDatabase } from '../db/seed.ts';
 import { createPokerHost } from '../host.ts';
-import { getPokerWorkflowAST } from '../scripts/pokerHandScript.ts';
+import { getPokerScriptAST } from '../scripts/pokerHandScript.ts';
 import type { CuratorHost } from '../curatorHost.ts';
 import type { PlayerAction, PokerGameState } from '../types.ts';
 
@@ -75,29 +75,21 @@ export interface PokerGameSession {
   close(): Promise<void>;
 }
 
+export interface InitialTableContext {
+  user: any;
+  project: any;
+  conversation: any;
+}
+
 /**
- * Creates and initializes the unified PokerGameSession.
- * Provisions the SQLite database, boots CuratorHost, and enqueues the AST root request.
+ * Resolves the primary user, project, and initial table conversation,
+ * creating the conversation if it does not yet exist.
  */
-export async function createPokerGameSession(options: PokerSessionOptions = {}): Promise<PokerGameSession> {
+export async function ensureInitialTableConversation(
+  prisma: any,
+  options: { maxSeats?: number } = {}
+): Promise<InitialTableContext> {
   const maxSeats = Math.min(6, Math.max(2, options.maxSeats || 4));
-  const startingChips = options.startingChips || 1000;
-  const smallBlind = options.smallBlind || 10;
-  const bigBlind = options.bigBlind || 20;
-
-  if (!options.quiet) {
-    console.log(`\x1b[90m[Poker Session] Booting CuratorHost runtime (interval: ${options.intervalMs ?? 500}ms)...\x1b[0m`);
-  }
-
-  // 1. Instantiate CuratorHost (provisions SQLite and seeds tools, scripts, and agents idempotently)
-  const host = await createPokerHost({
-    databasePath: options.databasePath,
-    forceReset: options.forceReset ?? false,
-    quiet: options.quiet ?? false,
-    intervalMs: options.intervalMs ?? 500,
-  });
-
-  const prisma = host.prisma;
 
   let user = await prisma.user.findFirst({
     where: { OR: [{ id: 'hero-user-1' }, { email: 'hero@tabletop.local' }] },
@@ -129,7 +121,47 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
     });
   }
 
-  // 2. Compile and enqueue the declarative Poker Engine AST workflow for initial table if not active
+  return { user, project, conversation };
+}
+
+async function getTableWorkflowAST(prisma: any): Promise<any> {
+  try {
+    const script = await prisma.script.findUnique({ where: { name: 'poker_workflow' } });
+    if (script?.ast) {
+      return script.ast;
+    }
+  } catch {}
+  return getPokerScriptAST('poker_workflow');
+}
+
+/**
+ * Creates and initializes the unified PokerGameSession.
+ * Provisions the SQLite database, boots CuratorHost, and enqueues the AST root request.
+ */
+export async function createPokerGameSession(options: PokerSessionOptions = {}): Promise<PokerGameSession> {
+  const maxSeats = Math.min(6, Math.max(2, options.maxSeats || 4));
+  const startingChips = options.startingChips || 1000;
+  const smallBlind = options.smallBlind || 10;
+  const bigBlind = options.bigBlind || 20;
+
+  if (!options.quiet) {
+    console.log(`\x1b[90m[Poker Session] Booting CuratorHost runtime (interval: ${options.intervalMs ?? 500}ms)...\x1b[0m`);
+  }
+
+  // 1. Instantiate CuratorHost (provisions SQLite and seeds tools, scripts, and agents idempotently)
+  const host = await createPokerHost({
+    databasePath: options.databasePath,
+    forceReset: options.forceReset ?? false,
+    quiet: options.quiet ?? false,
+    intervalMs: options.intervalMs ?? 500,
+  });
+
+  const prisma = host.prisma;
+
+  // 2. Ensure initial table conversation, user, and project scoping
+  const { user, project, conversation } = await ensureInitialTableConversation(prisma, { maxSeats });
+
+  // 3. Compile and enqueue the declarative Poker Engine AST workflow for initial table if not active
   let rootRequest = await prisma.request.findFirst({
     where: {
       conversationId: conversation.id,
@@ -139,10 +171,7 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
   });
 
   if (!rootRequest) {
-    if (!options.quiet) {
-      console.log(`\x1b[90m[Poker Session] Compiling declarative CoffeeScript workflow AST...\x1b[0m`);
-    }
-    const workflowAst = await getPokerWorkflowAST();
+    const workflowAst = await getTableWorkflowAST(prisma);
     rootRequest = await prisma.request.create({
       data: {
         userId: user.id,
@@ -339,7 +368,7 @@ export async function createPokerGameSession(options: PokerSessionOptions = {}):
       },
     });
 
-    const ast = await getPokerWorkflowAST();
+    const ast = await getTableWorkflowAST(prisma);
     await prisma.request.create({
       data: {
         userId: user.id,

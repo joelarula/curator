@@ -106,7 +106,8 @@ export async function compileCoffeeScriptToAST(
   initialContext: Record<string, any> = {}
 ): Promise<CuratorAstNode> {
   const coffee = (await import('coffeescript')).default;
-  const compiledJs = coffee.compile(coffeeScriptCode, { bare: true, header: false });
+  const cleanedCode = coffeeScriptCode.replace(/^(---\r?\n[\s\S]*?\r?\n---\r?\n?|#\s*---\r?\n[\s\S]*?\r?\n#\s*---\r?\n?)/, '');
+  const compiledJs = coffee.compile(cleanedCode, { bare: true, header: false });
 
   const sandbox: Record<string, any> = {
     console,
@@ -160,7 +161,8 @@ export async function evaluateCoffeeScript<T = any>(
   initialContext: Record<string, any> = {}
 ): Promise<T> {
   const coffee = (await import('coffeescript')).default;
-  const compiledJs = coffee.compile(coffeeScriptCode, { bare: true, header: false });
+  const cleanedCode = coffeeScriptCode.replace(/^(---\r?\n[\s\S]*?\r?\n---\r?\n?|#\s*---\r?\n[\s\S]*?\r?\n#\s*---\r?\n?)/, '');
+  const compiledJs = coffee.compile(cleanedCode, { bare: true, header: false });
 
   const sandbox: Record<string, any> = {
     console,

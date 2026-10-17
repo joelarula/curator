@@ -1,3 +1,8 @@
+# ---
+# id: agent_prompt
+# name: agent_prompt
+# description: Dynamic CoffeeScript Agent Prompt Formatter & Context Builder
+# ---
 # ==============================================================================
 # Master Poker Agent Prompt & Conversation History Formatter
 # Injects persona instruction, table rules, and builds conversational history from context

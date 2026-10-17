@@ -54,6 +54,8 @@ export interface CuratorScriptDefinition {
   run: (context: CuratorExecutionContext) => Promise<unknown>;
 }
 
+export type CuratorScriptInput = CuratorScriptDefinition | string;
+
 export interface CuratorAgentDefinition {
   description?: string;
   ast?: CuratorAstNode;
@@ -79,7 +81,7 @@ export interface CuratorPluginDefinition {
   description?: string;
   tools?: Record<string, CuratorTool>;
   models?: SemanticNodeShape[];
-  scripts?: Record<string, CuratorScriptDefinition>;
+  scripts?: Record<string, CuratorScriptInput> | CuratorScriptInput[];
   agents?: Record<string, CuratorAgentDefinition | CuratorAstNode>;
   llmProviders?: Record<string, any>;
   vocabularies?: Record<string, (...args: any[]) => CuratorAstNode | any>;

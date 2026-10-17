@@ -1,3 +1,8 @@
+# ---
+# id: poker_workflow
+# name: poker_workflow
+# description: Curator Texas Hold'em Autonomous Event-Driven 5-Phase Game Loop
+# ---
 # ==============================================================================
 # Curator Texas Hold'em Autonomous Event-Driven Workflow
 #

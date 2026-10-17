@@ -6,7 +6,7 @@ import {
   evaluateBestHand,
   agenticDecidePokerAction,
   pokerPlugin,
-  getPokerWorkflowAST,
+  getPokerScriptAST,
 } from '../src/index.ts';
 import {
   curatorEngine,
@@ -250,7 +250,7 @@ test('Agent Discourse: Autonomous agents attach in-character dialogue and speech
 });
 
 test('Reactive CoffeeScript AST: Compiles dynamic poker state machine workflow', async () => {
-  const ast: any = await getPokerWorkflowAST();
+  const ast: any = await getPokerScriptAST('poker_workflow');
   assert.equal(ast.type, 'Curator_Sequential');
   assert.equal(ast.name, 'poker:dynamic_engine');
   assert(ast.subAgents.length >= 2);
@@ -819,36 +819,29 @@ test('Dynamic Seating with Unknown Wallets: Roster seats with default buy-in and
 });
 
 test('Modular CoffeeScript Architecture: Compiles all decoupled workflows to Curator ASTs', async () => {
-  const {
-    getPokerWorkflowAST,
-    getPokerLobbyAST,
-    getHumanTurnAST,
-    getAgentTurnAST,
-    getPokerActionAST,
-    getAmbientReactionAST,
-  } = await import('../src/scripts/pokerHandScript.ts');
+  const { getPokerScriptAST } = await import('../src/scripts/pokerHandScript.ts');
 
-  const workflowAst: any = await getPokerWorkflowAST();
+  const workflowAst: any = await getPokerScriptAST('poker_workflow');
   assert.equal(workflowAst.type, 'Curator_Sequential');
   assert.equal(workflowAst.name, 'poker:dynamic_engine');
 
-  const lobbyAst: any = await getPokerLobbyAST();
+  const lobbyAst: any = await getPokerScriptAST('poker_lobby');
   assert.equal(lobbyAst.type, 'Curator_Sequential');
   assert.equal(lobbyAst.name, 'poker:lobby_manager');
 
-  const humanAst: any = await getHumanTurnAST();
+  const humanAst: any = await getPokerScriptAST('human_turn');
   assert.equal(humanAst.type, 'Curator_Sequential');
   assert.equal(humanAst.name, 'poker:human_turn');
 
-  const agentAst: any = await getAgentTurnAST();
+  const agentAst: any = await getPokerScriptAST('agent_turn');
   assert.equal(agentAst.type, 'Curator_Sequential');
   assert.equal(agentAst.name, 'poker:agent_turn');
 
-  const actionAst: any = await getPokerActionAST();
+  const actionAst: any = await getPokerScriptAST('poker_action');
   assert.equal(actionAst.type, 'Curator_Sequential');
   assert.equal(actionAst.name, 'poker:apply_action_step');
 
-  const ambientAst: any = await getAmbientReactionAST();
+  const ambientAst: any = await getPokerScriptAST('ambient_reaction');
   assert.equal(ambientAst.type, 'Curator_Sequential');
   assert.equal(ambientAst.name, 'poker:ambient_reaction');
 

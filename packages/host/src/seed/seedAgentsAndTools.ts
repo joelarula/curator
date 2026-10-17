@@ -100,13 +100,18 @@ export async function seedAgentsAndTools(
   if (engine?.scripts) {
     for (const [name, rawDef] of engine.scripts.entries()) {
       const existing = await prisma.script.findUnique({ where: { name } });
-      if (!existing) {
-        const def = rawDef as any;
-        const body = typeof def === 'string' ? def : def?.body ?? `// Workflow: ${name}`;
-        let ast = def?.ast;
+      const def = rawDef as any;
+      const body = typeof def === 'string' ? def : def?.body ?? `// Workflow: ${name}`;
+      let ast = def?.ast;
 
-        // If CoffeeScript body is present but ast is missing, compile it to AST
-        if (!ast && body) {
+      // If CoffeeScript body is present but ast is missing, compile it to AST
+      if (!ast && body) {
+        try {
+          const mod = (await import('@curator/agent-server')) as any;
+          if (typeof mod.compileCoffeeScriptToAST === 'function') {
+            ast = await mod.compileCoffeeScriptToAST(body);
+          }
+        } catch {
           try {
             const { compileCoffeeScriptToAST } = (await import('../../../../curator/dist/src/index.js')) as any;
             if (typeof compileCoffeeScriptToAST === 'function') {
@@ -116,7 +121,9 @@ export async function seedAgentsAndTools(
             // pure coffee/script without AST verbs
           }
         }
+      }
 
+      if (!existing) {
         await prisma.script.create({
           data: {
             name,
@@ -127,14 +134,24 @@ export async function seedAgentsAndTools(
           },
         });
         seededScripts.push(name);
-      } else if (existing.userId !== systemUser.id || existing.projectId !== systemProject.id) {
-        await prisma.script.update({
-          where: { id: existing.id },
-          data: {
-            userId: systemUser.id,
-            projectId: systemProject.id,
-          },
-        });
+      } else {
+        const needsUpdate =
+          existing.userId !== systemUser.id ||
+          existing.projectId !== systemProject.id ||
+          (ast && !existing.ast) ||
+          (body && existing.body !== body);
+
+        if (needsUpdate) {
+          await prisma.script.update({
+            where: { id: existing.id },
+            data: {
+              body: body || existing.body,
+              ast: ast ?? existing.ast,
+              userId: systemUser.id,
+              projectId: systemProject.id,
+            },
+          });
+        }
       }
     }
   }

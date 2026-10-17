@@ -1,3 +1,8 @@
+# ---
+# id: ambient_reaction
+# name: ambient_reaction
+# description: Ambient Reaction & Table Talk Event Workflow
+# ---
 # ==============================================================================
 # Ambient Reaction & Table Talk Event Workflow
 # Triggers dynamic whispers, banter, or gossip in response to game events

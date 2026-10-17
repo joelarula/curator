@@ -37,7 +37,26 @@ export class CuratorEngine {
       plugin.models.forEach(m => this.models.set(m.uri, m));
     }
     if (plugin.scripts) {
-      Object.entries(plugin.scripts).forEach(([k, v]) => this.scripts.set(k, v));
+      const scriptEntries = Array.isArray(plugin.scripts)
+        ? plugin.scripts.map((content) => ['', content] as [string, any])
+        : Object.entries(plugin.scripts);
+
+      for (const [k, rawDef] of scriptEntries) {
+        const cleanFallback = k ? k.replace(/\.[^/.]+$/, '') : '';
+        if (typeof rawDef === 'string') {
+          const header = this.parseScriptHeader(rawDef, cleanFallback);
+          const name = header.id || cleanFallback;
+          this.scripts.set(name, {
+            name,
+            description: header.description || '',
+            body: rawDef,
+            run: async () => {},
+          });
+        } else if (rawDef && typeof rawDef === 'object') {
+          const name = (rawDef as any).name || cleanFallback;
+          this.scripts.set(name, rawDef as CuratorScriptDefinition);
+        }
+      }
     }
     if (plugin.agents) {
       Object.entries(plugin.agents).forEach(([k, v]) => this.agents.set(k, v));
@@ -140,6 +159,54 @@ export class CuratorEngine {
       throw new Error(`[CuratorEngine] Provider '${provider.providerName}' does not support context caching deletion.`);
     }
     return provider.deleteContextCache(name, options.apiKey);
+  }
+
+  private parseScriptHeader(content: string, fallbackId: string = ''): { id: string; description?: string; [key: string]: any } {
+    const cleanFallback = fallbackId ? fallbackId.replace(/\.[^/.]+$/, '') : '';
+    const meta: { id: string; description?: string; [key: string]: any } = { id: cleanFallback };
+
+    const yamlMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+    if (yamlMatch) {
+      this.extractHeaderKeyValues(yamlMatch[1], meta);
+      return meta;
+    }
+
+    const commentYamlMatch = content.match(/^#\s*---\r?\n([\s\S]*?)\r?\n#\s*---\r?\n?/);
+    if (commentYamlMatch) {
+      this.extractHeaderKeyValues(commentYamlMatch[1], meta);
+      return meta;
+    }
+
+    const blockMatch = content.match(/^###\r?\n([\s\S]*?)\r?\n###\r?\n?/);
+    if (blockMatch) {
+      this.extractHeaderKeyValues(blockMatch[1], meta);
+      return meta;
+    }
+
+    const lines = content.split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('#')) break;
+      const stripped = trimmed.replace(/^#+\s*/, '').trim();
+      const match = stripped.match(/^([a-zA-Z0-9_-]+)\s*:\s*(.*)$/);
+      if (match) {
+        meta[match[1].trim()] = match[2].trim().replace(/^["']|["']$/g, '');
+      }
+    }
+
+    return meta;
+  }
+
+  private extractHeaderKeyValues(block: string, target: Record<string, any>): void {
+    const lines = block.split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim().replace(/^#+\s*/, '');
+      if (!trimmed || trimmed === '---') continue;
+      const match = trimmed.match(/^([a-zA-Z0-9_-]+)\s*:\s*(.*)$/);
+      if (match) {
+        target[match[1].trim()] = match[2].trim().replace(/^["']|["']$/g, '');
+      }
+    }
   }
 }
 

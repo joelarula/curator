@@ -1,9 +1,5 @@
 import { CuratorBuilder as Curator, type CuratorSequentialNode } from '../curator.ts';
-import {
-  getHumanTurnAST,
-  getAgentTurnAST,
-  getPokerWorkflowAST,
-} from './pokerHandScript.ts';
+import { getPokerScriptAST } from './pokerHandScript.ts';
 
 export async function run({ prisma, conversationId }: { prisma: any, conversationId: string }): Promise<CuratorSequentialNode> {
   console.log('Seeding Expressive Multiplayer Poker Game using Modular CoffeeScript ASTs...');
@@ -24,7 +20,7 @@ export async function run({ prisma, conversationId }: { prisma: any, conversatio
     data: { name: 'Human_Player_' + Date.now(), userId, projectId }
   });
   
-  const humanAST = await getHumanTurnAST();
+  const humanAST = await getPokerScriptAST('human_turn');
   const humanWorkflow = await prisma.agentWorkflow.create({
     data: {
       name: 'Human_Player_Turn_Logic_' + Date.now(),
@@ -44,7 +40,7 @@ export async function run({ prisma, conversationId }: { prisma: any, conversatio
   ];
 
   const aiIds: number[] = [];
-  const aiTurnAST = await getAgentTurnAST();
+  const aiTurnAST = await getPokerScriptAST('agent_turn');
 
   for (const persona of aiPersonas) {
     const aiAgent = await prisma.agent.create({
@@ -65,7 +61,7 @@ export async function run({ prisma, conversationId }: { prisma: any, conversatio
   }
 
   // 3. Setup Master Game Engine Workflow loaded from poker_workflow.coffee
-  const engineWorkflowAST = (await getPokerWorkflowAST()) as CuratorSequentialNode;
+  const engineWorkflowAST = (await getPokerScriptAST('poker_workflow')) as CuratorSequentialNode;
   console.log('Expressive Poker Orchestrator Ready with shared CoffeeScript ASTs.');
   return engineWorkflowAST;
 }

@@ -13,3 +13,8 @@ When a feature spans multiple modules (e.g. database schema $\rightarrow$ server
 3. **Step 3 - Client Integration**: Update frontend components in `frontend/` or `miniapps/`.
 
 Execute each stage in order without loading all module files simultaneously.
+
+## 3. Mandatory Rebuild of Changed Dependencies
+Whenever modifying interfaces, contracts, types, or shared runtime logic in an upstream module (e.g. `packages/host`, `curator`, `packages/plugin-auth`):
+- **Build immediately**: Run `npm --prefix <package-dir> run build` right after making the changes.
+- **Prevent `dist/` desynchronization**: Do not proceed to downstream integration (`minigames/*`, `miniapps/*`, `frontend/`, `server/`) until the upstream package has rebuilt its `dist/` artifacts and `.d.ts` declaration files.

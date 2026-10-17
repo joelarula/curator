@@ -1,6 +1,6 @@
 import { defineTool, type CuratorPlugin } from '../curator.ts';
 import type { PokerGameState, PlayerAction } from '../types.ts';
-import { loadCoffeeScript } from '../scripts/pokerHandScript.ts';
+import { loadPokerScriptSources } from '../scripts/pokerHandScript.ts';
 import {
   initPokerLobby,
   joinPokerLobby,
@@ -313,56 +313,7 @@ export const pokerPlugin: CuratorPlugin = {
     poker_get_standings: pokerGetStandingsTool,
     poker_get_choices: pokerGetChoicesTool,
   },
-  scripts: {
-    poker_workflow: {
-      name: 'poker_workflow',
-      description: 'Curator Texas Hold\'em Autonomous Event-Driven 5-Phase Game Loop',
-      body: loadCoffeeScript('poker_workflow.coffee'),
-      run: async () => {},
-    },
-    poker_lobby: {
-      name: 'poker_lobby',
-      description: 'Poker Lobby Workflow for Table Initialization & Dynamic Seating',
-      body: loadCoffeeScript('poker_lobby.coffee'),
-      run: async () => {},
-    },
-    human_turn: {
-      name: 'human_turn',
-      description: 'Human Player Turn Workflow with Awaiting Events & Action Dispatch',
-      body: loadCoffeeScript('human_turn.coffee'),
-      run: async () => {},
-    },
-    agent_turn: {
-      name: 'agent_turn',
-      description: 'Autonomous Player Agent Turn Workflow using seated agent instruction & prompt',
-      body: loadCoffeeScript('agent_turn.coffee'),
-      run: async () => {},
-    },
-    poker_action: {
-      name: 'poker_action',
-      description: 'Poker Action Application & State Update Workflow',
-      body: loadCoffeeScript('poker_action.coffee'),
-      run: async () => {},
-    },
-    ambient_reaction: {
-      name: 'ambient_reaction',
-      description: 'Ambient Reaction & Table Talk Event Workflow',
-      body: loadCoffeeScript('ambient_reaction.coffee'),
-      run: async () => {},
-    },
-    poker_rules: {
-      name: 'poker_rules',
-      description: 'Declarative Texas Hold\'em Table Rules & Game Specification',
-      body: loadCoffeeScript('poker_rules.coffee'),
-      run: async () => {},
-    },
-    agent_prompt: {
-      name: 'agent_prompt',
-      description: 'Dynamic CoffeeScript Agent Prompt Formatter & Context Builder',
-      body: loadCoffeeScript('agent_prompt.coffee'),
-      run: async () => {},
-    },
-  },
+  scripts: loadPokerScriptSources(),
   agents: {
     hero: {
       id: 'hero',

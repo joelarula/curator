@@ -1,3 +1,8 @@
+# ---
+# id: poker_action
+# name: poker_action
+# description: Poker Action Application & State Update Workflow
+# ---
 # ==============================================================================
 # Poker Action Application Workflow
 # Validates action, commits chips to pot, and emits state updates

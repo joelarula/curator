@@ -1,3 +1,8 @@
+# ---
+# id: poker_lobby
+# name: poker_lobby
+# description: Poker Lobby Workflow for Table Initialization & Dynamic Seating
+# ---
 # ==============================================================================
 # Poker Lobby Workflow
 # Initializes table, seats dynamic players, binds wallets, emits lobby events

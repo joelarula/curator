@@ -245,6 +245,10 @@ When a task spans modules, keep commits logically grouped by dependency order:
 
 Avoid mixing unrelated refactors into feature changes.
 
+### 8.1 Mandatory rebuild of changed dependencies
+- **Always build changed dependencies**: When modifying contracts, interfaces, models, or types in an upstream/shared package (e.g. `packages/host`, `curator`, `packages/plugin-auth`), **immediately compile that package** (`npm --prefix <package> run build` or `tsc`) before testing or consuming it in downstream modules (`minigames/*`, `miniapps/*`, `server/`).
+- **Prevent `dist/` and declaration desync**: Downstream modules that import from compiled bundles or declaration files (`dist/index.js`, `dist/types.d.ts`) will fail typechecks or execute stale code if the upstream package's build outputs are not regenerated immediately upon modification.
+
 ## 9. Editing and safety rules
 
 - Prefer minimal diffs.
@@ -258,6 +262,7 @@ Avoid mixing unrelated refactors into feature changes.
 For any non-trivial change, run all that apply:
 
 - Changed module compiles (`tsc` / fast type-check)
+- Modified upstream packages (`packages/host`, `curator`, etc.) rebuilt (`npm run build`) so `dist/` types are fresh
 - Targeted unit check or one-shot command verifies the specific behavior touched
 - Tool registrations match manifest and handler implementation
 - Docs updated for new externally-used behavior
@@ -276,6 +281,7 @@ Minimum expected reporting in handoff:
 
 ## 11. Common pitfalls to avoid
 
+- **Forgetting to rebuild upstream dependencies**: Modifying types or contracts in `packages/host`, `curator`, or shared packages without running `npm run build` leaves `dist/` out of sync, triggering phantom type errors (e.g. `Object literal may only specify known properties, and '...' does not exist in type '...'`) in dependent miniapps and minigames.
 - **Running full integration test suites after simple changes**: Avoid executing long-running test suites without asking the user first. Use fast targeted verification.
 - Adding a tool handler but forgetting manifest entry
 - Adding manifest entry but forgetting registry mapping

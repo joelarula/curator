@@ -1,3 +1,8 @@
+# ---
+# id: poker_rules
+# name: poker_rules
+# description: Declarative Texas Hold'em Table Rules & Game Specification
+# ---
 # ==============================================================================
 # Declarative Texas Hold'em Table Rules & Game Specification
 # Single source of truth for engine mechanics, betting validation, and LLM prompts
