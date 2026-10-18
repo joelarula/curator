@@ -104,3 +104,43 @@ test('ClientShell: Non-consuming /state executes without wasting turn', async ()
   assert.deepEqual(result, { tool: 'poker_apply_action', type: 'CALL', amount: 20 });
   rl.close();
 });
+
+test('ClientShell: Free text input routes to miniapp speech tool', async () => {
+  let spokenText = '';
+  const shell = createClientShell({
+    actorName: 'Alice',
+    defaultToolName: 'poker_human_speech',
+    onSpeech: async (text) => {
+      spokenText = text;
+    },
+  });
+
+  await shell.handleLine('Nice hand, Bob! Good bluff.');
+  assert.equal(spokenText, 'Nice hand, Bob! Good bluff.');
+});
+
+test('ClientShell: Asynchronous non-blocking turn choice execution via numeric or command input', async () => {
+  let executedAction: any = null;
+  const shell = createClientShell({
+    actorName: 'Bob',
+    onToolCall: async (tool, args) => {
+      executedAction = { tool, ...args };
+    },
+  });
+
+  shell.registerTool({
+    name: 'poker_apply_action',
+    description: 'Apply poker action',
+    aliases: ['call', 'fold', 'raise'],
+  });
+
+  shell.setChoices([
+    { id: 'call', label: 'Call $50', tool: 'poker_apply_action', args: { type: 'CALL', amount: 50 } },
+    { id: 'fold', label: 'Fold', tool: 'poker_apply_action', args: { type: 'FOLD' } },
+  ]);
+
+  // Non-blocking numeric selection: '1'
+  await shell.handleLine('1');
+  assert.deepEqual(executedAction, { tool: 'poker_apply_action', type: 'CALL', amount: 50 });
+});
+

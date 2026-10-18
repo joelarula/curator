@@ -12,7 +12,6 @@ import {
 import {
   type CuratorChannel,
   type CuratorHost,
-  type ShellCommand,
   createWebSocketChannel as createHostWebSocketChannel,
   createDirectChannel,
   normalizeWsUrl,
@@ -78,7 +77,7 @@ export async function createDirectSessionChannel(
 /**
  * Standardized Poker Terminal UI runner.
  * Takes any PokerGameChannel (WebSocket or Direct in-process) and manages
- * the user interaction loop, event streaming, and group chat prompts.
+ * the continuous asynchronous REPL, event streaming, and group chat prompts.
  */
 export async function runPokerClientUi(
   channel: PokerGameChannel,
@@ -90,29 +89,18 @@ export async function runPokerClientUi(
     console.log(`\x1b[35mTable: #${channel.tableId}\x1b[0m`);
   }
 
-  const rl = existingRl || readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+  const rl =
+    existingRl ||
+    readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
 
   return new Promise((resolve) => {
     let currentGameState: PokerGameState | null = null;
-    let isWaitingForTurn = false;
-
-    const onLineHandler = async (line: string) => {
-      if (isWaitingForTurn) return;
-      const trimmed = line.trim();
-      if (!trimmed) return;
-      try {
-        await shell.handleAmbientInput(trimmed);
-      } catch (err: any) {
-        console.error(`\x1b[31m[Input Error] ${err?.message || err}\x1b[0m`);
-      }
-    };
 
     const cleanup = async () => {
-      rl.off('line', onLineHandler);
-      rl.close();
+      shell.stop();
       unsubscribe();
       await channel.close();
       resolve();
@@ -130,7 +118,8 @@ export async function runPokerClientUi(
       getGameState: () => currentGameState,
     });
 
-    rl.on('line', onLineHandler);
+    // Start the continuous asynchronous REPL
+    shell.start(rl);
 
     const unsubscribe = channel.on(async (event: any) => {
       const { type, payload } = event;
@@ -148,33 +137,32 @@ export async function runPokerClientUi(
         return;
       }
 
+      // Lobby choice presentation (non-blocking)
       if (type === 'poker:lobby_prompt') {
         console.log("\n\x1b[1m\x1b[36m╔══════════════════════════════════════════════════════════════════════╗\x1b[0m");
         console.log("\x1b[1m\x1b[36m║                    Curator Texas Hold'em Lounge                      ║\x1b[0m");
         console.log("\x1b[1m\x1b[36m╚══════════════════════════════════════════════════════════════════════╝\x1b[0m\n");
 
         const rawOptions = Array.isArray(payload?.options) ? payload.options : [];
-        const choices: ShellCommand<any>[] = rawOptions.map((opt: any) => ({
+        const choices = rawOptions.map((opt: any) => ({
           id: opt.id,
           label: `${opt.label}${opt.description ? ` - ${opt.description}` : ''}`,
-          value: opt.id,
-          aliases: [opt.id, opt.label?.toLowerCase()],
+          execute: async () => {
+            if (opt.id === 'exit' || opt.id === '3' || opt.id === 'q') {
+              console.log("\x1b[33mGoodbye!\x1b[0m");
+              await channel.send('poker:lobby_choice', { id: 'exit' });
+              await cleanup();
+              return;
+            }
+            await channel.send('poker:lobby_choice', { id: opt.id });
+          },
         }));
 
-        try {
-          const chosen: any = await (shell as any).promptAction(rl, choices);
-          const choiceId = typeof chosen === 'string' ? chosen : (chosen?.id || chosen?.value || 'new');
-          if (choiceId === 'exit' || choiceId === '3' || choiceId === 'q') {
-            console.log("\x1b[33mGoodbye!\x1b[0m");
-            await channel.send('poker:lobby_choice', { id: 'exit' });
-            await cleanup();
-            return;
-          }
-          await channel.send('poker:lobby_choice', { id: choiceId });
-        } catch (_) { }
+        shell.setChoices(choices, { blocking: false });
         return;
       }
 
+      // Table selection presentation (non-blocking)
       if (type === 'poker:request_table_selection') {
         const rawTables: any[] = payload?.tables || [];
         if (rawTables.length === 0) {
@@ -184,37 +172,34 @@ export async function runPokerClientUi(
         }
 
         console.log("\n\x1b[1m=== Available Tables ===\x1b[0m");
-        const choices: ShellCommand<any>[] = rawTables.map((t: any, idx: number) => {
+        const choices = rawTables.map((t: any, idx: number) => {
           const pot = t.gameState?.pot ? ` | Pot: $${t.gameState.pot}` : '';
           const hand = t.gameState?.handNumber ? ` | Hand: #${t.gameState.handNumber}` : '';
           const status = t.status || 'ACTIVE';
+          const tableId = String(t.tableId || t.id || idx + 1);
           return {
-            id: String(t.tableId || t.id || idx + 1),
-            label: `Table #${t.tableId || t.id} (${t.title || 'Table'}) - Status: ${status}${pot}${hand}`,
-            value: String(t.tableId || t.id),
-            aliases: [String(idx + 1), String(t.tableId || t.id)],
+            id: tableId,
+            label: `Table #${tableId} (${t.title || 'Table'}) - Status: ${status}${pot}${hand}`,
+            aliases: [String(idx + 1), tableId],
+            execute: async () => {
+              await channel.send('poker:table_selected', { id: tableId });
+            },
           };
         });
 
-        try {
-          const chosen: any = await (shell as any).promptAction(rl, choices);
-          const selectedId = typeof chosen === 'string' ? chosen : (chosen?.id || chosen?.value || rawTables[rawTables.length - 1].tableId);
-          await channel.send('poker:table_selected', { id: selectedId });
-        } catch (_) { }
+        shell.setChoices(choices, { blocking: false });
         return;
       }
 
+      // Awaiting human player action (non-blocking by default)
       if (type === 'poker:awaiting_human_action') {
-        if (isWaitingForTurn) return;
-        isWaitingForTurn = true;
-
         const rawChoices: any[] = Array.isArray(payload?.choices)
           ? payload.choices
           : Array.isArray(payload?.choices?.choices)
             ? payload.choices.choices
             : [];
 
-        const choices: ShellCommand<ToolAction>[] = rawChoices.map((c: any) => {
+        const choices = rawChoices.map((c: any) => {
           const act = c.action || c;
           const actType = act?.type || c.type || 'ACTION';
           const actAmount = act?.amount || c.amount;
@@ -223,46 +208,26 @@ export async function runPokerClientUi(
             label:
               c.label ||
               `${actType} ${actAmount ? '$' + actAmount : ''}`.trim(),
-            value: {
-              tool: 'poker_apply_action',
-              type: actType,
-              amount: actAmount,
-              ...(typeof act === 'object' ? act : {}),
+            aliases: [actType.toLowerCase(), c.type?.toLowerCase(), c.id?.toLowerCase()].filter(Boolean),
+            execute: async () => {
+              const actionPayload = {
+                type: actType,
+                amount: actAmount,
+                ...(typeof act === 'object' ? act : {}),
+              };
+              if (actionPayload.type === 'EXIT') {
+                console.log(`\n\x1b[33m[Game] Exiting table session...\x1b[0m`);
+                await channel.send('poker:human_action', actionPayload);
+                await cleanup();
+                return;
+              }
+              await channel.send('poker:human_action', actionPayload);
             },
-            aliases: [actType, c.type, c.id].filter(Boolean),
           };
         });
 
-        try {
-          const chosenAction = await shell.promptAction(rl, choices);
-
-          if (chosenAction.type === 'EXIT') {
-            console.log(`\n\x1b[33m[Game] Exiting table session...\x1b[0m`);
-            await channel.send('poker:human_action', chosenAction);
-            await cleanup();
-            return;
-          }
-
-          if (chosenAction.type === 'PAUSE') {
-            await channel.send('poker:pause');
-            const inter = await shell.promptIntermission(
-              rl,
-              'Table is PAUSED. Type resume (or press ENTER) to continue, or /exit to quit:'
-            );
-            if (inter === 'QUIT') {
-              await channel.send('poker:human_action', { type: 'EXIT' });
-              await cleanup();
-              return;
-            } else {
-              await channel.send('poker:resume');
-            }
-            return;
-          }
-
-          await channel.send('poker:human_action', chosenAction);
-        } finally {
-          isWaitingForTurn = false;
-        }
+        const isBlocking = Boolean(payload?.blocking);
+        shell.setChoices(choices, { blocking: isBlocking });
       }
     });
 
@@ -289,7 +254,7 @@ export async function createPokerChannel(
 
 /**
  * Primary entry point for playing Poker in the terminal.
- * Fully event-driven via Curator AST workflow.
+ * Fully event-driven via Curator AST workflow and asynchronous REPL.
  */
 export async function runPokerClient(options: PokerClientOptions = {}): Promise<void> {
   let channel: PokerGameChannel;
@@ -303,4 +268,3 @@ export async function runPokerClient(options: PokerClientOptions = {}): Promise<
 
   await runPokerClientUi(channel, options.playerName);
 }
-

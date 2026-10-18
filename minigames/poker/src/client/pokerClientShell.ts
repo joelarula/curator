@@ -1,7 +1,8 @@
 /**
  * Poker Client Shell Specification & Configuration.
  * Pure declarative configuration for Texas Hold'em interactive shell:
- * unified commands (table, standings, call, fold, raise, allin, pause, resume, exit).
+ * whitelisted tools (poker_apply_action, poker_human_speech, poker_get_standings),
+ * inspection commands (table, standings, pause, resume), and free-text speech routing.
  */
 import {
   createClientShell,
@@ -10,6 +11,8 @@ import {
   type ShellCommand,
   type ToolAction,
   type ShellContext,
+  type CuratorToolDefinition,
+  type ReplCommand,
 } from '../curatorHost.ts';
 import type { PokerGameState } from '../types.ts';
 import { renderTable, renderCompactStatus, renderStandings } from '../ui/tableRenderer.ts';
@@ -24,25 +27,23 @@ export { type ShellCommand, type ToolAction };
 /**
  * Actual Curator tools permitted in the Texas Hold'em client shell.
  */
-export const POKER_WHITELISTED_TOOLS = [
+export const POKER_WHITELISTED_TOOLS: (string | CuratorToolDefinition)[] = [
   pokerApplyActionTool,
   pokerHumanSpeechTool,
   pokerGetStandingsTool,
 ];
 
 /**
- * Pure static view and inspection utilities for Texas Hold'em interactive play.
- * (All dynamic turn actions like call, fold, raise are driven by engine choices).
+ * Static view, control, and inspection commands for Texas Hold'em interactive play.
  */
-export const POKER_COMMANDS: ShellCommand<ToolAction>[] = [
+export const POKER_COMMANDS: ReplCommand[] = [
   {
     name: 'table',
-    aliases: ['view'],
+    aliases: ['view', 't'],
     description: 'Redraw the poker table view',
     execute: (_args, _tokens, ctx) => {
       const state = ctx?.getState?.() as PokerGameState | undefined;
       if (state) console.log(renderTable(state, false));
-      return { type: 'HANDLED' };
     },
   },
   {
@@ -58,18 +59,30 @@ export const POKER_COMMANDS: ShellCommand<ToolAction>[] = [
       if (res?.standings) {
         console.log(renderStandings(res.standings));
       }
-      return { type: 'HANDLED' };
+    },
+  },
+  {
+    name: 'pause',
+    description: 'Pause the current poker table game loop',
+    execute: async (_args, _tokens, ctx) => {
+      if (ctx.channel) {
+        await ctx.channel.send('poker:pause');
+        console.log('\x1b[33m[Table] Pause requested...\x1b[0m');
+      }
+    },
+  },
+  {
+    name: 'resume',
+    aliases: ['continue', 'c', 'r'],
+    description: 'Resume a paused poker table game loop',
+    execute: async (_args, _tokens, ctx) => {
+      if (ctx.channel) {
+        await ctx.channel.send('poker:resume');
+        console.log('\x1b[32m[Table] Resuming game loop...\x1b[0m');
+      }
     },
   },
 ];
-
-/**
- * Declarative configuration for Texas Hold'em ClientShell.
- */
-export const POKER_SHELL_CONFIG = {
-  commands: POKER_COMMANDS,
-  availableTools: POKER_WHITELISTED_TOOLS,
-};
 
 export interface CreatePokerClientShellOptions {
   channel?: CuratorChannel;
@@ -78,14 +91,17 @@ export interface CreatePokerClientShellOptions {
 }
 
 /**
- * Instantiates an interactive ClientShell bound to the declarative Poker Shell Configuration.
+ * Instantiates an asynchronous, non-blocking ClientShell bound to the Texas Hold'em configuration.
  */
 export function createPokerClientShell(
   opts: CreatePokerClientShellOptions
 ): ClientShell<PokerGameState, ToolAction> {
   return createClientShell<PokerGameState, ToolAction>({
-    ...POKER_SHELL_CONFIG,
-    actorName: opts.actorName,
+    actorName: opts.actorName || 'You',
+    channel: opts.channel,
+    defaultToolName: 'poker_human_speech',
+    commands: POKER_COMMANDS,
+    tools: POKER_WHITELISTED_TOOLS,
     getState: opts.getGameState,
     redrawView: () => {
       const state = opts.getGameState();
@@ -97,8 +113,8 @@ export function createPokerClientShell(
       }
     },
     onToolCall: async (toolName: string, args: Record<string, any>, ctx?: ShellContext) => {
-      // 1. Resolve against tools allowed in the CURRENT conversation context
-      const conversationTools = ctx?.availableTools || POKER_SHELL_CONFIG.availableTools || [];
+      // 1. Whitelist validation
+      const conversationTools = ctx?.tools || ctx?.availableTools || POKER_WHITELISTED_TOOLS;
       const matched = conversationTools.find(
         (t) => (typeof t === 'string' ? t : t.name) === toolName
       );
@@ -107,23 +123,15 @@ export function createPokerClientShell(
         return;
       }
 
-      // 2. Execute locally if tool definition object exists in context
-      if (typeof matched !== 'string') {
-        const state = opts.getGameState();
-        if ((matched as any).runAsync) {
-          return await (matched as any).runAsync({
-            args: { state, ...args },
-            toolContext: { state, ...(ctx || {}) },
-          });
-        }
-        if ((matched as any).execute) {
-          return await (matched as any).execute({ state, ...args }, { state, ...(ctx || {}) });
-        }
-      }
-
-      // 3. Remote / Channel tool call dispatch
+      // 2. Direct channel / WebSocket dispatch
       if (opts.channel) {
-        return await opts.channel.send('curator:tool_call', {
+        if (toolName === 'poker_apply_action') {
+          return opts.channel.send('poker:human_action', args.action || args);
+        }
+        if (toolName === 'poker_human_speech') {
+          return opts.channel.send('poker:speech', { text: args.text || args.content });
+        }
+        return opts.channel.send('curator:tool_call', {
           tool: toolName,
           args,
           tableId: opts.channel.tableId,
