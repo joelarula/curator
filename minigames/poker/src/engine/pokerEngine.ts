@@ -74,13 +74,14 @@ export interface PlayerChoice {
 }
 
 export function getLegalChoices(gameState: PokerGameState, playerIdx?: number): PlayerChoice[] {
+  if (!gameState || !Array.isArray(gameState.players)) return [];
   const idx = playerIdx !== undefined ? playerIdx : gameState.activePlayerIdx;
   const player = gameState.players[idx];
   if (!player) return [];
-  const toCall = gameState.currentBet - player.streetBet;
+  const toCall = Math.max(0, (gameState.currentBet || 0) - (player.streetBet || 0));
   const rules = getPokerRules();
   if (rules?.getLegalChoices) {
-    return rules.getLegalChoices(toCall, player.chips, gameState.minRaise || 20, gameState.currentBet);
+    return rules.getLegalChoices(toCall, player.chips || 0, gameState.minRaise || 20, gameState.currentBet || 0);
   }
   const choices: PlayerChoice[] = [];
   if (toCall === 0) {

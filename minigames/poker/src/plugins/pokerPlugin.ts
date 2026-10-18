@@ -321,6 +321,9 @@ export const pokerGetStandingsTool = defineTool({
   },
   execute: async (args: any, ctx: any) => {
     const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
+    if (!rawState || !rawState.players) {
+      return { standings: [], message: 'No active table game state found. Table may be in lobby or paused.' };
+    }
     return getPokerStandings(rawState);
   },
 });
@@ -341,6 +344,9 @@ export const pokerGetChoicesTool = defineTool({
   },
   execute: async (args: any, ctx: any) => {
     const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
+    if (!rawState) {
+      return { choices: [], message: 'No active table game state found. Table may be in lobby or paused.' };
+    }
     return { choices: getLegalChoices(rawState, args?.playerIdx) };
   },
 });

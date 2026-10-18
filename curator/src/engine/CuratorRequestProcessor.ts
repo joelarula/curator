@@ -466,7 +466,7 @@ export class CuratorRequestProcessor {
       // 1. Wake up requests that were WAITING_FOR_USER and just received a response
       const userRespondedRequests = await this.prisma.request.findMany({
         where: {
-          status: 'WAITING',
+          status: { in: ['WAITING', 'WAITING_FOR_USER'] },
           responses: { some: {} } // Has at least one response
         },
         include: { responses: { orderBy: { createdAt: 'desc' }, take: 1 } },
@@ -489,6 +489,20 @@ export class CuratorRequestProcessor {
           where: { id: req.id },
           data: { status: 'WAITING', lockedBy: this.workerId, lockedAt: new Date() }
         });
+
+        const latestResponse = (req as any).responses?.[0];
+        let inputContent = latestResponse?.content;
+        let parsedContent: any = inputContent;
+        try {
+          parsedContent = JSON.parse(inputContent);
+        } catch (_) {}
+
+        const asKey = (req.context as any)?.choiceAs || (req.context as any)?.as;
+        if (asKey) {
+          req.context = req.context || {};
+          req.context[asKey] = parsedContent;
+        }
+
         // This invokes the same merge-and-notify flow as if an agent finished!
         await this.completeRequest(req.id, 'COMPLETED');
       }
@@ -917,11 +931,11 @@ export class CuratorRequestProcessor {
       spawnedCount++;
     }
     
-    // Wake up WAITING_FOR_EVENT requests
+    // Wake up WAITING_FOR_EVENT and WAITING_FOR_USER requests matching waitEvent
     const waitingRequests = await this.prisma.request.findMany({
       where: {
         conversationId: req.conversationId,
-        status: 'WAITING_FOR_EVENT'
+        status: { in: ['WAITING_FOR_EVENT', 'WAITING_FOR_USER'] }
       }
     });
 
@@ -931,15 +945,18 @@ export class CuratorRequestProcessor {
       if (ctx?.waitEvent === node.eventName) {
         logger.info(`[CuratorRequestProcessor] Waking up request ${waitReq.id} waiting for event ${node.eventName}`);
         
+        const aliasKey = ctx.payloadAlias || ctx.choiceAs || ctx.as;
         let newState = {};
-        if (ctx.payloadAlias) {
-           newState = { [ctx.payloadAlias]: payload };
+        if (aliasKey) {
+           newState = { [aliasKey]: payload };
         }
         
         const updatedContext = { ...ctx };
         delete updatedContext.waitEvent;
         delete updatedContext.payloadAlias;
-        if (ctx.payloadAlias) {
+        updatedContext.__humanInputReceived__ = true;
+        if (aliasKey) {
+           updatedContext[aliasKey] = payload;
            updatedContext.state = { ...(updatedContext.state || {}), ...newState };
            
            const conv = await this.prisma.conversation.findUnique({ where: { id: waitReq.conversationId } });
@@ -1284,9 +1301,77 @@ export class CuratorRequestProcessor {
   }
 
   private async handleHumanInput(ast: any, req: any) {
-    logger.info(`[CuratorRequestProcessor] Request ${req.id} paused, waiting for human input from ${ast.targetUserId ? `user ${ast.targetUserId}` : 'any user'} (${ast.inputType || 'text'}).`);
-    // Store targetUserId in context so the poll loop can enforce it
-    const updatedContext = { ...(req.context || {}), targetUserId: ast.targetUserId ?? null };
+    if (req.context?.__humanInputReceived__) {
+      const asKey = ast.as || req.context.choiceAs || req.context.as;
+      const inputVal = asKey ? req.context[asKey] : req.context.input;
+      const responseStr = typeof inputVal === 'string' ? inputVal : JSON.stringify(inputVal || {});
+      await this.saveResponse(req, responseStr);
+      await this.completeRequest(req.id, 'COMPLETED');
+      return;
+    }
+
+    let prompt = ast.prompt;
+    if (typeof prompt === 'string' && (prompt.startsWith('{{') || prompt.startsWith('$') || (prompt.startsWith('(') && prompt.endsWith('(context)')))) {
+      prompt = await this.evaluateExpressionAsync(prompt, req);
+    } else if (typeof prompt === 'string') {
+      prompt = (await this.interpolateTemplate(prompt, req)) || prompt;
+    }
+
+    // Evaluate dynamic choices expression if provided as string or closure
+    let choices = ast.choices;
+    if (typeof choices === 'string' && (choices.startsWith('$') || choices.startsWith('(') || choices.startsWith('context.') || choices.startsWith('state.'))) {
+      choices = await this.evaluateExpressionAsync(choices, req);
+    } else if (typeof choices === 'function') {
+      choices = choices(req.context);
+    }
+
+    // Normalize choices array: convert strings to rich choice objects if needed
+    if (Array.isArray(choices)) {
+      choices = choices.map((c: any) => {
+        if (typeof c === 'string') {
+          return { id: c, label: c, value: c };
+        }
+        return c;
+      });
+    }
+
+    logger.info(`[CuratorRequestProcessor] Request ${req.id} presenting prompt/choices (${choices?.length ?? 0} choices) to ${ast.targetUserId ? `user ${ast.targetUserId}` : 'any user'} (${ast.inputType || 'choices'}).`);
+
+    const choicePayload = {
+      requestId: req.id,
+      prompt,
+      inputType: ast.inputType || 'choices',
+      choices: choices || [],
+      targetUserId: ast.targetUserId ?? null,
+      as: ast.as,
+      blocking: ast.blocking !== false,
+      timeoutSeconds: ast.timeoutSeconds,
+      conversationId: req.conversationId,
+    };
+
+    // Store choices and metadata in request context
+    const updatedContext = {
+      ...(req.context || {}),
+      targetUserId: ast.targetUserId ?? null,
+      activeChoices: choices || [],
+      choicePrompt: prompt,
+      choiceAs: ast.as,
+      as: ast.as || (req.context as any)?.as,
+      waitEvent: 'curator:choice',
+    };
+
+    // Emit real-time choice event to pub/sub channels and client shells
+    this.emit('curator:human_input', choicePayload);
+    this.emit('curator:choices', choicePayload);
+
+    // If non-blocking, record response immediately and complete
+    if (ast.blocking === false) {
+      await this.saveResponse(req, JSON.stringify({ prompt, choices }));
+      await this.completeRequest(req.id, 'COMPLETED');
+      return;
+    }
+
+    // Blocking: suspend request awaiting human response or event
     await this.prisma.request.update({
       where: { id: req.id },
       data: { status: 'WAITING_FOR_USER', context: updatedContext }

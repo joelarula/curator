@@ -9,6 +9,7 @@ import type {
   CuratorEmitEventNode,
   CuratorSetStateNode,
   CuratorHumanInputNode,
+  CuratorChoiceItem,
   CuratorParallelNode,
   CuratorScriptNode,
   CuratorWaitEventNode,
@@ -96,8 +97,34 @@ export class CuratorCoreBuilder {
   /**
    * Wait for human input from the UI or CLI.
    */
-  static humanInput(prompt: string, inputType: 'text' | 'choices' | 'file' = 'text', choices?: string[]): CuratorHumanInputNode {
-    return { type: 'Curator_HumanInput', prompt, inputType, choices };
+  static humanInput(
+    prompt: string,
+    inputType: 'text' | 'choices' | 'file' = 'text',
+    choices?: (string | CuratorChoiceItem)[] | string,
+    options?: { targetUserId?: number; as?: string; blocking?: boolean; timeoutSeconds?: number; name?: string }
+  ): CuratorHumanInputNode {
+    return {
+      type: 'Curator_HumanInput',
+      prompt,
+      inputType,
+      choices,
+      ...options,
+    };
+  }
+
+  /**
+   * Universal affordance / choice verb.
+   * Presents a set of choices to the user/actor and awaits selection if blocking.
+   */
+  static choice(
+    prompt: string,
+    choices: (string | CuratorChoiceItem)[] | string,
+    options?: { targetUserId?: number; as?: string; blocking?: boolean; timeoutSeconds?: number; name?: string }
+  ): CuratorHumanInputNode {
+    return CuratorCoreBuilder.humanInput(prompt, 'choices', choices, {
+      blocking: true,
+      ...options,
+    });
   }
 
   /**

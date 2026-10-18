@@ -464,16 +464,21 @@ export async function createPokerGameSession(
     const waitingReq = await prisma.request.findFirst({
       where: {
         conversationId: targetConvId,
-        status: 'WAITING_FOR_EVENT',
+        status: { in: ['WAITING_FOR_EVENT', 'WAITING_FOR_USER'] },
       },
       orderBy: { updatedAt: 'desc' },
     });
 
     if (!waitingReq) return null;
     const ctx = (waitingReq.context as any) || {};
-    if (ctx.waitEvent !== 'poker:human_action') return null;
+    const ast = waitingReq.ast as any;
+    const isHumanTurn =
+      ctx.waitEvent === 'poker:human_action' ||
+      ctx.waitEvent === 'curator:choice' ||
+      ast?.type === 'Curator_HumanInput';
+    if (!isHumanTurn) return null;
 
-    const choicesInfo = ctx.poker_get_choices || {};
+    const choicesInfo = ctx.activeChoices || ctx.poker_get_choices?.choices || ctx.poker_get_choices || [];
     const gameState = ctx.gameState;
     const activePlayer = gameState?.players?.[gameState?.activePlayerIdx];
 
@@ -485,7 +490,7 @@ export async function createPokerGameSession(
       pot: gameState?.pot ?? 0,
       toCall: (gameState?.currentBet ?? 0) - (activePlayer?.streetBet ?? 0),
       street: gameState?.currentStreet || 'PREFLOP',
-      choices: choicesInfo.choices || [],
+      choices: Array.isArray(choicesInfo) ? choicesInfo : (choicesInfo.choices || []),
     };
   };
 
@@ -642,7 +647,7 @@ export async function createPokerGameSession(
     const waitingReqs = await prisma.request.findMany({
       where: {
         conversationId: targetConvId,
-        status: 'WAITING_FOR_EVENT',
+        status: { in: ['WAITING_FOR_EVENT', 'WAITING_FOR_USER'] },
       },
     });
 
@@ -650,22 +655,31 @@ export async function createPokerGameSession(
     for (const req of waitingReqs) {
       const ctx = (req.context as any) || {};
 
-      // Match direct target event, or resume action if client sent human_action with RESUME/EXIT while paused
+      // Match direct target event, universal curator:choice, or resume action
       const matches =
         ctx.waitEvent === targetEvent ||
+        targetEvent === 'curator:choice' ||
+        (ctx.waitEvent === 'curator:choice' &&
+          (targetEvent === 'poker:human_action' ||
+            targetEvent === 'poker:lobby_choice' ||
+            targetEvent === 'poker:table_selected')) ||
         (ctx.waitEvent === 'poker:resume_action' &&
           targetEvent === 'poker:human_action' &&
           (targetPayload?.type === 'RESUME' || targetPayload?.type === 'EXIT'));
 
       if (matches) {
-        const alias = ctx.payloadAlias;
+        const alias = ctx.payloadAlias || ctx.choiceAs || ctx.as;
         const updatedContext = { ...ctx };
         delete updatedContext.waitEvent;
         delete updatedContext.payloadAlias;
+        updatedContext.__humanInputReceived__ = true;
+
+        const actualValue =
+          targetPayload?.choice !== undefined ? targetPayload.choice : targetPayload;
 
         if (alias) {
-          updatedContext.state = { ...(updatedContext.state || {}), [alias]: targetPayload };
-          updatedContext[alias] = targetPayload;
+          updatedContext.state = { ...(updatedContext.state || {}), [alias]: actualValue };
+          updatedContext[alias] = actualValue;
         }
 
         if (sessionId) {

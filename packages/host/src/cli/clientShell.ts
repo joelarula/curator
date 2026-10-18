@@ -143,7 +143,15 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       };
     });
     this.isBlockingStep = Boolean(options.blocking);
+    this.printChoices();
 
+    if (this.rl && this.isRunning && !this.isHandlingLine) {
+      this.rl.prompt();
+    }
+    return this;
+  }
+
+  public printChoices(): void {
     if (this.activeChoices.length > 0) {
       const choiceList = this.activeChoices
         .map((c, i) => {
@@ -152,17 +160,14 @@ export class ClientShell<TState = any, TAction = ToolAction> {
         })
         .join('   ');
       console.log(`\n\x1b[36mChoices:\x1b[0m ${choiceList}`);
-      if (options.blocking) {
+      if (this.isBlockingStep) {
         console.log(`\x1b[33m(Mandatory: Please select 1-${this.activeChoices.length} to proceed)\x1b[0m`);
       } else {
         console.log(`\x1b[90m(Enter 1-${this.activeChoices.length} to act, type to talk, /help for commands)\x1b[0m`);
       }
+    } else {
+      console.log('\x1b[90mNo active turn choices currently awaiting action.\x1b[0m');
     }
-
-    if (this.rl && this.isRunning && !this.isHandlingLine) {
-      this.rl.prompt();
-    }
-    return this;
   }
 
   clearChoices(): this {
@@ -200,7 +205,7 @@ export class ClientShell<TState = any, TAction = ToolAction> {
     };
 
     // Core built-in commands
-    ['help', 'state', 'status', 'tools', 'exec', 'exit', 'quit', 'q'].forEach(markRegistered);
+    ['help', 'choices', 'actions', 'menu', 'state', 'status', 'tools', 'exec', 'exit', 'quit', 'q'].forEach(markRegistered);
 
     // 1. Built-in 'help' command
     program
@@ -219,6 +224,7 @@ export class ClientShell<TState = any, TAction = ToolAction> {
         }
         console.log('\x1b[33mCore Curator Commands:\x1b[0m');
         console.log('  help - Show available commands and whitelisted tools');
+        console.log('  choices (actions, menu) - Redisplay active turn choices and commands');
         console.log('  state - Inspect current application/game state');
         console.log('  status - View active session, table, and connection status');
         console.log('  tools - List all registered and permitted tools');
@@ -246,7 +252,17 @@ export class ClientShell<TState = any, TAction = ToolAction> {
         }
       });
 
-    // 2. Built-in 'state' command
+    // 2. Built-in 'choices' command
+    program
+      .command('choices')
+      .alias('actions')
+      .alias('menu')
+      .description('Redisplay currently active turn choices and subshell commands')
+      .action(() => {
+        this.printChoices();
+      });
+
+    // 3. Built-in 'state' command
     program
       .command('state')
       .description('Inspect current application state')

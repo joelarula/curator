@@ -12,30 +12,35 @@ export function formatCard(c?: Card): string {
  * Compact 2-line status card for the live group chat stream.
  * Displays essential table info without clearing scrollback history.
  */
-export function renderCompactStatus(gameState: PokerGameState): string {
+export function renderCompactStatus(gameState?: PokerGameState): string {
+  if (!gameState || !Array.isArray(gameState.players) || gameState.players.length === 0) {
+    return '';
+  }
   const reset = '\x1b[0m';
   const bold = '\x1b[1m';
   const cyan = '\x1b[36m';
   const yellow = '\x1b[33m';
   const green = '\x1b[32m';
 
-  const boardCards = gameState.board.length > 0
-    ? gameState.board.map((c) => formatCard(c)).join(' ')
+  const board = Array.isArray(gameState.board) ? gameState.board : [];
+  const boardCards = board.length > 0
+    ? board.map((c) => formatCard(c)).join(' ')
     : '\x1b[90m[No community cards dealt]\x1b[0m';
 
   const hero = gameState.players.find((p) => p.isHuman) || gameState.players[0];
-  const heroCards = hero.holeCards.map((c) => formatCard(c)).join(' ');
-  const heroBest = gameState.board.length >= 3 ? evaluateBestHand(hero.holeCards, gameState.board).description : '';
+  if (!hero) return '';
+  const heroCards = Array.isArray(hero.holeCards) ? hero.holeCards.map((c) => formatCard(c)).join(' ') : '[ -- ]';
+  const heroBest = board.length >= 3 && Array.isArray(hero.holeCards) ? evaluateBestHand(hero.holeCards, board).description : '';
 
   const activeOpponents = gameState.players
     .filter((p) => !p.isHuman && !p.folded)
     .map((p) => `${p.name} ($${p.chips})`)
     .join(', ') || 'None';
 
-  const toCall = Math.max(0, gameState.currentBet - hero.streetBet);
+  const toCall = Math.max(0, (gameState.currentBet || 0) - (hero.streetBet || 0));
   const toCallStr = toCall > 0 ? `To Call: ${green}$${toCall}${reset}` : `${green}Check Available${reset}`;
 
-  let out = `\x1b[90m───\x1b[0m ${cyan}${bold}Table:${reset} ${yellow}${gameState.currentStreet}${reset} (Hand #${gameState.handNumber})  |  ${cyan}Board:${reset} ${boardCards}  |  ${cyan}Pot:${reset} ${green}$${gameState.pot}${reset}  |  ${toCallStr} \x1b[90m───\x1b[0m\n`;
+  let out = `\x1b[90m───\x1b[0m ${cyan}${bold}Table:${reset} ${yellow}${gameState.currentStreet || 'PREFLOP'}${reset} (Hand #${gameState.handNumber || 1})  |  ${cyan}Board:${reset} ${boardCards}  |  ${cyan}Pot:${reset} ${green}$${gameState.pot || 0}${reset}  |  ${toCallStr} \x1b[90m───\x1b[0m\n`;
   out += `  ${bold}Your Hand:${reset} ${heroCards} ${heroBest ? `(${cyan}${heroBest}${reset})` : ''}  |  ${bold}Chips:${reset} ${green}$${hero.chips}${reset}  |  ${bold}In Hand:${reset} ${activeOpponents}`;
   return out;
 }
@@ -44,7 +49,10 @@ export function renderCompactStatus(gameState: PokerGameState): string {
  * Detailed ASCII seat-by-seat diagram.
  * Used for Showdown reveals or on-demand inspection via `/table`.
  */
-export function renderTable(gameState: PokerGameState, showAllCards = false): string {
+export function renderTable(gameState?: PokerGameState, showAllCards = false): string {
+  if (!gameState || !Array.isArray(gameState.players) || gameState.players.length === 0) {
+    return '\n\x1b[33m[Table] No active table hand in progress. Still in lobby.\x1b[0m\n';
+  }
   const reset = '\x1b[0m';
   const bold = '\x1b[1m';
   const cyan = '\x1b[36m';
@@ -52,11 +60,13 @@ export function renderTable(gameState: PokerGameState, showAllCards = false): st
   const green = '\x1b[32m';
   const magenta = '\x1b[35m';
 
-  const boardCards = [0, 1, 2, 3, 4].map((i) => formatCard(gameState.board[i])).join(' ');
+  const board = Array.isArray(gameState.board) ? gameState.board : [];
+  const boardCards = [0, 1, 2, 3, 4].map((i) => formatCard(board[i])).join(' ');
 
   const hero = gameState.players.find((p) => p.isHuman) || gameState.players[0];
-  const heroBest = gameState.board.length >= 3 ? evaluateBestHand(hero.holeCards, gameState.board).description : '';
-  const heroMonologue = hero.lastMonologue;
+  const heroHole = hero && Array.isArray(hero.holeCards) ? hero.holeCards : [];
+  const heroBest = board.length >= 3 && heroHole.length > 0 ? evaluateBestHand(heroHole, board).description : '';
+  const heroMonologue = hero?.lastMonologue;
 
   let out = '\n';
   out += `${cyan}========================================================================================${reset}\n`;

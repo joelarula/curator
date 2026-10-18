@@ -175,6 +175,18 @@ export async function runPokerClientUi(
         return;
       }
 
+      // Universal Curator choices & human input presentation
+      if (type === 'curator:choices' || type === 'curator:human_input') {
+        const rawChoices: any[] = Array.isArray(payload?.choices)
+          ? payload.choices
+          : [];
+        if (payload?.prompt) {
+          console.log(`\n\x1b[1m${payload.prompt}\x1b[0m`);
+        }
+        shell.setChoices(rawChoices, { blocking: Boolean(payload?.blocking) });
+        return;
+      }
+
       // Awaiting human player action (non-blocking by default)
       if (type === 'poker:awaiting_human_action') {
         const rawChoices: any[] = Array.isArray(payload?.choices)

@@ -76,7 +76,23 @@ const schema: Record<string, any> = {
     },
     {
       type: 'object',
-      properties: { ...baseProperties, type: { const: 'Curator_HumanInput' }, name: { type: 'string' }, prompt: { type: 'string', minLength: 1 }, inputType: { type: 'string', enum: ['text', 'choices', 'file'] }, choices: { type: 'array', items: { type: 'string' } }, targetUserId: { type: 'integer' } },
+      properties: {
+        ...baseProperties,
+        type: { const: 'Curator_HumanInput' },
+        name: { type: 'string' },
+        prompt: { type: 'string', minLength: 1 },
+        inputType: { type: 'string', enum: ['text', 'choices', 'file'] },
+        choices: {
+          oneOf: [
+            { type: 'array', items: { oneOf: [{ type: 'string' }, { type: 'object' }] } },
+            { type: 'string' }
+          ]
+        },
+        targetUserId: { type: 'integer' },
+        as: { type: 'string' },
+        blocking: { type: 'boolean' },
+        timeoutSeconds: { type: 'number' }
+      },
       required: ['type', 'prompt'],
       additionalProperties: false,
     },

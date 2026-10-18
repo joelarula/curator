@@ -35,6 +35,8 @@ export interface CuratorTool {
   readonly requiresHumanApproval: boolean;
   readonly requiresConfirmation: boolean;
   readonly mcp?: McpToolExposure;
+  readonly usage?: string;
+  readonly aliases?: string[];
 
   runAsync(input: {
     args: Record<string, unknown>;
@@ -66,6 +68,8 @@ export function defineTool(opts: {
   requiresHumanApproval?: boolean;
   requiresConfirmation?: boolean;
   mcp?: McpToolExposure;
+  usage?: string;
+  aliases?: string[];
   execute: (args: Record<string, unknown>, ctx: CuratorToolContext) => Promise<CuratorToolOutput>;
 }): CuratorTool {
   const requiresApproval = opts.requiresHumanApproval ?? opts.requiresConfirmation ?? false;
@@ -78,6 +82,8 @@ export function defineTool(opts: {
     requiresHumanApproval: requiresApproval,
     requiresConfirmation: requiresApproval,
     mcp: opts.mcp,
+    usage: opts.usage,
+    aliases: opts.aliases,
     async runAsync({ args, toolContext }): Promise<CuratorToolOutput> {
       return opts.execute(args, toolContext);
     },

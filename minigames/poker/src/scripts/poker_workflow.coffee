@@ -51,15 +51,7 @@ seq "poker:dynamic_engine", [
               if_else "$context.gameState.players[$context.gameState.activePlayerIdx].isHuman",
                 seq("poker:human_agent_flow", [
                   tool "poker_get_choices", state: "$context.gameState", playerIdx: "$context.gameState.activePlayerIdx"
-                  emit_event "poker:awaiting_human_action",
-                    player: "$context.gameState.players[$context.gameState.activePlayerIdx].id"
-                    name: "$context.gameState.players[$context.gameState.activePlayerIdx].name"
-                    chips: "$context.gameState.players[$context.gameState.activePlayerIdx].chips"
-                    toCall: "$context.gameState.currentBet - $context.gameState.players[$context.gameState.activePlayerIdx].streetBet"
-                    pot: "$context.gameState.pot"
-                    street: "$context.gameState.currentStreet"
-                    choices: "$context.poker_get_choices.choices"
-                  wait_event "poker:human_action", "humanAction"
+                  choice "Your turn:", "$context.poker_get_choices.choices", as: "humanAction"
                   if_else "$context.humanAction?.type == 'PAUSE'",
                     seq("poker:handle_pause", [
                       set_state isPaused: true

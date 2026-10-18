@@ -177,18 +177,40 @@ export interface CuratorScriptNode extends CuratorBaseNode {
   code: string;
 }
 
+export interface CuratorChoiceItem {
+  id: string;
+  label: string;
+  description?: string;
+  tool?: string;
+  args?: Record<string, any>;
+  usage?: string;
+  aliases?: string[];
+  event?: string;
+  payload?: any;
+  value?: any;
+  roles?: string[];
+  blocking?: boolean;
+}
+
 export interface CuratorHumanInputNode extends CuratorBaseNode {
   type: 'Curator_HumanInput';
   name?: string;
   prompt: string;
   inputType?: 'text' | 'choices' | 'file';
-  choices?: string[];
+  choices?: (string | CuratorChoiceItem)[] | string;
   /**
    * The userId of the player/user who should respond to this input.
    * If set, only responses from this user will be accepted.
    * Useful for multi-player games or multi-user workflows.
    */
   targetUserId?: number;
+  /**
+   * Context key to store the selected choice/response under in request.context.
+   * e.g. as: 'humanAction' sets $context.humanAction
+   */
+  as?: string;
+  blocking?: boolean;
+  timeoutSeconds?: number;
 }
 
 export interface CuratorAgentRefNode extends CuratorBaseNode {

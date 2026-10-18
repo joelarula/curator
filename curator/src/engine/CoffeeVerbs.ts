@@ -9,11 +9,17 @@ export const coffeeAstVerbs: Record<string, any> = {
   tool: (toolName: string, args?: Record<string, any>, as?: string) =>
     CuratorBuilder.tool(toolName, args, as),
 
-  // 2. Human in the loop / prompts
-  prompt: (promptText: string, inputType: 'text' | 'choices' | 'file' = 'text', choices?: string[]) =>
-    CuratorBuilder.humanInput(promptText, inputType, choices),
-  humanInput: (promptText: string, inputType: 'text' | 'choices' | 'file' = 'text', choices?: string[]) =>
-    CuratorBuilder.humanInput(promptText, inputType, choices),
+  // 2. Human in the loop / prompts & universal choices
+  prompt: (promptText: string, inputType: 'text' | 'choices' | 'file' = 'text', choices?: any, options?: any) =>
+    CuratorBuilder.humanInput(promptText, inputType, choices, options),
+  humanInput: (promptText: string, inputType: 'text' | 'choices' | 'file' = 'text', choices?: any, options?: any) =>
+    CuratorBuilder.humanInput(promptText, inputType, choices, options),
+  choice: (promptText: string, choices: any, options?: any) =>
+    CuratorBuilder.choice(promptText, choices, options),
+  choices: (promptText: string, choices: any, options?: any) =>
+    CuratorBuilder.choice(promptText, choices, options),
+  prompt_choices: (promptText: string, choices: any, options?: any) =>
+    CuratorBuilder.choice(promptText, choices, options),
 
   // 3. State management & variables
   set_state: (state: Record<string, any>) => CuratorBuilder.setState(state),

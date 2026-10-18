@@ -12,18 +12,11 @@ seq "poker:lobby_manager", [
   # 1. Interactive Lobby Selection Gate (New Game, Resume Game, Exit)
   if_else "not $context.tableId and not $context.bypassLobby",
     seq("poker:lobby_gate", [
-      emit_event "poker:lobby_prompt",
-        options: [
-          { id: "new", label: "New Game", description: "Start fresh table" }
-          { id: "resume", label: "Resume Game", description: "Select from active/paused tables" }
-          { id: "exit", label: "Exit", description: "Quit session" }
-        ]
-        choices: [
-          { id: "new", label: "New Game - Start fresh table", aliases: ["n"], event: "poker:lobby_choice", payload: { id: "new" }, value: { id: "new" } }
-          { id: "resume", label: "Resume Game - Select from active/paused tables", aliases: ["r", "continue"], event: "poker:lobby_choice", payload: { id: "resume" }, value: { id: "resume" } }
-          { id: "exit", label: "Exit - Quit session", aliases: ["q", "exit", "quit"], event: "poker:lobby_choice", payload: { id: "exit" }, value: { id: "exit" } }
-        ]
-      wait_event "poker:lobby_choice", "lobbyChoice"
+      choice "Lobby Options:", [
+        { id: "new", label: "New Game - Start fresh table", aliases: ["n"], value: { id: "new" } }
+        { id: "resume", label: "Resume Game - Select from active/paused tables", aliases: ["r", "continue"], value: { id: "resume" } }
+        { id: "exit", label: "Exit - Quit session", aliases: ["q", "exit", "quit"], value: { id: "exit" } }
+      ], as: "lobbyChoice"
 
       if_else "$context.lobbyChoice?.id == 'exit' or $context.lobbyChoice == 'exit'",
         seq("poker:exit_lobby", [
@@ -33,10 +26,7 @@ seq "poker:lobby_manager", [
         if_else "$context.lobbyChoice?.id == 'resume' or $context.lobbyChoice == 'resume'",
           seq("poker:resume_table_flow", [
             tool "poker_list_tables"
-            emit_event "poker:request_table_selection",
-              tables: "$context.poker_list_tables.tables"
-              choices: "$context.poker_list_tables.choices"
-            wait_event "poker:table_selected", "selectedTable"
+            choice "Select Table:", "$context.poker_list_tables.choices", as: "selectedTable"
             set_state tableId: "$context.selectedTable?.id || $context.selectedTable?.tableId || $context.selectedTable"
           ]),
           seq("poker:new_table_flow", [
