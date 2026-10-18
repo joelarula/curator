@@ -156,51 +156,22 @@ export async function runPokerClientUi(
         console.log("\x1b[1m\x1b[36m║                    Curator Texas Hold'em Lounge                      ║\x1b[0m");
         console.log("\x1b[1m\x1b[36m╚══════════════════════════════════════════════════════════════════════╝\x1b[0m\n");
 
-        const rawOptions = Array.isArray(payload?.options) ? payload.options : [];
-        const choices = rawOptions.map((opt: any) => ({
-          id: opt.id,
-          label: `${opt.label}${opt.description ? ` - ${opt.description}` : ''}`,
-          execute: async () => {
-            if (opt.id === 'exit' || opt.id === '3' || opt.id === 'q') {
-              console.log("\x1b[33mGoodbye!\x1b[0m");
-              await channel.send('poker:lobby_choice', { id: 'exit' });
-              await cleanup();
-              return;
-            }
-            await channel.send('poker:lobby_choice', { id: opt.id });
-          },
-        }));
-
-        shell.setChoices(choices, { blocking: false });
+        const rawChoices = payload?.choices || payload?.options || [];
+        shell.setChoices(rawChoices, { blocking: false });
         return;
       }
 
       // Table selection presentation (non-blocking)
       if (type === 'poker:request_table_selection') {
-        const rawTables: any[] = payload?.tables || [];
-        if (rawTables.length === 0) {
+        const rawChoices: any[] = payload?.choices || payload?.tables || [];
+        if (rawChoices.length === 0) {
           console.log("\x1b[33mNo existing tables found. Starting fresh table instead...\x1b[0m\n");
           await channel.send('poker:table_selected', { id: 'poker:high_roller_lounge' });
           return;
         }
 
         console.log("\n\x1b[1m=== Available Tables ===\x1b[0m");
-        const choices = rawTables.map((t: any, idx: number) => {
-          const pot = t.gameState?.pot ? ` | Pot: $${t.gameState.pot}` : '';
-          const hand = t.gameState?.handNumber ? ` | Hand: #${t.gameState.handNumber}` : '';
-          const status = t.status || 'ACTIVE';
-          const tableId = String(t.tableId || t.id || idx + 1);
-          return {
-            id: tableId,
-            label: `Table #${tableId} (${t.title || 'Table'}) - Status: ${status}${pot}${hand}`,
-            aliases: [String(idx + 1), tableId],
-            execute: async () => {
-              await channel.send('poker:table_selected', { id: tableId });
-            },
-          };
-        });
-
-        shell.setChoices(choices, { blocking: false });
+        shell.setChoices(rawChoices, { blocking: false });
         return;
       }
 
@@ -211,77 +182,19 @@ export async function runPokerClientUi(
           : Array.isArray(payload?.choices?.choices)
             ? payload.choices.choices
             : [];
-
-        const getChoiceAliases = (typeStr: string, cId?: string): string[] => {
-          const t = typeStr.toLowerCase();
-          const list: string[] = [t];
-          if (cId && !list.includes(cId.toLowerCase())) list.push(cId.toLowerCase());
-          if (t === 'check') list.push('k');
-          if (t === 'call') list.push('c');
-          if (t === 'fold') list.push('f');
-          if (t === 'bet') list.push('b');
-          if (t === 'raise') list.push('r');
-          if (t === 'all_in' || t === 'allin') list.push('allin', 'all-in', 'shove');
-          return list;
-        };
-
-        const choices = rawChoices.map((c: any) => {
-          const act = c.action || c;
-          const actType = act?.type || c.type || 'ACTION';
-          const actAmount = act?.amount || c.amount;
-          return {
-            id: c.id || actType.toLowerCase(),
-            label:
-              c.label ||
-              `${actType} ${actAmount ? '$' + actAmount : ''}`.trim(),
-            aliases: getChoiceAliases(actType, c.id),
-            execute: async (rawArgs?: string, tokens?: string[]) => {
-              let chosenAmount = actAmount;
-              const inputTokens = tokens || (rawArgs ? rawArgs.trim().split(/\s+/) : []);
-              if (inputTokens.length > 0) {
-                const parsedNum = parseInt(inputTokens[0], 10);
-                if (!isNaN(parsedNum) && parsedNum > 0) {
-                  chosenAmount = parsedNum;
-                }
-              }
-              const actionPayload = {
-                type: actType,
-                amount: chosenAmount,
-                ...(typeof act === 'object' ? act : {}),
-              };
-              if (chosenAmount !== undefined) {
-                actionPayload.amount = chosenAmount;
-              }
-              if (actionPayload.type === 'EXIT') {
-                console.log(`\n\x1b[33m[Game] Exiting table session...\x1b[0m`);
-                await channel.send('poker:human_action', actionPayload);
-                await cleanup();
-                return;
-              }
-              await channel.send('poker:human_action', actionPayload);
-            },
-          };
-        });
-
-        const isBlocking = Boolean(payload?.blocking);
-        shell.setChoices(choices, { blocking: isBlocking });
+        shell.setChoices(rawChoices, { blocking: Boolean(payload?.blocking) });
       }
     });
 
-    // Initialize channel (e.g. direct in-process initial AST stepping) before activating the REPL prompt
-    const bootChannel = async () => {
-      if (typeof channel.start === 'function') {
-        try {
-          await channel.start();
-        } catch (err: any) {
-          console.error(`\x1b[31m[Start Error] ${err?.message || err}\x1b[0m`);
-        }
-      }
-      // Start the continuous asynchronous REPL after channel has completed initial stepping
-      shell.start(rl);
-    };
+    // Start the continuous asynchronous REPL immediately so event-driven choices can prompt
+    shell.start(rl);
 
-    bootChannel();
+    // Initialize channel (e.g. direct in-process initial AST stepping)
+    if (typeof channel.start === 'function') {
+      channel.start().catch((err: any) => {
+        console.error(`\x1b[31m[Start Error] ${err?.message || err}\x1b[0m`);
+      });
+    }
   });
 }
 

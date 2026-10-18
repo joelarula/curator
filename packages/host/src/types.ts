@@ -116,8 +116,13 @@ export interface ActiveChoice {
   label: string;
   tool?: string;
   args?: Record<string, any>;
+  action?: any;
   value?: any;
+  event?: string;
+  payload?: any;
   aliases?: string[];
+  usage?: string;
+  description?: string;
   blocking?: boolean;
   parse?: (args: string, tokens: string[], ctx: ClientShellConfig) => any;
   execute?: (args: string, tokens: string[], ctx: ClientShellConfig) => any;
@@ -137,6 +142,8 @@ export interface ClientShellConfig<TState = any, _TAction = any> {
   redrawView?: () => void;
   onToolCall?: (toolName: string, args: Record<string, any>, ctx?: ClientShellConfig<TState, _TAction>) => Promise<any>;
   onSpeech?: (text: string, speechAct?: string, targetId?: string) => Promise<any>;
+  onAction?: (action: any, tokens?: string[], ctx?: ClientShellConfig<TState, _TAction>) => Promise<any>;
+  onChoice?: (choice: any, ctx?: ClientShellConfig<TState, _TAction>) => Promise<any>;
   onCommand?: (command: string, args: string) => Promise<boolean | void>;
   logTurn?: (msg: string) => Promise<void>;
   hint?: string;

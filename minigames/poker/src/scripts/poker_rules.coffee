@@ -82,24 +82,24 @@ getLegalChoices = (toCall = 0, chips = 0, minRaise = 20, currentBet = 0) ->
   canCheck = toCall is 0
 
   if canCheck
-    choices.push { id: 'check', label: 'Check', action: { type: 'CHECK' } }
+    choices.push { id: 'check', label: 'Check', aliases: ['k'], tool: 'poker_apply_action', args: { action: { type: 'CHECK' } }, action: { type: 'CHECK' } }
     if chips >= minRaise * 2
-      choices.push { id: 'bet_min', label: "Bet $#{minRaise * 2}", action: { type: 'RAISE', amount: minRaise * 2 } }
+      choices.push { id: 'bet_min', label: "Bet $#{minRaise * 2}", aliases: ['b', 'bet'], usage: '<amount>', tool: 'poker_apply_action', args: { action: { type: 'RAISE', amount: minRaise * 2 } }, action: { type: 'RAISE', amount: minRaise * 2 } }
     if chips >= minRaise * 5
-      choices.push { id: 'bet_med', label: "Bet $#{minRaise * 5}", action: { type: 'RAISE', amount: minRaise * 5 } }
+      choices.push { id: 'bet_med', label: "Bet $#{minRaise * 5}", aliases: ['b', 'bet'], usage: '<amount>', tool: 'poker_apply_action', args: { action: { type: 'RAISE', amount: minRaise * 5 } }, action: { type: 'RAISE', amount: minRaise * 5 } }
     if chips > 0
-      choices.push { id: 'all_in', label: "All-In ($#{chips})", action: { type: 'ALL_IN', amount: chips } }
+      choices.push { id: 'all_in', label: "All-In ($#{chips})", aliases: ['allin', 'all-in', 'shove'], tool: 'poker_apply_action', args: { action: { type: 'ALL_IN', amount: chips } }, action: { type: 'ALL_IN', amount: chips } }
   else
     if chips > toCall
-      choices.push { id: 'call', label: "Call $#{toCall}", action: { type: 'CALL', amount: toCall } }
+      choices.push { id: 'call', label: "Call $#{toCall}", aliases: ['c'], tool: 'poker_apply_action', args: { action: { type: 'CALL', amount: toCall } }, action: { type: 'CALL', amount: toCall } }
       raiseTotal = toCall + minRaise * 2
       if chips >= raiseTotal
-        choices.push { id: 'raise_min', label: "Raise to $#{currentBet + minRaise * 2}", action: { type: 'RAISE', amount: raiseTotal } }
-      choices.push { id: 'all_in', label: "All-In ($#{chips})", action: { type: 'ALL_IN', amount: chips } }
-      choices.push { id: 'fold', label: 'Fold', action: { type: 'FOLD' } }
+        choices.push { id: 'raise_min', label: "Raise to $#{currentBet + minRaise * 2}", aliases: ['r', 'raise'], usage: '<amount>', tool: 'poker_apply_action', args: { action: { type: 'RAISE', amount: raiseTotal } }, action: { type: 'RAISE', amount: raiseTotal } }
+      choices.push { id: 'all_in', label: "All-In ($#{chips})", aliases: ['allin', 'all-in', 'shove'], tool: 'poker_apply_action', args: { action: { type: 'ALL_IN', amount: chips } }, action: { type: 'ALL_IN', amount: chips } }
+      choices.push { id: 'fold', label: 'Fold', aliases: ['f'], tool: 'poker_apply_action', args: { action: { type: 'FOLD' } }, action: { type: 'FOLD' } }
     else
-      choices.push { id: 'all_in', label: "All-In ($#{chips})", action: { type: 'ALL_IN', amount: chips } }
-      choices.push { id: 'fold', label: 'Fold', action: { type: 'FOLD' } }
+      choices.push { id: 'all_in', label: "All-In ($#{chips})", aliases: ['allin', 'all-in', 'shove'], tool: 'poker_apply_action', args: { action: { type: 'ALL_IN', amount: chips } }, action: { type: 'ALL_IN', amount: chips } }
+      choices.push { id: 'fold', label: 'Fold', aliases: ['f'], tool: 'poker_apply_action', args: { action: { type: 'FOLD' } }, action: { type: 'FOLD' } }
 
   choices
 

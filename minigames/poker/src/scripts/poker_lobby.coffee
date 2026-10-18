@@ -18,6 +18,11 @@ seq "poker:lobby_manager", [
           { id: "resume", label: "Resume Game", description: "Select from active/paused tables" }
           { id: "exit", label: "Exit", description: "Quit session" }
         ]
+        choices: [
+          { id: "new", label: "New Game - Start fresh table", aliases: ["n"], event: "poker:lobby_choice", payload: { id: "new" }, value: { id: "new" } }
+          { id: "resume", label: "Resume Game - Select from active/paused tables", aliases: ["r", "continue"], event: "poker:lobby_choice", payload: { id: "resume" }, value: { id: "resume" } }
+          { id: "exit", label: "Exit - Quit session", aliases: ["q", "exit", "quit"], event: "poker:lobby_choice", payload: { id: "exit" }, value: { id: "exit" } }
+        ]
       wait_event "poker:lobby_choice", "lobbyChoice"
 
       if_else "$context.lobbyChoice?.id == 'exit' or $context.lobbyChoice == 'exit'",
@@ -30,6 +35,7 @@ seq "poker:lobby_manager", [
             tool "poker_list_tables"
             emit_event "poker:request_table_selection",
               tables: "$context.poker_list_tables.tables"
+              choices: "$context.poker_list_tables.choices"
             wait_event "poker:table_selected", "selectedTable"
             set_state tableId: "$context.selectedTable?.id || $context.selectedTable?.tableId || $context.selectedTable"
           ]),

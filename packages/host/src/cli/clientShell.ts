@@ -90,19 +90,58 @@ export class ClientShell<TState = any, TAction = ToolAction> {
   }
 
   setChoices(
-    choices: ActiveChoice[] | ShellCommand<TAction>[],
+    choices: (ActiveChoice | any)[],
     options: { blocking?: boolean; hint?: string } = {}
   ): this {
-    this.activeChoices = choices.map((c: any, i: number) => ({
-      id: c.id || c.name || String(i + 1),
-      label: c.label || c.name || c.description || `Choice ${i + 1}`,
-      tool: c.tool || (typeof c.value === 'object' ? c.value?.tool : undefined),
-      args: c.args || (typeof c.value === 'object' ? c.value?.args : undefined),
-      value: c.value !== undefined ? c.value : c,
-      aliases: c.aliases,
-      parse: c.parse,
-      execute: c.execute,
-    }));
+    this.activeChoices = choices.map((c: any, i: number) => {
+      const act = c.action || (c.type ? c : undefined);
+      const actType = act?.type || c.type;
+      const rawName = (c.id || actType || c.label || String(i + 1)).toLowerCase();
+
+      // Auto-derive standard aliases if not explicitly provided
+      const aliases = c.aliases ? [...c.aliases] : [];
+      if (aliases.length === 0 && actType) {
+        const atLower = String(actType).toLowerCase();
+        if (atLower === 'check') aliases.push('k');
+        else if (atLower === 'call') aliases.push('c');
+        else if (atLower === 'fold') aliases.push('f');
+        else if (atLower === 'bet') aliases.push('b');
+        else if (atLower === 'raise') aliases.push('r');
+        else if (atLower === 'all_in' || atLower === 'allin') aliases.push('allin', 'all-in', 'shove');
+      } else if (aliases.length === 0 && c.id) {
+        const idLower = String(c.id).toLowerCase();
+        if (idLower === 'new') aliases.push('n');
+        else if (idLower === 'resume') aliases.push('r', 'continue');
+        else if (idLower === 'exit') aliases.push('q', 'quit');
+      }
+
+      const defaultAmount = act?.amount ?? c.amount;
+      const label = c.label || (actType ? `${actType}${defaultAmount ? ` $${defaultAmount}` : ''}` : `Choice ${i + 1}`);
+      const usage = c.usage || ((actType === 'RAISE' || actType === 'BET') ? '<amount>' : undefined);
+
+      const event = c.event || (typeof c.value === 'object' ? c.value?.event : undefined);
+      const payload = c.payload !== undefined ? c.payload : (typeof c.value === 'object' ? c.value?.payload : undefined);
+      const tool = c.tool || (typeof c.value === 'object' ? c.value?.tool : undefined);
+      let args = c.args || (typeof c.value === 'object' ? c.value?.args : undefined);
+      if (tool && !args && act) {
+        args = { action: act };
+      }
+
+      return {
+        id: c.id || rawName,
+        label,
+        tool,
+        args,
+        action: act,
+        value: c.value !== undefined ? c.value : (act || c),
+        event,
+        payload,
+        aliases,
+        usage,
+        parse: c.parse,
+        execute: c.execute,
+      };
+    });
     this.isBlockingStep = Boolean(options.blocking);
 
     if (this.activeChoices.length > 0) {
@@ -155,6 +194,14 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       writeErr: () => {},
     });
 
+    const registeredNames = new Set<string>();
+    const markRegistered = (name: string) => {
+      registeredNames.add(name.toLowerCase());
+    };
+
+    // Core built-in commands
+    ['help', 'state', 'status', 'tools', 'exec', 'exit', 'quit', 'q'].forEach(markRegistered);
+
     // 1. Built-in 'help' command
     program
       .command('help')
@@ -162,10 +209,12 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       .action(() => {
         console.log('\n\x1b[1m\x1b[36m=== Curator REPL Commands & Whitelisted Tools ===\x1b[0m');
         if (this.activeChoices.length > 0) {
-          console.log('\x1b[33mActive Turn Choices:\x1b[0m');
+          console.log('\x1b[33mActive Turn Choices (Subshell Commands):\x1b[0m');
           this.activeChoices.forEach((c, idx) => {
+            const rawName = (c.id || c.label).trim().split(/\s+/)[0].toLowerCase();
+            const usage = c.usage ? ` ${c.usage}` : (rawName === 'raise' || rawName === 'bet' ? ' [amount]' : '');
             const aliases = c.aliases?.length ? ` (${c.aliases.join(', ')})` : '';
-            console.log(`  [${idx + 1}] ${c.label}${aliases}`);
+            console.log(`  [${idx + 1}] ${c.id || c.label}${usage}${aliases} - ${c.label}`);
           });
         }
         console.log('\x1b[33mCore Curator Commands:\x1b[0m');
@@ -292,12 +341,69 @@ export class ClientShell<TState = any, TAction = ToolAction> {
         process.exit(0);
       });
 
-    // 4. Register custom REPL commands
+    // 7. Register dynamic active choices as first-class Commander subshell commands
+    if (this.activeChoices.length > 0) {
+      this.activeChoices.forEach((choice, idx) => {
+        const numStr = String(idx + 1);
+        const rawName = (choice.id || choice.label).trim().split(/\s+/)[0].toLowerCase();
+        const usage = choice.usage
+          ? ` ${choice.usage}`
+          : (rawName === 'raise' || rawName === 'bet' ? ' [amount]' : ' [args...]');
+
+        // Dynamic action command (e.g. `raise [amount]`, `check`, `call`, `fold`)
+        if (!registeredNames.has(rawName)) {
+          markRegistered(rawName);
+          const c = program.command(`${rawName}${usage}`).description(choice.label);
+          if (choice.aliases) {
+            for (const a of choice.aliases) {
+              const aLower = a.toLowerCase();
+              if (!registeredNames.has(aLower)) {
+                markRegistered(aLower);
+                c.alias(a);
+              }
+            }
+          }
+          c.allowUnknownOption(true);
+          c.action(async (...args) => {
+            const strTokens = args.filter((a) => typeof a === 'string');
+            const res = await this.executeChoice(choice, strTokens);
+            this.activeChoices = [];
+            onResult?.(res);
+          });
+        }
+
+        // Numeric shortcut command (e.g. `1`, `2`, `3`)
+        if (!registeredNames.has(numStr)) {
+          markRegistered(numStr);
+          program
+            .command(`${numStr} [args...]`)
+            .description(`Select [${numStr}]: ${choice.label}`)
+            .allowUnknownOption(true)
+            .action(async (...args) => {
+              const strTokens = args.filter((a) => typeof a === 'string');
+              const res = await this.executeChoice(choice, strTokens);
+              this.activeChoices = [];
+              onResult?.(res);
+            });
+        }
+      });
+    }
+
+    // 8. Register custom REPL commands (skipping any shadowed by active turn choices)
     for (const cmd of this.commands) {
+      const cmdName = cmd.name.toLowerCase();
+      if (registeredNames.has(cmdName)) continue;
+      markRegistered(cmdName);
       const usage = cmd.usage ? ` ${cmd.usage}` : ' [args...]';
       const c = program.command(`${cmd.name}${usage}`).description(cmd.description || '');
       if (cmd.aliases) {
-        for (const a of cmd.aliases) c.alias(a);
+        for (const a of cmd.aliases) {
+          const aLower = a.toLowerCase();
+          if (!registeredNames.has(aLower)) {
+            markRegistered(aLower);
+            c.alias(a);
+          }
+        }
       }
       c.allowUnknownOption(true);
       c.action(async (...args) => {
@@ -323,12 +429,21 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       });
     }
 
-    // 5. Register whitelisted tools
+    // 9. Register whitelisted tools
     for (const [name, tool] of this.tools.entries()) {
+      const toolName = name.toLowerCase();
+      if (registeredNames.has(toolName)) continue;
+      markRegistered(toolName);
       const usage = tool.usage ? ` ${tool.usage}` : ' [args...]';
       const c = program.command(`${name}${usage}`).description(tool.description || '');
       if (tool.aliases) {
-        for (const a of tool.aliases) c.alias(a);
+        for (const a of tool.aliases) {
+          const aLower = a.toLowerCase();
+          if (!registeredNames.has(aLower)) {
+            markRegistered(aLower);
+            c.alias(a);
+          }
+        }
       }
       c.allowUnknownOption(true);
       c.action(async (...args) => {
@@ -415,10 +530,51 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       if (outcome && typeof outcome === 'object' && outcome.type === 'ACTION') {
         return outcome.value;
       }
+      if (outcome !== undefined) return outcome;
     }
+
+    // 1. Dispatch tool if specified on choice (Primary Curator Architecture: all commands derive from tools)
     if (choice.tool) {
-      const res = await this.dispatchTool(choice.tool, choice.args || {});
+      const toolArgs = { ...(choice.args || {}) };
+      if (choiceTokens.length > 0) {
+        const num = parseInt(choiceTokens[0], 10);
+        if (!isNaN(num) && num > 0) {
+          if (toolArgs.action && typeof toolArgs.action === 'object') {
+            toolArgs.action = { ...toolArgs.action, amount: num };
+          } else {
+            toolArgs.amount = num;
+          }
+        }
+      }
+      const res = await this.dispatchTool(choice.tool, toolArgs);
       return choice.value !== undefined ? choice.value : (res !== undefined ? res : choice);
+    }
+
+    // 2. Dispatch declarative event (e.g. event: 'poker:lobby_choice', payload: { id: 'new' })
+    if (choice.event && this.config.channel) {
+      const payload = choice.payload !== undefined ? choice.payload : (choice.value !== undefined ? choice.value : choice);
+      await this.config.channel.send(choice.event, payload);
+      return payload;
+    }
+
+    // 3. Fallback onAction handler (if consumer configured onAction)
+    const action = choice.action || (typeof choice.value === 'object' && choice.value?.action ? choice.value.action : undefined);
+    if (action) {
+      const actionPayload = typeof action === 'object' ? { ...action } : { type: action };
+      if (choiceTokens.length > 0) {
+        const num = parseInt(choiceTokens[0], 10);
+        if (!isNaN(num) && num > 0) {
+          actionPayload.amount = num;
+        }
+      }
+      if (this.config.onAction) {
+        return await this.config.onAction(actionPayload, choiceTokens, this.config);
+      }
+    }
+
+    // 4. Dispatch value / channel choice / onChoice
+    if (this.config.onChoice) {
+      return await this.config.onChoice(choice.value !== undefined ? choice.value : choice, this.config);
     }
 
     if (choice.value !== undefined) {
@@ -450,43 +606,13 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       return;
     }
 
-    // 2. Numeric selection from active choices (e.g. 1, 2, 3)
+    // 2. Tokenize command for Commander program
     const isSlash = trimmed.startsWith('/');
     const clean = isSlash ? trimmed.slice(1) : trimmed;
-    const numIdx = parseInt(clean, 10);
-    if (!isSlash && !isNaN(numIdx) && numIdx >= 1 && numIdx <= this.activeChoices.length) {
-      const choice = this.activeChoices[numIdx - 1];
-      const result = await this.executeChoice(choice);
-      this.activeChoices = [];
-      return result;
-    }
-
-    // 3. Tokenize command for choice matching and Commander program
     const tokens = parseCommandLine(clean);
     if (tokens.length === 0) return;
-    const cmdToken = tokens[0]?.toLowerCase() || '';
-    const choiceArgs = tokens.slice(1);
 
-    // 4. Choice direct matching by id/label/alias (including arguments like "raise 150")
-    const matchedChoice = this.activeChoices.find((c) => {
-      const id = (c.id || '').toLowerCase();
-      const lbl = (c.label || '').toLowerCase();
-      const cl = clean.toLowerCase();
-      return (
-        id === cmdToken ||
-        id === cl ||
-        lbl === cmdToken ||
-        lbl === cl ||
-        c.aliases?.some((a: string) => a.toLowerCase() === cmdToken || a.toLowerCase() === cl)
-      );
-    });
-    if (matchedChoice) {
-      const result = await this.executeChoice(matchedChoice, choiceArgs);
-      this.activeChoices = [];
-      return result;
-    }
-
-    // 5. Parse using Commander program instance
+    // 3. Parse using Commander program instance (subshell handles choices, commands, and tools)
     try {
       let commandResult: any = undefined;
       const program = this.buildProgram((res) => {

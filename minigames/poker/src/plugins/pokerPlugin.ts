@@ -370,7 +370,15 @@ export const pokerListTablesTool = defineTool({
       tableId: String(c.id),
       title: c.metadata?.tableName || c.title || `Table #${c.id}`,
     }));
-    return { tables };
+    const choices = tables.map((t: any, idx: number) => ({
+      id: String(t.id),
+      label: `Table #${t.id} (${t.title})`,
+      aliases: [String(idx + 1), String(t.id)],
+      event: 'poker:table_selected',
+      payload: { id: String(t.id) },
+      value: { id: String(t.id) },
+    }));
+    return { tables, choices };
   },
 });
 

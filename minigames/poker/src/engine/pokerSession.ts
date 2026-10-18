@@ -603,7 +603,15 @@ export async function createPokerGameSession(
       return { actors };
     } else if (eventName === 'poker:list_tables') {
       const tables = await listTables();
-      host.events.broadcast('poker:request_table_selection', { tables });
+      const choices = tables.map((t: any, idx: number) => ({
+        id: String(t.id || t.tableId || idx + 1),
+        label: `Table #${t.tableId || t.id || idx + 1} (${t.title || 'Table'})`,
+        aliases: [String(idx + 1), String(t.tableId || t.id || idx + 1)],
+        event: 'poker:table_selected',
+        payload: { id: String(t.tableId || t.id || idx + 1) },
+        value: { id: String(t.tableId || t.id || idx + 1) },
+      }));
+      host.events.broadcast('poker:request_table_selection', { tables, choices });
       return tables;
     } else if (eventName === 'poker:reset_light') {
       const res = await resetPokerDatabaseLight(prisma, { quiet: false });
@@ -620,6 +628,11 @@ export async function createPokerGameSession(
           { id: 'new', label: 'New Game', description: 'Start fresh table' },
           { id: 'resume', label: 'Resume Game', description: 'Select from active/paused tables' },
           { id: 'exit', label: 'Exit', description: 'Quit session' },
+        ],
+        choices: [
+          { id: 'new', label: 'New Game - Start fresh table', aliases: ['n'], event: 'poker:lobby_choice', payload: { id: 'new' }, value: { id: 'new' } },
+          { id: 'resume', label: 'Resume Game - Select from active/paused tables', aliases: ['r', 'continue'], event: 'poker:lobby_choice', payload: { id: 'resume' }, value: { id: 'resume' } },
+          { id: 'exit', label: 'Exit - Quit session', aliases: ['q', 'exit', 'quit'], event: 'poker:lobby_choice', payload: { id: 'exit' }, value: { id: 'exit' } },
         ],
       });
       return res;

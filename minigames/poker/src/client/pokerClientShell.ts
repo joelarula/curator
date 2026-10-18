@@ -42,83 +42,11 @@ export const POKER_WHITELISTED_TOOLS: (string | CuratorToolDefinition)[] = [
 ];
 
 /**
- * Static view, control, wagering, and inspection commands for Texas Hold'em interactive play.
+ * Static view, discourse, control, and inspection commands for Texas Hold'em interactive play.
+ * Note: Turn-specific wagering actions (raise, bet, call, check, fold, all-in) are dynamically
+ * mounted as first-class Commander subshell commands from the engine's legal choices.
  */
 export const POKER_COMMANDS: ReplCommand[] = [
-  // --- Wagering / Action Commands ---
-  {
-    name: 'raise',
-    usage: '<amount>',
-    aliases: ['r'],
-    description: 'Raise the current bet to a specified amount (e.g. raise 100 or r 100)',
-    execute: async (rawArgs, tokens, ctx) => {
-      const amount = parseInt(tokens[0] || rawArgs, 10);
-      if (isNaN(amount) || amount <= 0) {
-        console.log('\x1b[31mUsage: raise <amount> (e.g. raise 100 or r 100)\x1b[0m');
-        return;
-      }
-      if (ctx.channel) {
-        await ctx.channel.send('poker:human_action', { type: 'RAISE', amount });
-      }
-    },
-  },
-  {
-    name: 'bet',
-    usage: '<amount>',
-    aliases: ['b'],
-    description: 'Place a bet of a specified amount (e.g. bet 50 or b 50)',
-    execute: async (rawArgs, tokens, ctx) => {
-      const amount = parseInt(tokens[0] || rawArgs, 10);
-      if (isNaN(amount) || amount <= 0) {
-        console.log('\x1b[31mUsage: bet <amount> (e.g. bet 50 or b 50)\x1b[0m');
-        return;
-      }
-      if (ctx.channel) {
-        await ctx.channel.send('poker:human_action', { type: 'BET', amount });
-      }
-    },
-  },
-  {
-    name: 'call',
-    usage: '[amount]',
-    aliases: ['c'],
-    description: 'Call the current highest bet',
-    execute: async (_rawArgs, _tokens, ctx) => {
-      if (ctx.channel) {
-        await ctx.channel.send('poker:human_action', { type: 'CALL' });
-      }
-    },
-  },
-  {
-    name: 'check',
-    aliases: ['k'],
-    description: 'Check and pass action without wagering',
-    execute: async (_rawArgs, _tokens, ctx) => {
-      if (ctx.channel) {
-        await ctx.channel.send('poker:human_action', { type: 'CHECK' });
-      }
-    },
-  },
-  {
-    name: 'fold',
-    aliases: ['f'],
-    description: 'Fold your cards and forfeit the pot',
-    execute: async (_rawArgs, _tokens, ctx) => {
-      if (ctx.channel) {
-        await ctx.channel.send('poker:human_action', { type: 'FOLD' });
-      }
-    },
-  },
-  {
-    name: 'allin',
-    aliases: ['all-in', 'shove'],
-    description: 'Wager all remaining chips',
-    execute: async (_rawArgs, _tokens, ctx) => {
-      if (ctx.channel) {
-        await ctx.channel.send('poker:human_action', { type: 'ALL_IN' });
-      }
-    },
-  },
 
   // --- Speech & Discourse Commands ---
   {
@@ -283,6 +211,32 @@ export function createPokerClientShell(
           speechAct: speechAct || 'TABLE_TALK',
           targetId,
         });
+      }
+    },
+    onAction: async (action: any) => {
+      if (opts.channel) {
+        if (action?.type === 'EXIT') {
+          console.log('\n\x1b[33m[Game] Exiting table session...\x1b[0m');
+          await opts.channel.send('poker:human_action', action);
+          await opts.channel.close();
+          return;
+        }
+        return opts.channel.send('poker:human_action', action);
+      }
+    },
+    onChoice: async (choice: any) => {
+      if (opts.channel) {
+        if (choice?.event) {
+          return opts.channel.send(choice.event, choice.payload || choice.value || choice);
+        }
+        const cId = choice?.id || choice?.tableId;
+        if (cId === 'new' || cId === 'resume' || cId === 'exit') {
+          return opts.channel.send('poker:lobby_choice', { id: cId });
+        }
+        if (cId) {
+          return opts.channel.send('poker:table_selected', { id: cId });
+        }
+        return opts.channel.send('curator:choice', { choice });
       }
     },
     onToolCall: async (toolName: string, args: Record<string, any>, ctx?: ShellContext) => {
