@@ -27,4 +27,21 @@ program
     }
   });
 
+// Interactive Asynchronous SQLite REPL client
+program
+  .command('repl', { isDefault: false })
+  .alias('shell')
+  .description('Start interactive asynchronous client REPL for Blueprint MiniApp (SQLite in-process or server channel)')
+  .option('--direct', 'Run direct in-process SQLite execution mode', true)
+  .option('--server <url>', 'Connect to remote Blueprint server URL', 'http://127.0.0.1:4100')
+  .option('--name <user>', 'User name for REPL', 'User')
+  .action(async (opts) => {
+    const { runBlueprintClient } = await import('./client/blueprintClient.js');
+    await runBlueprintClient({
+      direct: opts.direct !== false,
+      serverUrl: opts.server,
+      userName: opts.name,
+    });
+  });
+
 program.parse(process.argv);

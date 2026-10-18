@@ -45,13 +45,13 @@ Or manually create a directory under `miniapps/my-domain-app/` with the followin
 }
 ```
 
-### Step 2: Define your Domain Plugin (`src/plugin.ts`)
-A plugin bundles your custom tools, data models, and vocabulary verbs:
+### Step 2: Define your Domain Plugin with RBAC (`src/plugin.ts`)
+A plugin bundles your custom tools, declarative RBAC domain roles, and vocabulary verbs. Every tool requires explicit actor binding and role authorization:
 
 ```typescript
 import { CuratorPlugin, defineTool } from '@curator/agent-server';
 
-// 1. Define a deterministic tool
+// 1. Define a deterministic tool with role whitelisting
 export const calculateRiskTool = defineTool({
   name: 'calculate_risk',
   description: 'Calculates portfolio risk score given exposure values.',
@@ -64,6 +64,7 @@ export const calculateRiskTool = defineTool({
     required: ['exposure'],
   },
   accessLevel: 'safe_read',
+  requiredRole: 'finance:analyst', // Strict RBAC whitelist: only actors with finance:analyst can execute
   async execute(args) {
     const exp = Number(args.exposure || 0);
     const vol = Number(args.volatility || 1.0);
@@ -71,10 +72,31 @@ export const calculateRiskTool = defineTool({
   },
 });
 
-// 2. Export your domain plugin
+// 2. Export your domain plugin with declarative roles and inheritance
 export const myDomainPlugin: CuratorPlugin = {
   name: 'my-domain',
   version: '1.0.0',
+  roles: {
+    'finance:admin': {
+      description: 'System administrator for portfolio management',
+      subRoles: ['finance:auditor'],
+    },
+    'finance:auditor': {
+      description: 'Compliance auditor with read and verification privileges',
+      subRoles: ['finance:analyst'],
+    },
+    'finance:analyst': {
+      description: 'Analyst capable of executing portfolio risk models',
+      subRoles: ['finance:viewer'],
+    },
+    'finance:viewer': {
+      description: 'Read-only observer for dashboard summaries',
+    },
+  },
+  // Default roles granted to authenticated human users (supports multi-role combinations)
+  defaultUserRoles: ['finance:analyst', 'finance:viewer'],
+  // Roles assigned to the system administrator actor
+  systemRoles: ['system:admin', 'finance:admin', 'finance:auditor', 'finance:analyst', 'finance:viewer'],
   tools: {
     calculate_risk: calculateRiskTool,
   },
@@ -150,16 +172,61 @@ Best for offline-first desktop web apps, privacy-sensitive local analyses, or ex
 
 ---
 
-## 3. Conversational Roles vs. Security Permissions
+## 3. Conversational Roles vs. Security Permissions (RBAC)
 
 When writing agent scripts, **never confuse conversational roles with database RBAC roles**:
 
 | Concept | Scope | Where Defined | Purpose | Example |
 | :--- | :--- | :--- | :--- | :--- |
 | **Conversational Role** | Dynamic per conversation room $G$ | Script context (`as_role`, `with_role`) | Decides who is speaking, who moderates, or who votes in a turn | `critic`, `proposer`, `dealer`, `chair` |
-| **Permission Role (RBAC)** | Global or per-project | Database (`prisma.user.role`) | Decides whether an agent/user can execute destructive tools or access projects | `ADMIN`, `AGENT`, `GUEST` |
+| **Security Role (RBAC)** | Domain & Project-wide | Plugin manifest & Database (`prisma.role`, `userRole`, `agentRole`) | Decides which tools human users or AI agents are allowed to execute | `poker:dealer`, `poker:player`, `poker:spectator`, `system:admin` |
 
-In scripts, use `as_role`:
+### Core Security Guarantees:
+1. **Domain-Prefixed Role Names**:
+   Always prefix domain roles (e.g. `poker:dealer`, `finance:analyst`, `keeris:curator`). Because multiple plugins can co-exist within a single shared database or project, prefixed names prevent privilege escalation and namespace collisions.
+2. **Zero-Trust Strict Whitelisting**:
+   Curator Core enforces strict whitelisting across all AST and tool executions. If an actor has 0 assigned roles or attempts to call a tool outside its whitelist, execution is immediately halted with a descriptive security denial.
+3. **Mandatory Actor Binding**:
+   Every tool call must bind to either an authenticated human (`userId`) or an agent actor (`agentId`). Unbound calls are blocked.
+4. **Multi-Role Combinations**:
+   Actors can hold multiple roles simultaneously. For example, a human player in Poker can have both `['poker:player', 'poker:spectator']`.
+5. **Composable Role Inheritance**:
+   Roles can compose sub-roles via `subRoles: ['...']` (stored in `RoleInheritance`). For example:
+   - `poker:dealer` inherits `poker:player`
+   - `poker:player` inherits `poker:spectator`
+   - A dealer actor can automatically execute player and spectator tools without duplicate privilege assignments.
+
+### Multi-Project Architecture & Database Model Relation Scoping
+
+A single MiniApp can run the **same engine and tools** across **several distinct projects** (e.g. multiple tables, VIP lounges, or tournament rooms), with full content isolation and project-scoped user access:
+
+1. **`ProjectRole` Database Model Relation**:
+   Roles are assigned to projects directly via the `ProjectRole` model (`Project` has 0 - $n$ `Role` records). Roles maintain clean domain names (`poker:player`, `poker:dealer`, `poker:spectator`) without string prefixing.
+2. **`UserRole` with `projectId`**:
+   User permissions are scoped to specific projects through the `UserRole.projectId` foreign key:
+   - `projectId == null`: Global role (e.g. system administrator).
+   - `projectId == 'table_casual'`: User possesses that role *only* within that specific project.
+3. **Multi-Project Host APIs**:
+   ```typescript
+   // Create multiple tables/projects sharing the same engine
+   const casualTable = await host.createProject({
+     id: 'table_casual',
+     name: 'Casual Table #1',
+     roles: ['poker:player', 'poker:spectator'],
+   });
+
+   const vipLounge = await host.createProject({
+     id: 'table_vip',
+     name: 'VIP High Stakes Room',
+     roles: ['poker:dealer', 'poker:spectator'], // Player role restricted
+   });
+
+   // Assign user access per project
+   await host.assignUserProjectRole(aliceId, 'poker:player', 'table_casual');
+   await host.assignUserProjectRole(aliceId, 'poker:spectator', 'table_vip');
+   ```
+
+In scripts, use conversational `as_role` for discourse:
 ```coffeescript
 as_role 'proposer', ->
   propose topic: 'security_update', version: '2.1'

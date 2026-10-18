@@ -1,4 +1,5 @@
 import type { CuratorHost } from '../curatorHost.ts';
+import { AgentRoleService } from '../curator.ts';
 import type { PlayerAction, PokerGameState } from '../types.ts';
 
 export interface PokerSessionOptions {
@@ -272,6 +273,23 @@ export async function createPokerGameSession(
       const speakerName = payload?.speakerName || 'You';
       const speakerId = payload?.speakerId || sessionId || 'player-human';
 
+      const actorUserId = payload?.userId || host.user?.id;
+      const actorAgentId = payload?.agentId;
+      const access = await AgentRoleService.validateActorToolAccess(
+        prisma,
+        { userId: actorUserId, agentId: actorAgentId },
+        tool.name,
+        {
+          name: tool.name,
+          requiredRole: (tool as any).requiredRole,
+          accessLevel: (tool as any).accessLevel,
+        }
+      );
+      if (!access.allowed) {
+        console.warn(`[PokerSession] Speech tool access blocked: ${access.reason}`);
+        throw new Error(access.reason);
+      }
+
       const speechAct = payload?.speechAct || payload?.args?.speechAct || 'TABLE_TALK';
       const text = payload?.text || payload?.args?.text || '';
       const targetId = payload?.targetId || payload?.args?.targetId;
@@ -285,7 +303,7 @@ export async function createPokerGameSession(
           speakerId,
           speakerName,
         },
-        toolContext: { prisma, conversationId: targetConvId },
+        toolContext: { prisma, conversationId: targetConvId, userId: actorUserId, agentId: actorAgentId },
       });
 
       host.events.broadcast('poker:speech_response', {
@@ -309,10 +327,28 @@ export async function createPokerGameSession(
         console.warn(`[PokerSession] Tool "${toolName}" not found on engine.`);
         return null;
       }
+
+      const actorUserId = payload?.userId || host.user?.id;
+      const actorAgentId = payload?.agentId;
+      const access = await AgentRoleService.validateActorToolAccess(
+        prisma,
+        { userId: actorUserId, agentId: actorAgentId },
+        tool.name,
+        {
+          name: tool.name,
+          requiredRole: (tool as any).requiredRole,
+          accessLevel: (tool as any).accessLevel,
+        }
+      );
+      if (!access.allowed) {
+        console.warn(`[PokerSession] Tool access blocked: ${access.reason}`);
+        throw new Error(access.reason);
+      }
+
       const currentGameState = await getGameState(targetConvId);
       const result: any = await tool.runAsync({
         args: { state: currentGameState, ...(payload?.args || {}) },
-        toolContext: { prisma, conversationId: targetConvId, state: currentGameState },
+        toolContext: { prisma, conversationId: targetConvId, state: currentGameState, userId: actorUserId, agentId: actorAgentId },
       });
       return result;
     }

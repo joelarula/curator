@@ -48,6 +48,8 @@ export * from '../engine/pokerEngine.ts';
 export const pokerInitLobbyTool = defineTool({
   name: 'poker_init_lobby',
   description: 'Initializes Texas Holdem lobby frame. Can accept dynamic initial players or start as an open table.',
+  requiredRole: 'poker:dealer',
+  accessLevel: 'safe_write',
   parameters: {
     type: 'object',
     properties: {
@@ -86,6 +88,8 @@ export const pokerInitLobbyTool = defineTool({
 export const pokerJoinLobbyTool = defineTool({
   name: 'poker_join_lobby',
   description: 'Dynamically seats an agent or human player at the poker table with their wallet / buy-in.',
+  requiredRole: 'poker:player',
+  accessLevel: 'safe_write',
   parameters: {
     type: 'object',
     properties: {
@@ -114,6 +118,8 @@ export const pokerJoinLobbyTool = defineTool({
 export const pokerLeaveLobbyTool = defineTool({
   name: 'poker_leave_lobby',
   description: 'Removes or cashes out a player from the poker table.',
+  requiredRole: 'poker:player',
+  accessLevel: 'safe_write',
   parameters: {
     type: 'object',
     properties: {
@@ -132,6 +138,8 @@ export const pokerLeaveLobbyTool = defineTool({
 export const pokerStartHandTool = defineTool({
   name: 'poker_start_hand',
   description: 'Starts a new hand: shuffles deck, posts blinds, deals hole cards.',
+  requiredRole: 'poker:dealer',
+  accessLevel: 'safe_write',
   parameters: {
     type: 'object',
     properties: {
@@ -147,6 +155,8 @@ export const pokerStartHandTool = defineTool({
 export const pokerAiDecisionTool = defineTool({
   name: 'poker_ai_decision',
   description: 'Calculates AI player action and ambient remark via Curator Agentic Engine.',
+  requiredRole: 'poker:player',
+  accessLevel: 'safe_read',
   parameters: {
     type: 'object',
     properties: {
@@ -167,6 +177,8 @@ export const pokerAiDecisionTool = defineTool({
 export const pokerApplyActionTool = defineTool({
   name: 'poker_apply_action',
   description: 'Applies player action (FOLD, CHECK, CALL, RAISE, ALL_IN) to table state.',
+  requiredRole: 'poker:player',
+  accessLevel: 'safe_write',
   parameters: {
     type: 'object',
     properties: {
@@ -184,6 +196,8 @@ export const pokerApplyActionTool = defineTool({
 export const pokerDealStreetTool = defineTool({
   name: 'poker_deal_street',
   description: 'Deals next street community cards (FLOP, TURN, RIVER) and resets street wagering.',
+  requiredRole: 'poker:dealer',
+  accessLevel: 'safe_write',
   parameters: {
     type: 'object',
     properties: {
@@ -199,6 +213,8 @@ export const pokerDealStreetTool = defineTool({
 export const pokerFastForwardBoardTool = defineTool({
   name: 'poker_fast_forward_board',
   description: 'Deals all remaining board cards when players are all-in.',
+  requiredRole: 'poker:dealer',
+  accessLevel: 'safe_write',
   parameters: {
     type: 'object',
     properties: {
@@ -214,6 +230,8 @@ export const pokerFastForwardBoardTool = defineTool({
 export const pokerDistributePotsTool = defineTool({
   name: 'poker_distribute_pots',
   description: 'Adjudicates showdown hands, allocates main and side pots, and settles chip counts.',
+  requiredRole: 'poker:dealer',
+  accessLevel: 'safe_write',
   parameters: {
     type: 'object',
     properties: {
@@ -229,6 +247,8 @@ export const pokerDistributePotsTool = defineTool({
 export const pokerRotateDealerTool = defineTool({
   name: 'poker_rotate_dealer',
   description: 'Rotates dealer button to next active seat.',
+  requiredRole: 'poker:dealer',
+  accessLevel: 'safe_write',
   parameters: {
     type: 'object',
     properties: {
@@ -244,6 +264,8 @@ export const pokerRotateDealerTool = defineTool({
 export const pokerHumanSpeechTool = defineTool({
   name: 'poker_human_speech',
   description: 'Applies human table talk, banter, or private whisper to the table and triggers AI persona reactions.',
+  requiredRole: 'poker:player',
+  accessLevel: 'safe_read',
   parameters: {
     type: 'object',
     properties: {
@@ -265,6 +287,8 @@ export const pokerHumanSpeechTool = defineTool({
 export const pokerCheckGameOverTool = defineTool({
   name: 'poker_check_game_over',
   description: 'Checks if table is down to 1 solvent player or reached max hands, compiling final standings.',
+  requiredRole: 'poker:dealer',
+  accessLevel: 'safe_write',
   parameters: {
     type: 'object',
     properties: {
@@ -280,6 +304,8 @@ export const pokerCheckGameOverTool = defineTool({
 export const pokerGetStandingsTool = defineTool({
   name: 'poker_get_standings',
   description: 'Returns the current session standings and chip profit/loss report.',
+  requiredRole: 'poker:spectator',
+  accessLevel: 'safe_read',
   parameters: {
     type: 'object',
     properties: {
@@ -295,6 +321,8 @@ export const pokerGetStandingsTool = defineTool({
 export const pokerGetChoicesTool = defineTool({
   name: 'poker_get_choices',
   description: 'Calculates the dynamically allowed legal choices and actions for a player based on table rules',
+  requiredRole: 'poker:spectator',
+  accessLevel: 'safe_read',
   parameters: {
     type: 'object',
     properties: {
@@ -316,6 +344,8 @@ export const pokerGetChoicesTool = defineTool({
 export const pokerListTablesTool = defineTool({
   name: 'poker_list_tables',
   description: 'Lists all available poker tables in the project.',
+  requiredRole: 'poker:spectator',
+  accessLevel: 'safe_read',
   parameters: {
     type: 'object',
     properties: {},
@@ -339,6 +369,50 @@ export const pokerPlugin: CuratorPlugin = {
   name: 'minigame:poker',
   version: '2.0.0',
   description: 'Curator Texas Holdem Engine with Autonomous Agent Flow, Side Pots, and Dual-Track Ambient Dialogue',
+  roles: {
+    'poker:admin': {
+      name: 'poker:admin',
+      description: 'Poker Lounge Administrator with unrestricted table controls and configuration privileges',
+      subRoles: ['poker:dealer'],
+    },
+    'poker:dealer': {
+      name: 'poker:dealer',
+      description: 'Table Dealer responsible for deck management, dealing cards, and pot settlements',
+      subRoles: ['poker:player'],
+      tools: [
+        'poker_init_lobby',
+        'poker_start_hand',
+        'poker_deal_street',
+        'poker_fast_forward_board',
+        'poker_distribute_pots',
+        'poker_rotate_dealer',
+        'poker_check_game_over',
+      ],
+    },
+    'poker:player': {
+      name: 'poker:player',
+      description: 'Active seated player eligible to wager chips and engage in table banter',
+      subRoles: ['poker:spectator'],
+      tools: [
+        'poker_join_lobby',
+        'poker_leave_lobby',
+        'poker_apply_action',
+        'poker_ai_decision',
+        'poker_human_speech',
+      ],
+    },
+    'poker:spectator': {
+      name: 'poker:spectator',
+      description: 'Spectator observing table action, discovery, and leaderboard standings',
+      tools: [
+        'poker_list_tables',
+        'poker_get_choices',
+        'poker_get_standings',
+      ],
+    },
+  },
+  defaultUserRoles: ['poker:player', 'poker:spectator'],
+  systemRoles: ['system:admin', 'poker:admin', 'poker:dealer', 'poker:player', 'poker:spectator'],
   tools: {
     poker_init_lobby: pokerInitLobbyTool,
     poker_join_lobby: pokerJoinLobbyTool,
@@ -367,6 +441,7 @@ export const pokerPlugin: CuratorPlugin = {
       instruction: 'You are the human player (Hero) at the high-roller poker table.',
       persona: 'human',
       isHuman: true,
+      roles: ['poker:player', 'poker:spectator'],
     },
     viper: {
       id: 'viper',
@@ -376,6 +451,7 @@ export const pokerPlugin: CuratorPlugin = {
       enabled: true,
       instruction: "You are Viper, a ruthless and mathematically calculating poker shark at a high-stakes Texas Hold'em table. Your tone is cool, precise, psychological, and dismissive of emotional play. You never reveal your exact hole cards. When speaking, you comment on pot odds, variance, and the foolishness of loose play.",
       persona: 'shark',
+      roles: ['poker:player', 'poker:spectator', 'agent:reader'],
     },
     maddog: {
       id: 'maddog',
@@ -385,6 +461,7 @@ export const pokerPlugin: CuratorPlugin = {
       enabled: true,
       instruction: 'You are MadDog, a wild and loud poker maniac. You play loose, love bluffing, and shove chips into the middle for maximum adrenaline. Your tone is boisterous, confrontational, taunting, and energetic. Trash-talk, dare people to call, and embrace chaos.',
       persona: 'maniac',
+      roles: ['poker:player', 'poker:spectator', 'agent:reader'],
     },
     barnaby: {
       id: 'barnaby',
@@ -394,6 +471,7 @@ export const pokerPlugin: CuratorPlugin = {
       enabled: true,
       instruction: 'You are Barnaby, an affable, folksy, and warm calling station. You love chatting at the table, hate folding, and always wonder what the next card will bring. Your tone is grandfatherly, cheerful, gentle, and humorous.',
       persona: 'station',
+      roles: ['poker:player', 'poker:spectator', 'agent:reader'],
     },
   } as any,
 };

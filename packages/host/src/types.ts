@@ -43,7 +43,16 @@ export interface CuratorHostConfig {
   registerPlugins?: (ctx: PluginRegistrationContext) => Promise<any> | any;
 }
 
+export interface CuratorRoleDefinition {
+  name: string;
+  description?: string;
+  subRoles?: string[];
+  tools?: string[];
+  accessLevel?: string;
+}
+
 export interface SeedResult {
+  seededRoles?: string[];
   seededTools: string[];
   seededScripts: string[];
   seededAgents: string[];
@@ -66,12 +75,28 @@ export interface CuratorHost {
   triggerAgent(name: string, context?: Record<string, any>): Promise<any>;
   pauseRequest(requestId: number | string): Promise<any>;
   resumeRequest(requestId: number | string): Promise<any>;
+
+  // Multi-Project & Project-Scoped RBAC APIs
+  createProject(options: {
+    id?: string;
+    name: string;
+    userId?: string;
+    description?: string;
+    roles?: string[];
+    assignDefaultRolesToUser?: boolean;
+  }): Promise<{ project: any; conversation: any; projectRoles: string[] }>;
+  listProjects(): Promise<any[]>;
+  getProject(projectId: string): Promise<any | null>;
+  assignUserProjectRole(userId: string, roleName: string, projectId: string): Promise<any>;
+  getUserProjectRoles(userId: string, projectId: string): Promise<string[]>;
 }
 
 export interface CuratorToolDefinition {
   name: string;
   description?: string;
   parameters?: any;
+  requiredRole?: string;
+  accessLevel?: string;
   execute?: (args: any, ctx?: any) => Promise<any>;
   runAsync?: (ctx: any) => Promise<any>;
   aliases?: string[];

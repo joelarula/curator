@@ -32,6 +32,15 @@ Uses an Express backend serving static web assets and a unified `/graphql` endpo
 - **Scheduling**: Bree cron runner executing scheduled agent jobs in background Node threads.
 - *Detailed Guide*: See [Multi-Engine Setup](./references/db-multi-engine.md) and [Curator Setup Template](./references/setup-curator-template.md).
 
+### Mode C: Terminal Asynchronous REPL & Direct SQLite Execution (Headless)
+Provides an interactive terminal interface for human actors to interact with the Curator engine, domain tools, and workflows via an asynchronous REPL (`@curator/host`).
+- **Continuous Asynchronous REPL**: Non-blocking readline loop powered by Node Commander (`program = new Command()`).
+- **Whitelisted Tool Registration**: Directly registers domain tools on Commander; free-text input cleanly routes to ambient speech tools.
+- **Dual-Channel Flexibility**: Supports in-process direct SQLite execution (`createDirectChannel`) with zero network overhead, or remote WebSocket streaming (`createWebSocketChannel`).
+- **Non-Blocking Turns**: Choices emitted by AST flows are non-blocking by default (blocking only if explicitly stated in flow context).
+- **Zero Workflow Primitives in Client**: State progression, game turns, and pause/resume logic are driven exclusively by the Curator AST engine.
+- *Detailed Guide*: See [Client REPL Architecture](./references/client-repl-architecture.md).
+
 ---
 
 ## 2. Directory Structure
@@ -54,11 +63,15 @@ miniapps/<miniapp-name>/
 │   ├── create-clean-seed.js       # Generates clean virgin database (0 episodes/tracks)
 │   ├── export-seed-sqlite.js      # Exports full archive database snapshot
 │   └── verify-data.js             # Verifies database statistics and sanity checks
-├── src/                           # Optional Server-Hosted Mode
-│   ├── db.js                      # Multi-DB engine abstraction (PostgreSQL / SQLite)
-│   ├── setup-curator.js           # Curator DB provisioner & Bree scheduler
+├── src/                           # Server-Hosted & Terminal REPL Mode
+│   ├── client/                    # Terminal Asynchronous REPL Architecture
+│   │   ├── <miniapp>ClientShell.ts# Whitelisted tools, REPL commands, speech routing
+│   │   └── <miniapp>Client.ts     # Channel factory (Direct / WebSocket) & UI loop
+│   ├── cli.ts                     # Commander CLI entry (seed, exec, run, repl)
+│   ├── host.ts                    # CuratorHost factory & SQLite DB boot
+│   ├── db.ts                      # Multi-DB engine abstraction
 │   ├── plugins/                   # Domain plugins, tools, and agent definitions
-│   └── server/                    # Express server hosting web static + /graphql
+│   └── server/                    # Server hosting web static + /graphql + WebSocket
 ├── web/                           # Vue 3 + Vite Frontend
 │   ├── serve.json                 # COOP / COEP header configuration for OPFS
 │   ├── vite.config.js             # Vite config with SharedArrayBuffer security headers
@@ -167,18 +180,91 @@ MiniApps provide complete self-service database testing:
 
 ---
 
-## 7. Developer & Build Workflow
+## 7. Terminal Asynchronous REPL & Dual-Channel Setup (`@curator/host`)
+
+MiniApps can expose a declarative, interactive terminal REPL allowing human actors to interact with the Curator engine, execute tools, and join agent workflows without running a browser or web server.
+
+### Architecture Invariants
+
+1. **Continuous Asynchronous REPL**: Powered by Node's `commander.Command` (`program = new Command()`). The prompt remains open continuously for streaming output and interactive input.
+2. **Whitelisted Tool Registration**: Domain tools from `plugin.tools` are registered directly onto the Commander program. Free-text inputs that do not match registered tool names cleanly fall through to a miniapp-specific speech tool (e.g. `blueprint_speech`).
+3. **Dual-Channel Flexibility**:
+   - **Direct SQLite Channel (`createDirectChannel`)**: Boots in-process with direct SQLite access (`CuratorHost.start()`), zero network latency, and local AST execution. Ideal for development, automated CI, and offline CLI workflows.
+   - **Remote Server Channel (`createWebSocketChannel`)**: Connects over WebSocket (`ws://localhost:4000/graphql`) with real-time subscription streaming. Ideal for shared agent networks and multi-actor sessions.
+4. **Non-Blocking Turns**: Choices emitted by workflow steps are non-blocking by default (blocking only if explicitly flagged in AST context).
+5. **No Client Workflow Primitives**: Turn resolution, game states, pauses, and agent orchestration live exclusively inside the Curator AST engine—not in the client shell.
+
+### Client Shell Registration (`src/client/<miniapp>ClientShell.ts`)
+
+```typescript
+import { ClientShell, CuratorToolDefinition } from '@curator/host';
+import { demoPlugin, blueprintSpeechTool } from '../plugins/demo.js';
+
+export function createBlueprintClientShell(options = {}) {
+  // 1. Whitelist domain tools from plugin
+  const whitelistedTools = (demoPlugin.tools || []).filter(
+    (t): t is CuratorToolDefinition => t.name !== 'blueprint_speech'
+  );
+
+  return new ClientShell({
+    name: 'blueprint',
+    prompt: 'blueprint> ',
+    tools: whitelistedTools,
+    ambientSpeechTool: 'blueprint_speech',
+    commands: [
+      {
+        name: 'status',
+        description: 'Display current session status and active choices',
+        action: async (args, shell) => {
+          shell.renderStatus({ engine: 'online', choices: shell.getActiveChoices().length });
+        },
+      },
+    ],
+    ...options,
+  });
+}
+```
+
+### CLI Runner Wiring (`src/cli.ts`)
+
+```typescript
+program
+  .command('repl')
+  .alias('shell')
+  .description('Start interactive asynchronous REPL shell')
+  .option('-d, --direct', 'Run direct in-process SQLite engine (no server required)', true)
+  .option('-s, --server <url>', 'Connect to remote Curator server WebSocket (e.g. ws://localhost:4000/graphql)')
+  .action(async (opts) => {
+    const { runBlueprintClient } = await import('./client/blueprintClient.js');
+    await runBlueprintClient({
+      direct: opts.direct && !opts.server,
+      serverUrl: opts.server,
+    });
+  });
+```
+
+---
+
+## 8. Developer & Build Workflow
 
 ### Local Development
+
 ```powershell
-# 1. Update SQLite DDL when prisma schema changes
+# 1. Run interactive in-process SQLite REPL (Zero-server, instant boot)
+npm run repl:direct
+
+# 2. Run REPL against a live Curator server
+npm run repl -- --server ws://localhost:4000/graphql
+
+# 3. Update SQLite DDL when prisma schema changes
 node scripts/generate-sqlite-schema.js
 
-# 2. Run Vite dev server with COOP/COEP headers
+# 4. Run Vite web dev server with COOP/COEP headers
 npm run dev:web
 ```
 
 ### Production Build & Verification
+
 ```powershell
 # 1. Generate clean seed (or archive seed)
 npm run export:seed:clean
@@ -195,8 +281,9 @@ node scripts/verify-data.js
 
 ---
 
-## 8. Reference Documents
+## 9. Reference Documents
 
+- [Client REPL Architecture & SQLite Dual-Channel](./references/client-repl-architecture.md)
 - [WASM & OPFS In-Browser Architecture](./references/wasm-opfs-miniapp.md)
 - [Multi-Engine Database Setup Guide](./references/db-multi-engine.md)
 - [GraphQL & Curator Bridge Reference](./references/graphql-curator-bridge.md)

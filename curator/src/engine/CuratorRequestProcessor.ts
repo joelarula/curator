@@ -1491,12 +1491,20 @@ export class CuratorRequestProcessor {
     const accessLevel = (tool as any).accessLevel || 'safe_write';
     const requiresConfirmation = (tool as any).requiresConfirmation || (tool as any).requiresHumanApproval || accessLevel === 'destructive' || accessLevel === 'elevated';
 
-    // 1. Agent Role Whitelisting (if req.agentId is provided and agent exists in DB)
-    if (req.agentId && this.prisma?.agent) {
+    // 1. Actor Role Whitelisting (Agent or Human User)
+    const effectiveAgentId = req.agentId || req.context?.agentId || req.context?.activeAgentId || req.context?.actorId;
+    const effectiveUserId = req.userId || req.context?.userId;
+    const effectiveProjectId = req.projectId || req.context?.projectId;
+
+    if (this.prisma) {
       try {
-        const roleCheck = await AgentRoleService.validateAgentToolAccess(
+        const roleCheck = await AgentRoleService.validateActorToolAccess(
           this.prisma,
-          String(req.agentId),
+          {
+            agentId: effectiveAgentId ? String(effectiveAgentId) : undefined,
+            userId: effectiveUserId ? String(effectiveUserId) : undefined,
+            projectId: effectiveProjectId ? String(effectiveProjectId) : undefined,
+          },
           toolName,
           {
             name: toolName,
@@ -1507,11 +1515,11 @@ export class CuratorRequestProcessor {
         );
         if (!roleCheck.allowed) {
           await AuditService.log(this.prisma, {
-            entityType: 'AGENT',
-            entityId: String(req.agentId),
+            entityType: effectiveAgentId ? 'AGENT' : 'USER',
+            entityId: effectiveAgentId ? String(effectiveAgentId) : String(effectiveUserId || 'unbound'),
             action: 'TOOL_EXECUTION_BLOCKED',
-            userId: req.userId ? String(req.userId) : null,
-            agentId: String(req.agentId),
+            userId: effectiveUserId ? String(effectiveUserId) : null,
+            agentId: effectiveAgentId ? String(effectiveAgentId) : null,
             requestId: req.id,
             status: 'BLOCKED',
             metadata: {

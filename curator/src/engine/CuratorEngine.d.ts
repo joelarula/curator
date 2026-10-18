@@ -1,5 +1,5 @@
 import type { SemanticNodeShape } from '../services/SemanticSchemaEngine.js';
-import type { CuratorAgentDefinition, CuratorPluginDefinition, CuratorScriptDefinition } from './CuratorContracts.js';
+import type { CuratorAgentDefinition, CuratorPluginDefinition, CuratorRoleDefinition, CuratorScriptDefinition } from './CuratorContracts.js';
 import type { CuratorAstNode } from './CuratorAst.js';
 import type { CuratorTool } from '../tools/CuratorTool.js';
 import type { LlmRequest, LlmResponse, LlmEmbeddingRequest, LlmEmbeddingResponse, LlmCreateCacheRequest, LlmCacheInfo } from './llm/ILlmProvider.js';
@@ -10,6 +10,7 @@ export declare class CuratorEngine {
     models: Map<string, SemanticNodeShape>;
     scripts: Map<string, CuratorScriptDefinition>;
     agents: Map<string, CuratorAstNode | CuratorAgentDefinition>;
+    roles: Map<string, CuratorRoleDefinition>;
     plugins: CuratorPlugin[];
     registerPlugin(plugin: CuratorPlugin): void;
     registerLlmProvider(name: string, provider: any): void;
@@ -38,6 +39,8 @@ export declare class CuratorEngine {
         provider?: string;
         apiKey?: string;
     }): Promise<void>;
+    private parseScriptHeader;
+    private extractHeaderKeyValues;
 }
 export declare const curatorEngine: CuratorEngine;
 //# sourceMappingURL=CuratorEngine.d.ts.map

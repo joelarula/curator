@@ -28,10 +28,8 @@ model Project {
   responses   Response[]
   resourceTrees ResourceTree[]
   dslSchemas  DslSchema[]
-
-
-
-
+  roles       ProjectRole[]
+  userRoles   UserRole[]
 
   existent    Boolean?  @default(true)
   deletedAt   DateTime?

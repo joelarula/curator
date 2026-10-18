@@ -249,6 +249,153 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
       events.broadcast('request_resumed', { requestId: id });
       return updated;
     },
+
+    async createProject(options: {
+      id?: string;
+      name: string;
+      userId?: string;
+      description?: string;
+      roles?: string[];
+      assignDefaultRolesToUser?: boolean;
+    }): Promise<{ project: any; conversation: any; projectRoles: string[] }> {
+      const pId = options.id || `proj_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const pUserId = options.userId || user.id;
+
+      let newProject = await prisma.project.findFirst({
+        where: { id: pId },
+      });
+      if (!newProject) {
+        newProject = await prisma.project.create({
+          data: {
+            id: pId,
+            name: options.name,
+            userId: pUserId,
+          },
+        });
+      }
+
+      let newConversation = await prisma.conversation.findFirst({
+        where: { projectId: newProject.id, userId: pUserId },
+      });
+      if (!newConversation) {
+        newConversation = await prisma.conversation.create({
+          data: {
+            projectId: newProject.id,
+            userId: pUserId,
+          },
+        });
+      }
+
+      // Assign ProjectRole records (project can have 0 - n roles)
+      const projectRoles: string[] = [];
+      const rolesToAssign = options.roles ?? (
+        registeredEngine.roles ? Array.from(registeredEngine.roles.keys()) : []
+      );
+
+      if (prisma.projectRole) {
+        for (const roleName of rolesToAssign) {
+          const roleRec = await prisma.role.findUnique({ where: { name: roleName } });
+          if (roleRec) {
+            const existing = await prisma.projectRole.findFirst({
+              where: { projectId: newProject.id, roleId: roleRec.id },
+            });
+            if (!existing) {
+              await prisma.projectRole.create({
+                data: { projectId: newProject.id, roleId: roleRec.id },
+              });
+            }
+            projectRoles.push(roleName);
+          }
+        }
+      }
+
+      // Optionally assign default user roles to the project creator / human user
+      if (options.assignDefaultRolesToUser !== false && prisma.userRole) {
+        const defaultRoles: string[] = [];
+        if (registeredEngine?.plugins) {
+          for (const plugin of registeredEngine.plugins) {
+            if (plugin?.defaultUserRoles && Array.isArray(plugin.defaultUserRoles)) {
+              for (const r of plugin.defaultUserRoles) defaultRoles.push(r);
+            }
+          }
+        }
+        for (const roleName of defaultRoles) {
+          const roleRec = await prisma.role.findUnique({ where: { name: roleName } });
+          if (roleRec) {
+            const existingUr = await prisma.userRole.findFirst({
+              where: { userId: pUserId, roleId: roleRec.id, projectId: newProject.id },
+            });
+            if (!existingUr) {
+              await prisma.userRole.create({
+                data: { userId: pUserId, roleId: roleRec.id, projectId: newProject.id },
+              });
+            }
+          }
+        }
+      }
+
+      events.broadcast('project_created', { projectId: newProject.id, name: newProject.name });
+      return { project: newProject, conversation: newConversation, projectRoles };
+    },
+
+    async listProjects(): Promise<any[]> {
+      return prisma.project.findMany({
+        where: { existent: true },
+        include: {
+          roles: { include: { role: true } },
+          conversations: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    },
+
+    async getProject(projectId: string): Promise<any | null> {
+      return prisma.project.findFirst({
+        where: { id: projectId, existent: true },
+        include: {
+          roles: { include: { role: true } },
+          conversations: true,
+          agents: true,
+        },
+      });
+    },
+
+    async assignUserProjectRole(userId: string, roleName: string, projectId: string): Promise<any> {
+      const roleRec = await prisma.role.findUnique({ where: { name: roleName } });
+      if (!roleRec) {
+        throw new Error(`Role '${roleName}' not found.`);
+      }
+      // Ensure role is assigned to the project as a ProjectRole
+      if (prisma.projectRole) {
+        const pr = await prisma.projectRole.findFirst({
+          where: { projectId, roleId: roleRec.id },
+        });
+        if (!pr) {
+          await prisma.projectRole.create({
+            data: { projectId, roleId: roleRec.id },
+          });
+        }
+      }
+      // Ensure userRole with projectId exists
+      const existing = await prisma.userRole.findFirst({
+        where: { userId, roleId: roleRec.id, projectId },
+      });
+      if (existing) return existing;
+      return prisma.userRole.create({
+        data: { userId, roleId: roleRec.id, projectId },
+      });
+    },
+
+    async getUserProjectRoles(userId: string, projectId: string): Promise<string[]> {
+      const userRoles = await prisma.userRole.findMany({
+        where: {
+          userId,
+          OR: [{ projectId }, { projectId: null }],
+        },
+        include: { role: true },
+      });
+      return userRoles.map((ur: any) => ur.role?.name).filter(Boolean);
+    },
   };
 
   // 7. Seed tools, scripts, and agents if not already in database (idempotent setup)

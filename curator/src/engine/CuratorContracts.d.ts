@@ -48,6 +48,19 @@ export interface CuratorScriptDefinition {
     ast?: CuratorAstNode;
     run: (context: CuratorExecutionContext) => Promise<unknown>;
 }
+export type CuratorScriptInput = CuratorScriptDefinition | string;
+export interface CuratorRoleDefinition {
+    /** Unique role identifier, e.g. 'poker:dealer', 'poker:player', 'poker:spectator' */
+    name: string;
+    /** Human-readable explanation of duties and privileges */
+    description?: string;
+    /** Composable sub-roles that this role encompasses (RoleInheritance) */
+    subRoles?: string[];
+    /** Whitelisted tools explicitly granted to this role */
+    tools?: string[];
+    /** Default maximum tool access level permitted */
+    accessLevel?: string;
+}
 export interface CuratorAgentDefinition {
     description?: string;
     ast?: CuratorAstNode;
@@ -56,6 +69,9 @@ export interface CuratorAgentDefinition {
     enabled?: boolean;
     toolName?: string;
     args?: Record<string, unknown>;
+    /** Array of role names assigned to this agent (whitelist-based access) */
+    roles?: string[];
+    [key: string]: any;
 }
 export interface CuratorPluginMcpPolicy {
     /** Expose all tools from this plugin on MCP (overrides per-tool default) */
@@ -71,9 +87,16 @@ export interface CuratorPluginDefinition {
     description?: string;
     tools?: Record<string, CuratorTool>;
     models?: SemanticNodeShape[];
-    scripts?: Record<string, CuratorScriptDefinition>;
+    scripts?: Record<string, CuratorScriptInput> | CuratorScriptInput[];
     agents?: Record<string, CuratorAgentDefinition | CuratorAstNode>;
+    /** Domain roles and permissions defined by this plugin */
+    roles?: Record<string, CuratorRoleDefinition> | CuratorRoleDefinition[];
+    /** Default roles assigned to human users connecting to this plugin domain */
+    defaultUserRoles?: string[];
+    /** Roles assigned to the host system user */
+    systemRoles?: string[];
     llmProviders?: Record<string, any>;
+    vocabularies?: Record<string, (...args: any[]) => CuratorAstNode | any>;
     mcp?: CuratorPluginMcpPolicy;
     onInit?: (context: any) => Promise<void> | void;
     onDestroy?: () => Promise<void> | void;

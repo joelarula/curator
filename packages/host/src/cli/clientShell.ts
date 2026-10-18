@@ -211,7 +211,8 @@ export class ClientShell<TState = any, TAction = ToolAction> {
 
     // 4. Register custom REPL commands
     for (const cmd of this.commands) {
-      const c = program.command(cmd.name).description(cmd.description || '');
+      const usage = cmd.usage ? ` ${cmd.usage}` : ' [args...]';
+      const c = program.command(`${cmd.name}${usage}`).description(cmd.description || '');
       if (cmd.aliases) {
         for (const a of cmd.aliases) c.alias(a);
       }
@@ -332,21 +333,22 @@ export class ClientShell<TState = any, TAction = ToolAction> {
         return outcome.value;
       }
     }
-
     if (choice.tool) {
-      return await this.dispatchTool(choice.tool, choice.args || {});
+      const res = await this.dispatchTool(choice.tool, choice.args || {});
+      return choice.value !== undefined ? choice.value : (res !== undefined ? res : choice);
     }
 
     if (choice.value !== undefined) {
       const val = choice.value;
       if (typeof val === 'object' && val !== null && val.tool) {
-        return await this.dispatchTool(val.tool, val.args || val);
-      }
-      if (this.config.channel) {
+        await this.dispatchTool(val.tool, val.args || val);
+      } else if (this.config.channel) {
         await this.config.channel.send('curator:choice', { choice: val });
       }
       return val;
     }
+
+    return choice;
   }
 
   /**

@@ -1,5 +1,5 @@
 import type { SemanticNodeShape } from '../services/SemanticSchemaEngine.js';
-import type { CuratorAgentDefinition, CuratorPluginDefinition, CuratorScriptDefinition } from './CuratorContracts.js';
+import type { CuratorAgentDefinition, CuratorPluginDefinition, CuratorRoleDefinition, CuratorScriptDefinition } from './CuratorContracts.js';
 import type { CuratorAstNode } from './CuratorAst.js';
 import type { CuratorTool } from '../tools/CuratorTool.js';
 import type {
@@ -21,6 +21,7 @@ export class CuratorEngine {
   public models = new Map<string, SemanticNodeShape>();
   public scripts = new Map<string, CuratorScriptDefinition>();
   public agents = new Map<string, CuratorAgentDefinition | CuratorAstNode>();
+  public roles = new Map<string, CuratorRoleDefinition>();
   public plugins: CuratorPlugin[] = [];
 
   public registerPlugin(plugin: CuratorPlugin) {
@@ -60,6 +61,14 @@ export class CuratorEngine {
     }
     if (plugin.agents) {
       Object.entries(plugin.agents).forEach(([k, v]) => this.agents.set(k, v));
+    }
+    if (plugin.roles) {
+      const roleEntries = Array.isArray(plugin.roles)
+        ? plugin.roles.map((r) => [r.name, r] as [string, CuratorRoleDefinition])
+        : Object.entries(plugin.roles);
+      for (const [name, def] of roleEntries) {
+        this.roles.set(name, def);
+      }
     }
     if (plugin.llmProviders) {
       Object.entries(plugin.llmProviders).forEach(([k, v]) => {

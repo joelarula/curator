@@ -30,6 +30,7 @@ model Role {
   description String?           @db.Text
   users       UserRole[]
   agents      AgentRole[]
+  projects    ProjectRole[]
   permissions RolePermission[]
   parentRoles RoleInheritance[] @relation("SubRole")
   subRoles    RoleInheritance[] @relation("ParentRole")
@@ -80,15 +81,39 @@ model RolePermission {
   @@id([roleId, permissionId])
 }
 
-model UserRole {
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  roleId String
-  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+model ProjectRole {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  roleId    String
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@id([userId, roleId])
+  @@unique([projectId, roleId])
+  @@index([projectId])
+  @@index([roleId])
+}
+
+model UserRole {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId    String
+  role      Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  projectId String?
+  project   Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([userId, roleId, projectId])
+  @@index([userId])
+  @@index([roleId])
+  @@index([projectId])
 }
 
 model AgentRole {

@@ -33,6 +33,29 @@ export const calculateMetricTool = defineTool({
   },
 });
 
+export const blueprintSpeechTool = defineTool({
+  name: 'blueprint_speech',
+  description: 'Handles human speech and ambient dialogue within the Blueprint MiniApp',
+  mcp: { expose: true },
+  accessLevel: 'read_only',
+  parameters: {
+    type: 'object',
+    properties: {
+      text: { type: 'string' },
+    },
+    required: ['text'],
+  },
+  execute: async (args) => {
+    const text = String(args.text || '');
+    return {
+      status: 'received',
+      text,
+      echo: `Blueprint received: "${text}"`,
+      timestamp: new Date().toISOString(),
+    };
+  },
+});
+
 // 2. Define Interactive Dialog Loop & Playground AST Workflow
 export const dialogPlaygroundWorkflow = CuratorBuilder.seq(
   'dialog_playground_seq',
@@ -96,6 +119,7 @@ export const demoPlugin: CuratorPluginDefinition = {
   mcp: { exposeAll: true },
   tools: {
     calculate_metric: calculateMetricTool,
+    blueprint_speech: blueprintSpeechTool,
   },
   agents: {
     // A. Direct Tool Workflow

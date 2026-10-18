@@ -62,6 +62,8 @@ model Project {
   conversations Conversation[]
   responses     Response[]
   resourceTrees ResourceTree[]
+  roles         ProjectRole[]
+  userRoles     UserRole[]
   existent      Boolean?       @default(true)
   deletedAt     DateTime?
   createdAt     DateTime       @default(now())
@@ -347,6 +349,7 @@ model Role {
   description String?
   users       UserRole[]
   agents      AgentRole[]
+  projects    ProjectRole[]
   parentRoles RoleInheritance[] @relation("SubRole")
   subRoles    RoleInheritance[] @relation("ParentRole")
   createdAt   DateTime          @default(now())
@@ -362,13 +365,33 @@ model RoleInheritance {
   @@id([parentId, subRoleId])
 }
 
-model UserRole {
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  roleId String
-  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+model ProjectRole {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  roleId    String
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
 
-  @@id([userId, roleId])
+  @@unique([projectId, roleId])
+  @@index([projectId])
+  @@index([roleId])
+}
+
+model UserRole {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId    String
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, roleId, projectId])
+  @@index([userId])
+  @@index([roleId])
+  @@index([projectId])
 }
 
 model AgentRole {
