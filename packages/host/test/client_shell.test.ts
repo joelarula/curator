@@ -3,17 +3,17 @@ import assert from 'node:assert/strict';
 import { PassThrough, Writable } from 'node:stream';
 import readline from 'node:readline';
 import {
-  promptGroupChatAction,
   createClientShell,
-  type ChatChoice,
-  type GroupChatContext,
+  promptAction,
+  type ShellCommand,
+  type ToolAction,
 } from '../dist/index.js';
 
 function createMockReadline(inputs: string[]) {
   const queue = [...inputs];
   const stream = new PassThrough();
   const output = new Writable({
-    write(chunk, encoding, callback) {
+    write(_chunk, _encoding, callback) {
       callback();
     },
   });
@@ -36,7 +36,7 @@ test('ClientShell: Parameterized action command (raise <amount>) resolves turn a
   const rl = createMockReadline(['raise 150']);
   const shell = createClientShell();
 
-  shell.registerAction({
+  shell.registerCommand({
     name: 'raise',
     aliases: ['r', 'bet'],
     usage: '<amount>',
@@ -44,50 +44,44 @@ test('ClientShell: Parameterized action command (raise <amount>) resolves turn a
     parse: (args, tokens) => {
       const amt = parseInt(tokens[0] || args, 10);
       if (isNaN(amt) || amt <= 0) return null;
-      return { type: 'RAISE', amount: amt };
+      return { tool: 'poker_apply_action', type: 'RAISE', amount: amt };
     },
   });
 
-  const choices: ChatChoice[] = [
-    { id: 'call', label: 'Call $20', value: { type: 'CALL', amount: 20 } },
-    { id: 'fold', label: 'Fold', value: { type: 'FOLD' } },
+  const choices: ShellCommand<ToolAction>[] = [
+    { id: 'call', label: 'Call $20', value: { tool: 'poker_apply_action', type: 'CALL', amount: 20 } },
+    { id: 'fold', label: 'Fold', value: { tool: 'poker_apply_action', type: 'FOLD' } },
   ];
 
   const result = await shell.promptAction(rl, choices);
-  assert.deepEqual(result, { type: 'RAISE', amount: 150 });
+  assert.deepEqual(result, { tool: 'poker_apply_action', type: 'RAISE', amount: 150 });
   rl.close();
 });
 
 test('ClientShell: Choice with custom parameter parser resolves input (e.g. "bet 75")', async () => {
   const rl = createMockReadline(['bet 75']);
 
-  const choices: ChatChoice[] = [
-    { id: 'call', label: 'Call', value: { type: 'CALL' } },
+  const choices: ShellCommand<ToolAction>[] = [
+    { id: 'call', label: 'Call', value: { tool: 'poker_apply_action', type: 'CALL' } },
     {
       id: 'raise',
       label: 'Raise',
       aliases: ['bet', 'r'],
-      value: { type: 'RAISE', amount: 40 },
+      value: { tool: 'poker_apply_action', type: 'RAISE', amount: 40 },
       parse: (args, tokens) => {
         const amt = parseInt(tokens[0] || args, 10);
-        return { type: 'RAISE', amount: amt || 40 };
+        return { tool: 'poker_apply_action', type: 'RAISE', amount: amt || 40 };
       },
     },
   ];
 
-  const ctx: GroupChatContext = {
-    actorName: 'Player1',
-    participants: [{ id: 'p1', name: 'Player1', isHuman: true }],
-    onSpeech: async () => {},
-  };
-
-  const result = await promptGroupChatAction(rl, choices, ctx);
-  assert.deepEqual(result, { type: 'RAISE', amount: 75 });
+  const result = await promptAction(rl, choices);
+  assert.deepEqual(result, { tool: 'poker_apply_action', type: 'RAISE', amount: 75 });
   rl.close();
 });
 
-test('ClientShell: Non-consuming /state and /eval execute without wasting turn', async () => {
-  const rl = createMockReadline(['/state', '/eval state.pot * 2', 'call']);
+test('ClientShell: Non-consuming /state executes without wasting turn', async () => {
+  const rl = createMockReadline(['/state', 'call']);
 
   let stateInspected = false;
   const mockState = { pot: 100, street: 'flop' };
@@ -100,13 +94,13 @@ test('ClientShell: Non-consuming /state and /eval execute without wasting turn',
     },
   });
 
-  const choices: ChatChoice[] = [
-    { id: 'call', label: 'Call $20', value: { type: 'CALL', amount: 20 } },
-    { id: 'fold', label: 'Fold', value: { type: 'FOLD' } },
+  const choices: ShellCommand<ToolAction>[] = [
+    { id: 'call', label: 'Call $20', value: { tool: 'poker_apply_action', type: 'CALL', amount: 20 } },
+    { id: 'fold', label: 'Fold', value: { tool: 'poker_apply_action', type: 'FOLD' } },
   ];
 
   const result = await shell.promptAction(rl, choices);
   assert.equal(stateInspected, true);
-  assert.deepEqual(result, { type: 'CALL', amount: 20 });
+  assert.deepEqual(result, { tool: 'poker_apply_action', type: 'CALL', amount: 20 });
   rl.close();
 });

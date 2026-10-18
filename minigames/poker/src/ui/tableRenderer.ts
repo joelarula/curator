@@ -56,7 +56,7 @@ export function renderTable(gameState: PokerGameState, showAllCards = false): st
 
   const hero = gameState.players.find((p) => p.isHuman) || gameState.players[0];
   const heroBest = gameState.board.length >= 3 ? evaluateBestHand(hero.holeCards, gameState.board).description : '';
-  const heroMonologue = hero.lastMonologue || gameState.narratives?.[hero.id]?.innerMonologue;
+  const heroMonologue = hero.lastMonologue;
 
   let out = '\n';
   out += `${cyan}========================================================================================${reset}\n`;
@@ -105,14 +105,6 @@ export function renderTable(gameState: PokerGameState, showAllCards = false): st
   return out;
 }
 
-export function renderNarratives(gameState: PokerGameState): string {
-  let out = '\n\x1b[1m\x1b[36m--- TABLE OBSERVATIONS & WORKING MEMORY ---\x1b[0m\n';
-  for (const p of gameState.players) {
-    const mono = p.lastMonologue || gameState.narratives?.[p.id]?.innerMonologue || 'Observing table action.';
-    out += `  \x1b[1m${p.name}\x1b[0m: "${mono}"\n`;
-  }
-  return out;
-}
 
 export function renderStandings(standings: PlayerStanding[]): string {
   let report = '\n\x1b[1m\x1b[36m--- CURRENT / FINAL STANDINGS ---\x1b[0m\n';

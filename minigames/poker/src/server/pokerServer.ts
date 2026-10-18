@@ -345,7 +345,7 @@ export async function createPokerServer(options: PokerServerOptions = {}): Promi
           return;
         }
 
-        if (typeof msg.type === 'string' && msg.type.startsWith('poker:')) {
+        if (typeof msg.type === 'string' && (msg.type.startsWith('poker:') || msg.type.startsWith('curator:'))) {
           const woken = await session.send(msg.type, msg.payload || msg.action, tableId, sessionId);
           if (woken) {
             await session.step(tableId);

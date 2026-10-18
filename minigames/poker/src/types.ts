@@ -86,15 +86,6 @@ export interface AmbientRemark {
   timestamp: number;
 }
 
-export interface SubjectiveNarrative {
-  participantId: string;
-  participantName: string;
-  persona?: PersonaType;
-  instruction?: string;
-  innerMonologue: string;
-  storyLog: string[];
-}
-
 export interface PlayerJoinOptions {
   id: string;
   name: string;
@@ -133,7 +124,6 @@ export interface PokerGameState {
   players: PlayerState[];
   recentRemarks: AmbientRemark[];
   lastActionSummary?: string;
-  narratives?: Record<string, SubjectiveNarrative>;
   maxSeats?: number;
   startingChips?: number;
   startingWallets?: Record<string, number>;

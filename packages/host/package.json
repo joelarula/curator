@@ -19,7 +19,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "node --test test/events.test.ts test/single_node_conversations.test.ts test/role_based_conversations.test.ts test/tabletop_game_phases.test.ts test/universal_interaction_order.test.ts test/trickster_agent.test.ts test/dialogue_game_commitments.test.ts test/conversation_session_lifecycle.test.ts"
+    "test": "node --test test/client_shell.test.ts test/events.test.ts test/single_node_conversations.test.ts test/role_based_conversations.test.ts test/tabletop_game_phases.test.ts test/universal_interaction_order.test.ts test/trickster_agent.test.ts test/dialogue_game_commitments.test.ts test/conversation_session_lifecycle.test.ts"
   },
   "dependencies": {
     "@curator/agent-server": "file:../../curator",

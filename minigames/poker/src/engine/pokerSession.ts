@@ -272,12 +272,16 @@ export async function createPokerGameSession(
       const speakerName = payload?.speakerName || 'You';
       const speakerId = payload?.speakerId || sessionId || 'player-human';
 
+      const speechAct = payload?.speechAct || payload?.args?.speechAct || 'TABLE_TALK';
+      const text = payload?.text || payload?.args?.text || '';
+      const targetId = payload?.targetId || payload?.args?.targetId;
+
       const result: any = await tool.runAsync({
         args: {
           state: currentGameState,
-          speechAct: payload?.speechAct || 'TABLE_TALK',
-          text: payload?.text || '',
-          targetId: payload?.targetId,
+          speechAct,
+          text,
+          targetId,
           speakerId,
           speakerName,
         },
@@ -286,15 +290,30 @@ export async function createPokerGameSession(
 
       host.events.broadcast('poker:speech_response', {
         speaker: speakerName,
-        text: payload?.text,
-        speechAct: payload?.speechAct || 'TABLE_TALK',
+        text,
+        speechAct,
         aiReply: result?.aiResponse?.text,
-        targetId: payload?.targetId,
+        targetId,
         tableId: String(targetConvId),
         conversationId: targetConvId,
         ...(sessionId ? { sessionId } : {}),
       });
 
+      return result;
+    }
+
+    if (eventName === 'curator:tool_call' || eventName === 'poker:tool_call') {
+      const toolName = payload?.tool || payload?.name;
+      const tool = host.engine.tools.get(toolName);
+      if (!tool) {
+        console.warn(`[PokerSession] Tool "${toolName}" not found on engine.`);
+        return null;
+      }
+      const currentGameState = await getGameState(targetConvId);
+      const result: any = await tool.runAsync({
+        args: { state: currentGameState, ...(payload?.args || {}) },
+        toolContext: { prisma, conversationId: targetConvId, state: currentGameState },
+      });
       return result;
     }
 

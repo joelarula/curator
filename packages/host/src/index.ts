@@ -3,22 +3,28 @@ export { CuratorHostEvents } from './events/CuratorHostEvents.js';
 export { seedAgentsAndTools } from './seed/seedAgentsAndTools.js';
 export { createHostCli, type HostCliOptions } from './cli/createHostCli.js';
 export {
-  promptGroupChatAction,
-  promptGroupChatIntermission,
-  printChatHelp,
-  askUser,
-  type ChatParticipant,
-  type ChatChoice,
-  type GroupChatContext,
-  type ChatVerbDefinition,
-  type ChatToolDefinition,
-  type ChatActionCommand,
-  DEFAULT_CHAT_VERBS,
-} from './cli/groupChatPrompt.js';
-export {
   ClientShell,
   createClientShell,
+  promptAction,
+  promptIntermission,
+  promptGroupChatAction,
+  promptGroupChatIntermission,
+  askUser,
+  printChatHelp,
+  dispatchSlashCommand,
   type ClientShellConfig,
+  type ShellCommand,
+  type ShellContext,
+  type CommandOutcome,
+  type ToolAction,
+  type ChatToolDefinition,
+  type SpeechAct,
+  type ChatParticipant,
+  type ChatChoice,
+  type ChatVerbDefinition,
+  type ChatActionCommand,
+  type GroupChatContext,
+  DEFAULT_CHAT_VERBS,
 } from './cli/clientShell.js';
 export {
   type CuratorChannel,
@@ -29,6 +35,3 @@ export {
   createDirectChannel,
 } from './client/curatorChannel.js';
 export * from './types.js';
-
-
-

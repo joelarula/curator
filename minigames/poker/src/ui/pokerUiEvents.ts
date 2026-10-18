@@ -19,6 +19,13 @@ export function renderPokerEvent(
       console.log(`\n\x1b[1m\x1b[36m--- Hand #${payload?.handNumber} Starting ---\x1b[0m`);
       break;
 
+    case 'poker:awaiting_human_action': {
+      if (currentGameState) {
+        console.log('\n' + renderTable(currentGameState, false));
+      }
+      break;
+    }
+
     case 'poker:phase_deal':
     case 'poker:phase_street': {
       const street = payload?.street || 'FLOP';
