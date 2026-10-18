@@ -27,6 +27,9 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
     const forceReset = Boolean(config.forceReset ?? config.curatorDb?.forceReset);
     databasePath = config.curatorDb?.path ?? process.env.CURATOR_DATABASE_PATH ?? path.join(dataDir, 'state', 'curator.db');
     prisma = await provisionSqliteDb(name, forceReset, { databasePath });
+    try {
+      await prisma.$executeRawUnsafe?.('PRAGMA synchronous = OFF;');
+    } catch (_) {}
   }
 
   // 2. Ensure system user, project and conversation scoping exist idempotently

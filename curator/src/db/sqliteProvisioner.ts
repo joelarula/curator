@@ -1,5 +1,6 @@
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { PrismaClient } from '@prisma/client';
@@ -55,7 +56,7 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
     }
   }
 
-  const isNew = !fs.existsSync(dbPath);
+  const isNew = !fs.existsSync(dbPath) || (fs.existsSync(dbPath) && fs.statSync(dbPath).size === 0);
 
   const hasSchema = !isNew && (() => {
     let db: DatabaseSync | undefined;
@@ -74,19 +75,38 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
     console.log(`[Curator CLI] Applying schema...`);
     const sqliteSchemaPath = SQLITE_SCHEMA_PATH;
     const pushFlags = forceReset ? '--force-reset --accept-data-loss' : '--accept-data-loss';
-    execSync(
-      `npx prisma db push ${pushFlags} --schema="${sqliteSchemaPath}" --url="${dbUrl}"`,
-      {
-        stdio: 'inherit',
-        cwd: CURATOR_ROOT,
-        env: { ...process.env, DATABASE_URL: dbUrl, PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION: 'yes' }
-      }
-    );
+    try {
+      execSync(
+        `npx prisma db push ${pushFlags} --schema="${sqliteSchemaPath}" --url="${dbUrl}"`,
+        {
+          stdio: 'inherit',
+          cwd: CURATOR_ROOT,
+          env: { ...process.env, DATABASE_URL: dbUrl, PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION: 'yes' }
+        }
+      );
+    } catch {
+      // Fallback: If direct push fails (e.g. SMB network share FlushFileBuffers error 1450),
+      // push schema to a local temp database file and copy it into place.
+      console.log(`[Curator CLI] Direct push failed (SMB / I/O restriction), using local staging file...`);
+      const tempPath = path.join(os.tmpdir(), `curator_${name}_${Date.now()}.db`);
+      const tempUrl = `file:${tempPath.replace(/\\/g, '/')}`;
+      execSync(
+        `npx prisma db push ${pushFlags} --schema="${sqliteSchemaPath}" --url="${tempUrl}"`,
+        {
+          stdio: 'inherit',
+          cwd: CURATOR_ROOT,
+          env: { ...process.env, DATABASE_URL: tempUrl, PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION: 'yes' }
+        }
+      );
+      fs.copyFileSync(tempPath, dbPath);
+      try { fs.unlinkSync(tempPath); } catch (_) {}
+    }
     console.log(`[Curator CLI] ✓ Database ready: ${dbPath}`);
   } else {
     console.log(`[Curator CLI] 🗄️ Using existing database: ${name}`);
     try {
       const migDb = new DatabaseSync(dbPath);
+      migDb.exec('PRAGMA synchronous = OFF;');
       migDb.exec('ALTER TABLE User ADD COLUMN googleId TEXT;');
       migDb.close();
     } catch (_) {}
@@ -115,6 +135,11 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
   const { PrismaBetterSqlite3 } = await import('@prisma/adapter-better-sqlite3');
   const adapter = new PrismaBetterSqlite3({ url: dbUrl });
   const prisma = new SqlitePrismaClient({ adapter }) as any;
+
+  // Set PRAGMA synchronous = OFF on the connection to bypass remote FlushFileBuffers calls over network shares
+  try {
+    await prisma.$executeRawUnsafe('PRAGMA synchronous = OFF;');
+  } catch (_) {}
 
   // Ensure system user and project exist
   const user = await prisma.user.upsert({
