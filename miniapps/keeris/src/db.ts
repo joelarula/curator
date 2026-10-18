@@ -401,7 +401,7 @@ export async function ensureMysqlSchema(pool: any): Promise<void> {
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS Role (
-        id VARCHAR(191) PRIMARY KEY,
+        id INT AUTO_INCREMENT PRIMARY KEY,
         name VARCHAR(191) NOT NULL UNIQUE,
         description TEXT,
         createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -411,8 +411,8 @@ export async function ensureMysqlSchema(pool: any): Promise<void> {
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS RoleInheritance (
-        parentId VARCHAR(191) NOT NULL,
-        subRoleId VARCHAR(191) NOT NULL,
+        parentId INT NOT NULL,
+        subRoleId INT NOT NULL,
         createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (parentId, subRoleId)

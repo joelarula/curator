@@ -56,7 +56,8 @@ model Project {
   conversations Conversation[]
   responses     Response[]
   resourceTrees ResourceTree[]
-  roles         ProjectRole[]
+  roles         Role[]
+  projectRoles  ProjectRole[]
   userRoles     UserRole[]
   existent      Boolean?       @default(true)
   deletedAt     DateTime?
@@ -72,10 +73,12 @@ model Tool {
   description          String?
   version              String?
   accessLevel          String       @default("safe_write")
+  requiredRole         String?
   requiresConfirmation Boolean      @default(false)
   enabled              Boolean      @default(true)
   existent             Boolean?     @default(true)
   permissions          Permission[]
+  roles                ToolRole[]
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
 
@@ -352,10 +355,13 @@ model Permission {
 }
 
 model Role {
-  id          String            @id @default(cuid())
-  name        String            @unique
+  id          String            @id
+  name        String
   description String?
+  projectId   String?
+  project     Project?          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   permissions RolePermission[]
+  tools       ToolRole[]
   users       UserRole[]
   agents      AgentRole[]
   projects    ProjectRole[]
@@ -363,6 +369,22 @@ model Role {
   subRoles    RoleInheritance[] @relation("ParentRole")
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
+
+  @@unique([projectId, name])
+  @@index([projectId])
+}
+
+model ToolRole {
+  id        Int      @id @default(autoincrement())
+  toolId    Int
+  tool      Tool     @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  roleId    String
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([toolId, roleId])
+  @@index([toolId])
+  @@index([roleId])
 }
 
 model RoleInheritance {
@@ -384,7 +406,7 @@ model RolePermission {
 }
 
 model ProjectRole {
-  id        String   @id @default(cuid())
+  id        Int      @id @default(autoincrement())
   projectId String
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   roleId    String
@@ -397,7 +419,7 @@ model ProjectRole {
 }
 
 model UserRole {
-  id        String   @id @default(cuid())
+  id        Int      @id @default(autoincrement())
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   roleId    String
@@ -413,10 +435,13 @@ model UserRole {
 }
 
 model AgentRole {
+  id      Int    @id @default(autoincrement())
   agentId String
   agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
   roleId  String
   role    Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
-  @@id([agentId, roleId])
+  @@unique([agentId, roleId])
+  @@index([agentId])
+  @@index([roleId])
 }

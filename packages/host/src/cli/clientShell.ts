@@ -52,6 +52,7 @@ export class ClientShell<TState = any, TAction = ToolAction> {
   private blockingResolve?: (value: any) => void;
   private rl?: readline.Interface;
   private isRunning: boolean = false;
+  private isHandlingLine: boolean = false;
 
   constructor(config: ClientShellConfig<TState, TAction> = {}) {
     this.config = config;
@@ -106,7 +107,10 @@ export class ClientShell<TState = any, TAction = ToolAction> {
 
     if (this.activeChoices.length > 0) {
       const choiceList = this.activeChoices
-        .map((c, i) => `\x1b[1m[${i + 1}]\x1b[0m ${c.label}`)
+        .map((c, i) => {
+          const alias = c.aliases?.[0] ? ` \x1b[90m(/${c.aliases[0]})\x1b[0m` : '';
+          return `\x1b[1m[${i + 1}]\x1b[0m ${c.label}${alias}`;
+        })
         .join('   ');
       console.log(`\n\x1b[36mChoices:\x1b[0m ${choiceList}`);
       if (options.blocking) {
@@ -116,7 +120,7 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       }
     }
 
-    if (this.rl && this.isRunning) {
+    if (this.rl && this.isRunning && !this.isHandlingLine) {
       this.rl.prompt();
     }
     return this;
@@ -158,20 +162,33 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       .action(() => {
         console.log('\n\x1b[1m\x1b[36m=== Curator REPL Commands & Whitelisted Tools ===\x1b[0m');
         if (this.activeChoices.length > 0) {
-          console.log('\x1b[33mActive Choices:\x1b[0m');
+          console.log('\x1b[33mActive Turn Choices:\x1b[0m');
           this.activeChoices.forEach((c, idx) => {
-            console.log(`  [${idx + 1}] ${c.label}`);
+            const aliases = c.aliases?.length ? ` (${c.aliases.join(', ')})` : '';
+            console.log(`  [${idx + 1}] ${c.label}${aliases}`);
           });
         }
-        console.log('\x1b[33mCommands:\x1b[0m');
-        for (const cmd of this.commands) {
-          const aliases = cmd.aliases?.length ? ` (${cmd.aliases.join(', ')})` : '';
-          console.log(`  ${cmd.name}${aliases} - ${cmd.description || ''}`);
+        console.log('\x1b[33mCore Curator Commands:\x1b[0m');
+        console.log('  help - Show available commands and whitelisted tools');
+        console.log('  state - Inspect current application/game state');
+        console.log('  status - View active session, table, and connection status');
+        console.log('  tools - List all registered and permitted tools');
+        console.log('  exec <toolName> [args] - Execute a whitelisted tool directly with JSON args');
+        console.log('  exit (quit, q) - Exit client REPL session');
+
+        if (this.commands.length > 0) {
+          console.log('\x1b[33mGame Commands:\x1b[0m');
+          for (const cmd of this.commands) {
+            const usage = cmd.usage ? ` ${cmd.usage}` : '';
+            const aliases = cmd.aliases?.length ? ` (${cmd.aliases.join(', ')})` : '';
+            console.log(`  ${cmd.name}${usage}${aliases} - ${cmd.description || ''}`);
+          }
         }
         console.log('\x1b[33mTools:\x1b[0m');
         for (const [name, tool] of this.tools.entries()) {
+          const usage = tool.usage ? ` ${tool.usage}` : '';
           const aliases = tool.aliases?.length ? ` (${tool.aliases.join(', ')})` : '';
-          console.log(`  ${name}${aliases} - ${tool.description || ''}`);
+          console.log(`  ${name}${usage}${aliases} - ${tool.description || ''}`);
         }
         if (this.config.defaultToolName) {
           console.log(
@@ -193,7 +210,73 @@ export class ClientShell<TState = any, TAction = ToolAction> {
         }
       });
 
-    // 3. Built-in 'exit' / 'quit' command
+    // 3. Built-in 'status' command
+    program
+      .command('status')
+      .description('Inspect current session, table, and connection status')
+      .action(async () => {
+        const state: any = this.config.getState?.();
+        const info: Record<string, any> = {
+          actor: this.config.actorName || 'You',
+          tableId: this.config.channel?.tableId || (state as any)?.tableId || '1',
+          connected: Boolean(this.config.channel),
+          activeChoices: this.activeChoices.length,
+        };
+        if (state) {
+          if (state.pot !== undefined) info.pot = `$${state.pot}`;
+          if (state.currentStreet) info.street = state.currentStreet;
+          if (state.handNumber) info.hand = state.handNumber;
+          if (state.players) info.players = state.players.length;
+        }
+        console.log('\x1b[36m[STATUS]\x1b[0m', JSON.stringify(info, null, 2));
+      });
+
+    // 4. Built-in 'tools' command
+    program
+      .command('tools')
+      .description('List available and whitelisted tools')
+      .action(() => {
+        console.log('\n\x1b[1m\x1b[36m=== Whitelisted Curator Tools ===\x1b[0m');
+        for (const [name, tool] of this.tools.entries()) {
+          const usage = tool.usage ? ` ${tool.usage}` : '';
+          const aliases = tool.aliases?.length ? ` (${tool.aliases.join(', ')})` : '';
+          console.log(`  \x1b[32m${name}${usage}\x1b[0m${aliases} - ${tool.description || ''}`);
+        }
+        console.log('');
+      });
+
+    // 5. Built-in 'exec' command
+    program
+      .command('exec <toolName> [args...]')
+      .description('Execute a whitelisted Curator tool directly')
+      .action(async (toolName: string, strArgs: string[]) => {
+        const rawArg = strArgs.join(' ').trim();
+        let parsedArgs: Record<string, any> = {};
+        if (rawArg) {
+          try {
+            parsedArgs = JSON.parse(rawArg);
+          } catch {
+            try {
+              const fixed = rawArg.replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":');
+              parsedArgs = JSON.parse(fixed);
+            } catch {
+              parsedArgs = { input: rawArg };
+            }
+          }
+        }
+        console.log(`\x1b[36m[Exec]\x1b[0m Executing tool "${toolName}"...`);
+        const ctx = this.buildContext();
+        if (this.config.onToolCall) {
+          const result = await this.config.onToolCall(toolName, parsedArgs, ctx);
+          if (result !== undefined) {
+            console.log('\x1b[32m[Result]\x1b[0m', typeof result === 'object' ? JSON.stringify(result, null, 2) : result);
+          }
+        } else {
+          console.log(`\x1b[31m[Exec Error] No tool handler configured in shell context.\x1b[0m`);
+        }
+      });
+
+    // 6. Built-in 'exit' / 'quit' command
     program
       .command('exit')
       .alias('quit')
@@ -453,10 +536,13 @@ export class ClientShell<TState = any, TAction = ToolAction> {
     this.rl.prompt();
 
     this.rl.on('line', async (line) => {
+      this.isHandlingLine = true;
       try {
         await this.handleLine(line);
       } catch (err: any) {
         console.error(`\x1b[31m[REPL Error] ${err?.message || err}\x1b[0m`);
+      } finally {
+        this.isHandlingLine = false;
       }
       if (this.isRunning && this.rl) {
         this.rl.prompt();

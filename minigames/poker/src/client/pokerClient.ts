@@ -59,7 +59,11 @@ export async function createDirectSessionChannel(
       quiet: options.quiet,
     });
     session = await createPokerGameSession(host, options);
-    console.log(`\x1b[32m✔ [Curator] Game session active on Table #${session.tableId}.\x1b[0m`);
+    if (options.tableId !== undefined) {
+      console.log(`\x1b[32m✔ [Curator] Game session active on Table #${session.tableId}.\x1b[0m`);
+    } else {
+      console.log(`\x1b[32m✔ [Curator] Entering Texas Hold'em Lounge Lobby.\x1b[0m`);
+    }
   }
 
   const baseChannel = createDirectChannel(session, options.tableId);
@@ -82,10 +86,11 @@ export async function createDirectSessionChannel(
 export async function runPokerClientUi(
   channel: PokerGameChannel,
   playerName: string = 'You',
-  existingRl?: readline.Interface
+  existingRl?: readline.Interface,
+  hasExplicitTable: boolean = false
 ): Promise<void> {
   console.log("\n\x1b[1m\x1b[36m=== Curator Texas Hold'em ===\x1b[0m");
-  if (channel.tableId) {
+  if (hasExplicitTable && channel.tableId) {
     console.log(`\x1b[35mTable: #${channel.tableId}\x1b[0m`);
   }
 
@@ -112,14 +117,22 @@ export async function runPokerClientUi(
       process.exit(0);
     });
 
-    const shell = createPokerClientShell({
+    const shell: any = createPokerClientShell({
       channel,
       actorName: playerName,
-      getGameState: () => currentGameState,
+      getGameState: () => {
+        if (!currentGameState) {
+          return {
+            phase: 'LOBBY',
+            table: null,
+            status: 'WAITING_FOR_LOBBY_CHOICE',
+            choices: shell?.activeChoices?.map((c: any, i: number) => `[${i + 1}] ${c.label}`) || [],
+          } as any;
+        }
+        return currentGameState;
+      },
     });
 
-    // Start the continuous asynchronous REPL
-    shell.start(rl);
 
     const unsubscribe = channel.on(async (event: any) => {
       const { type, payload } = event;
@@ -199,6 +212,19 @@ export async function runPokerClientUi(
             ? payload.choices.choices
             : [];
 
+        const getChoiceAliases = (typeStr: string, cId?: string): string[] => {
+          const t = typeStr.toLowerCase();
+          const list: string[] = [t];
+          if (cId && !list.includes(cId.toLowerCase())) list.push(cId.toLowerCase());
+          if (t === 'check') list.push('k');
+          if (t === 'call') list.push('c');
+          if (t === 'fold') list.push('f');
+          if (t === 'bet') list.push('b');
+          if (t === 'raise') list.push('r');
+          if (t === 'all_in' || t === 'allin') list.push('allin', 'all-in', 'shove');
+          return list;
+        };
+
         const choices = rawChoices.map((c: any) => {
           const act = c.action || c;
           const actType = act?.type || c.type || 'ACTION';
@@ -208,13 +234,24 @@ export async function runPokerClientUi(
             label:
               c.label ||
               `${actType} ${actAmount ? '$' + actAmount : ''}`.trim(),
-            aliases: [actType.toLowerCase(), c.type?.toLowerCase(), c.id?.toLowerCase()].filter(Boolean),
-            execute: async () => {
+            aliases: getChoiceAliases(actType, c.id),
+            execute: async (rawArgs?: string, tokens?: string[]) => {
+              let chosenAmount = actAmount;
+              const inputTokens = tokens || (rawArgs ? rawArgs.trim().split(/\s+/) : []);
+              if (inputTokens.length > 0) {
+                const parsedNum = parseInt(inputTokens[0], 10);
+                if (!isNaN(parsedNum) && parsedNum > 0) {
+                  chosenAmount = parsedNum;
+                }
+              }
               const actionPayload = {
                 type: actType,
-                amount: actAmount,
+                amount: chosenAmount,
                 ...(typeof act === 'object' ? act : {}),
               };
+              if (chosenAmount !== undefined) {
+                actionPayload.amount = chosenAmount;
+              }
               if (actionPayload.type === 'EXIT') {
                 console.log(`\n\x1b[33m[Game] Exiting table session...\x1b[0m`);
                 await channel.send('poker:human_action', actionPayload);
@@ -231,12 +268,20 @@ export async function runPokerClientUi(
       }
     });
 
-    // If channel has an initial start routine (e.g. direct in-process mode), run it
-    if (typeof channel.start === 'function') {
-      channel.start().catch((err) => {
-        console.error(`\x1b[31m[Start Error] ${err?.message || err}\x1b[0m`);
-      });
-    }
+    // Initialize channel (e.g. direct in-process initial AST stepping) before activating the REPL prompt
+    const bootChannel = async () => {
+      if (typeof channel.start === 'function') {
+        try {
+          await channel.start();
+        } catch (err: any) {
+          console.error(`\x1b[31m[Start Error] ${err?.message || err}\x1b[0m`);
+        }
+      }
+      // Start the continuous asynchronous REPL after channel has completed initial stepping
+      shell.start(rl);
+    };
+
+    bootChannel();
   });
 }
 
@@ -266,5 +311,5 @@ export async function runPokerClient(options: PokerClientOptions = {}): Promise<
     return;
   }
 
-  await runPokerClientUi(channel, options.playerName);
+  await runPokerClientUi(channel, options.playerName, undefined, options.tableId !== undefined);
 }

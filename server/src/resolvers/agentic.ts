@@ -61,10 +61,16 @@ async function anchorAgentIdentityResource(prisma: any, agent: any, userId: stri
     }
 }
 
-async function syncAgentRoles(prisma: any, agentId: string, roleNames?: string[], roleIds?: string[]) {
+async function syncAgentRoles(prisma: any, agentId: string, roleNames?: string[], roleIds?: (string | number)[]) {
     if (!roleNames?.length && !roleIds?.length) return;
     
-    const resolvedRoleIds = new Set<string>(roleIds || []);
+    const resolvedRoleIds = new Set<number>();
+    if (roleIds?.length) {
+        for (const rid of roleIds) {
+            const num = Number(rid);
+            if (!isNaN(num)) resolvedRoleIds.add(num);
+        }
+    }
     if (roleNames?.length) {
         for (const name of roleNames) {
             let role = await prisma.role.findUnique({ where: { name } });

@@ -19,11 +19,11 @@ export async function seedAgentsAndTools(
 
   // 1. Ensure system user & system project exist idempotently
   let systemUser = await prisma.user.findFirst({
-    where: { OR: [{ email: 'system@local' }, { id: '1' }] },
+    where: { OR: [{ email: 'system@local' }, { id: 'system' }, { id: '1' }] },
   });
   if (!systemUser) {
     systemUser = await prisma.user.create({
-      data: { id: '1', name: 'System User', email: 'system@local' },
+      data: { id: 'system', name: 'System User', email: 'system@local' },
     });
   }
 
@@ -101,10 +101,12 @@ export async function seedAgentsAndTools(
   if (prisma.role?.upsert) {
     for (const [name, def] of allRoles.entries()) {
       const description = def?.description || `Plugin Role: ${name}`;
+      const roleId = def?.id || name;
+      const targetProjectId = def?.projectId ?? domainProject?.id ?? null;
       await prisma.role.upsert({
-        where: { name },
-        update: { description },
-        create: { name, description },
+        where: { id: roleId },
+        update: { name, description, projectId: targetProjectId },
+        create: { id: roleId, name, description, projectId: targetProjectId },
       });
       seededRoles.push(name);
     }
@@ -113,18 +115,15 @@ export async function seedAgentsAndTools(
     if (prisma.roleInheritance?.upsert) {
       for (const [name, def] of allRoles.entries()) {
         if (def?.subRoles && Array.isArray(def.subRoles)) {
-          const parentRole = await prisma.role.findUnique({ where: { name } });
-          if (parentRole) {
-            for (const subName of def.subRoles) {
-              const subRole = await prisma.role.findUnique({ where: { name: subName } });
-              if (subRole) {
-                await prisma.roleInheritance.upsert({
-                  where: { parentId_subRoleId: { parentId: parentRole.id, subRoleId: subRole.id } },
-                  update: {},
-                  create: { parentId: parentRole.id, subRoleId: subRole.id },
-                });
-              }
-            }
+          const parentRoleId = def?.id || name;
+          for (const subName of def.subRoles) {
+            const subDef = allRoles.get(subName);
+            const subRoleId = subDef?.id || subName;
+            await prisma.roleInheritance.upsert({
+              where: { parentId_subRoleId: { parentId: parentRoleId, subRoleId } },
+              update: {},
+              create: { parentId: parentRoleId, subRoleId },
+            });
           }
         }
       }
@@ -142,7 +141,9 @@ export async function seedAgentsAndTools(
   }
   if (prisma.userRole) {
     for (const roleName of systemRolesToAssign) {
-      const roleRec = await prisma.role.findUnique({ where: { name: roleName } });
+      const roleRec = await prisma.role.findFirst({
+        where: { OR: [{ id: roleName }, { name: roleName }] },
+      });
       if (roleRec) {
         const existing = await prisma.userRole.findFirst({
           where: { userId: systemUser.id, roleId: roleRec.id, projectId: null },
@@ -167,7 +168,9 @@ export async function seedAgentsAndTools(
   }
   if (prisma.userRole && domainRolesToAssign.size > 0) {
     for (const roleName of domainRolesToAssign) {
-      const roleRec = await prisma.role.findUnique({ where: { name: roleName } });
+      const roleRec = await prisma.role.findFirst({
+        where: { OR: [{ id: roleName }, { name: roleName }] },
+      });
       if (roleRec) {
         // Scoped to domainProject.id
         const existing = await prisma.userRole.findFirst({
@@ -185,7 +188,9 @@ export async function seedAgentsAndTools(
   // Assign plugin roles to domainProject via ProjectRole relation (project has 0 - n roles)
   if (prisma.projectRole) {
     for (const roleName of seededRoles) {
-      const roleRec = await prisma.role.findUnique({ where: { name: roleName } });
+      const roleRec = await prisma.role.findFirst({
+        where: { OR: [{ id: roleName }, { name: roleName }] },
+      });
       if (roleRec) {
         const prExisting = await prisma.projectRole.findFirst({
           where: { projectId: domainProject.id, roleId: roleRec.id },
@@ -199,20 +204,53 @@ export async function seedAgentsAndTools(
     }
   }
 
-  // 3. Sync tools idempotently
+  // 3. Sync tools idempotently & attach ToolRole mappings
   const seededTools: string[] = [];
   if (engine?.tools) {
     for (const [name, tool] of engine.tools.entries()) {
       const existing = await prisma.tool.findUnique({ where: { name } });
-      if (!existing) {
-        const accessLevel = (tool as any).accessLevel ?? 'safe_write';
-        const requiresConfirmation = (tool as any).requiresConfirmation ?? false;
-        const description = (tool as any).description ?? '';
+      const accessLevel = (tool as any).accessLevel ?? 'safe_write';
+      const requiresConfirmation = (tool as any).requiresConfirmation ?? false;
+      const description = (tool as any).description ?? '';
+      const requiredRole = (tool as any).requiredRole ?? null;
 
-        await prisma.tool.create({
-          data: { name, description, version: '1.0.0', accessLevel, requiresConfirmation },
+      let toolRecord = existing;
+      if (!existing) {
+        toolRecord = await prisma.tool.create({
+          data: { name, description, version: '1.0.0', accessLevel, requiredRole, requiresConfirmation },
         });
         seededTools.push(name);
+      } else if (
+        existing.description !== description ||
+        existing.accessLevel !== accessLevel ||
+        existing.requiredRole !== requiredRole ||
+        existing.requiresConfirmation !== requiresConfirmation
+      ) {
+        toolRecord = await prisma.tool.update({
+          where: { id: existing.id },
+          data: { description, accessLevel, requiredRole, requiresConfirmation },
+        });
+      }
+
+      // Sync ToolRole relations (explicit many-to-many)
+      if (prisma.toolRole?.upsert && toolRecord) {
+        const rolesForTool = new Set<string>();
+        if (requiredRole) rolesForTool.add(requiredRole);
+        if (Array.isArray((tool as any).roles)) {
+          for (const r of (tool as any).roles) rolesForTool.add(r);
+        }
+        for (const rId of rolesForTool) {
+          const roleRec = await prisma.role.findFirst({
+            where: { OR: [{ id: rId }, { name: rId }] },
+          });
+          if (roleRec) {
+            await prisma.toolRole.upsert({
+              where: { toolId_roleId: { toolId: toolRecord.id, roleId: roleRec.id } },
+              update: {},
+              create: { toolId: toolRecord.id, roleId: roleRec.id },
+            });
+          }
+        }
       }
     }
   }
@@ -355,7 +393,9 @@ export async function seedAgentsAndTools(
       // Assign Agent Roles if declared in definition (whitelist-based access)
       if (definition.roles && Array.isArray(definition.roles) && prisma.agentRole?.upsert) {
         for (const roleName of definition.roles) {
-          const roleRec = await prisma.role.findUnique({ where: { name: roleName } });
+          const roleRec = await prisma.role.findFirst({
+            where: { OR: [{ id: roleName }, { name: roleName }] },
+          });
           if (roleRec) {
             await prisma.agentRole.upsert({
               where: { agentId_roleId: { agentId, roleId: roleRec.id } },

@@ -19,24 +19,26 @@ export class AgentRoleService {
      */
     static async resolveInheritedRoleNames(
         prisma: PrismaClient | any,
-        initialRoleKeys: string[]
+        initialRoleKeys: (string | number)[]
     ): Promise<string[]> {
         const resolvedNames = new Set<string>();
-        const queue: string[] = [...initialRoleKeys];
+        const queue: (string | number)[] = [...initialRoleKeys];
         const visited = new Set<string>();
 
         while (queue.length > 0) {
-            const current = queue.shift()!;
-            if (!current || visited.has(current)) continue;
-            visited.add(current);
-            resolvedNames.add(current);
+            const rawCurrent = queue.shift()!;
+            if (rawCurrent == null) continue;
+            const currentStr = String(rawCurrent);
+            if (visited.has(currentStr)) continue;
+            visited.add(currentStr);
+            resolvedNames.add(currentStr);
 
             if (prisma?.roleInheritance?.findMany) {
                 try {
-                    let roleId = current;
+                    let roleId = currentStr;
                     if (prisma?.role?.findFirst) {
                         const r = await prisma.role.findFirst({
-                            where: { OR: [{ id: current }, { name: current }] },
+                            where: { OR: [{ id: currentStr }, { name: currentStr }] },
                             select: { id: true, name: true }
                         });
                         if (r) {
@@ -54,7 +56,7 @@ export class AgentRoleService {
                         if (inh.subRole?.name) {
                             resolvedNames.add(inh.subRole.name);
                         }
-                        if (inh.subRoleId && !visited.has(inh.subRoleId)) {
+                        if (inh.subRoleId && !visited.has(String(inh.subRoleId))) {
                             queue.push(inh.subRoleId);
                         }
                     }
@@ -241,7 +243,23 @@ export class AgentRoleService {
             return { allowed: true, roleNames };
         }
 
-        // 4. Direct tool role match: e.g. "tool:poker_apply_action" or "poker_apply_action"
+        // 4b. Explicit ToolRole database relation match (many-to-many)
+        if (prisma.toolRole?.findMany) {
+            try {
+                const dbToolRoles = await prisma.toolRole.findMany({
+                    where: { tool: { name: toolName } },
+                    include: { role: true },
+                });
+                for (const tr of dbToolRoles) {
+                    const rName = tr.role?.name || tr.roleId;
+                    if (rName && roleNames.includes(rName)) {
+                        return { allowed: true, roleNames };
+                    }
+                }
+            } catch {}
+        }
+
+        // 4c. Direct tool role match: e.g. "tool:poker_apply_action" or "poker_apply_action"
         if (roleNames.includes(`tool:${toolName}`) || roleNames.includes(toolName)) {
             return { allowed: true, roleNames };
         }

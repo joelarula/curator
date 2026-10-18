@@ -64,7 +64,9 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
       db = new DatabaseSync(dbPath, { readOnly: true });
       return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='User'").get());
     } catch {
-      return false;
+      // If the file exists with content (> 0 bytes) but was busy/locked during check,
+      // it is already provisioned — do not re-push schema or trigger conflicting push
+      return fs.existsSync(dbPath) && fs.statSync(dbPath).size > 0;
     } finally {
       db?.close();
     }
@@ -115,9 +117,9 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
   // Return a PrismaClient pointed at the SQLite file via better-sqlite3 adapter.
   let SqlitePrismaClient: any;
   const potentialPaths = [
-    path.join(__dirname, '../generated/prisma-sqlite/index.js'),
-    path.join(__dirname, '../../src/generated/prisma-sqlite/index.js'),
     path.join(CURATOR_ROOT, 'src/generated/prisma-sqlite/index.js'),
+    path.join(__dirname, '../../src/generated/prisma-sqlite/index.js'),
+    path.join(__dirname, '../generated/prisma-sqlite/index.js'),
     path.join(CURATOR_ROOT, 'dist/src/generated/prisma-sqlite/index.js'),
   ];
   for (const p of potentialPaths) {
@@ -145,7 +147,7 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
   const user = await prisma.user.upsert({
     where: { email: 'system@local' },
     update: {},
-    create: { id: '1', name: 'System User', email: 'system@local' }
+    create: { id: 'system', name: 'System User', email: 'system@local' }
   });
 
   await prisma.project.upsert({

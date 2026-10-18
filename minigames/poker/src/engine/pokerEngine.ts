@@ -264,7 +264,7 @@ export function initPokerLobby(args?: any): { gameState: PokerGameState } {
   const maxHands = args?.maxHands !== undefined ? Number(args.maxHands) : undefined;
 
   let players: PlayerState[] = [];
-  if (Array.isArray(args?.players)) {
+  if (Array.isArray(args?.players) && args.players.length > 0) {
     const walletsMap = (args?.wallets || args?.startingWallets || {}) as Record<string, number>;
     players = (args.players as any[]).map((p, idx) => {
       const wallet = Number(p.wallet ?? p.startingWallet ?? walletsMap[p.id] ?? p.chips ?? startingChips);
@@ -288,11 +288,11 @@ export function initPokerLobby(args?: any): { gameState: PokerGameState } {
         seatIdx: p.seatIdx !== undefined ? p.seatIdx : idx,
       };
     });
-  } else if (args?.players === undefined) {
+  } else {
     players = [
       {
         id: 'hero',
-        name: 'You',
+        name: args?.playerName || 'You',
         isHuman: true,
         instruction: 'You are the human player (Hero) at the high-roller poker table.',
         persona: 'human',
@@ -817,16 +817,16 @@ export async function processHumanSpeech(
     targetId?: string;
     speakerId?: string;
     speakerName?: string;
-  }
+  },
+  toolContext?: any
 ): Promise<{ gameState: PokerGameState; remark: AmbientRemark; aiResponse?: AmbientRemark | null }> {
   const speechAct = (args.speechAct || 'TABLE_TALK') as SpeechAct;
   const text = String(args.text || '');
   const targetId = args.targetId ? String(args.targetId) : undefined;
-
-  const remarks = [...(rawState.recentRemarks || [])];
+  const cleanTarget = targetId ? targetId.toLowerCase().replace(/^@/, '') : '';
 
   const speakerId = args.speakerId || 'hero';
-  const speakerPlayer = rawState.players.find((p) => p.id === speakerId);
+  const speakerPlayer = rawState?.players?.find((p) => p.id === speakerId);
   const speakerName = args.speakerName || speakerPlayer?.name || 'You (Hero)';
 
   const remark: AmbientRemark = {
@@ -837,40 +837,101 @@ export async function processHumanSpeech(
     text,
     timestamp: Date.now(),
   };
+
+  const remarks = [...(rawState?.recentRemarks || [])];
   remarks.push(remark);
 
   let aiResponse: AmbientRemark | null = null;
-  const targetPlayer = rawState.players.find((p) => p.id === targetId && !p.isHuman);
-  const respondingAgent = targetPlayer || (speechAct !== 'WHISPER' ? rawState.players.find((p) => !p.isHuman && !p.folded) : null);
+  let respondingAgent: any = null;
 
-  if (respondingAgent) {
-    const isWhisperToAgent = speechAct === 'WHISPER' && targetId === respondingAgent.id;
-    const systemPrompt = buildAgentSystemPrompt(respondingAgent);
-    const userPrompt = `Discourse Event: ${speakerName} stated (${speechAct}): "${text}". Respond in character as ${respondingAgent.name} in JSON: {"speech": "your reply", "speechAct": "${isWhisperToAgent ? 'WHISPER' : 'TABLE_TALK'}", "innerMonologue": "reasoning"}`;
-
-    const res = await callCuratorLlm<{ speech?: string; speechAct?: SpeechAct; innerMonologue?: string }>(
-      systemPrompt,
-      userPrompt,
-      { model: respondingAgent.model }
+  // 1. Check active seated players if table is running
+  if (cleanTarget && rawState?.players) {
+    respondingAgent = rawState.players.find(
+      (p) => (p.id.toLowerCase() === cleanTarget || p.name.toLowerCase().includes(cleanTarget)) && !p.isHuman
     );
+  }
 
-    if (res?.speech) {
-      aiResponse = {
-        speakerId: respondingAgent.id,
-        speakerName: respondingAgent.name,
-        speechAct: res.speechAct || (isWhisperToAgent ? 'WHISPER' : 'TABLE_TALK'),
-        recipientId: isWhisperToAgent ? speakerId : undefined,
-        text: res.speech,
-        timestamp: Date.now(),
-      };
-      remarks.push(aiResponse);
+  // 2. If not found in seated players (or in lounge, or targeting lobby/dealer), resolve from real DB Agent
+  if (!respondingAgent) {
+    const prisma = toolContext?.prisma || toolContext?.toolContext?.prisma;
+    const defaultTarget = rawState?.players ? 'viper' : 'lobby';
+    const targetAgentId = cleanTarget || (speechAct !== 'WHISPER' ? defaultTarget : undefined);
+
+    if (targetAgentId && prisma?.agent?.findFirst) {
+      try {
+        const dbAgent = await prisma.agent.findFirst({
+          where: { OR: [{ id: targetAgentId }, { name: targetAgentId }] },
+          include: { script: true },
+        });
+        if (dbAgent) {
+          const hostAgents = toolContext?.host?.engine?.agents || toolContext?.toolContext?.host?.engine?.agents;
+          const pluginDef = hostAgents?.get?.(dbAgent.id) || {};
+          respondingAgent = {
+            id: dbAgent.id,
+            name: dbAgent.name,
+            persona: pluginDef.persona || (dbAgent.id === 'lobby' ? 'concierge' : (dbAgent.id === 'dealer' ? 'dealer' : 'player')),
+            instruction: pluginDef.instruction || dbAgent.script?.body || '',
+            model: pluginDef.model,
+          };
+        }
+      } catch (_) {}
     }
   }
 
-  const nextState: PokerGameState = {
-    ...rawState,
-    recentRemarks: remarks.slice(-8),
-  };
+  // 3. Fallback to active seated AI player if table talk and no target specified
+  if (!respondingAgent && rawState?.players && speechAct !== 'WHISPER') {
+    respondingAgent = rawState.players.find((p) => !p.isHuman && !p.folded);
+  }
+
+  // 4. Generate in-character response via LLM
+  if (respondingAgent) {
+    const isWhisperToAgent = speechAct === 'WHISPER';
+    let systemPrompt = '';
+    let userPrompt = '';
+
+    if (respondingAgent.id === 'lobby') {
+      systemPrompt = `You are ${respondingAgent.name}. ${respondingAgent.instruction || "You are the Texas Hold'em Lounge Concierge."} You are in the poker lounge assisting players.`;
+      userPrompt = `Discourse Event: ${speakerName} stated (${speechAct}): "${text}". Respond in character as the Lounge Concierge to assist the player in JSON: {"speech": "your reply", "speechAct": "TABLE_TALK", "innerMonologue": "reasoning"}`;
+    } else if (respondingAgent.id === 'dealer') {
+      const potInfo = rawState?.pot ? `Current Pot: $${rawState.pot}. ` : '';
+      const streetInfo = rawState?.currentStreet ? `Street: ${rawState.currentStreet}. ` : '';
+      systemPrompt = `You are ${respondingAgent.name}. ${respondingAgent.instruction || "You are the professional Texas Hold'em table dealer."} Maintain game integrity and decorum.`;
+      userPrompt = `Discourse Event: ${speakerName} stated (${speechAct}): "${text}". Table Status: ${potInfo}${streetInfo}Respond in character as the Dealer in JSON: {"speech": "your reply", "speechAct": "TABLE_TALK", "innerMonologue": "reasoning"}`;
+    } else if (rawState?.players && respondingAgent.holeCards) {
+      systemPrompt = buildAgentSystemPrompt(respondingAgent);
+      userPrompt = `Discourse Event: ${speakerName} stated (${speechAct}): "${text}". Respond in character as ${respondingAgent.name} in JSON: {"speech": "your reply", "speechAct": "${isWhisperToAgent ? 'WHISPER' : 'TABLE_TALK'}", "innerMonologue": "reasoning"}`;
+    } else {
+      systemPrompt = `You are ${respondingAgent.name}. Character disposition: ${respondingAgent.persona || 'player'}. ${respondingAgent.instruction || ''}`;
+      userPrompt = `Discourse Event: ${speakerName} stated (${speechAct}): "${text}". Respond in character as ${respondingAgent.name} in JSON: {"speech": "your reply", "speechAct": "${isWhisperToAgent ? 'WHISPER' : 'TABLE_TALK'}", "innerMonologue": "reasoning"}`;
+    }
+
+    try {
+      const res = await callCuratorLlm<{ speech?: string; speechAct?: SpeechAct; innerMonologue?: string }>(
+        systemPrompt,
+        userPrompt,
+        { model: respondingAgent.model }
+      );
+
+      if (res?.speech) {
+        aiResponse = {
+          speakerId: respondingAgent.id,
+          speakerName: respondingAgent.name,
+          speechAct: res.speechAct || (isWhisperToAgent ? 'WHISPER' : 'TABLE_TALK'),
+          recipientId: isWhisperToAgent ? speakerId : undefined,
+          text: res.speech,
+          timestamp: Date.now(),
+        };
+        remarks.push(aiResponse);
+      }
+    } catch (_) {}
+  }
+
+  const nextState: PokerGameState = rawState
+    ? {
+        ...rawState,
+        recentRemarks: remarks.slice(-8),
+      }
+    : (rawState as any);
 
   return { gameState: nextState, remark, aiResponse };
 }

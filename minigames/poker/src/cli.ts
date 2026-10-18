@@ -71,6 +71,7 @@ program
   .option('--bb <amount>', 'Big blind amount (direct mode)', '20')
   .option('--db <path>', 'Custom SQLite database path (direct mode)')
   .option('-r, --reset', 'Reset database before running (direct mode)', false)
+  .option('-R, --reset-light', 'Light reset: clear conversations, requests, and responses before running', false)
   .option('--name <player>', 'Your player name', 'You')
   .action(async (opts) => {
     console.log('\x1b[36m[Poker CLI] Loading tabletop client runtime...\x1b[0m');
@@ -82,6 +83,7 @@ program
         direct: true,
         databasePath: opts.db,
         forceReset: Boolean(opts.reset),
+        resetLight: Boolean(opts.resetLight),
         maxSeats: parseInt(opts.seats, 10) || 4,
         startingChips: parseInt(opts.chips, 10) || 1000,
         smallBlind: parseInt(opts.sb, 10) || 10,
@@ -98,7 +100,18 @@ program
     }
   });
 
-// 4. Standard Curator Host commands (seed, status, exec, run, trigger, chat, agent)
+// 4. Standalone Light Reset command: cleans conversations, requests, and responses in 20ms
+program
+  .command('reset')
+  .description('Light reset: clean all conversations, requests, and responses to test from scratch')
+  .option('--db <path>', 'Custom SQLite database path')
+  .action(async (opts) => {
+    console.log('\x1b[36m[Poker CLI] Running light database reset...\x1b[0m');
+    const { resetPokerDatabaseLight } = await import('./db/lightReset.ts');
+    await resetPokerDatabaseLight(undefined, { databasePath: opts.db });
+  });
+
+// 5. Standard Curator Host commands (seed, status, exec, run, trigger, chat, agent)
 // Attached dynamically with lazy factory so heavy host modules only load if invoked
 const hostCommands = ['seed', 'status', 'exec', 'run', 'trigger', 'chat', 'agent'];
 for (const cmd of hostCommands) {

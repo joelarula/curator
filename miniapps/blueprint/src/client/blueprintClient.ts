@@ -116,8 +116,6 @@ export async function runBlueprintClientUi(
       getState: () => currentState,
     });
 
-    // Start continuous asynchronous REPL
-    shell.start(rl);
 
     const unsubscribe = channel.on(async (event: any) => {
       const { type, payload } = event;
@@ -133,11 +131,18 @@ export async function runBlueprintClientUi(
       }
     });
 
-    if (typeof channel.start === 'function') {
-      channel.start().catch((err) => {
-        console.error(`\x1b[31m[Start Error] ${err?.message || err}\x1b[0m`);
-      });
-    }
+    const boot = async () => {
+      if (typeof channel.start === 'function') {
+        try {
+          await channel.start();
+        } catch (err: any) {
+          console.error(`\x1b[31m[Start Error] ${err?.message || err}\x1b[0m`);
+        }
+      }
+      shell.start(rl);
+    };
+
+    boot();
   });
 }
 

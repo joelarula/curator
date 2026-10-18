@@ -28,7 +28,8 @@ model Project {
   responses   Response[]
   resourceTrees ResourceTree[]
   dslSchemas  DslSchema[]
-  roles       ProjectRole[]
+  roles       Role[]
+  projectRoles ProjectRole[]
   userRoles   UserRole[]
 
   existent    Boolean?  @default(true)
@@ -50,6 +51,7 @@ model Tool {
   requiresConfirmation Boolean      @default(false)
   requiresHumanApproval Boolean     @default(false)
   permissions          Permission[]
+  roles                ToolRole[]
   enabled              Boolean      @default(true)
   existent             Boolean?     @default(true)
   createdAt            DateTime     @default(now())

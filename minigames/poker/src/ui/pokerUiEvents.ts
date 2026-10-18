@@ -11,9 +11,14 @@ export function renderPokerEvent(
 ): void {
   const { type, payload } = event;
   switch (type) {
-    case 'poker:lobby_ready':
-      console.log(`\x1b[32m✔ Lobby ready: Table #${payload?.tableId}\x1b[0m`);
+    case 'poker:lobby_ready': {
+      const rawTid = payload?.tableId;
+      const tid = (rawTid && typeof rawTid === 'string' && !rawTid.startsWith('$'))
+        ? rawTid
+        : currentGameState?.tableId || '1';
+      console.log(`\x1b[32m✔ Lobby ready: Table #${tid}\x1b[0m`);
       break;
+    }
 
     case 'poker:new_round':
       console.log(`\n\x1b[1m\x1b[36m--- Hand #${payload?.handNumber} Starting ---\x1b[0m`);
@@ -46,9 +51,11 @@ export function renderPokerEvent(
     case 'poker:speech_response': {
       const spk = payload?.speaker || 'Player';
       const act = payload?.speechAct || 'TABLE_TALK';
-      console.log(`\x1b[35m[${act}] ${spk}: "${payload?.text}"\x1b[0m`);
+      const to = payload?.targetId ? ` -> @${payload.targetId}` : '';
+      console.log(`\x1b[35m[${act}] ${spk}${to}: "${payload?.text}"\x1b[0m`);
       if (payload?.aiReply) {
-        console.log(`\x1b[36m[REPLY] "${payload.aiReply}"\x1b[0m`);
+        const aiSpk = payload?.aiSpeaker ? `\x1b[1m${payload.aiSpeaker}\x1b[0m: ` : '';
+        console.log(`\x1b[36m[REPLY] ${aiSpk}"${payload.aiReply}"\x1b[0m`);
       }
       break;
     }
@@ -72,6 +79,20 @@ export function renderPokerEvent(
     case 'poker:session_exited':
       console.log(`\n\x1b[33m✔ [SESSION ENDED] ${payload?.reason === 'user_exit' ? 'Exited table session.' : (payload?.reason || 'Session closed.')}\x1b[0m\n`);
       break;
+
+    case 'poker:actors_list': {
+      const actors: any[] = payload?.actors || [];
+      console.log('\n\x1b[1m\x1b[36m=== Active Conversation Actors ===\x1b[0m');
+      for (const a of actors) {
+        const tag = a.kind === 'user' ? '\x1b[32m[User]\x1b[0m  ' : '\x1b[34m[Agent]\x1b[0m ';
+        const desc = a.persona || a.name;
+        const roles = a.roles?.length ? ` | Roles: ${a.roles.join(', ')}` : '';
+        const chips = a.chips !== undefined ? ` | Chips: $${a.chips}` : '';
+        console.log(`  ${tag} \x1b[1m${a.id}\x1b[0m (${desc})${roles}${chips}`);
+      }
+      console.log('');
+      break;
+    }
 
     case 'poker:game_over':
       console.log(`\n\x1b[1m\x1b[32m✔ [GAME OVER] Conquered the table!\x1b[0m\n`);

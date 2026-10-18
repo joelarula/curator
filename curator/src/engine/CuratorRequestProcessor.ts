@@ -844,8 +844,18 @@ export class CuratorRequestProcessor {
     
     // Evaluate dynamic payload
     let payload = node.payload ?? req.context?.input;
-    if (typeof node.payload === 'string' && node.payload.startsWith('(') && node.payload.endsWith('(context)')) {
+    if (typeof node.payload === 'string' && ((node.payload.startsWith('(') && node.payload.endsWith('(context)')) || node.payload.startsWith('$') || node.payload.startsWith('{{'))) {
       payload = await this.evaluateExpressionAsync(node.payload, req);
+    } else if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      const evaluatedPayload: Record<string, any> = {};
+      for (const [k, v] of Object.entries(payload)) {
+        if (typeof v === 'string' && (v.startsWith('{{') || v.startsWith('$') || (v.startsWith('(') && v.endsWith('(context)')))) {
+          evaluatedPayload[k] = await this.evaluateExpressionAsync(v, req);
+        } else {
+          evaluatedPayload[k] = v;
+        }
+      }
+      payload = evaluatedPayload;
     }
     if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
       if (req.conversationId !== undefined && req.conversationId !== null) {

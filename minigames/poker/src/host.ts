@@ -18,6 +18,9 @@ export interface PokerHostOptions {
   databasePath?: string;
   intervalMs?: number;
   quiet?: boolean;
+  userId?: string;
+  userName?: string;
+  userEmail?: string;
 }
 
 /**
@@ -35,24 +38,24 @@ export async function createPokerHost(options: PokerHostOptions = {}): Promise<C
     name: options.name || 'poker',
     projectId: options.projectId || 'poker-project-1',
     projectName: options.projectName || 'Texas Holdem Lounge',
-    userId: 'system',
-    userName: 'Curator System',
-    userEmail: 'system@curator.local',
-    autoSeed: options.autoSeed ?? true,
-    forceReset: options.forceReset ?? false,
-    dataDir: options.dataDir ?? process.env.DATA_DIR ?? './data',
+    ...(options.userId ? { userId: options.userId } : {}),
+    ...(options.userName ? { userName: options.userName } : {}),
+    ...(options.userEmail ? { userEmail: options.userEmail } : {}),
+    ...(options.autoSeed !== undefined ? { autoSeed: options.autoSeed } : {}),
+    ...(options.forceReset !== undefined ? { forceReset: options.forceReset } : {}),
+    ...(options.dataDir ? { dataDir: options.dataDir } : {}),
     curatorDb: {
       path: dbPath,
     },
-    intervalMs: options.intervalMs ?? 500,
+    ...(options.intervalMs !== undefined ? { intervalMs: options.intervalMs } : {}),
     logger: options.quiet
-      ? { log: () => {}, info: () => {}, warn: console.warn, error: console.error }
+      ? { log: () => { }, info: () => { }, warn: console.warn, error: console.error }
       : {
-          log: (...args: any[]) => console.log('\x1b[90m[Curator]\x1b[0m', ...args),
-          info: (...args: any[]) => console.log('\x1b[90m[Curator]\x1b[0m', ...args),
-          warn: console.warn,
-          error: console.error,
-        },
+        log: (...args: any[]) => console.log('\x1b[90m[Curator]\x1b[0m', ...args),
+        info: (...args: any[]) => console.log('\x1b[90m[Curator]\x1b[0m', ...args),
+        warn: console.warn,
+        error: console.error,
+      },
     registerPlugins: async () => {
       curatorEngine.registerPlugin(pokerPlugin);
       return curatorEngine;

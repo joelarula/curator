@@ -20,6 +20,10 @@ import {
   pokerApplyActionTool,
   pokerHumanSpeechTool,
   pokerGetStandingsTool,
+  pokerGetChoicesTool,
+  pokerJoinLobbyTool,
+  pokerLeaveLobbyTool,
+  pokerListTablesTool,
 } from '../plugins/pokerPlugin.ts';
 
 export { type ShellCommand, type ToolAction };
@@ -31,12 +35,176 @@ export const POKER_WHITELISTED_TOOLS: (string | CuratorToolDefinition)[] = [
   pokerApplyActionTool,
   pokerHumanSpeechTool,
   pokerGetStandingsTool,
+  pokerGetChoicesTool,
+  pokerJoinLobbyTool,
+  pokerLeaveLobbyTool,
+  pokerListTablesTool,
 ];
 
 /**
- * Static view, control, and inspection commands for Texas Hold'em interactive play.
+ * Static view, control, wagering, and inspection commands for Texas Hold'em interactive play.
  */
 export const POKER_COMMANDS: ReplCommand[] = [
+  // --- Wagering / Action Commands ---
+  {
+    name: 'raise',
+    usage: '<amount>',
+    aliases: ['r'],
+    description: 'Raise the current bet to a specified amount (e.g. raise 100 or r 100)',
+    execute: async (rawArgs, tokens, ctx) => {
+      const amount = parseInt(tokens[0] || rawArgs, 10);
+      if (isNaN(amount) || amount <= 0) {
+        console.log('\x1b[31mUsage: raise <amount> (e.g. raise 100 or r 100)\x1b[0m');
+        return;
+      }
+      if (ctx.channel) {
+        await ctx.channel.send('poker:human_action', { type: 'RAISE', amount });
+      }
+    },
+  },
+  {
+    name: 'bet',
+    usage: '<amount>',
+    aliases: ['b'],
+    description: 'Place a bet of a specified amount (e.g. bet 50 or b 50)',
+    execute: async (rawArgs, tokens, ctx) => {
+      const amount = parseInt(tokens[0] || rawArgs, 10);
+      if (isNaN(amount) || amount <= 0) {
+        console.log('\x1b[31mUsage: bet <amount> (e.g. bet 50 or b 50)\x1b[0m');
+        return;
+      }
+      if (ctx.channel) {
+        await ctx.channel.send('poker:human_action', { type: 'BET', amount });
+      }
+    },
+  },
+  {
+    name: 'call',
+    usage: '[amount]',
+    aliases: ['c'],
+    description: 'Call the current highest bet',
+    execute: async (_rawArgs, _tokens, ctx) => {
+      if (ctx.channel) {
+        await ctx.channel.send('poker:human_action', { type: 'CALL' });
+      }
+    },
+  },
+  {
+    name: 'check',
+    aliases: ['k'],
+    description: 'Check and pass action without wagering',
+    execute: async (_rawArgs, _tokens, ctx) => {
+      if (ctx.channel) {
+        await ctx.channel.send('poker:human_action', { type: 'CHECK' });
+      }
+    },
+  },
+  {
+    name: 'fold',
+    aliases: ['f'],
+    description: 'Fold your cards and forfeit the pot',
+    execute: async (_rawArgs, _tokens, ctx) => {
+      if (ctx.channel) {
+        await ctx.channel.send('poker:human_action', { type: 'FOLD' });
+      }
+    },
+  },
+  {
+    name: 'allin',
+    aliases: ['all-in', 'shove'],
+    description: 'Wager all remaining chips',
+    execute: async (_rawArgs, _tokens, ctx) => {
+      if (ctx.channel) {
+        await ctx.channel.send('poker:human_action', { type: 'ALL_IN' });
+      }
+    },
+  },
+
+  // --- Speech & Discourse Commands ---
+  {
+    name: 'speak',
+    usage: '<actor> <message...>',
+    aliases: ['talk', 'say', 'tell'],
+    description: 'Address an actor directly (e.g. speak lobby what tables are open? or speak viper nice hand)',
+    execute: async (_rawArgs, tokens, ctx) => {
+      if (tokens.length < 2) {
+        console.log('\x1b[33mUsage: speak <actor> <message> (e.g. speak lobby what tables are open?)\x1b[0m');
+        return;
+      }
+      const targetId = tokens[0];
+      const text = tokens.slice(1).join(' ');
+      if (ctx.channel) {
+        await ctx.channel.send('poker:speech', {
+          text,
+          speakerName: ctx.actorName || 'You',
+          speechAct: 'speak',
+          targetId,
+        });
+      }
+    },
+  },
+  {
+    name: 'whisper',
+    usage: '<actor> <message...>',
+    aliases: ['w', 'pm'],
+    description: 'Whisper privately to an actor (e.g. whisper dealer what are the blinds?)',
+    execute: async (_rawArgs, tokens, ctx) => {
+      if (tokens.length < 2) {
+        console.log('\x1b[33mUsage: whisper <actor> <message> (e.g. whisper dealer what are the blinds?)\x1b[0m');
+        return;
+      }
+      const targetId = tokens[0];
+      const text = tokens.slice(1).join(' ');
+      if (ctx.channel) {
+        await ctx.channel.send('poker:speech', {
+          text,
+          speakerName: ctx.actorName || 'You',
+          speechAct: 'whisper',
+          targetId,
+        });
+      }
+    },
+  },
+  {
+    name: 'message',
+    usage: '[actor] <message...>',
+    aliases: ['msg'],
+    description: 'Send speech to table or target actor',
+    execute: async (rawArgs, tokens, ctx) => {
+      if (tokens.length === 0) {
+        console.log('\x1b[33mUsage: message [actor] <text>\x1b[0m');
+        return;
+      }
+      let targetId: string | undefined;
+      let text = rawArgs;
+      if (tokens.length >= 2) {
+        targetId = tokens[0];
+        text = tokens.slice(1).join(' ');
+      }
+      if (ctx.channel) {
+        await ctx.channel.send('poker:speech', {
+          text,
+          speakerName: ctx.actorName || 'You',
+          speechAct: 'message',
+          targetId,
+        });
+      }
+    },
+  },
+
+  // --- Context & Actor Inspection ---
+  {
+    name: 'actors',
+    aliases: ['who', 'agents', 'players'],
+    description: 'List active actors in this conversation context (users, agents, dealer)',
+    execute: async (_rawArgs, _tokens, ctx) => {
+      if (ctx.channel) {
+        await ctx.channel.send('poker:get_actors');
+      }
+    },
+  },
+
+  // --- Table & State Inspection ---
   {
     name: 'table',
     aliases: ['view', 't'],
@@ -73,7 +241,7 @@ export const POKER_COMMANDS: ReplCommand[] = [
   },
   {
     name: 'resume',
-    aliases: ['continue', 'c', 'r'],
+    aliases: ['continue'],
     description: 'Resume a paused poker table game loop',
     execute: async (_args, _tokens, ctx) => {
       if (ctx.channel) {
@@ -107,9 +275,14 @@ export function createPokerClientShell(
       const state = opts.getGameState();
       if (state) console.log('\n' + renderCompactStatus(state));
     },
-    onSpeech: async (text: string) => {
+    onSpeech: async (text: string, speechAct?: string, targetId?: string) => {
       if (opts.channel) {
-        return opts.channel.send('poker:speech', { text });
+        return opts.channel.send('poker:speech', {
+          text,
+          speakerName: opts.actorName || 'You',
+          speechAct: speechAct || 'TABLE_TALK',
+          targetId,
+        });
       }
     },
     onToolCall: async (toolName: string, args: Record<string, any>, ctx?: ShellContext) => {
@@ -129,7 +302,12 @@ export function createPokerClientShell(
           return opts.channel.send('poker:human_action', args.action || args);
         }
         if (toolName === 'poker_human_speech') {
-          return opts.channel.send('poker:speech', { text: args.text || args.content });
+          return opts.channel.send('poker:speech', {
+            text: args.text || args.content,
+            speakerName: opts.actorName || 'You',
+            speechAct: args.speechAct,
+            targetId: args.targetId,
+          });
         }
         return opts.channel.send('curator:tool_call', {
           tool: toolName,

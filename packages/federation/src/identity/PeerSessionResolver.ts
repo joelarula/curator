@@ -55,19 +55,22 @@ export async function resolvePeerSession(
   }
 
   // Bind User to Role
-  await prisma.userRole.upsert({
+  const existingUr = await prisma.userRole.findFirst({
     where: {
-      userId_roleId: {
-        userId: user.id,
-        roleId: role.id,
-      },
-    },
-    update: {},
-    create: {
       userId: user.id,
       roleId: role.id,
+      projectId: projectId || null,
     },
   });
+  if (!existingUr) {
+    await prisma.userRole.create({
+      data: {
+        userId: user.id,
+        roleId: role.id,
+        projectId: projectId || null,
+      },
+    });
+  }
 
   // 4. Provision specific tool permissions if allowedTools is configured
   if (identity.allowedTools && Array.isArray(identity.allowedTools)) {

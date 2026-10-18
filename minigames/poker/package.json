@@ -21,6 +21,9 @@
   "scripts": {
     "play": "node src/cli.ts play",
     "play:direct": "node src/cli.ts play --direct",
+    "play:reset": "node src/cli.ts play --direct --reset-light",
+    "reset": "node src/cli.ts reset",
+    "reset:light": "node src/cli.ts reset",
     "serve": "node src/cli.ts serve",
     "seed": "node src/cli.ts seed",
     "test": "node --import ../../curator/node_modules/tsx/dist/loader.mjs --test test/concurrent_tables.test.ts test/graphql_tables.test.ts test/poker_minigame.test.ts",

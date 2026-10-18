@@ -35,12 +35,12 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
   // 2. Ensure system user, project and conversation scoping exist idempotently
   const userEmail = config.userEmail || 'system@local';
   const userName = config.userName || 'System User';
-  const userId = config.userId || '1';
+  const userId = config.userId || 'system';
   const projectName = config.projectName || name;
   const projectId = config.projectId || '1';
 
   let user = await prisma.user.findFirst({
-    where: { OR: [{ email: userEmail }, { id: userId }] },
+    where: { OR: [{ email: userEmail }, { id: userId }, { id: 'system' }] },
   });
   if (!user) {
     user = await prisma.user.create({
@@ -297,7 +297,9 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
 
       if (prisma.projectRole) {
         for (const roleName of rolesToAssign) {
-          const roleRec = await prisma.role.findUnique({ where: { name: roleName } });
+          const roleRec = await prisma.role.findFirst({
+            where: { OR: [{ id: roleName }, { name: roleName }] },
+          });
           if (roleRec) {
             const existing = await prisma.projectRole.findFirst({
               where: { projectId: newProject.id, roleId: roleRec.id },
@@ -364,7 +366,9 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
     },
 
     async assignUserProjectRole(userId: string, roleName: string, projectId: string): Promise<any> {
-      const roleRec = await prisma.role.findUnique({ where: { name: roleName } });
+      const roleRec = await prisma.role.findFirst({
+        where: { OR: [{ id: roleName }, { name: roleName }] },
+      });
       if (!roleRec) {
         throw new Error(`Role '${roleName}' not found.`);
       }

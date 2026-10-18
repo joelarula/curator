@@ -77,12 +77,18 @@ export function setupGoogleAuth(
               // Auto-assign curator_manager if default manager
               if (engine.isDefaultManager(email)) {
                 try {
-                  if (prisma.userRole) {
-                    await prisma.userRole.upsert({
-                      where: { userId_roleId: { userId: user.id, roleId: 'role_curator_manager' } },
-                      update: {},
-                      create: { userId: user.id, roleId: 'role_curator_manager' },
-                    });
+                  if (prisma.userRole && prisma.role) {
+                    const managerRole = await prisma.role.findUnique({ where: { name: CURATOR_ROLES.MANAGER } });
+                    if (managerRole) {
+                      const existingUr = await prisma.userRole.findFirst({
+                        where: { userId: user.id, roleId: managerRole.id, projectId: null },
+                      });
+                      if (!existingUr) {
+                        await prisma.userRole.create({
+                          data: { userId: user.id, roleId: managerRole.id, projectId: null },
+                        });
+                      }
+                    }
                   }
                 } catch (_) {}
               }

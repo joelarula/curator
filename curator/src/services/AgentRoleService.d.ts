@@ -19,7 +19,8 @@ export declare class AgentRoleService {
      * Validates whether an actor (agent or human user) is permitted to execute a specific tool.
      * All tool access in Curator Core is whitelist-based by default.
      * Every action must be bound to an actor with whitelisted roles.
-     * If the actor has no roles, or none of its roles permit the tool, access is DENIED.
+     * When actor.projectId is provided, roles are filtered so only global roles and roles
+     * scoped to that specific project (e.g. '<domain>:<projectId>:<role>') are evaluated.
      */
     static validateActorToolAccess(prisma: PrismaClient | any, actor: ActorIdentity, toolName: string, toolConfig?: ToolSecurityConfig): Promise<{
         allowed: boolean;

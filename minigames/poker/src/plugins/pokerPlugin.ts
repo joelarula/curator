@@ -87,7 +87,8 @@ export const pokerInitLobbyTool = defineTool({
 
 export const pokerJoinLobbyTool = defineTool({
   name: 'poker_join_lobby',
-  description: 'Dynamically seats an agent or human player at the poker table with their wallet / buy-in.',
+  description: 'Dynamically seats an actor at the poker table with their wallet / buy-in.',
+  usage: '<actorId> <name> [chips] [seatIdx]',
   requiredRole: 'poker:player',
   accessLevel: 'safe_write',
   parameters: {
@@ -117,7 +118,8 @@ export const pokerJoinLobbyTool = defineTool({
 
 export const pokerLeaveLobbyTool = defineTool({
   name: 'poker_leave_lobby',
-  description: 'Removes or cashes out a player from the poker table.',
+  description: 'Removes or cashes out an actor from the poker table.',
+  usage: '<actorId>',
   requiredRole: 'poker:player',
   accessLevel: 'safe_write',
   parameters: {
@@ -176,7 +178,9 @@ export const pokerAiDecisionTool = defineTool({
 
 export const pokerApplyActionTool = defineTool({
   name: 'poker_apply_action',
-  description: 'Applies player action (FOLD, CHECK, CALL, RAISE, ALL_IN) to table state.',
+  description: 'Applies player action (FOLD, CHECK, CALL, RAISE <amount>, ALL_IN) to table state.',
+  usage: '<actionType> [amount]',
+  aliases: ['act'],
   requiredRole: 'poker:player',
   accessLevel: 'safe_write',
   parameters: {
@@ -264,6 +268,8 @@ export const pokerRotateDealerTool = defineTool({
 export const pokerHumanSpeechTool = defineTool({
   name: 'poker_human_speech',
   description: 'Applies human table talk, banter, or private whisper to the table and triggers AI persona reactions.',
+  usage: '<speak|whisper|message> [actor] <text>',
+  aliases: ['speech'],
   requiredRole: 'poker:player',
   accessLevel: 'safe_read',
   parameters: {
@@ -280,7 +286,7 @@ export const pokerHumanSpeechTool = defineTool({
   },
   execute: async (args: any, ctx: any) => {
     const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
-    return processHumanSpeech(rawState, args);
+    return processHumanSpeech(rawState, args, ctx);
   },
 });
 
@@ -304,6 +310,7 @@ export const pokerCheckGameOverTool = defineTool({
 export const pokerGetStandingsTool = defineTool({
   name: 'poker_get_standings',
   description: 'Returns the current session standings and chip profit/loss report.',
+  aliases: ['standings_tool'],
   requiredRole: 'poker:spectator',
   accessLevel: 'safe_read',
   parameters: {
@@ -321,6 +328,7 @@ export const pokerGetStandingsTool = defineTool({
 export const pokerGetChoicesTool = defineTool({
   name: 'poker_get_choices',
   description: 'Calculates the dynamically allowed legal choices and actions for a player based on table rules',
+  usage: '[playerIdx]',
   requiredRole: 'poker:spectator',
   accessLevel: 'safe_read',
   parameters: {
@@ -344,6 +352,7 @@ export const pokerGetChoicesTool = defineTool({
 export const pokerListTablesTool = defineTool({
   name: 'poker_list_tables',
   description: 'Lists all available poker tables in the project.',
+  aliases: ['list_tables'],
   requiredRole: 'poker:spectator',
   accessLevel: 'safe_read',
   parameters: {
@@ -442,6 +451,26 @@ export const pokerPlugin: CuratorPlugin = {
       persona: 'human',
       isHuman: true,
       roles: ['poker:player', 'poker:spectator'],
+    },
+    lobby: {
+      id: 'lobby',
+      name: 'Lobby (Concierge)',
+      scriptName: 'poker_lobby',
+      schedule: 'manual',
+      enabled: true,
+      instruction: "You are the Texas Hold'em Lounge Concierge. You welcome players to the poker lounge, explain available tables and game formats, assist with table seating, buy-ins, and direct players to active games.",
+      persona: 'concierge',
+      roles: ['poker:admin', 'poker:spectator'],
+    },
+    dealer: {
+      id: 'dealer',
+      name: 'Dealer (House)',
+      scriptName: 'poker_lobby',
+      schedule: 'manual',
+      enabled: true,
+      instruction: "You are the professional Texas Hold'em table dealer. You run the table, deal community cards, announce pot amounts and street actions, and answer table inquiries politely and authoritatively.",
+      persona: 'dealer',
+      roles: ['poker:dealer', 'poker:spectator'],
     },
     viper: {
       id: 'viper',
