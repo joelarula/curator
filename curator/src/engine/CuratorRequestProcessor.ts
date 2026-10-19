@@ -1775,6 +1775,13 @@ export class CuratorRequestProcessor {
         }
       });
       result = typeof rawOutput === 'string' ? rawOutput : JSON.stringify(rawOutput);
+
+      if (rawOutput && typeof rawOutput === 'object' && (rawOutput as any).event) {
+        const evt = (rawOutput as any).event;
+        const eventName = typeof evt === 'string' ? evt : evt.name;
+        const payload = typeof evt === 'object' && evt.payload !== undefined ? evt.payload : rawOutput;
+        this.emit(eventName, payload);
+      }
     } catch(e: any) {
       result = `[Tool Error] ${e.message}`;
     }

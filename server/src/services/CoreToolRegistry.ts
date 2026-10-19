@@ -23,6 +23,7 @@ import { regexReplace } from './tools/regexReplace.js';
 import { webSearch } from './tools/webSearch.js';
 import { browserAction } from './tools/browserAction.js';
 import { trigger_agent } from './tools/trigger_agent.js';
+import { userSpeech } from './tools/userSpeech.js';
 
 export type RegistryToolDefinition = {
     name: string;
@@ -272,5 +273,14 @@ export const CORE_TOOL_DEFINITIONS: RegistryToolDefinition[] = [
         requiresHumanApproval: true,
         requiresConfirmation: true,
         handler: browserAction,
+    },
+    {
+        name: 'userSpeech',
+        description: 'Pure-text speech action wrapping raw user speech and emitting a user:speech event in parallel flows.',
+        version: '1.0.0',
+        accessLevel: 'safe_write',
+        requiredRole: 'agent:writer',
+        requiresHumanApproval: false,
+        handler: userSpeech,
     },
 ];

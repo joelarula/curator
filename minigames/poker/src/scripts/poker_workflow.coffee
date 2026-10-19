@@ -15,25 +15,28 @@
 # ==============================================================================
 
 seq "poker:dynamic_engine", [
-  # 1. Initialize open table lobby (binds dynamic context players or opens clean table)
-  tool "poker_init_lobby",
-    tableId: "$context.tableId || 'poker:high_roller_lounge'"
-    startingChips: "$context.startingChips || 1000"
-    sbAmount: "$context.sbAmount || 10"
-    bbAmount: "$context.bbAmount || 20"
-    maxSeats: "$context.maxSeats || 6"
-    players: "$context.players"
+  # 1. Initialize open table lobby if not already present
+  if_else "not $context.gameState",
+    seq("poker:boot_table", [
+      tool "poker_init_lobby",
+        tableId: "$context.tableId || 'poker:high_roller_lounge'"
+        startingChips: "$context.startingChips || 1000"
+        sbAmount: "$context.sbAmount || 10"
+        bbAmount: "$context.bbAmount || 20"
+        maxSeats: "$context.maxSeats || 6"
+        players: "$context.players"
 
-  emit_event "poker:lobby_ready",
-    tableId: "$context.gameState.tableId"
+      emit_event "poker:lobby_ready",
+        tableId: "$context.gameState.tableId"
 
-  # Dynamic lobby seating: if table does not have enough players yet, wait for join requests
-  while_loop "not $context.gameState or $context.gameState.players.length < 2",
-    seq "poker:wait_for_players", [
-      emit_event "poker:awaiting_players", tableId: "$context.gameState.tableId", seatedCount: "$context.gameState.players.length"
-      wait_event "poker:player_joined", "joinRequest"
-      tool "poker_join_lobby", player: "$context.joinRequest"
-    ]
+      # Dynamic lobby seating: if table does not have enough players yet, wait for join requests
+      while_loop "not $context.gameState or $context.gameState.players.length < 2",
+        seq("poker:wait_for_players", [
+          emit_event "poker:awaiting_players", tableId: "$context.gameState.tableId", seatedCount: "$context.gameState.players.length"
+          wait_event "poker:player_joined", "joinRequest"
+          tool "poker_join_lobby", player: "$context.joinRequest"
+        ])
+    ])
 
   # 2. Main Game Session Loop
   while_loop "not $context.sessionEnded and not $context.gameState?.gameOver",

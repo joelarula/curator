@@ -39,7 +39,7 @@ const textOf = (r) => r.candidates?.[0]?.content?.parts?.map((p) => p.text ?? ''
 const padding = Array.from({ length: 1500 }, (_, i) => `Filler line ${i + 1}: nothing important here.`).join('\n');
 const SECRET = 'The secret word is PINEAPPLE-7731.';
 
-test(`${MODEL} saves a secret in the cache and recalls it later`, { skip }, async (t) => {
+test(`${MODEL} explicit cache: save secret, recall later`, { skip }, async (t) => {
   let cache;
   try {
     cache = await api('POST', 'cachedContents', {
@@ -48,15 +48,12 @@ test(`${MODEL} saves a secret in the cache and recalls it later`, { skip }, asyn
       ttl: '300s',
     });
   } catch (e) {
-    if (String(e.message).includes('FreeTier')) {
-      t.skip('explicit caching needs a billing-enabled API key');
-      return;
-    }
+    if (String(e.message).includes('FreeTier')) return t.skip('explicit caching needs a billing-enabled API key');
     throw e;
   }
 
   try {
-    // Next turns: the secret is not in the request, only in the cache.
+    // The secret is not in these requests, only in the cache.
     for (const q of ['What is the secret word?', 'Repeat the secret word in uppercase.']) {
       const json = await api('POST', `models/${MODEL}:generateContent`, {
         cachedContent: cache.name,
@@ -70,9 +67,12 @@ test(`${MODEL} saves a secret in the cache and recalls it later`, { skip }, asyn
   }
 });
 
-test(`${MODEL} implicit caching recalls a secret from a repeated prefix`, { skip }, async () => {
+test(`${MODEL} implicit cache: recall secret from repeated prefix`, { skip }, async () => {
   // Identical prefix every turn; only the trailing question changes.
-  const history = [{ role: 'user', parts: [{ text: `${SECRET}\n${padding}` }] }, { role: 'model', parts: [{ text: 'Understood.' }] }];
+  const history = [
+    { role: 'user', parts: [{ text: `${SECRET}\n${padding}` }] },
+    { role: 'model', parts: [{ text: 'Understood.' }] },
+  ];
   const cached = [];
 
   for (const q of ['What is the secret word?', 'Repeat the secret word in uppercase.', 'Spell the secret word letter by letter.']) {

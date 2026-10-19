@@ -10,7 +10,7 @@ try {
 
 const API_KEY = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
 const BASE = 'https://generativelanguage.googleapis.com/v1beta';
-const MODEL = process.env.GEMINI_TEST_MODEL || 'gemini-3.1-flash-lite';
+const MODEL = (process.env.GEMINI_TEST_MODEL || 'models/gemini-2.5-flash-lite').replace(/^models\//, '');
 const skip = !API_KEY && 'GOOGLE_API_KEY not set';
 
 async function generate(contents) {

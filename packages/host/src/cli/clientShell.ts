@@ -509,26 +509,36 @@ export class ClientShell<TState = any, TAction = ToolAction> {
   }
 
   /**
-   * Routes free-text input (unmatched by Commander program) to miniapp speech tool.
+   * Spawns an asynchronous parallel request branch for user speech emitting a user:speech event.
+   * Does not block the current turn, choices, or game loop.
    */
-  async handleFreeText(text: string): Promise<void> {
+  async spawnSpeechBranch(text: string): Promise<any> {
     if (this.config.onSpeech) {
-      await this.config.onSpeech(text);
-      return;
-    }
-
-    if (this.config.defaultToolName) {
-      await this.dispatchTool(this.config.defaultToolName, { text });
-      return;
+      return await this.config.onSpeech(text);
     }
 
     if (this.config.channel) {
-      await this.config.channel.send('curator:tool_call', {
-        tool: 'speech',
-        args: { text },
+      return await this.config.channel.send('curator:tool_call', {
+        tool: 'userSpeech',
+        args: { text, speaker: this.config.actorName },
+        async: true,
         tableId: this.config.channel.tableId,
+        conversationId: this.config.conversationId,
       });
     }
+
+    if (this.config.defaultToolName) {
+      return await this.dispatchTool(this.config.defaultToolName, { text, speaker: this.config.actorName });
+    }
+
+    return await this.dispatchTool('userSpeech', { text, speaker: this.config.actorName });
+  }
+
+  /**
+   * Routes free-text input (unmatched by Commander program) to miniapp speech tool / async parallel branch.
+   */
+  async handleFreeText(text: string): Promise<void> {
+    await this.spawnSpeechBranch(text);
   }
 
   /**
@@ -643,8 +653,9 @@ export class ClientShell<TState = any, TAction = ToolAction> {
         err instanceof CommanderError &&
         (err.code === 'commander.unknownCommand' || err.code === 'commander.unknownOption')
       ) {
-        // 6. Free text input -> converted to miniapp specific tool (e.g. poker speech)
-        await this.handleFreeText(trimmed);
+        // Allow free-text speech even during a blocking step as a parallel async flow.
+        // Free text input -> spawned as userSpeech parallel branch emitting user:speech
+        await this.spawnSpeechBranch(trimmed);
       } else if (
         err instanceof CommanderError &&
         (err.code === 'commander.helpDisplayed' || err.code === 'commander.version')

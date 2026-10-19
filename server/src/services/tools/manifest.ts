@@ -50,12 +50,8 @@ export const TOOL_NAMES = [
     'llama_responses',
     'llama_messages',
     'llama_messages_count_tokens',
-    'internal:trigger_agent'
-
-
-
-
-
+    'internal:trigger_agent',
+    'userSpeech'
 ] as const;
 
 export type ToolName = typeof TOOL_NAMES[number];
@@ -110,5 +106,6 @@ export const TOOLS = {
     LLAMA_RESPONSES: 'llama_responses',
     LLAMA_MESSAGES: 'llama_messages',
     LLAMA_MESSAGES_COUNT_TOKENS: 'llama_messages_count_tokens',
-    TRIGGER_AGENT: 'internal:trigger_agent'
+    TRIGGER_AGENT: 'internal:trigger_agent',
+    USER_SPEECH: 'userSpeech'
 } as const;

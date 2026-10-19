@@ -479,7 +479,7 @@ export const pokerPlugin: CuratorPlugin = {
     dealer: {
       id: 'dealer',
       name: 'Dealer (House)',
-      scriptName: 'poker_lobby',
+      scriptName: 'poker_workflow',
       schedule: 'manual',
       enabled: true,
       instruction: "You are the professional Texas Hold'em table dealer. You run the table, deal community cards, announce pot amounts and street actions, and answer table inquiries politely and authoritatively.",

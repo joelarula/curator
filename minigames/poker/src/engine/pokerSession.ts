@@ -122,14 +122,24 @@ export async function ensureTableConversation(
 import { resetPokerDatabaseLight, type ResetLightResult } from '../db/lightReset.ts';
 export { resetPokerDatabaseLight, type ResetLightResult };
 
-async function getTableWorkflowAST(prisma: any): Promise<any> {
-  const script =
-    (await prisma.script.findUnique({ where: { name: 'poker_lobby' } })) ||
-    (await prisma.script.findUnique({ where: { name: 'poker_workflow' } }));
-  if (!script?.ast) {
-    throw new Error('Script "poker_lobby" (or "poker_workflow") not found or missing compiled AST in database');
+export async function getScriptAST(prisma: any, scriptName: string): Promise<any> {
+  const script = await prisma.script.findUnique({ where: { name: scriptName } });
+  if (script?.ast) return script.ast;
+  const fallback =
+    (await prisma.script.findUnique({ where: { name: 'poker_workflow' } })) ||
+    (await prisma.script.findUnique({ where: { name: 'poker_lobby' } }));
+  if (!fallback?.ast) {
+    throw new Error(`Script "${scriptName}" (or fallback) not found or missing compiled AST in database`);
   }
-  return script.ast;
+  return fallback.ast;
+}
+
+export async function getTableWorkflowAST(prisma: any): Promise<any> {
+  return getScriptAST(prisma, 'poker_workflow');
+}
+
+export async function getLobbyWorkflowAST(prisma: any): Promise<any> {
+  return getScriptAST(prisma, 'poker_lobby');
 }
 
 /**
@@ -146,10 +156,12 @@ export async function enqueueTableASTRequest(
     tableId?: string | number;
     playerName?: string;
     bypassLobby?: boolean;
+    scriptName?: string;
   } = {}
 ): Promise<any> {
-  const ast = await getTableWorkflowAST(host.prisma);
   const bypassLobby = options.bypassLobby ?? (options.tableId !== undefined);
+  const targetScript = options.scriptName || (bypassLobby ? 'poker_workflow' : 'poker_lobby');
+  const ast = await getScriptAST(host.prisma, targetScript);
   return host.prisma.request.create({
     data: {
       userId: host.user.id,
@@ -480,7 +492,10 @@ export async function createPokerGameSession(
 
     const choicesInfo = ctx.activeChoices || ctx.poker_get_choices?.choices || ctx.poker_get_choices || [];
     const gameState = ctx.gameState;
-    const activePlayer = gameState?.players?.[gameState?.activePlayerIdx];
+    if (!gameState || !Array.isArray(gameState.players) || gameState.players.length === 0) {
+      return null;
+    }
+    const activePlayer = gameState.players[gameState.activePlayerIdx];
 
     return {
       requestId: waitingReq.id,
@@ -590,6 +605,17 @@ export async function createPokerGameSession(
         args: { state: currentGameState, ...(payload?.args || {}) },
         toolContext: { prisma, host, conversationId: targetConvId, state: currentGameState, userId: actorUserId, agentId: actorAgentId, projectId: actorProjectId },
       });
+
+      if (result && typeof result === 'object' && result.event) {
+        const evtName = typeof result.event === 'string' ? result.event : result.event.name;
+        const evtPayload = result.event.payload !== undefined ? result.event.payload : result;
+        host.events.broadcast(evtName, {
+          tableId: String(targetConvId),
+          conversationId: targetConvId,
+          ...(typeof evtPayload === 'object' ? evtPayload : { data: evtPayload }),
+        });
+      }
+
       return result;
     }
 
@@ -603,6 +629,9 @@ export async function createPokerGameSession(
     } else if (eventName === 'poker:resume') {
       targetEvent = 'poker:resume_action';
       targetPayload = { type: 'RESUME' };
+    } else if (eventName === 'curator:exit') {
+      targetEvent = 'curator:choice';
+      targetPayload = { id: 'exit', type: 'EXIT' };
     } else if (eventName === 'poker:get_actors') {
       const actors = await getConversationActors(host, targetConvId);
       return { actors };
@@ -829,10 +858,51 @@ export async function createPokerGameSession(
       }
     }
 
-    const result = await host.processor.stepUntil({
+    let result = await host.processor.stepUntil({
       conversationId: targetConvId,
       maxSteps,
     });
+
+    // Check if the lobby finished booting the table and we should transition to the dealer workflow
+    if (result.done) {
+      const lastCompletedReq = await prisma.request.findFirst({
+        where: { conversationId: targetConvId, status: 'COMPLETED' },
+        orderBy: { id: 'desc' },
+      });
+      const ctx = (lastCompletedReq?.context as any) || {};
+      const hasGameState = Boolean(ctx.gameState);
+      const isSessionEnded = Boolean(ctx.sessionEnded);
+
+      if (hasGameState && !isSessionEnded && !ctx.gameState?.gameOver) {
+        const activeReq = await prisma.request.findFirst({
+          where: {
+            conversationId: targetConvId,
+            status: { in: ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT'] },
+          },
+        });
+        if (!activeReq) {
+          const workflowAST = await getTableWorkflowAST(prisma);
+          await prisma.request.create({
+            data: {
+              userId: host.user.id,
+              projectId: host.project.id,
+              conversationId: targetConvId,
+              status: 'NEW',
+              ast: workflowAST as any,
+              context: {
+                ...ctx,
+                bypassLobby: true,
+              },
+            },
+          });
+          // Step immediately into the dealer table workflow
+          result = await host.processor.stepUntil({
+            conversationId: targetConvId,
+            maxSteps,
+          });
+        }
+      }
+    }
 
     const humanTurn = await getWaitingHumanTurn(targetConvId);
     const gameState = await getGameState(targetConvId);

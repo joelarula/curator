@@ -418,3 +418,22 @@ export interface LlamaMessagesCountTokensInput extends LlamaCommonInput {
     [key: string]: unknown;
 }
 
+export interface UserSpeechInput {
+    text: string;
+    speaker?: string;
+}
+
+export interface UserSpeechOutput extends ToolResult {
+    data: {
+        text: string;
+        speaker?: string;
+    };
+    event: {
+        name: 'user:speech';
+        payload: {
+            text: string;
+            speaker?: string;
+        };
+    };
+}
+
