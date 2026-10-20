@@ -1,6 +1,7 @@
-import * as cheerio from 'cheerio';
+import { load } from 'cheerio';
 import TurndownService from 'turndown';
 import { gfm } from 'turndown-plugin-gfm';
+import type { ScraperTask } from './ScraperTask.js';
 
 function buildTurndown(): TurndownService {
     const td = new TurndownService({
@@ -30,6 +31,32 @@ export interface ScrapeResult {
 }
 
 export class ScraperService {
+    private static tasks = new Map<string, ScraperTask>();
+
+    static registerTask(task: ScraperTask): void {
+        if (this.tasks.has(task.name)) throw new Error(`Scraper task "${task.name}" is already registered`);
+        this.tasks.set(task.name, task);
+    }
+
+    static listTasks(): { name: string; description: string }[] {
+        return [...this.tasks.values()].map(({ name, description }) => ({ name, description }));
+    }
+
+    static getTask(name: string): ScraperTask | undefined {
+        return this.tasks.get(name);
+    }
+
+    /** Finds the first registered task whose matches() accepts the URL. */
+    static findTaskForUrl(url: string): ScraperTask | undefined {
+        return [...this.tasks.values()].find(t => t.matches?.(url));
+    }
+
+    static async runTask<TOutput = unknown>(name: string, input: unknown): Promise<TOutput> {
+        const task = this.tasks.get(name);
+        if (!task) throw new Error(`Unknown scraper task "${name}". Available: ${[...this.tasks.keys()].join(', ') || 'none'}`);
+        return (await task.run(input)) as TOutput;
+    }
+
     static async extractFromUrl(url: string, contentSelector?: string, excludeLinkPatterns: string[] = []): Promise<ScrapeResult> {
         const response = await fetch(url, {
             headers: {
@@ -44,7 +71,7 @@ export class ScraperService {
     }
 
     static extractFromHtml(html: string, baseUrl: string = '', contentSelector?: string, excludeLinkPatterns: string[] = []): ScrapeResult {
-        const $ = cheerio.load(html);
+        const $ = load(html);
 
         const title =
             $('meta[property="og:title"]').attr('content') ||
@@ -156,7 +183,7 @@ export class ScraperService {
     }
 
     static extractLinksFromHtml(html: string, baseUrl: string, selector: string = 'a[href]'): { url: string; title: string }[] {
-        const $ = cheerio.load(html);
+        const $ = load(html);
         const base = new URL(baseUrl);
         const seen = new Set<string>();
         const links: { url: string; title: string }[] = [];
@@ -183,7 +210,7 @@ export class ScraperService {
         baseUrl: string,
         selectors: Record<string, string>
     ): { title: string; content: string; extractedFields: Record<string, string> } {
-        const $ = cheerio.load(html);
+        const $ = load(html);
         const extractedFields: Record<string, string> = {};
 
         for (const [key, selector] of Object.entries(selectors)) {
