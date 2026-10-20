@@ -899,6 +899,7 @@ test('Poker Direct Synchronous Execution: Runs AST workflow step-by-step from hu
     forceReset: true,
   });
   const session = await createPokerGameSession(host, {
+    tableId: 1,
     forceReset: true,
     maxSeats: 4,
     startingChips: 1000,
@@ -929,6 +930,7 @@ test('Poker Direct Channel: In-process channel executes AST from action A to act
   const testDb = path.join(process.env.TEMP || os.tmpdir(), `curator_test_direct_chan_${Date.now()}.db`);
 
   const channel = await createDirectSessionChannel({
+    tableId: 1,
     databasePath: testDb,
     forceReset: true,
     maxSeats: 4,

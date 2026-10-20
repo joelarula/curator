@@ -103,11 +103,11 @@ forum('audit_committee')
 Run targeted module tests:
 ```powershell
 # Host & discourse tests
-npm --prefix packages/host test
+pnpm --filter @curator/host test
 
 # Federation & mesh tests
-npm --prefix packages/federation test
+pnpm --filter @curator/federation test
 
 # Core engine build
-npm --prefix curator run build
+pnpm --filter @curator/agent-server build
 ```

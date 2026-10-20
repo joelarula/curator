@@ -138,34 +138,34 @@ The repository intentionally supports multiple database engines across modules:
 Install and run combined app:
 
 ```powershell
-npm run install:all
-npm run dev
+pnpm install
+pnpm run dev
 ```
+
+(or legacy `npm run install:all && npm run dev`)
 
 ## Server
 
 ```powershell
-npm --prefix server install
-npm --prefix server run dev
-npm --prefix server run build
-npm --prefix server run test
-npm --prefix server run prisma:generate
-npm --prefix server run prisma:migrate
-npm --prefix server run db:push
+pnpm --filter @curator/backend run dev
+pnpm --filter @curator/backend run build
+pnpm --filter @curator/backend run test
+pnpm --filter @curator/backend run prisma:generate
+pnpm --filter @curator/backend run prisma:migrate
+pnpm --filter @curator/backend run db:push
 ```
 
 CLI tooling:
 
 ```powershell
-npm --prefix server run curator -- --help
+pnpm --filter @curator/backend run curator -- --help
 ```
 
 ## Frontend
 
 ```powershell
-npm --prefix frontend install
-npm --prefix frontend run dev
-npm --prefix frontend run build
+pnpm --filter @curator/frontend run dev
+pnpm --filter @curator/frontend run build
 ```
 
 ## Rust LLM bridge (curator)

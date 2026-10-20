@@ -28,16 +28,33 @@ test('downloadAudio rejects non-YouTube urls', async () => {
   await assert.rejects(() => YouTubeAudioService.downloadAudio('https://example.com'), /Not a valid YouTube URL/);
 });
 
-test('runTask downloads the audio as an mp3 file', { skip: !canDownload && 'yt-dlp and ffmpeg are required', timeout: 5 * 60_000 }, async () => {
+test('fetchMetadata retrieves full video metadata without downloading audio', { skip: !canDownload && 'yt-dlp is required', timeout: 60_000 }, async () => {
+  const meta = await YouTubeAudioService.fetchMetadata(URL);
+  assert.equal(meta.videoId, VIDEO_ID);
+  assert.ok(meta.title.includes('Rivers Of Babylon'));
+  assert.equal(meta.uploader, 'Trojan Records Official');
+  assert.ok(meta.durationSeconds > 0);
+  assert.ok(meta.thumbnail?.startsWith('http'));
+});
+
+test('runTask downloads the audio as an mp3 file with rich metadata', { skip: !canDownload && 'yt-dlp and ffmpeg are required', timeout: 5 * 60_000 }, async () => {
   const outDir = await mkdtemp(path.join(os.tmpdir(), 'yt-audio-'));
   try {
-    const result = await ScraperService.runTask('youtube-audio', { url: URL, outDir, format: 'mp3' });
+    const result = await ScraperService.runTask('youtube-audio', { url: URL, outDir, format: 'mp3', writeMetadataFile: true });
     assert.equal(result.videoId, VIDEO_ID);
+    assert.ok(result.title.includes('Rivers Of Babylon'));
+    assert.equal(result.uploader, 'Trojan Records Official');
     assert.equal(result.format, 'mp3');
     assert.ok(result.durationSeconds > 0);
-    assert.ok(result.filePath.endsWith(`${VIDEO_ID}.mp3`));
+    assert.ok(result.thumbnail?.startsWith('http'));
+    assert.ok(result.filePath.includes('Rivers Of Babylon'));
+    assert.ok(result.filePath.includes('Trojan Records Official'));
+    assert.ok(result.filePath.endsWith('.mp3'));
     assert.ok((await stat(result.filePath)).size > 0);
+    const jsonFile = result.filePath.replace(/\.mp3$/, '.info.json');
+    assert.ok((await stat(jsonFile)).size > 0);
   } finally {
     await rm(outDir, { recursive: true, force: true });
   }
 });
+

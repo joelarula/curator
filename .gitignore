@@ -23,6 +23,8 @@ web-dist/
 **/web-dist/
 wasm-dist/
 **/wasm-dist/
+downloads/
+**/downloads/
 miniapps/*/app.js
 miniapps/*/app-readonly.js
 miniapps/*/app*.js

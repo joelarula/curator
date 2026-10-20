@@ -25,6 +25,7 @@ export function scraperPlugin() {
     runTask: ScraperService.runTask.bind(ScraperService),
     findTaskForUrl: ScraperService.findTaskForUrl.bind(ScraperService),
     downloadYouTubeAudio: YouTubeAudioService.downloadAudio.bind(YouTubeAudioService),
+    fetchYouTubeMetadata: YouTubeAudioService.fetchMetadata.bind(YouTubeAudioService),
   };
 }
 

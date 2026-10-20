@@ -1,5 +1,5 @@
 {
-  "name": "@curator/server",
+  "name": "@curator/backend",
   "version": "1.0.0",
   "type": "module",
   "description": "Curator — Advanced Identity-Centric Knowledge Studio",

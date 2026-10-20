@@ -26,8 +26,9 @@
     "reset:light": "node src/cli.ts reset",
     "serve": "node src/cli.ts serve",
     "seed": "node src/cli.ts seed",
-    "test": "node --import ../../curator/node_modules/tsx/dist/loader.mjs --test test/concurrent_tables.test.ts test/graphql_tables.test.ts test/poker_minigame.test.ts",
-    "test:concurrent": "node --import ../../curator/node_modules/tsx/dist/loader.mjs --test test/concurrent_tables.test.ts",
-    "test:graphql": "node --import ../../curator/node_modules/tsx/dist/loader.mjs --test test/graphql_tables.test.ts"
+    "test": "tsx --test test/concurrent_tables.test.ts test/graphql_tables.test.ts test/poker_minigame.test.ts",
+    "test:concurrent": "tsx --test test/concurrent_tables.test.ts",
+    "test:graphql": "tsx --test test/graphql_tables.test.ts",
+    "test:minigame": "tsx --test test/poker_minigame.test.ts"
   }
 }

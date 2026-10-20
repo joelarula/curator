@@ -1,0 +1,26 @@
+packages:
+  - 'curator'
+  - 'packages/*'
+  - 'miniapps/*'
+  - 'minigames/*'
+  - 'server'
+  - 'frontend'
+  - 'chrome-extension'
+  - 'curator-vscode-plugin'
+  - 'prisma-erd-visualizer'
+  - '!**/deploy/**'
+  - '!**/dist-readonly/**'
+  - '!**/src/generated/**'
+allowBuilds:
+  '@apollo/protobufjs': true
+  '@google/genai': true
+  '@prisma/engines': true
+  better-sqlite3: true
+  esbuild: true
+  onnxruntime-node: true
+  prisma: true
+  protobufjs: true
+  puppeteer: true
+  sharp: true
+  sqlite3: true
+  vue-demi: true

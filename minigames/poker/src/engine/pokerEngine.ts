@@ -265,7 +265,7 @@ export function initPokerLobby(args?: any): { gameState: PokerGameState } {
   const maxHands = args?.maxHands !== undefined ? Number(args.maxHands) : undefined;
 
   let players: PlayerState[] = [];
-  if (Array.isArray(args?.players) && args.players.length > 0) {
+  if (Array.isArray(args?.players)) {
     const walletsMap = (args?.wallets || args?.startingWallets || {}) as Record<string, number>;
     players = (args.players as any[]).map((p, idx) => {
       const wallet = Number(p.wallet ?? p.startingWallet ?? walletsMap[p.id] ?? p.chips ?? startingChips);
