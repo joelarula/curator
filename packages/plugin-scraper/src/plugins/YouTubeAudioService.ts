@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdir, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 export interface YouTubeAudioMetadata {
@@ -42,6 +42,12 @@ export interface YouTubeAudioOptions {
     namingPattern?: 'title-album-artist' | 'artist-album-title' | 'title' | 'id' | string;
     /** Custom yt-dlp filename template (alias for namingPattern). */
     filenameTemplate?: string;
+    /** Optional manual title override. */
+    title?: string;
+    /** Optional manual album override. */
+    album?: string;
+    /** Optional manual artist override. */
+    artist?: string;
     /** Restrict filenames to ASCII only and replace spaces with underscores (default: false). */
     restrictFilenames?: boolean;
     /** yt-dlp binary name or path (default: yt-dlp). */
@@ -80,10 +86,10 @@ interface RawYtDlpMeta {
 
 function resolveOutputTemplate(pattern?: string): string {
     if (!pattern || pattern === 'title-album-artist') {
-        return '%(track,title)s%(album& - |)s%(album|)s - %(artist,uploader)s.%(ext)s';
+        return '%(track,title)s%(album& - |)s%(album|)s - %(artist,creator,uploader)s.%(ext)s';
     }
     if (pattern === 'artist-album-title') {
-        return '%(artist,uploader)s%(album& - |)s%(album|)s - %(track,title)s.%(ext)s';
+        return '%(artist,creator,uploader)s%(album& - |)s%(album|)s - %(track,title)s.%(ext)s';
     }
     if (pattern === 'title') {
         return '%(track,title)s.%(ext)s';
@@ -181,6 +187,8 @@ export class YouTubeAudioService {
         const template = resolveOutputTemplate(options.filenameTemplate ?? options.namingPattern);
         await mkdir(outDir, { recursive: true });
 
+        const filesBefore = new Set(await readdir(outDir).catch(() => []));
+
         const args = [
             '--no-playlist',
             '--js-runtimes', 'node',
@@ -192,6 +200,16 @@ export class YouTubeAudioService {
 
         if (options.restrictFilenames) {
             args.push('--restrict-filenames');
+        }
+
+        if (options.title) {
+            args.push('--parse-metadata', `${options.title}:%(title)s`);
+        }
+        if (options.album) {
+            args.push('--parse-metadata', `${options.album}:%(album)s`);
+        }
+        if (options.artist) {
+            args.push('--parse-metadata', `${options.artist}:%(artist)s`);
         }
 
         if (embedMetadata) {
@@ -212,16 +230,39 @@ export class YouTubeAudioService {
         if (!jsonLine) throw new Error('yt-dlp returned no metadata');
         const metadata = parseYtDlpMetadata(jsonLine, url);
 
-        const files = await readdir(outDir);
+        if (options.title) metadata.title = options.title;
+        if (options.album) metadata.album = options.album;
+        if (options.artist) metadata.artist = options.artist;
+
+        const filesAfter = await readdir(outDir);
         let resolvedFilePath = lines.find(l => l !== jsonLine && (l.endsWith(`.${format}`) || path.isAbsolute(l)));
         if (resolvedFilePath && !path.isAbsolute(resolvedFilePath)) {
             resolvedFilePath = path.resolve(outDir, resolvedFilePath);
         }
 
-        if (!resolvedFilePath || !files.includes(path.basename(resolvedFilePath))) {
-            const matchingFile = files.find(f => f.endsWith(`.${format}`));
-            if (!matchingFile) throw new Error(`Audio file not found in ${outDir}`);
-            resolvedFilePath = path.join(outDir, matchingFile);
+        let fileExists = false;
+        if (resolvedFilePath) {
+            try {
+                await stat(resolvedFilePath);
+                fileExists = true;
+            } catch {
+                fileExists = false;
+            }
+        }
+
+        if (!fileExists) {
+            const newFiles = filesAfter.filter(f => !filesBefore.has(f) && f.endsWith(`.${format}`));
+            if (newFiles.length === 1) {
+                resolvedFilePath = path.join(outDir, newFiles[0]);
+            } else {
+                const targetBase = resolvedFilePath ? path.basename(resolvedFilePath) : '';
+                const normalizeName = (s: string) => s.normalize('NFKC').replace(/[\uFF02"':]/g, '').trim().toLowerCase();
+                const matched = filesAfter.find(f => f.endsWith(`.${format}`) && normalizeName(f) === normalizeName(targetBase))
+                    ?? newFiles[0]
+                    ?? filesAfter.find(f => f.endsWith(`.${format}`));
+                if (!matched) throw new Error(`Audio file not found in ${outDir}`);
+                resolvedFilePath = path.join(outDir, matched);
+            }
         }
 
         if (options.writeMetadataFile) {

@@ -43,6 +43,17 @@ export async function discoverEpisodes(
       const matches = [...url.matchAll(/\/(\d+)/g)];
       const id = matches.length > 0 ? Number(matches[matches.length - 1][1]) : Date.now();
 
+      // If client supports getContent and URL is an episode belonging to a series, delegate to series discovery
+      if (typeof (client as any).getContent === 'function' && id && Number.isFinite(id)) {
+        try {
+          const contentRes = await (client as any).getContent(id);
+          const parentId = contentRes?.data?.content?.parentContentId;
+          if (parentId && parentId > 0 && String(parentId) !== String(id)) {
+            return discoverEpisodes(client, { seriesContentId: String(parentId), onPage, shouldStop });
+          }
+        } catch (_) {}
+      }
+
       try {
         const html = await client.episode(url);
 

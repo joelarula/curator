@@ -10,7 +10,7 @@ export interface KeerisConfig {
 }
 
 export const config: KeerisConfig = {
-  baseUrl: 'https://vikerraadio.err.ee',
+  baseUrl: 'https://eestiraadio.err.ee',
   seriesContentId: 1037846,
   archiveLimit: 100,
   requestTimeoutMs: 20_000,

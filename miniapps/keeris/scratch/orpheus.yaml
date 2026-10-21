@@ -1,0 +1,2174 @@
+openapi: 3.0.3
+info:
+  title: Titan Orpheus Public API
+  version: 1.0.1
+  license:
+    name: UNLICENSED
+    url: https://www.err.ee
+  description: |
+    Orpheus API spec used to bootstrap code generation.
+
+servers:
+  - url: /api
+
+# These endpoints are public; 
+# explicitly declare no authentication to satisfy tooling.
+security: []
+
+paths:
+  /v1/getFrontPage/{categoryId}:
+    get:
+      summary: getFrontPage
+      description: |
+        Returns the configured frontpage blocks for a given category.
+        Used by the Orpheus frontpage and category pages to render dynamic blocks.
+      operationId: getFrontPage
+      parameters:
+        - name: categoryId
+          in: path
+          required: true
+          schema:
+            type: integer
+            example: 5174
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FrontpageResponse'
+
+  /v1/getSchedule/{channel}/{scheduleDay}:
+    get:
+      summary: getSchedule
+      description: |
+        Returns the daily schedule for a single radio channel.
+        The `scheduleDay` parameter is the start of the schedule day as a Unix timestamp in seconds.
+      operationId: getSchedule
+      parameters:
+        - name: channel
+          in: path
+          required: true
+          description: Channel identifier (e.g. raadio2)
+          schema:
+            type: string
+            example: raadio2
+        - name: scheduleDay
+          in: path
+          required: true
+          description: Start of the schedule day as Unix timestamp (seconds)
+          schema:
+            type: integer
+            format: int64
+            example: 1764885600
+        - name: adjacentDays
+          in: query
+          required: false
+          description: |
+            Number of days before and after `scheduleDay` to include in the response.
+            The live-block horizontal schedule sends `1`.
+          schema:
+            type: integer
+            minimum: 0
+            example: 1
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleResponse'
+
+  /v1/getAllSchedule/{scheduleDay}:
+    get:
+      summary: getAllSchedule
+      description: |
+        Returns the daily schedule for all radio channels.
+        The `scheduleDay` parameter is the start of the schedule day as a Unix timestamp in seconds.
+      operationId: getAllSchedule
+      parameters:
+        - name: scheduleDay
+          in: path
+          required: true
+          description: Start of the schedule day as Unix timestamp (seconds)
+          schema:
+            type: integer
+            format: int64
+            example: 1764885600
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleResponse'
+
+  /v1/channels:
+    get:
+      summary: listChannels
+      description: |
+        Returns all radio channels and thematic streams available in Orpheus.
+        Each channel includes live stream metadata and optional UI tint colors.
+      operationId: listChannels
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelsListResponse'
+
+  /v1/channels/{channelId}:
+    get:
+      summary: getChannel
+      description: |
+        Returns metadata for a single radio channel or thematic stream.
+        Includes the configured live stream source and media configuration.
+      operationId: getChannel
+      parameters:
+        - name: channelId
+          in: path
+          required: true
+          description: Channel identifier (e.g. vikerraadio)
+          schema:
+            type: string
+            example: vikerraadio
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelDetailResponse'
+
+  /v1/getMenu/{menuId}:
+    get:
+      summary: getMenu
+      description: |
+        Returns menu items configured for a channel/category menu id.
+        Channel metadata exposes the related `menuId` used to request these items.
+      operationId: getMenu
+      parameters:
+        - name: menuId
+          in: path
+          required: true
+          description: Numeric menu identifier from channel metadata.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            example: 1167
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MenuResponse'
+
+  /v1/search/radio:
+    get:
+      summary: searchRadio
+      description: |
+        Public search endpoint for radio content.
+        Supports filters such as query, primary categories, content types, and pagination, and returns a paginated result set.
+      operationId: searchRadio
+      parameters:
+        - name: query
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - name: active
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: archived
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: primaryCategoryIds
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: integer
+          style: form
+          explode: true
+        - name: types
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+        - name: sortOrder
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [asc, desc]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSearchResponse'
+
+  /v1/search/az:
+    get:
+      summary: searchAz
+      description: |
+        Public search endpoint in A–Z mode.
+        Returns a paginated list of series and programmes grouped for A–Z navigation using the same response schema as `/v1/search/radio`.
+      operationId: searchAz
+      parameters:
+        - name: query
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - name: active
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: archived
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: primaryCategoryIds
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: integer
+          style: form
+          explode: true
+        - name: types
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+        - name: sortOrder
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [asc, desc]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSearchResponse'
+
+  /v1/polls/{pollId}:
+    get:
+      summary: getPoll
+      description: |
+        Returns a single poll with its questions and answers.
+        Used by Orpheus and Admin to render poll widgets and previews.
+      operationId: getPoll
+      parameters:
+        - name: pollId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Unique identifier of the poll.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PollResponse'
+
+  /v1/polls/{pollId}/results:
+    get:
+      summary: getPollResults
+      description: |
+        Returns aggregated results for a single poll.
+        Used to render poll results views for public pages and admin.
+      operationId: getPollResults
+      parameters:
+        - name: pollId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Unique identifier of the poll.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PollResultsResponse'
+
+  /v1/polls/{pollId}/vote:
+    post:
+      summary: submitPollVote
+      description: |
+        Submits a vote for the given poll.
+        Returns the updated aggregated poll results.
+      operationId: submitPollVote
+      parameters:
+        - name: pollId
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Unique identifier of the poll.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PollVotePayload'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PollResultsResponse'
+
+  /v1/help/{helpId}:
+    get:
+      summary: getHelpFaq
+      description: |
+        Returns FAQ entries for the given `helpId` group.
+        `data.items` is an array of exactly two language sets, `et` and `ru`.
+        Each set has `lang` and `questions`. The client shows the set for the current site locale.
+        Intended for rendering public help and FAQ pages in Orpheus.
+      operationId: getHelpFaq
+      parameters:
+        - name: helpId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HelpFaqResponse'
+
+  /v1/feedback:
+    post:
+      summary: submitHelpFeedback
+      description: |
+        Submits a help/feedback request from the public Help page.
+        Accepts multipart form data with optional image attachments.
+      operationId: submitHelpFeedback
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/HelpFeedbackSubmitPayload'
+      responses:
+        '200':
+          description: Feedback accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HelpFeedbackSubmitResponse'
+        '400':
+          description: Invalid request or backend processing error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HelpFeedbackGenericErrorResponse'
+        '422':
+          description: Validation failed for one or more submitted fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HelpFeedbackValidationErrorResponse'
+        '500':
+          description: Internal backend error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HelpFeedbackGenericErrorResponse'
+
+  /v1/getRdsAll:
+    get:
+      summary: getRdsAll
+      description: |
+        Returns live RDS metadata for all radio channels and thematic streams.
+        Each item describes the current on-air / now-playing state for a single channel.
+      operationId: getRdsAll
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiRdsResponse'
+
+  /v1/getRds/{channelNameId}:
+    get:
+      summary: getRds
+      description: |
+        Returns live RDS metadata for a single radio channel or thematic stream.
+        The response shape matches `getRdsAll`, but `data.items` contains only the
+        entry for the requested `channelNameId` when available.
+
+        The Orpheus web app drives live RDS from `getRdsAll` only; this route remains
+        available for other API consumers and for possible future frontend use. Do not
+        remove it from the spec unless the backend deprecates the endpoint.
+      operationId: getRds
+      parameters:
+        - name: channelNameId
+          in: path
+          required: true
+          description: Stable channel identifier, for example `raadio2`.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiRdsResponse'
+
+  /v1/radio/archive/{contentId}:
+    get:
+      summary: getRadioArchive
+      description: |
+        Returns the episode archive for a radio series, grouped by month for one year.
+        Month headings are derived from `dateSeconds`. The `date` string is a legacy label.
+      operationId: getRadioArchive
+      parameters:
+        - name: contentId
+          in: path
+          required: true
+          description: Series content id, for example `1037793`.
+          schema:
+            type: integer
+            format: int64
+            example: 1037793
+        - name: year
+          in: query
+          required: false
+          description: Calendar year to load. Omitted, the API returns the latest year.
+          schema:
+            type: integer
+            example: 2026
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RadioArchiveResponse'
+
+components:
+  schemas:
+    FrontpageResponse:
+      type: object
+      required: [status, data]
+      properties:
+        status:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          description: |
+            Wrapper object for frontpage blocks.
+            The backend currently returns an object with a `blocks` array.
+          required:
+            - blocks
+          properties:
+            blocks:
+              type: array
+              description: List of configured frontpage blocks.
+              items:
+                $ref: '#/components/schemas/PageBlock'
+
+    PageBlock:
+      type: object
+      required: [id, type]
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+          description: |
+            Backend block type discriminator.
+            Known values currently include `list`, `timeline`, `media`, `live`,
+            `banner`, `poll`, `article`, `channels`, and the string-list based
+            `recents` / legacy `rdsplaylist` variants.
+        heading:
+          type: string
+        order:
+          type: integer
+        settings:
+          type: object
+          properties:
+            rowLimit:
+              type: integer
+              description: Preferred number of playlist items per rendered group/column.
+            btnLink:
+              type: string
+              nullable: true
+              description: Optional small heading link URL for list/playlist blocks.
+            btnText:
+              type: string
+              nullable: true
+              description: Optional small heading link label for list/playlist blocks.
+            usageType:
+              type: string
+              nullable: true
+              enum: [page, content]
+              description: Controls where the block is rendered on series pages. Defaults to `page` when missing, null, or invalid.
+            playlistSectionType:
+              type: string
+              nullable: true
+              enum: [sameseries, default]
+              description: |
+                List/playlist section title mode. `sameseries` replaces the block heading
+                with the localized “same series” title. `default`, missing, null, or any
+                other value keeps the block heading.
+            bannerType:
+              type: string
+              nullable: true
+              enum: [grid, pager]
+              description: Banner block display mode. `grid` renders a multi-item grid; `pager` renders a carousel.
+            gridLayout:
+              type: string
+              nullable: true
+              enum: ['1x1', '2x1', '3x1', '4x1', '1x2', '2x2', '3x2', '4x2']
+              description: |
+                Banner grid layout for `bannerType: grid`, expressed as `columns x rows`
+                (for example `4x1` = four columns in one row). The UI renders at most
+                `columns * rows` items from `items`.
+              example: '4x1'
+            autoScrollEnabled:
+              type: boolean
+              description: Enables automatic slide changes in pager mode.
+            autoScrollDelaySeconds:
+              type: number
+              description: Delay between pager slides, in seconds.
+            showPagerDots:
+              type: boolean
+              description: Shows pager navigation dots in pager mode.
+            backgroundColor:
+              type: string
+              nullable: true
+              description: Optional background colour for banner grid surface.
+            widthPercent:
+              type: number
+              description: Banner section width relative to its container (1–100).
+            itemAspectRatio:
+              type: number
+              nullable: true
+              description: Shared pager slide aspect ratio (width / height), derived from the first pager image so slides do not jump while paging.
+            playerVariant:
+              type: string
+              nullable: true
+              enum: [standard, stylized]
+              description: |
+                Live block preview look. `standard` renders a solid background only;
+                `stylized` adds the programme art as a fading backdrop plus a playback
+                equalizer. Defaults to `stylized` when missing, null, or invalid.
+            hideDate:
+              type: boolean
+              description: Hides the publish date line on timeline block cards. Defaults to `false`.
+          additionalProperties: true
+        items:
+          description: |
+            Normalized list of items for this block.
+            In the current API, blocks expose their content via `items` instead of the older `data` field.
+            Some block types such as `channels`, `recents`, and legacy `rdsplaylist`
+            use simple channel slug strings here instead of object payloads.
+          type: array
+          items:
+            oneOf:
+              - $ref: '#/components/schemas/FrontpageBlockItem'
+              - type: string
+
+    FrontpageBlockItem:
+      type: object
+      description: |
+        Common content item payload used inside `data.blocks[].items[]` on the frontpage endpoint.
+        The exact shape varies by block type, so this schema documents the known shared fields
+        while still allowing additional backend-specific properties.
+      additionalProperties: true
+      properties:
+        alt:
+          type: string
+          description: Optional explicit alt text for image-based blocks such as banners.
+          example: Surnud luiged Meriväljal.
+        id:
+          oneOf:
+            - type: integer
+            - type: string
+          description: Content identifier.
+          example: 1609956223
+        heading:
+          type: string
+          description: Content heading/title.
+          example: Saja aasta laulud. 1958
+        subheading:
+          type: string
+          description: Optional supporting text used by banner blocks.
+          example: First supporting line
+        metaText:
+          type: string
+          description: Optional metadata label used by banner blocks.
+          example: More meta info
+        hoverText:
+          type: string
+          description: Optional hover/expanded text used by banner blocks.
+          example: Additional long hover description for this item.
+        widthPercent:
+          type: integer
+          description: Optional grid width percentage used by banner items.
+          example: 50
+        combinedTime:
+          type: integer
+          format: int64
+          description: Combined publish/sort timestamp in Unix seconds.
+          example: 1773694800
+        medias:
+          type: array
+          description: |
+            Related media identifiers returned by the backend for this content item.
+            The current API returns these ids as strings.
+          items:
+            type: string
+          example: ['2453881']
+        photo:
+          $ref: '#/components/schemas/FrontpageBlockItemPhoto'
+        channelCategoryId:
+          type: integer
+          description: Channel category identifier used to derive station/channel branding.
+          example: 405
+        primaryCategoryId:
+          type: integer
+          description: Primary category identifier associated with the content item.
+          example: 404
+        type:
+          type: string
+          description: Content type (for example `episode`, `series`, `clip`).
+          example: episode
+        url:
+          type: string
+          description: Public URL of the content item.
+          example: /vikerraadio/1609956223/saja-aasta-laulud-1958
+        durationText:
+          type: string
+          nullable: true
+          description: |
+            Preformatted media duration label for UI badges (e.g. "45m", "1h 23m").
+            Null or missing values are normalized to an empty string by frontend adapters;
+            empty string hides the badge.
+          example: 45m
+
+    FrontpageBlockItemPhoto:
+      type: object
+      description: Lightweight photo metadata returned inside frontpage block items.
+      properties:
+        id:
+          type: integer
+          example: 2165149
+        photoUrlBase:
+          type: string
+          description: Relative crop path (to be prefixed with the photo host).
+          example: crop/2023/11/27/2165149h837a.jpg
+        w:
+          type: integer
+          description: Image width in pixels.
+          example: 3000
+        h:
+          type: integer
+          description: Image height in pixels.
+          example: 2000
+        captionEt:
+          type: string
+          example: I Wear* Experimenti kaksikkontsert
+        captionEn:
+          type: string
+        captionRu:
+          type: string
+        authorEt:
+          type: string
+          example: Siim Lõvi /ERR
+        authorEn:
+          type: string
+        authorRu:
+          type: string
+
+    ScheduleResponse:
+      type: object
+      required:
+        - status
+        - data
+      properties:
+        status:
+          type: string
+          example: success
+        message:
+          type: string
+          description: Optional human-readable message from the backend.
+          example: RadioSchedule
+        data:
+          type: object
+          description: Wrapper object for schedule channels and their items.
+          required:
+            - channels
+          properties:
+            channels:
+              type: array
+              description: List of schedule buckets grouped by channel.
+              items:
+                $ref: '#/components/schemas/ScheduleChannelBucket'
+
+    ScheduleChannelBucket:
+      type: object
+      description: Schedule items for a single channel and day.
+      required:
+        - nameId
+        - items
+      properties:
+        nameId:
+          type: string
+          description: Channel identifier (e.g. vikerraadio).
+          example: vikerraadio
+        items:
+          type: array
+          description: Schedule items for this channel.
+          items:
+            $ref: '#/components/schemas/ScheduleItem'
+
+    ScheduleItem:
+      type: object
+      required:
+        - id
+        - contentId
+        - scheduleDay
+        - startTime
+        - endTime
+        - durationTime
+        - heading
+        - lead
+        - programName
+        - url
+        - mediaId
+        - originalTime
+        - periods
+        - photo
+        - radiomanId
+        - rootCategoryId
+      properties:
+        id:
+          type: integer
+          description: Unique identifier of the schedule row.
+        contentId:
+          type: integer
+          description: Content identifier associated with this schedule row.
+        scheduleDay:
+          type: integer
+          format: int64
+          description: Start of the schedule day as Unix timestamp (seconds).
+          example: 1764885600
+        startTime:
+          type: integer
+          format: int64
+          description: Start time of the item as Unix timestamp (seconds).
+          example: 1764905400
+        endTime:
+          type: integer
+          format: int64
+          description: End time of the item as Unix timestamp (seconds).
+          example: 1764910860
+        durationTime:
+          type: string
+          description: Duration in `HH:MM:SS` as returned by the backend.
+          example: '00:30:00'
+        heading:
+          type: string
+          description: Content heading.
+          example: R2 Eelhommik
+        lead:
+          type: string
+          description: Introductory text/lead from content.
+          example: Contentist tulev sissejuhatus - 'lead'
+        programName:
+          type: string
+          description: Program name from schedule table.
+          example: R2 Eelhommik
+        url:
+          type: string
+          description: Public URL of the content.
+          example: /raadio2/1609864825/r2-eelhommik
+        seriesName:
+          type: string
+          description: Series name associated with this schedule row.
+          example: Raadio 2
+        photoSquare:
+          type: string
+          description: Identifier for square crop used in some UIs (e.g. "category:405").
+          example: category:405
+        photoId:
+          type: integer
+          description: Photo identifier associated with this schedule item.
+          example: 2160454
+        photo:
+          $ref: '#/components/schemas/PhotoData'
+          description: Content image metadata.
+        mediaData:
+          type: array
+          nullable: true
+          description: Media list payload for this schedule item. May be null when no media exists.
+          items:
+            $ref: '#/components/schemas/ScheduleItemMedia'
+        mediaId:
+          type: integer
+          description: Primary media identifier (matches an entry in `mediaData`).
+          example: 2422643
+        originalTime:
+          type: integer
+          format: int64
+          description: Original airtime timestamp (seconds).
+          example: 1767960300
+        periods:
+          type: array
+          description: Publication periods for this schedule item.
+          items:
+            $ref: '#/components/schemas/ScheduleItemPeriod'
+        rootCategoryId:
+          type: integer
+          description: Root category identifier (e.g. 405 for Raadio 2).
+          example: 405
+        radiomanId:
+          type: integer
+          description: Radioman identifier.
+          example: 11846
+        hideContent:
+          type: boolean
+          description: >
+            When true, the linked content is unpublished. Schedule cards map this to
+            isClickable false (the card body is not a link; playback stays available)
+            and live-section read-more stays hidden.
+          example: false
+
+    PhotoData:
+      type: object
+      description: Photo metadata payload used by Orpheus APIs.
+      required:
+        - id
+        - photoUrlBase
+        - w
+        - h
+        - format
+        - authorEn
+        - authorEt
+        - authorRu
+        - captionEn
+        - captionEt
+        - captionRu
+      properties:
+        id:
+          type: integer
+          description: Photo identifier.
+          example: 3149401
+        photoUrlBase:
+          type: string
+          description: Relative crop path (to be prefixed with the photo host).
+          example: crop/2026/01/09/3149401h88fa.jpg
+        w:
+          type: integer
+          description: Image width in pixels.
+          example: 3071
+        h:
+          type: integer
+          description: Image height in pixels.
+          example: 2048
+        format:
+          type: string
+          description: Image format/extension.
+          example: jpg
+        authorEt:
+          type: string
+          example: Siim Lõvi /ERR
+        authorEn:
+          type: string
+        authorRu:
+          type: string
+        captionEt:
+          type: string
+          example: 'Reedene intervjuu: Jaak Madison'
+        captionEn:
+          type: string
+        captionRu:
+          type: string
+
+    ScheduleItemPeriod:
+      type: object
+      description: Publication period for a schedule item.
+      required:
+        - mediaId
+        - publicStart
+        - publicEnd
+        - vodReqId
+      properties:
+        mediaId:
+          type: integer
+          example: 2422643
+        publicStart:
+          type: integer
+          format: int64
+          example: 1767964103
+        publicEnd:
+          type: integer
+          format: int64
+          example: 0
+        vodReqId:
+          type: integer
+          example: 0
+
+    ScheduleItemMedia:
+      type: object
+      description: Media payload attached to a schedule item.
+      required:
+        - id
+        - type
+        - headingEt
+        - file
+        - folder
+        - mediaHash
+        - created
+        - downloadDisabled
+        - embedDisabled
+        - publicStart
+        - publicEnd
+        - photoId
+        - radiomanId
+        - restrictions
+        - licenseServerUrl
+        - src
+        - periods
+        - bodyEn
+        - bodyEt
+        - bodyRu
+        - headingEn
+        - headingRu
+        - sourceEn
+        - sourceEt
+        - sourceRu
+        - scheduleStart
+      properties:
+        id:
+          type: integer
+          example: 2422643
+        type:
+          type: string
+          example: audio
+        bodyEn:
+          type: string
+        bodyEt:
+          type: string
+        bodyRu:
+          type: string
+        created:
+          type: integer
+          format: int64
+          example: 1767964802
+        downloadDisabled:
+          type: integer
+          example: 0
+        embedDisabled:
+          type: integer
+          example: 0
+        file:
+          type: string
+          example: 71_ID114_497241.m4a
+        folder:
+          type: string
+          example: viker
+        headingEn:
+          type: string
+        headingEt:
+          type: string
+          example: Reedene intervjuu. Anvar Samost ja Jaak Madison
+        headingRu:
+          type: string
+        licenseServerUrl:
+          $ref: '#/components/schemas/LicenseServerUrl'
+        mediaHash:
+          type: string
+          example: 632b360464165ef3f4e829c4b4844776
+        periods:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScheduleItemMediaPeriod'
+        photoId:
+          type: integer
+          example: 3149398
+        publicStart:
+          type: integer
+          format: int64
+          example: 1767964103
+        publicEnd:
+          type: integer
+          format: int64
+          example: 0
+        radiomanId:
+          type: string
+          example: reedene-intervjuu_20fzx
+        restrictions:
+          $ref: '#/components/schemas/MediaRestrictions'
+        scheduleStart:
+          type: integer
+          format: int64
+          example: 0
+        sourceEn:
+          type: string
+        sourceEt:
+          type: string
+        sourceRu:
+          type: string
+        src:
+          $ref: '#/components/schemas/MediaSrc'
+
+    ScheduleItemMediaPeriod:
+      type: object
+      description: Publication period for a media item.
+      required:
+        - publicStart
+        - publicEnd
+        - vodReqId
+      properties:
+        publicStart:
+          type: integer
+          format: int64
+          example: 1767964103
+        publicEnd:
+          type: integer
+          format: int64
+          example: 0
+        vodReqId:
+          type: integer
+          example: 0
+
+    LicenseServerUrl:
+      type: object
+      required:
+        - fairPlay
+        - playReady
+        - widevine
+      properties:
+        fairPlay:
+          type: string
+          example: https://drm-fairplay-licensing.axprod.net/AcquireLicense
+        playReady:
+          type: string
+          example: https://drm-playready-licensing.axprod.net/AcquireLicense
+        widevine:
+          type: string
+          example: https://drm-widevine-licensing.axprod.net/AcquireLicense
+
+    MediaRestrictions:
+      type: object
+      required:
+        - drm
+        - geoBlock
+      properties:
+        drm:
+          type: boolean
+          example: false
+        geoBlock:
+          type: boolean
+          example: false
+
+    MediaSrc:
+      type: object
+      required:
+        - dash
+        - hls
+      properties:
+        dash:
+          type: string
+          example: //vod.err.ee/dash/viker/632b360464165ef3f4e829c4b4844776/a/manifest.mpd
+        hls:
+          type: string
+          example: //vod.err.ee/hls/viker/632b360464165ef3f4e829c4b4844776/a/master.m3u8
+
+    ScheduleMedia:
+      type: object
+      description: Normalized metadata for on-demand media attached to a schedule item.
+      required:
+        - id
+        - hlsUrl
+      properties:
+        id:
+          type: integer
+          description: Media identifier.
+          example: 2408714
+        hlsUrl:
+          type: string
+          description: HLS playlist URL for the recording.
+          example: //vod.err.ee/hls/r2/5b85b235f5ad312a6f5a4b42801eaeb5/a/master.m3u8
+        publicStart:
+          type: integer
+          format: int64
+          description: Start of public availability as Unix timestamp (seconds).
+          example: 1764925501
+        publicEnd:
+          type: integer
+          format: int64
+          description: End of public availability as Unix timestamp; 0 or omitted when indefinite.
+          example: 0
+        downloadDisabled:
+          type: integer
+          description: Whether downloading this media is disabled.
+          example: 0
+        embedDisabled:
+          type: integer
+          description: Whether embedding this media is disabled.
+          example: 0
+
+    ChannelsListResponse:
+      type: object
+      required:
+        - status
+        - data
+      properties:
+        status:
+          type: string
+          example: success
+        message:
+          type: string
+          description: Human-readable message for the channels response.
+          example: Channels
+        data:
+          type: object
+          required:
+            - channels
+          properties:
+            channels:
+              type: array
+              items:
+                $ref: '#/components/schemas/Channel'
+
+    ChannelDetailResponse:
+      type: object
+      required:
+        - status
+        - data
+      properties:
+        status:
+          type: string
+          example: success
+        message:
+          type: string
+          description: Human-readable message for the single channel response.
+          example: Channel
+        data:
+          $ref: '#/components/schemas/Channel'
+
+    MenuResponse:
+      type: object
+      description: Envelope for channel/category menu items.
+      required:
+        - status
+        - data
+      properties:
+        status:
+          type: string
+          example: success
+        message:
+          type: string
+          description: Human-readable message for the menu response.
+          example: Menu
+        data:
+          type: object
+          required:
+            - items
+          properties:
+            items:
+              type: array
+              description: Menu items configured under the requested menu id.
+              items:
+                $ref: '#/components/schemas/MenuItem'
+
+    MenuItem:
+      type: object
+      required:
+        - id
+        - name
+        - link
+      properties:
+        id:
+          type: integer
+          format: int32
+          description: Menu item identifier.
+          example: 1179
+        name:
+          type: string
+          description: Menu item display label.
+          example: Raadio 2
+        link:
+          type: string
+          description: Link target, usually a channel slug.
+          example: raadio2
+        description:
+          type: string
+          nullable: true
+          description: Optional menu item description.
+          example: ''
+
+    Channel:
+      type: object
+      required:
+        - nameId
+        - title
+        - url
+        - media
+      properties:
+        nameId:
+          type: string
+          description: Unique identifier of the channel (slug).
+          example: vikerraadio
+        title:
+          type: string
+          description: Human-readable channel title.
+          example: Vikerraadio
+        url:
+          type: string
+          description: Public URL path of the channel.
+          example: /vikerraadio
+        categoryId:
+          type: string
+          nullable: true
+          description: Root category id associated with this channel, if any.
+          example: '404'
+        channelTint:
+          type: string
+          nullable: true
+          description: Primary UI tint color in hex format.
+          example: '#21ACA8'
+        darkTint:
+          type: string
+          nullable: true
+          description: Optional dark tint color in hex format.
+          example: '#101F76'
+        lightTint:
+          type: string
+          nullable: true
+          description: Optional light tint color in hex format.
+          example: '#FF5778'
+        shapeTint:
+          type: string
+          nullable: true
+          description: Tint color for the logo shape in hex format.
+          example: '#FFFFFF'
+        external:
+          type: boolean
+          description: |
+            When true, the channel is an external or partner stream (not a core ERR station).
+            Clients should omit these from the main station carousel; they may still appear
+            in other surfaces (e.g. deep links, category metadata).
+          example: false
+        isPlayable:
+          type: boolean
+          description: When false, clients hide the channel-card playback overlay.
+          example: true
+        gemiusId:
+          type: string
+          nullable: true
+          description: Optional Gemius analytics identifier for the channel.
+        email:
+          type: string
+          nullable: true
+          format: email
+          description: Optional public contact email for the channel page/footer.
+          example: klassika@err.ee
+        facebook:
+          type: string
+          nullable: true
+          description: Optional public Facebook URL for the channel.
+          example: https://www.facebook.com/klassikaraadio
+        instagram:
+          type: string
+          nullable: true
+          description: Optional public Instagram URL for the channel.
+          example: https://www.instagram.com/klassikaraadio/
+        twitter:
+          type: string
+          nullable: true
+          description: Optional public X/Twitter URL for the channel.
+          example: https://x.com/klassikaraadio
+        telegram:
+          type: string
+          nullable: true
+          description: Optional public Telegram URL for the channel.
+          example: https://t.me/klassikaraadio
+        aboutArticleId:
+          type: number
+          nullable: true
+          description: Optional article id for the "Meist" nupp.
+        menuId:
+          type: integer
+          format: int32
+          nullable: true
+          description: Optional menu id used by `GET /v1/getMenu/{menuId}`.
+          example: 1167
+        photoUrlBase:
+          type: string
+          nullable: true
+          description: Base URL prefix for channel imagery, when provided by the API.
+        media:
+          $ref: '#/components/schemas/ChannelMedia'
+
+    ChannelMedia:
+      type: object
+      required:
+        - name
+        - src
+        - config
+      properties:
+        name:
+          type: string
+          description: Internal media name for the live stream.
+          example: raadio2
+        src:
+          type: string
+          description: HLS source URL for the live stream.
+          example: //live.err.ee/live/raadio2.m3u8
+        config:
+          $ref: '#/components/schemas/ChannelMediaConfig'
+
+    ChannelMediaConfig:
+      type: object
+      required:
+        - live
+        - mediaId
+        - title
+        - type
+        - typologyName
+      properties:
+        live:
+          type: boolean
+          description: Indicates whether this media represents a live stream.
+          example: true
+        mediaId:
+          type: string
+          description: Media identifier for the live stream.
+          example: RAADIO 2-live
+        title:
+          type: string
+          description: Display title for the media.
+          example: RAADIO 2
+        type:
+          type: string
+          description: Media type.
+          example: audio
+        typologyName:
+          type: string
+          description: Typology identifier for the live stream.
+          example: raadio2-live
+
+    CountsByPrimaryCategory:
+      type: object
+      description: Map of primaryCategoryId -> count
+      required: ["404", "405", "406", "407", "408"]
+      properties:
+        "404": { type: integer }
+        "405": { type: integer }
+        "406": { type: integer }
+        "407": { type: integer }
+        "408": { type: integer }
+
+    CountsByType:
+      type: object
+      description: Map of type -> count
+      required: ["clip", "content", "episode", "series"]
+      properties:
+        "clip": { type: integer }
+        "content": { type: integer }
+        "episode": { type: integer }
+        "series": { type: integer }
+
+    ApiRdsResponse:
+      type: object
+      description: Envelope for the live RDS response across all channels.
+      required:
+        - status
+        - message
+        - data
+      properties:
+        status:
+          type: string
+          example: success
+        message:
+          type: string
+          example: Rds
+        data:
+          type: object
+          description: Wrapper object for the live RDS rows.
+          required:
+            - items
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/ApiRdsItem'
+
+    ApiRdsItem:
+      type: object
+      description: Live RDS row for a single channel.
+      required:
+        - artist
+        - channelNameId
+        - endTime
+        - primaryCategoryId
+        - program
+        - programName
+        - programName2
+        - rds
+        - seriesName
+        - startTime
+        - title
+      properties:
+        artist:
+          type: string
+          description: Artist or primary performer name from the live metadata.
+          example: ALESSI ROSE
+        channelNameId:
+          type: string
+          description: Stable channel identifier used to join the row to an Orpheus station.
+          example: raadio2
+        endTime:
+          type: integer
+          format: int64
+          nullable: true
+          description: End time of the current programme window as a Unix timestamp in seconds.
+          example: 1770077053
+        primaryCategoryId:
+          type: integer
+          nullable: true
+          description: Primary category id associated with the channel or programme.
+          example: 405
+        program:
+          type: string
+          description: Current programme display label.
+          example: R2 Draiv
+        programName:
+          type: string
+          description: Primary programme name.
+          example: R2 Draiv
+        programName2:
+          type: string
+          description: Secondary programme name or presenter label.
+          example: Pille-Riin Karro
+        rds:
+          type: string
+          description: Full RDS line as emitted by the backend.
+          example: ALESSI ROSE - First Original Thought
+        seriesName:
+          type: string
+          description: Series name associated with the current item.
+          example: Draiv
+        startTime:
+          type: integer
+          format: int64
+          nullable: true
+          description: Start time of the current programme window as a Unix timestamp in seconds.
+          example: 1770030253
+        title:
+          type: string
+          description: Current title intended for UI display.
+          example: First Original Thought
+        rdsImage:
+          type: string
+          nullable: true
+          description: Cover or promotional image URL for the current RDS row when provided by the backend.
+          example: https://s.err.ee/images/example.jpg
+        rdsPlaylist:
+          type: array
+          nullable: true
+          description: |
+            Recent playlist entries for the same channel, ordered from most recently
+            played to older entries.
+          items:
+            $ref: '#/components/schemas/ApiRdsPlaylistItem'
+
+    ApiRdsPlaylistItem:
+      type: object
+      description: Historical RDS playlist row for a single played item.
+      required:
+        - artist
+        - playedAt
+        - program
+        - rds
+        - rdsImage
+        - title
+      properties:
+        artist:
+          type: string
+          description: Artist or primary performer name for the played item.
+          example: Berliner Philharmoniker
+        playedAt:
+          type: string
+          format: date-time
+          description: ISO timestamp describing when the item was played.
+          example: '2026-06-17T11:32:10+03:00'
+        playedAtSecondsAgo:
+          type: integer
+          nullable: true
+          description: How many seconds ago the playlist item started playing, relative to the current time.
+          example: 135
+        program:
+          type: string
+          description: Programme label associated with the played item.
+          example: Klassikaraadio
+        rds:
+          type: string
+          description: Full RDS line for the played item.
+          example: L. van Beethoven - Sümfoonia nr.5 - Berliner Philharmoniker
+        rdsImage:
+          type: string
+          description: Cover or promotional image URL/path for the playlist row.
+          example: crop/2023/07/05/1987793h8084.png
+        title:
+          type: string
+          description: Track title intended for UI display.
+          example: L. van Beethoven - Sümfoonia nr.5
+
+    ApiSearchResponse:
+      type: object
+      required:
+        - status
+        - countsByArchived
+        - countsByPrimaryCategory
+        - countsByType
+        - currentPage
+        - perPage
+        - totalPages
+        - totalCount
+        - data
+      properties:
+        status:
+          type: string
+          example: success
+        countsByArchived:
+          type: integer
+          example: 1
+        countsByActive:
+          type: integer
+          description: Number of results matching the "active" (on-air) facet.
+          example: 5969
+        countsByPrimaryCategory:
+          $ref: '#/components/schemas/CountsByPrimaryCategory'
+        countsByType:
+          $ref: '#/components/schemas/CountsByType'
+        currentPage:
+          type: integer
+          example: 1
+        perPage:
+          type: integer
+          example: 24
+        totalPages:
+          type: integer
+          example: 5
+        totalCount:
+          type: integer
+          example: 105
+        data:
+          type: object
+          description: |
+            Wrapper object for search results.
+            The backend returns an object with a `results` array.
+          required:
+            - results
+          properties:
+            results:
+              type: array
+              items:
+                $ref: '#/components/schemas/ApiSearchResultItem'
+
+    ApiSearchResultItem:
+      type: object
+      required:
+        - id
+        - heading
+      properties:
+        id:
+          oneOf:
+            - type: integer
+            - type: string
+        heading:
+          type: string
+        photo:
+          type: string
+        url:
+          type: string
+        primaryCategory:
+          type: integer
+        state:
+          type: integer
+        type:
+          type: string
+          description: Content type (e.g. episode, series, clip, content).
+        combinedTime:
+          type: integer
+          description: Sort key combining publish/update time.
+
+    HelpFaqResponse:
+      type: object
+      required:
+        - status
+        - message
+        - data
+      properties:
+        status:
+          type: string
+        message:
+          type: string
+        data:
+          $ref: '#/components/schemas/HelpFaqData'
+
+    HelpFaqData:
+      type: object
+      description: Wrapper object for FAQ entries.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          minItems: 2
+          maxItems: 2
+          description: Exactly two language sets, one `et` and one `ru`.
+          items:
+            $ref: '#/components/schemas/HelpFaqLanguageSet'
+
+    HelpFaqLanguageSet:
+      type: object
+      description: FAQ questions for one site language.
+      required:
+        - lang
+        - questions
+      properties:
+        lang:
+          type: string
+          enum:
+            - et
+            - ru
+        questions:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/HelpFaqItem'
+
+    HelpFaqItem:
+      type: object
+      required:
+        - question
+        - answers
+      properties:
+        question:
+          type: string
+          minLength: 1
+        answers:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            minLength: 1
+
+    HelpFeedbackSubmitPayload:
+      type: object
+      required:
+        - name
+        - email
+        - description
+      properties:
+        name:
+          type: string
+          description: Submitter name.
+          maxLength: 64
+        email:
+          type: string
+          format: email
+          description: Submitter email address.
+        description:
+          type: string
+          description: User-provided feedback / issue description.
+          maxLength: 2000
+        inOtherDevice:
+          type: boolean
+          description: Whether the issue was reproduced on another device.
+          default: false
+        'g-recaptcha-response':
+          type: string
+          description: |
+            reCAPTCHA verification token.
+            Required by the backend when reCAPTCHA validation is enabled.
+        images:
+          type: array
+          description: Optional image attachments.
+          maxItems: 3
+          items:
+            type: string
+            format: binary
+
+    HelpFeedbackSubmitResponse:
+      type: object
+      required:
+        - data
+      properties:
+        data:
+          $ref: '#/components/schemas/HelpFeedbackSubmitData'
+
+    HelpFeedbackSubmitData:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: Backend acknowledgement message for a successful submission.
+
+    HelpFeedbackValidationErrorResponse:
+      type: object
+      required:
+        - errors
+      properties:
+        errors:
+          type: array
+          description: Validation errors keyed to request fields via `source.pointer`.
+          items:
+            $ref: '#/components/schemas/HelpFeedbackValidationError'
+
+    HelpFeedbackValidationError:
+      type: object
+      required:
+        - status
+        - title
+        - message
+      properties:
+        status:
+          type: string
+          example: '422'
+        source:
+          $ref: '#/components/schemas/HelpFeedbackErrorSource'
+        title:
+          type: string
+          example: Validation Error
+        message:
+          type: string
+          description: Human-readable Estonian validation message.
+
+    HelpFeedbackErrorSource:
+      type: object
+      properties:
+        pointer:
+          type: string
+          description: Request field name that caused the validation error.
+
+    HelpFeedbackGenericErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          $ref: '#/components/schemas/HelpFeedbackGenericError'
+
+    HelpFeedbackGenericError:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: Human-readable backend error message.
+        file:
+          type: string
+          description: Optional backend source file for debugging.
+        line:
+          type: integer
+          description: Optional backend source line for debugging.
+
+    PollPhoto:
+      type: object
+      description: Photo metadata for poll, question, or answer images.
+      properties:
+        id:
+          type: integer
+          format: int64
+        photoUrlBase:
+          type: string
+          description: Relative crop path (to be prefixed with the photo host).
+        captionEt:
+          type: string
+        captionEn:
+          type: string
+        captionRu:
+          type: string
+        authorEt:
+          type: string
+        authorEn:
+          type: string
+        authorRu:
+          type: string
+
+    Poll:
+      type: object
+      description: A poll with one or more questions and their answers.
+      properties:
+        id:
+          type: integer
+          format: int64
+        heading:
+          type: string
+        description:
+          type: string
+          nullable: true
+        primaryCategoryId:
+          type: integer
+        displayResults:
+          type: string
+          enum: [never, after, during]
+        onlyResults:
+          type: boolean
+          description: |
+            Voting has ended. Clients show results only and must not offer a vote.
+            Missing or non-boolean values mean voting is still open.
+        isVoteScheduled:
+          type: boolean
+        useRecaptcha:
+          type: boolean
+        showHeading:
+          type: boolean
+          description: Whether the poll heading is shown on the public site (false when unset).
+        voteInterval:
+          type: integer
+          format: int32
+          nullable: true
+          description: Vote cooldown in minutes (0 means no cooldown).
+        questionCount:
+          type: integer
+        state:
+          type: integer
+          description: Poll state/status.
+        photo:
+          $ref: '#/components/schemas/PollPhoto'
+          nullable: true
+          description: Poll-level image.
+        questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/PollQuestion'
+      required:
+        - id
+        - heading
+        - primaryCategoryId
+        - displayResults
+        - isVoteScheduled
+        - useRecaptcha
+        - showHeading
+        - questionCount
+        - questions
+
+    PollQuestion:
+      type: object
+      description: A single question within a poll.
+      properties:
+        id:
+          type: integer
+          format: int64
+        pollId:
+          type: integer
+          format: int64
+        questionText:
+          type: string
+        order:
+          type: integer
+        isMandatory:
+          type: boolean
+        allowMultiple:
+          type: boolean
+        allowedAnswersCount:
+          type: integer
+        answerType:
+          type: string
+          enum: [text, media]
+        assetType:
+          type: string
+          nullable: true
+        mediaId:
+          type: integer
+          nullable: true
+        photoId:
+          type: integer
+          nullable: true
+        photo:
+          $ref: '#/components/schemas/PollPhoto'
+          nullable: true
+          description: Question-level image (replaces legacy photoUrl).
+        answers:
+          type: array
+          items:
+            $ref: '#/components/schemas/PollAnswer'
+      required:
+        - id
+        - pollId
+        - questionText
+        - order
+        - isMandatory
+        - allowMultiple
+        - allowedAnswersCount
+        - answerType
+        - answers
+
+    PollAnswer:
+      type: object
+      description: An answer option for a poll question.
+      properties:
+        id:
+          type: integer
+          format: int64
+        questionId:
+          type: integer
+          format: int64
+        type:
+          type: string
+          enum: [text, media]
+        text:
+          type: string
+        mediaId:
+          type: integer
+          nullable: true
+        order:
+          type: integer
+        isCorrect:
+          type: boolean
+        linkUrl:
+          type: string
+          nullable: true
+        count:
+          type: integer
+          description: Vote count for this answer (in results or pre-aggregated).
+        percentage:
+          type: number
+          format: float
+          description: Vote percentage for this answer (in results or pre-aggregated).
+        photo:
+          $ref: '#/components/schemas/PollPhoto'
+          nullable: true
+          description: Answer-level image (replaces legacy photoUrl).
+      required:
+        - id
+        - questionId
+        - type
+        - order
+        - isCorrect
+
+    PollResponse:
+      type: object
+      description: Envelope for a single poll.
+      properties:
+        message:
+          type: string
+        status:
+          type: string
+        data:
+          $ref: '#/components/schemas/Poll'
+      required:
+        - status
+        - data
+
+    PollResultsResponse:
+      type: object
+      description: |
+        Vote submission and poll results response.
+        Returns the full poll with questions and answers; each answer includes
+        count and percentage for results display.
+      properties:
+        message:
+          type: string
+        status:
+          type: string
+        data:
+          $ref: '#/components/schemas/Poll'
+          description: Full poll with questions and answers (each answer has count, percentage, photo).
+      required:
+        - status
+        - data
+
+    PollVoteEntry:
+      type: object
+      description: Single answer selection within a vote payload.
+      properties:
+        questionId:
+          type: integer
+          format: int64
+        answerId:
+          type: integer
+          format: int64
+      required:
+        - questionId
+        - answerId
+
+    PollVotePayload:
+      type: object
+      description: Payload for submitting a vote to a poll.
+      properties:
+        answers:
+          type: array
+          items:
+            $ref: '#/components/schemas/PollVoteEntry'
+      required:
+        - answers
+
+    RadioArchiveResponse:
+      type: object
+      description: Episode archive for one radio series, for a single year.
+      required:
+        - years
+        - activeYear
+      properties:
+        years:
+          type: array
+          description: Years that have archive episodes, newest first.
+          items:
+            type: integer
+        activeYear:
+          type: array
+          description: Months of the requested year, each with its episodes.
+          items:
+            $ref: '#/components/schemas/RadioArchiveMonth'
+
+    RadioArchiveMonth:
+      type: object
+      description: One calendar month of archive episodes.
+      required:
+        - dateSeconds
+        - data
+      properties:
+        date:
+          type: string
+          deprecated: true
+          description: |
+            Legacy preformatted month label, for example `September 2026`.
+            Inconsistent across locales. Do not display. Removed once clients read `dateSeconds`.
+          example: September 2026
+        dateSeconds:
+          type: integer
+          format: int64
+          description: |
+            Unix timestamp in seconds for 00:00 on the 1st of this month in Europe/Tallinn.
+            September 2026 is `1788210000`.
+          example: 1788210000
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/RadioArchiveItem'
+
+    RadioArchiveItem:
+      type: object
+      description: One archived episode row.
+      required:
+        - id
+        - heading
+        - combinedTime
+      properties:
+        id:
+          type: integer
+          format: int64
+        heading:
+          type: string
+        combinedTime:
+          type: integer
+          format: int64
+          description: Episode start time as Unix seconds.
+        photo:
+          $ref: '#/components/schemas/RadioArchivePhoto'
+        mediaIds:
+          type: array
+          description: Playback media ids. The API sends them as strings.
+          items:
+            type: string
+
+    RadioArchivePhoto:
+      type: object
+      description: Episode image. Only `photoUrlBase` is required for playback and cards.
+      required:
+        - photoUrlBase
+      properties:
+        id:
+          type: integer
+          format: int64
+        format:
+          type: string
+        w:
+          type: integer
+        h:
+          type: integer
+        photoUrlBase:
+          type: string
+          description: Relative or absolute photo path consumed by the player and cards.
+        authorEt:
+          type: string
+        authorRu:
+          type: string
+        authorEn:
+          type: string
+        captionEt:
+          type: string
+        captionEn:
+          type: string
+        captionRu:
+          type: string
+        hideCaption:
+          type: boolean
+        photoAspectRatio:
+          type: string

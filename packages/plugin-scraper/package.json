@@ -5,12 +5,20 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "curator-scraper": "./dist/cli.js",
+    "yt-audio": "./dist/cli.js"
+  },
   "scripts": {
     "build": "tsc",
-    "test": "node --test \"test/*.test.mjs\""
+    "test": "node --test \"test/*.test.mjs\"",
+    "scrape": "node src/cli.ts",
+    "scrape:youtube": "node src/cli.ts youtube",
+    "yt": "node src/cli.ts youtube"
   },
   "dependencies": {
     "cheerio": "^1.2.0",
+    "commander": "^15.0.0",
     "turndown": "^7.2.4",
     "turndown-plugin-gfm": "^1.0.2"
   },

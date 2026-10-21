@@ -14,7 +14,9 @@
     "preview:static": "pnpm --filter @curator/frontend run preview:static",
     "poker": "pnpm --filter @minigames/poker run play --",
     "poker:direct": "pnpm --filter @minigames/poker run play:direct",
-    "poker:serve": "pnpm --filter @minigames/poker run serve"
+    "poker:serve": "pnpm --filter @minigames/poker run serve",
+    "scrape:youtube": "pnpm --filter @curator/plugin-scraper scrape:youtube --",
+    "yt": "pnpm --filter @curator/plugin-scraper yt --"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",

@@ -79,10 +79,62 @@ export async function scrape({
     if (!refresh && existing && ['parsed', 'no_tracks'].includes(existing.parse_status)) continue;
 
     try {
-      const html = await client.episode(item.url);
-      const rawHash = createHash('sha256').update(html).digest('hex');
-      const tracks = parseMusicList(html);
-      const metadata = parseEpisodeText(html);
+      let tracks: ParsedTrack[] = [];
+      let metadata: ParsedEpisodeText = { description: null, fullText: null, summary: null, keywords: null };
+      let rawHash: string | null = null;
+
+      // If client has native getContent method and item has an id, fetch structured content directly
+      if (typeof (client as any).getContent === 'function' && item.id) {
+        try {
+          const res = await (client as any).getContent(item.id);
+          const cData = res?.data?.content;
+          if (cData) {
+            rawHash = createHash('sha256').update(JSON.stringify(res)).digest('hex');
+            if (cData.combinedTime) {
+              episode.scheduledAt = new Date(cData.combinedTime * 1000).toISOString();
+            }
+            if (cData.publicStart) {
+              episode.publishedAt = new Date(cData.publicStart * 1000).toISOString();
+            }
+            if (cData.url) {
+              episode.url = new URL(cData.url, 'https://eestiraadio.err.ee').toString();
+            }
+            if (cData.heading) {
+              episode.heading = cData.heading;
+              (episode as any).title = cData.heading;
+            }
+
+            const playlist = res?.data?.playlist;
+            if (Array.isArray(playlist) && playlist.length > 0) {
+              tracks = playlist.map((p: any, idx: number) => ({
+                position: idx + 1,
+                artist: p.artist || null,
+                title: p.title || null,
+                rawText: [p.artist, p.title].filter(Boolean).join(' - '),
+              }));
+            } else if (cData.body) {
+              tracks = parseMusicList(cData.body);
+            }
+
+            const bodyParsed = parseEpisodeText(cData.body || '');
+            metadata = {
+              description: cData.lead || bodyParsed.description || null,
+              fullText: bodyParsed.fullText || cData.lead || null,
+              summary: cData.lead?.slice(0, 500) || bodyParsed.summary || null,
+              keywords: null,
+            };
+          }
+        } catch (_) {}
+      }
+
+      // Fallback to client.episode(item.url) if no tracks were obtained from getContent
+      if (tracks.length === 0 && !metadata.fullText) {
+        const html = await client.episode(item.url);
+        rawHash = rawHash || createHash('sha256').update(html).digest('hex');
+        tracks = parseMusicList(html);
+        metadata = parseEpisodeText(html);
+      }
+
       await saveProgramData(db, {
         program: { seriesId: seriesContentId, title: programTitle },
         episode,
@@ -94,7 +146,7 @@ export async function scrape({
       await onEpisode?.(episode, tracks, metadata);
       parsed += 1;
       tracksSaved += tracks.length;
-      logger.log(`${episode.scheduledAt?.slice(0, 10) ?? 'unknown'} ${item.url}: ${tracks.length} tracks`);
+      logger.log(`${episode.scheduledAt?.slice(0, 10) ?? 'unknown'} ${episode.url || item.url}: ${tracks.length} tracks`);
     } catch (error: any) {
       failures += 1;
       await saveProgramData(db, {
