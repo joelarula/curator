@@ -9,13 +9,22 @@
   "engines": {
     "node": ">=22.5"
   },
+  "bin": {
+    "keeris": "./bin/keeris.mjs"
+  },
   "scripts": {
     "postinstall": "prisma generate --schema=prisma/schema.prisma",
+    "keeris": "node bin/keeris.mjs",
+    "play": "node src/cli.ts play",
+    "play:direct": "node src/cli.ts play --direct",
+    "cli": "node src/cli.ts",
+    "interactive": "node src/cli.ts play",
+    "tools": "node src/cli.ts tools",
     "scrape": "node src/cli.ts scrape",
     "scrape:serenaad": "node scripts/scrape-serenaad.mjs",
     "seed:serenaad": "node scripts/seed-serenaad.mjs",
     "rescrape:missing": "node scripts/rescrape-missing.mjs",
-    "search": "node src/cli.ts search --artist=Keeris",
+    "search": "node src/cli.ts search",
     "stats": "node src/cli.ts stats",
     "download:episode": "node scripts/download-episode.js",
     "setup:curator": "node src/setup-curator.ts",
@@ -50,6 +59,7 @@
     "sync:remote": "node scripts/sync-db-remote.mjs",
     "sync:remote:dry": "node scripts/sync-db-remote.mjs --dry-run",
     "sync:remote:clean": "node scripts/sync-db-remote.mjs --clean",
+    "test:remote": "node scripts/test-remote-docker.mjs",
     "test": "node --test \"test/*.test.js\""
   },
   "dependencies": {
@@ -64,6 +74,7 @@
     "@prisma/client": "^7.6.0",
     "@sqlite.org/sqlite-wasm": "^3.49.1-build1",
     "cheerio": "^1.1.2",
+    "commander": "^14.0.2",
     "express": "^5.1.0",
     "graphql": "^16.11.0",
     "jsonwebtoken": "^9.0.3",

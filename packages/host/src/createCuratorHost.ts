@@ -6,7 +6,7 @@ import {
   curatorEngine,
   ConversationManager,
   ConversationRouter,
-} from '../../../curator/dist/src/index.js';
+} from '@curator/agent-server';
 import { CuratorHostEvents } from './events/CuratorHostEvents.js';
 import { seedAgentsAndTools } from './seed/seedAgentsAndTools.js';
 import type { CuratorHost, CuratorHostConfig, SeedResult } from './types.js';

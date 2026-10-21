@@ -13,7 +13,7 @@ function displayMetadata(meta: any) {
     const secs = String(Math.floor(meta.durationSeconds % 60)).padStart(2, '0');
     console.log(`Extracted Metadata:`);
     console.log(`  • Title:     ${meta.title || '(unknown)'}`);
-    console.log(`  • Artist:    ${meta.artist || meta.uploader || '(unknown)'}`);
+    console.log(`  • Artist:    ${meta.artist || '(unknown)'}`);
     console.log(`  • Album:     ${meta.album || '(none)'}`);
     console.log(`  • Uploader:  ${meta.uploader || '(unknown)'}`);
     if (meta.channel && meta.channel !== meta.uploader) console.log(`  • Channel:   ${meta.channel}`);

@@ -1037,6 +1037,38 @@ export function resolvers(db: any, { curatorRuntime, user }: { curatorRuntime?: 
       return { id, schedule: trimmedSchedule };
     },
     scrapeProgram: async ({ seriesContentId, programTitle, refresh = false }: { seriesContentId: string; programTitle: string; refresh?: boolean }) => {
+      // 1. Hook into Curator Engine flow: dispatch an asynchronous Request workflow
+      let runtime = curatorRuntime;
+      if (!runtime) {
+        try {
+          const { startCuratorRuntime } = await import('../curator-runtime.ts');
+          runtime = await startCuratorRuntime({ databaseName: 'keeris', keerisDb: db });
+        } catch (_) {}
+      }
+
+      if (runtime?.triggerAgent) {
+        try {
+          const { RADIO_PROGRAMS } = await import('../plugins/manifest.ts');
+          const matchingAgent = Object.entries(RADIO_PROGRAMS).find(
+            ([_, def]) => def.seriesContentId === String(seriesContentId)
+          )?.[0] || (String(seriesContentId) === '1037846' ? 'vikerraadio_kauamangiv_scrape' : 'keeris_scrape');
+
+          const req = await runtime.triggerAgent(matchingAgent, {
+            refresh,
+            seriesContentId: String(seriesContentId),
+            programTitle,
+          });
+
+          const { curatorEvents } = await import('./events.ts');
+          curatorEvents.broadcast('log', { message: `[Curator Engine] scrapeProgram hooked as Request #${req.id} (${matchingAgent})` });
+          curatorEvents.broadcast('request_start', { requestId: req.id, agent: matchingAgent });
+          curatorEvents.broadcast('database_change', { tables: ['requests', 'agents', 'episodes', 'tracks'] });
+        } catch (err: any) {
+          console.warn(`[Curator Engine] scrapeProgram triggerAgent notice: ${err?.message}`);
+        }
+      }
+
+      // 2. Synchronous tool execution through the Curator Engine plugin registry for immediate GraphQL return
       const { createErrRadioPlugin } = await import('../plugins/err-radio.ts');
       const plugin = createErrRadioPlugin(db);
       const result = await (plugin.tools as any).vikerraadio_scrape.runAsync({

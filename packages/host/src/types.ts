@@ -1,5 +1,5 @@
 import type { CuratorHostEvents, CuratorEvent, CuratorEventType } from './events/CuratorHostEvents.js';
-import type { ConversationRouter } from '../../../curator/dist/src/index.js';
+import type { ConversationRouter } from '@curator/agent-server';
 
 export type { CuratorHostEvents, CuratorEvent, CuratorEventType };
 

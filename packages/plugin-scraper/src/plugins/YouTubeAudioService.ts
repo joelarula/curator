@@ -86,10 +86,10 @@ interface RawYtDlpMeta {
 
 function resolveOutputTemplate(pattern?: string): string {
     if (!pattern || pattern === 'title-album-artist') {
-        return '%(track,title)s%(album& - |)s%(album|)s - %(artist,creator,uploader)s.%(ext)s';
+        return '%(track,title)s%(album& - |)s%(album|)s%(artist& - |)s%(artist|)s.%(ext)s';
     }
     if (pattern === 'artist-album-title') {
-        return '%(artist,creator,uploader)s%(album& - |)s%(album|)s - %(track,title)s.%(ext)s';
+        return '%(artist|)s%(artist& - |)s%(album|)s%(album& - |)s%(track,title)s.%(ext)s';
     }
     if (pattern === 'title') {
         return '%(track,title)s.%(ext)s';

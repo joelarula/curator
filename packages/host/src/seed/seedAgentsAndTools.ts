@@ -273,7 +273,7 @@ export async function seedAgentsAndTools(
           }
         } catch {
           try {
-            const { compileCoffeeScriptToAST } = (await import('../../../../curator/dist/src/index.js')) as any;
+            const { compileCoffeeScriptToAST } = (await import('@curator/agent-server')) as any;
             if (typeof compileCoffeeScriptToAST === 'function') {
               ast = await compileCoffeeScriptToAST(body);
             }

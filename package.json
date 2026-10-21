@@ -15,6 +15,9 @@
     "poker": "pnpm --filter @minigames/poker run play --",
     "poker:direct": "pnpm --filter @minigames/poker run play:direct",
     "poker:serve": "pnpm --filter @minigames/poker run serve",
+    "keeris": "node miniapps/keeris/bin/keeris.mjs",
+    "keeris:direct": "node miniapps/keeris/bin/keeris.mjs play --direct",
+    "keeris:play": "node miniapps/keeris/bin/keeris.mjs play",
     "scrape:youtube": "pnpm --filter @curator/plugin-scraper scrape:youtube --",
     "yt": "pnpm --filter @curator/plugin-scraper yt --"
   },

@@ -48,7 +48,7 @@ test('runTask downloads the audio as an mp3 file with rich metadata', { skip: !c
     assert.ok(result.durationSeconds > 0);
     assert.ok(result.thumbnail?.startsWith('http'));
     assert.ok(result.filePath.includes('Rivers Of Babylon'));
-    assert.ok(result.filePath.includes('Trojan Records Official'));
+    assert.equal(result.filePath.includes('Trojan Records Official'), false);
     assert.ok(result.filePath.endsWith('.mp3'));
     assert.ok((await stat(result.filePath)).size > 0);
     const jsonFile = result.filePath.replace(/\.mp3$/, '.info.json');

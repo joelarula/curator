@@ -142,11 +142,16 @@ export class ServerClientAdapter implements CuratorClientAdapter {
       }
     }
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ query, variables }),
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ query, variables }),
+      });
+    } catch (err: any) {
+      throw new Error(`Cannot reach Curator server at ${this.serverUrl} (${err?.cause?.message || err?.message || 'Connection refused'}). Ensure backend container is running or pass --server <url>.`);
+    }
 
     if (!res.ok) {
       let msg = `HTTP ${res.status} ${res.statusText}`;
