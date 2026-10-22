@@ -207,6 +207,10 @@ model Script {
   project   Project?  @relation(fields: [projectId], references: [id])
   requests  Request[]
   agents    Agent[]
+  eventSubscriptions EventSubscription[]
+  /// Points to ScriptVersion.version that is active. Script.ast/body mirror it (deprecated, kept for compatibility).
+  currentVersion Int @default(0)
+  versions       ScriptVersion[]
   existent  Boolean?  @default(true)
   deletedAt DateTime?
   createdAt DateTime  @default(now())
@@ -215,7 +219,25 @@ model Script {
   @@unique([name])
 }
 
+/// Immutable definition history. A new row is created only when the AST hash changes.
+model ScriptVersion {
+  id        Int      @id @default(autoincrement())
+  scriptId  Int
+  script    Script   @relation(fields: [scriptId], references: [id], onDelete: Cascade)
+  version   Int
+  hash      String
+  ast       Json?
+  body      String?
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  @@unique([scriptId, version])
+  @@unique([scriptId, hash])
+}
+
 model Request {
+  /// ScriptVersion.version executed (with scriptId). Request.ast is null in reference mode.
+  scriptVersion      Int?
   id                 Int           @id @default(autoincrement())
   status             RequestStatus @default(NEW)
   toolName           String?
@@ -311,6 +333,33 @@ model ResourceTree {
   @@index([deletedAt])
 }
 
+/// Materialized from event declarations in a Script AST; the AST is the source of truth.
+/// Firing is recorded as the spawned child Request, never here.
+model EventSubscription {
+  id             Int      @id @default(autoincrement())
+  eventName      String
+  scriptId       Int
+  script         Script   @relation(fields: [scriptId], references: [id], onDelete: Cascade)
+  agentId        String?
+  agent          Agent?   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  conversationId Int?
+  userId         String
+  projectId      String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  /// Subroutine name in the Script module; null = main.
+  entry          String?
+  /// Filter expression copied from the declaration.
+  when           String?
+  /// Handler param receiving the payload (declaration `as`); null = 'event'.
+  payloadAs      String?
+
+  @@unique([scriptId, entry, eventName, conversationId])
+  @@index([eventName, isActive])
+}
+
 model Agent {
   id           String    @id @default(cuid())
   uri          String?   @unique
@@ -326,34 +375,16 @@ model Agent {
   projectId    String?
   project      Project?  @relation(fields: [projectId], references: [id])
   enabled      Boolean   @default(true)
-  auditLogs    AuditLog[]
   toolApprovals ToolApproval[]
   existent     Boolean?  @default(true)
   deletedAt    DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   requests     Request[]
+  eventSubscriptions EventSubscription[]
 
   @@unique([name])
   @@index([existent])
-}
-
-model AuditLog {
-  id         String   @id @default(cuid())
-  entityType String
-  entityId   String
-  action     String
-  userId     String?
-  agentId    String?
-  agent      Agent?   @relation(fields: [agentId], references: [id], onDelete: SetNull)
-  requestId  Int?
-  status     String   @default("SUCCESS")
-  metadata   Json?
-  timestamp  DateTime @default(now())
-
-  @@index([agentId])
-  @@index([entityType, entityId])
-  @@index([timestamp])
 }
 
 model ToolApproval {

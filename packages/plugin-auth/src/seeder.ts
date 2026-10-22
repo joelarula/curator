@@ -30,13 +30,22 @@ export async function seedCuratorRbac(prisma: any, options?: SeedRbacOptions): P
     const roleMap = new Map<string, any>();
     for (const r of rolesToSeed) {
       try {
-        if (prisma.role?.upsert) {
-          const rec = await prisma.role.upsert({
-            where: { name: r.name },
-            update: { description: r.description },
-            create: r,
+        if (prisma.role) {
+          const existing = await prisma.role.findFirst({
+            where: { OR: [{ id: r.name }, { name: r.name }] },
           });
-          roleMap.set(r.name, rec);
+          if (existing) {
+            await prisma.role.update({
+              where: { id: existing.id },
+              data: { description: r.description },
+            });
+            roleMap.set(r.name, existing);
+          } else {
+            const rec = await prisma.role.create({
+              data: { id: r.name, name: r.name, description: r.description },
+            });
+            roleMap.set(r.name, rec);
+          }
         }
       } catch (_) {}
     }

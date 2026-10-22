@@ -75,21 +75,12 @@ export function createHostCli(
         }
 
         const args = parseJsonArg(opts.args);
-        console.log(`[Host CLI] Executing tool "${toolName}" directly...`);
+        console.log(`[Host CLI] Executing tool "${toolName}" as a Request...`);
 
-        const user = await host.prisma.user.findFirst({ where: { email: 'system@local' } });
-        const project = await host.prisma.project.findFirst({ where: { id: '1' } });
+        // Actor/scope come from the host session (system user, default project/conversation).
+        const { requestId, status, result } = await host.runTool(toolName, args, { origin: 'CLI' });
 
-        const output = await tool.runAsync({
-          args,
-          toolContext: {
-            prisma: host.prisma,
-            userId: user?.id || '1',
-            projectId: project?.id || '1',
-          },
-        });
-
-        console.log(JSON.stringify({ tool: toolName, status: 'completed', output }, null, 2));
+        console.log(JSON.stringify({ tool: toolName, requestId, status: status === 'COMPLETED' ? 'completed' : status, output: result }, null, 2));
       } catch (err: any) {
         console.error('[Host CLI] Execution error:', err?.message || err);
         process.exitCode = 1;
@@ -368,6 +359,25 @@ export function createHostCli(
 
       process.on('SIGINT', shutdown);
       process.on('SIGTERM', shutdown);
+    });
+
+  // 8. Tool Whitelist & Registry Inspection
+  program
+    .command('tools')
+    .description('List all registered and permitted Curator tools in the host runtime')
+    .action(async () => {
+      console.log(`[Host CLI] Inspecting registered tools...`);
+      const host = await hostFactory();
+      try {
+        console.log('\n\x1b[1m\x1b[36m=== Registered Curator Host Tools ===\x1b[0m');
+        for (const [name, tool] of host.engine.tools.entries()) {
+          const desc = tool.description || '(no description)';
+          console.log(`  \x1b[32m${name.padEnd(38)}\x1b[0m ${desc}`);
+        }
+        console.log('');
+      } finally {
+        await host.stop();
+      }
     });
 
   return program;

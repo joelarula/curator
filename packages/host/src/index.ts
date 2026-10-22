@@ -1,6 +1,7 @@
 export { createCuratorHost } from './createCuratorHost.js';
 export { CuratorHostEvents } from './events/CuratorHostEvents.js';
 export { seedAgentsAndTools } from './seed/seedAgentsAndTools.js';
+export { resolveHostPolicy, type ResolvedHostPolicy } from './hostPolicy.js';
 export { createHostCli, type HostCliOptions } from './cli/createHostCli.js';
 export {
   ClientShell,

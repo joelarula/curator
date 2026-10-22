@@ -1,5 +1,9 @@
 export { createMcpServer, createMcpServerFromHost, type CuratorMcpInstance } from './createMcpServer.js';
-export { McpToolRegistry } from './McpToolRegistry.js';
-export { buildToolContext, type ToolContextOptions } from './context/buildToolContext.js';
+export {
+  McpToolRegistry,
+  createHostToolExecutor,
+  type McpToolExecutor,
+  type McpToolExecution,
+} from './McpToolRegistry.js';
 export * from './plugins/index.js';
 export * from './types.js';

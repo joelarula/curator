@@ -92,15 +92,7 @@ export function createBlueprintClientShell(
         return;
       }
 
-      // 2. Direct local tool execution if tool definition exists
-      if (typeof matched !== 'string') {
-        if ((matched as any).execute) {
-          const res = await (matched as any).execute(args);
-          return res;
-        }
-      }
-
-      // 3. Channel dispatch
+      // 2. Channel dispatch — the host executes the call as a Request (no direct local execution)
       if (opts.channel) {
         return opts.channel.send('curator:tool_call', {
           tool: toolName,

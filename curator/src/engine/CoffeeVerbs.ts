@@ -54,6 +54,19 @@ export const coffeeAstVerbs: Record<string, any> = {
     CuratorBuilder.waitEvent(eventName, payloadAlias),
   waitEvent: (eventName: string, payloadAlias?: string) =>
     CuratorBuilder.waitEvent(eventName, payloadAlias),
+  publish: (eventName: string, payload?: any, targetAgentId?: any) =>
+    CuratorBuilder.emitEvent(eventName, payload, targetAgentId),
+  subscribe: (eventName: string, handler: string, options?: any) =>
+    CuratorBuilder.subscribe(eventName, handler, options),
+  unsubscribe: (eventName: string, handler?: string) =>
+    CuratorBuilder.unsubscribe(eventName, handler),
+
+  // 5b. Reusable modules & subroutines
+  // NOTE: `module` is reserved by the sandbox (CommonJS exports), hence `define_module`.
+  define_module: (name: string, options: any) => CuratorBuilder.defineModule(name, options),
+  defineModule: (name: string, options: any) => CuratorBuilder.defineModule(name, options),
+  sub: (params: any, body: any, returns?: string) => CuratorBuilder.sub(params, body, returns),
+  call: (ref: string, args?: Record<string, any>, options?: any) => CuratorBuilder.call(ref, args, options),
 
   // 6. Embedded scripts & agent calls
   script: (code: string | ((ctx: any) => any), language: 'javascript' | 'coffeescript' = 'coffeescript') =>

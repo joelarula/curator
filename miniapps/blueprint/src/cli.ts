@@ -16,12 +16,12 @@ program
   .action(async (baseValue: string, multiplier: string) => {
     const host = await createBlueprintHost();
     try {
-      const tool = host.engine.tools.get('calculate_metric');
-      const output = await tool.runAsync({
-        args: { baseValue: Number(baseValue), multiplier: Number(multiplier) },
-        toolContext: { prisma: host.prisma },
-      });
-      console.log(JSON.stringify(output, null, 2));
+      const { result } = await host.runTool(
+        'calculate_metric',
+        { baseValue: Number(baseValue), multiplier: Number(multiplier) },
+        { origin: 'CLI' }
+      );
+      console.log(JSON.stringify(result, null, 2));
     } finally {
       await host.stop();
     }

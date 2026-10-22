@@ -27,10 +27,62 @@ async function ensureCuratorMariadbSchema(pool: any): Promise<void> {
 
     `CREATE TABLE IF NOT EXISTS Role (
       id VARCHAR(191) PRIMARY KEY,
-      name VARCHAR(191) NOT NULL UNIQUE,
+      name VARCHAR(191) NOT NULL,
       description TEXT,
+      projectId VARCHAR(191),
       createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+    `ALTER TABLE Role ADD COLUMN IF NOT EXISTS projectId VARCHAR(191);`,
+
+    `CREATE TABLE IF NOT EXISTS UserRole (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userId VARCHAR(191) NOT NULL,
+      roleId VARCHAR(191) NOT NULL,
+      projectId VARCHAR(191),
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY idx_user_role_project (userId, roleId, projectId)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+    `CREATE TABLE IF NOT EXISTS ToolRole (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      toolId INT NOT NULL,
+      roleId VARCHAR(191) NOT NULL,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY idx_tool_role (toolId, roleId)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+    `CREATE TABLE IF NOT EXISTS Permission (
+      id VARCHAR(191) PRIMARY KEY,
+      name VARCHAR(191) NOT NULL UNIQUE,
+      description TEXT,
+      toolName VARCHAR(191),
+      accessLevel VARCHAR(191),
+      requiresConfirmation BOOLEAN DEFAULT FALSE,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+    `CREATE TABLE IF NOT EXISTS RolePermission (
+      roleId VARCHAR(191) NOT NULL,
+      permissionId VARCHAR(191) NOT NULL,
+      PRIMARY KEY (roleId, permissionId)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+    `CREATE TABLE IF NOT EXISTS ProjectRole (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      projectId VARCHAR(191) NOT NULL,
+      roleId VARCHAR(191) NOT NULL,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY idx_project_role (projectId, roleId)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+    `CREATE TABLE IF NOT EXISTS AgentRole (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      agentId VARCHAR(191) NOT NULL,
+      roleId VARCHAR(191) NOT NULL,
+      UNIQUE KEY idx_agent_role (agentId, roleId)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
 
     `CREATE TABLE IF NOT EXISTS RoleInheritance (
@@ -47,6 +99,7 @@ async function ensureCuratorMariadbSchema(pool: any): Promise<void> {
       description TEXT,
       version VARCHAR(191),
       accessLevel VARCHAR(191) DEFAULT 'safe_write',
+      requiredRole VARCHAR(191),
       requiresConfirmation BOOLEAN DEFAULT FALSE,
       enabled BOOLEAN DEFAULT TRUE,
       existent BOOLEAN DEFAULT TRUE,
@@ -54,6 +107,8 @@ async function ensureCuratorMariadbSchema(pool: any): Promise<void> {
       updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX idx_tool_existent (existent)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+    `ALTER TABLE Tool ADD COLUMN IF NOT EXISTS requiredRole VARCHAR(191);`,
 
     `CREATE TABLE IF NOT EXISTS Script (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -190,18 +245,31 @@ export async function provisionMariadbDb(connectionUrl: string = process.env.CUR
   const potentialPaths = [
     path.join(__dirname, '../generated/prisma-mariadb/index.js'),
     path.join(__dirname, '../../src/generated/prisma-mariadb/index.js'),
+    path.join(__dirname, '../../../src/generated/prisma-mariadb/index.js'),
     path.join(__dirname, '../../../curator/src/generated/prisma-mariadb/index.js'),
+    path.join(__dirname, '../../../../curator/src/generated/prisma-mariadb/index.js'),
+    path.join(process.cwd(), 'src/generated/prisma-mariadb/index.js'),
+    path.join(process.cwd(), 'curator/src/generated/prisma-mariadb/index.js'),
+    path.join(process.cwd(), '../../curator/src/generated/prisma-mariadb/index.js'),
+    path.join(process.cwd(), '../curator/src/generated/prisma-mariadb/index.js'),
   ];
   for (const p of potentialPaths) {
     if (fs.existsSync(p)) {
       const mod = await import(pathToFileURL(p).href);
       MariadbPrismaClient = mod.PrismaClient;
-      break;
+      if (MariadbPrismaClient) break;
     }
   }
   if (!MariadbPrismaClient) {
-    const mod = await import('@prisma/client');
-    MariadbPrismaClient = mod.PrismaClient;
+    try {
+      const mod = await import('@prisma/client');
+      MariadbPrismaClient = mod.PrismaClient;
+    } catch (_) {}
+  }
+  if (!MariadbPrismaClient) {
+    throw new Error(
+      `MariaDB Prisma Client not found. Checked: ${potentialPaths.join(', ')}. Please run: pnpm --filter @curator/agent-server run prisma:mariadb:generate`
+    );
   }
 
   const prisma = new (MariadbPrismaClient as any)({ adapter });

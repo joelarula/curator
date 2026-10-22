@@ -19,6 +19,29 @@ const baseProperties = {
   priority: { type: 'number' },
 };
 
+/** Subroutine reference: 'script', 'script#sub' or '#sub'. */
+const REF_PATTERN = '^(?:#[A-Za-z_][A-Za-z0-9_]*|[A-Za-z0-9_.:-]+(?:#[A-Za-z_][A-Za-z0-9_]*)?)$';
+const REF_RE = new RegExp(REF_PATTERN);
+
+export interface CuratorRef {
+  /** Script name; undefined for local ('#sub') refs. */
+  script?: string;
+  /** Subroutine name; undefined means the module's `main`. */
+  entry?: string;
+}
+
+/** Parses a subroutine reference. Returns null when the syntax is invalid. */
+export function parseCuratorRef(ref: string): CuratorRef | null {
+  if (typeof ref !== 'string' || !REF_RE.test(ref)) return null;
+  const hash = ref.indexOf('#');
+  if (hash === -1) return { script: ref };
+  const script = ref.slice(0, hash) || undefined;
+  return { script, entry: ref.slice(hash + 1) };
+}
+
+/** Node types that cannot appear in an inline-expanded subroutine body. */
+const INLINE_FORBIDDEN = new Set(['Curator_WaitEvent', 'Curator_HumanInput', 'Curator_Subscribe', 'Curator_Unsubscribe', 'Curator_Interrupt']);
+
 const schema: Record<string, any> = {
   $id: 'https://curator.local/schemas/curator-ast-v1.json',
   type: 'object',
@@ -63,7 +86,7 @@ const schema: Record<string, any> = {
     },
     {
       type: 'object',
-      properties: { ...baseProperties, type: { const: 'Curator_Tool' }, toolName: { type: 'string', minLength: 1 }, args: { type: 'object' }, parameters: { type: 'object' }, as: { type: 'string' }, outputKey: { type: 'string' } },
+      properties: { ...baseProperties, type: { const: 'Curator_Tool' }, toolName: { type: 'string', minLength: 1 }, args: { type: 'object' }, parameters: { type: 'object' }, as: { type: 'string' }, outputKey: { type: 'string' }, approvalTtlMs: { type: 'integer', minimum: 0 }, onApprovalExpired: { type: 'string', enum: ['fail', 'continue'] } },
       required: ['type', 'toolName'],
       additionalProperties: false,
       anyOf: [{ required: ['args'] }, { required: ['parameters'] }, { not: { anyOf: [{ required: ['args'] }, { required: ['parameters'] }] } }],
@@ -150,6 +173,49 @@ const schema: Record<string, any> = {
       required: ['type', 'priority'],
       additionalProperties: false,
     },
+    {
+      type: 'object',
+      properties: {
+        ...baseProperties,
+        type: { const: 'Curator_Module' },
+        name: { type: 'string', minLength: 1 },
+        description: { type: 'string' },
+        params: { type: 'object' },
+        main: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' },
+        subroutines: {
+          type: 'object',
+          propertyNames: { pattern: '^[A-Za-z_][A-Za-z0-9_]*$' },
+          additionalProperties: {
+            type: 'object',
+            properties: { params: { type: 'object' }, body: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' }, returns: { type: 'string' }, description: { type: 'string' } },
+            required: ['body'],
+            additionalProperties: false,
+          },
+        },
+        subscriptions: { type: 'array', items: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' } },
+      },
+      required: ['type', 'name'],
+      anyOf: [{ required: ['main'] }, { required: ['subroutines'] }],
+      additionalProperties: false,
+    },
+    {
+      type: 'object',
+      properties: { ...baseProperties, type: { const: 'Curator_Call' }, ref: { type: 'string', pattern: REF_PATTERN }, args: { type: 'object' }, as: { type: 'string' }, mode: { type: 'string', enum: ['child', 'inline'] } },
+      required: ['type', 'ref'],
+      additionalProperties: false,
+    },
+    {
+      type: 'object',
+      properties: { ...baseProperties, type: { const: 'Curator_Subscribe' }, eventName: { type: 'string', minLength: 1 }, handler: { type: 'string', pattern: REF_PATTERN }, as: { type: 'string' }, when: { type: 'string' }, scope: { type: 'string', enum: ['conversation', 'project'] } },
+      required: ['type', 'eventName', 'handler'],
+      additionalProperties: false,
+    },
+    {
+      type: 'object',
+      properties: { ...baseProperties, type: { const: 'Curator_Unsubscribe' }, eventName: { type: 'string', minLength: 1 }, handler: { type: 'string', pattern: REF_PATTERN } },
+      required: ['type', 'eventName'],
+      additionalProperties: false,
+    },
   ],
 };
 
@@ -206,9 +272,92 @@ function formatErrors(errors: ErrorObject[] | null | undefined): string[] {
   return (errors || []).map(error => `${error.instancePath || '/'} ${error.message || 'is invalid'}`);
 }
 
+/** Collects nodes of a subtree (not descending into nested modules). */
+function collectNodes(node: any, out: any[] = []): any[] {
+  if (!node || typeof node !== 'object') return out;
+  if (typeof node.type === 'string') {
+    out.push(node);
+    if (node.type === 'Curator_Module') return out;
+  }
+  for (const value of Object.values(node)) {
+    if (Array.isArray(value)) value.forEach(v => collectNodes(v, out));
+    else if (value && typeof value === 'object') collectNodes(value, out);
+  }
+  return out;
+}
+
+/**
+ * Inline calls are compile-time macros: every inline-called subroutine must be free of
+ * suspending/side-channel nodes and child calls, and the local inline call graph must be acyclic.
+ */
+function validateInlineCalls(mod: any, path: string): string[] {
+  const errors: string[] = [];
+  const subs: Record<string, any> = mod.subroutines || {};
+  const inlineEdges = new Map<string, string[]>();
+  const inlineTargets = new Set<string>();
+
+  const scopes: Array<[string, any]> = [['main', mod.main], ...Object.entries(subs).map(([n, s]) => [n, s.body] as [string, any])];
+  for (const [scopeName, body] of scopes) {
+    for (const n of collectNodes(body)) {
+      if (n.type === 'Curator_Call' && n.mode === 'inline') {
+        const target = parseCuratorRef(n.ref)?.entry;
+        if (!target || parseCuratorRef(n.ref)?.script) continue;
+        inlineTargets.add(target);
+        inlineEdges.set(scopeName, [...(inlineEdges.get(scopeName) || []), target]);
+      }
+    }
+  }
+
+  for (const target of inlineTargets) {
+    const body = subs[target]?.body;
+    if (!body) continue;
+    for (const n of collectNodes(body)) {
+      if (INLINE_FORBIDDEN.has(n.type)) errors.push(`${path}/subroutines/${target} is called inline but contains ${n.type}`);
+      if (n.type === 'Curator_Call' && n.mode !== 'inline') errors.push(`${path}/subroutines/${target} is called inline but contains a child Curator_Call`);
+    }
+  }
+
+  const state = new Map<string, 0 | 1 | 2>(); // 0/undefined = new, 1 = visiting, 2 = done
+  const visit = (name: string, trail: string[]) => {
+    if (state.get(name) === 2) return;
+    if (state.get(name) === 1) {
+      errors.push(`${path} inline call cycle: ${[...trail, name].join(' -> ')}`);
+      return;
+    }
+    state.set(name, 1);
+    for (const next of inlineEdges.get(name) || []) visit(next, [...trail, name]);
+    state.set(name, 2);
+  };
+  for (const name of inlineEdges.keys()) visit(name, []);
+  return errors;
+}
+
 function validateReferences(root: any): string[] {
   const errors: string[] = [];
-  const walk = (node: any, path: string) => {
+  const walk = (node: any, path: string, mod: any = null) => {
+    if (node.type === 'Curator_Module') {
+      const subs = node.subroutines || {};
+      (node.subscriptions || []).forEach((s: any, i: number) => {
+        if (s?.type !== 'Curator_Subscribe') errors.push(`${path}/subscriptions/${i} must be a Curator_Subscribe node`);
+      });
+      if (node.main) walk(node.main, `${path}/main`, node);
+      for (const [name, sub] of Object.entries<any>(subs)) walk(sub.body, `${path}/subroutines/${name}/body`, node);
+      (node.subscriptions || []).forEach((s: any, i: number) => s && typeof s === 'object' && walk(s, `${path}/subscriptions/${i}`, node));
+      errors.push(...validateInlineCalls(node, path));
+      return;
+    }
+    if (node.type === 'Curator_Call' || node.type === 'Curator_Subscribe' || node.type === 'Curator_Unsubscribe') {
+      const refStr = node.type === 'Curator_Call' ? node.ref : node.handler;
+      const parsed = refStr !== undefined ? parseCuratorRef(refStr) : null;
+      // Local refs are checked only when the enclosing module is known; otherwise the runtime
+      // resolves them against the Request's own Script.
+      if (parsed && !parsed.script && mod && !(parsed.entry! in (mod.subroutines || {}))) {
+        errors.push(`${path} references missing subroutine '${refStr}'`);
+      }
+      if (node.type === 'Curator_Call' && node.mode === 'inline' && parsed?.script) {
+        errors.push(`${path} inline call must use a local ref ('#name'), got '${refStr}'`);
+      }
+    }
     if (node.type === 'Curator_Route') {
       if (node.defaultRoute !== undefined && !(node.defaultRoute in node.subAgents)) errors.push(`${path}/defaultRoute references missing route '${node.defaultRoute}'`);
     }
@@ -221,9 +370,9 @@ function validateReferences(root: any): string[] {
     }
     for (const [key, value] of Object.entries(node)) {
       if (value && typeof value === 'object') {
-        if (Array.isArray(value)) value.forEach((child, index) => child && typeof child === 'object' && typeof child.type === 'string' && walk(child, `${path}/${key}/${index}`));
-        else if (typeof (value as any).type === 'string') walk(value, `${path}/${key}`);
-        else Object.entries(value).forEach(([childKey, child]) => child && typeof child === 'object' && typeof (child as any).type === 'string' && walk(child, `${path}/${key}/${childKey}`));
+        if (Array.isArray(value)) value.forEach((child, index) => child && typeof child === 'object' && typeof child.type === 'string' && walk(child, `${path}/${key}/${index}`, mod));
+        else if (typeof (value as any).type === 'string') walk(value, `${path}/${key}`, mod);
+        else Object.entries(value).forEach(([childKey, child]) => child && typeof child === 'object' && typeof (child as any).type === 'string' && walk(child, `${path}/${key}/${childKey}`, mod));
       }
     }
   };

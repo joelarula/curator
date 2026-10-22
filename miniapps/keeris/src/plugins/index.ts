@@ -1,6 +1,8 @@
 import { curatorEngine, corePlugin, type CuratorEngine } from '@curator/agent-server';
 import { createErrRadioPlugin } from './err-radio.ts';
 import { keerisDomainPlugin } from './keeris-domain.ts';
+export * from './keerisTools.ts';
+export * from './manifest.ts';
 
 let registered = false;
 

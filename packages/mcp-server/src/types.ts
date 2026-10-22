@@ -1,5 +1,6 @@
 import type { CuratorEngine, ExposurePolicyController, PeerSessionContext } from '@curator/agent-server';
 import type { CuratorHost } from '@curator/host';
+import type { McpToolExecutor } from './McpToolRegistry.js';
 
 export type McpTransport = 'stdio' | { http: { port: number; path?: string } };
 
@@ -13,9 +14,13 @@ export interface McpLogger {
 export interface McpServerConfig {
   name?: string;
   version?: string;
-  engine: CuratorEngine;
-  prisma: any;
+  /** Tool listing source. Default: `host.engine`. Durable execution only sees tools in the executor's engine. */
+  engine?: CuratorEngine;
+  prisma?: any;
+  /** Curator host: tools run as Requests via `host.runTool` (database + engine). */
   host?: CuratorHost;
+  /** Explicit durable executor when no host is given (e.g. CuratorRequestProcessor.runToolRequest). */
+  execute?: McpToolExecutor;
   exposureController?: ExposurePolicyController;
   session?: PeerSessionContext;
   transport?: McpTransport;

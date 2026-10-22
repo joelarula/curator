@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
-import { AuditService } from './AuditService.js';
+
+// Grants/revocations are their own audit trail: ToolApproval keeps approvedBy, createdAt, revokedAt, revokedBy.
 
 export type ApprovalScope = 'ONETIME' | 'CONVERSATION' | 'PERMANENT';
 
@@ -122,23 +123,6 @@ export class ApprovalService {
                 revoked: false,
             }
         });
-
-        await AuditService.log(prisma, {
-            entityType: opts.agentId ? 'AGENT' : 'REQUEST',
-            entityId: opts.agentId || String(opts.requestId || 'system'),
-            action: 'HUMAN_APPROVAL_GRANTED',
-            userId: opts.userId || opts.approvedBy,
-            agentId: opts.agentId || undefined,
-            requestId: opts.requestId || undefined,
-            status: 'SUCCESS',
-            metadata: {
-                tool: opts.toolName,
-                scope: opts.scope,
-                approvalId: approval.id,
-                approvedBy: opts.approvedBy,
-            }
-        });
-
         return approval;
     }
 
@@ -170,22 +154,6 @@ export class ApprovalService {
                 revokedBy,
             }
         });
-
-        await AuditService.log(prisma, {
-            entityType: approval.agentId ? 'AGENT' : 'TOOL',
-            entityId: approval.agentId || approval.toolName,
-            action: 'APPROVAL_REVOKED',
-            userId: revokedBy,
-            agentId: approval.agentId || undefined,
-            status: 'SUCCESS',
-            metadata: {
-                approvalId,
-                tool: approval.toolName,
-                scope: approval.scope,
-                revokedBy,
-            }
-        });
-
         return updated;
     }
 
@@ -220,21 +188,6 @@ export class ApprovalService {
                 revokedBy,
             }
         });
-
-        await AuditService.log(prisma, {
-            entityType: 'AGENT',
-            entityId: agentId,
-            action: 'APPROVAL_REVOKED',
-            userId: revokedBy,
-            agentId,
-            status: 'SUCCESS',
-            metadata: {
-                tool: toolName,
-                revokedCount: approvals.length,
-                revokedBy,
-            }
-        });
-
         return approvals.length;
     }
 

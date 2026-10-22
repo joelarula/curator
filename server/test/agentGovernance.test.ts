@@ -147,40 +147,78 @@ describe('Curator Core - AI Agent Governance & Least Privilege', () => {
         });
     });
 
-    describe('Audit Log Service (AuditService)', () => {
-        it('should record structured audit log entries and query by agentId', async () => {
-            const createdEntries: any[] = [];
+    describe('Audit view derived from Responses (AuditService)', () => {
+        it('should derive structured audit entries from Responses and filter by agentId', async () => {
+            const responses: any[] = [
+                {
+                    id: 2,
+                    requestId: 99,
+                    content: JSON.stringify({ type: 'TOOL_BLOCKED', tool: 'delete_resource', reason: 'not whitelisted' }),
+                    createdAt: new Date('2026-01-01T00:00:02Z'),
+                    request: { id: 99, agentId: 'agent-123', userId: 'user-456', status: 'FAILED', toolName: 'delete_resource', ast: null },
+                },
+                {
+                    id: 1,
+                    requestId: 98,
+                    content: '{"answer":42}',
+                    createdAt: new Date('2026-01-01T00:00:01Z'),
+                    request: { id: 98, agentId: 'agent-123', userId: 'user-456', status: 'COMPLETED', toolName: null, ast: { type: 'Curator_Tool', toolName: 'ask_llm' } },
+                },
+            ];
             const mockPrisma: any = {
-                auditLog: {
-                    create: vi.fn().mockImplementation(async ({ data }) => {
-                        const entry = { id: `audit-${Date.now()}`, ...data };
-                        createdEntries.push(entry);
-                        return entry;
-                    }),
-                    findMany: vi.fn().mockImplementation(async ({ where }) => {
-                        return createdEntries.filter(e => e.agentId === where.OR?.[0]?.agentId);
-                    })
-                }
+                response: {
+                    findMany: vi.fn().mockImplementation(async ({ where }) =>
+                        responses.filter(r => !where?.request?.agentId || r.request.agentId === where.request.agentId)
+                    ),
+                },
             };
 
-            const entry = await AuditService.log(mockPrisma, {
-                entityType: 'AGENT',
-                entityId: 'agent-123',
-                action: 'TOOL_EXECUTION',
-                userId: 'user-456',
-                agentId: 'agent-123',
-                requestId: 99,
-                status: 'SUCCESS',
-                metadata: { tool: 'ask_llm', tokens: 42 }
-            });
-
-            expect(entry).toBeDefined();
-            expect(entry?.action).toBe('TOOL_EXECUTION');
-            expect(mockPrisma.auditLog.create).toHaveBeenCalledOnce();
-
             const logs = await AuditService.getLogs(mockPrisma, { agentId: 'agent-123' });
-            expect(logs.length).toBe(1);
-            expect(logs[0].requestId).toBe(99);
+            expect(mockPrisma.response.findMany).toHaveBeenCalledOnce();
+            expect(mockPrisma.response.findMany.mock.calls[0][0].where).toEqual({ request: { agentId: 'agent-123' } });
+            expect(logs.length).toBe(2);
+            expect(logs[0]).toMatchObject({ action: 'TOOL_BLOCKED', requestId: 99, status: 'FAILED', entityType: 'AGENT' });
+            expect(logs[0].metadata).toMatchObject({ tool: 'delete_resource', reason: 'not whitelisted' });
+            expect(logs[1]).toMatchObject({ action: 'TOOL_RESULT', requestId: 98, metadata: { tool: 'ask_llm' } });
+        });
+
+        it('should record core model changes as a Request + MODEL_CHANGED Response and list them', async () => {
+            const requests: any[] = [];
+            const responses: any[] = [];
+            const mockPrisma: any = {
+                conversation: {
+                    findFirst: vi.fn().mockResolvedValue(null),
+                    create: vi.fn().mockResolvedValue({ id: 7 }),
+                },
+                request: {
+                    create: vi.fn().mockImplementation(async ({ data }) => {
+                        const row = { id: 100 + requests.length, ...data };
+                        requests.push(row);
+                        return row;
+                    }),
+                },
+                response: {
+                    create: vi.fn().mockImplementation(async ({ data }) => {
+                        const row = { id: responses.length + 1, createdAt: new Date(), ...data };
+                        responses.push(row);
+                        return row;
+                    }),
+                    findMany: vi.fn().mockImplementation(async () =>
+                        responses.map(r => ({ ...r, request: requests.find(q => q.id === r.requestId) }))
+                    ),
+                },
+            };
+
+            const rec = await AuditService.recordModelChange(mockPrisma, {
+                entityType: 'AGENT', entityId: 'agent-1', action: 'ROLE_ASSIGNED',
+                userId: 'user-1', projectId: 'p1', agentId: 'agent-1', changes: { roleName: 'agent:reader' },
+            });
+            expect(rec?.requestId).toBe(100);
+            expect(requests[0]).toMatchObject({ status: 'COMPLETED', conversationId: 7, userId: 'user-1', context: { origin: 'GRAPHQL' } });
+            expect(JSON.parse(responses[0].content)).toMatchObject({ type: 'MODEL_CHANGED', change: { action: 'ROLE_ASSIGNED' } });
+
+            const logs = await AuditService.getLogs(mockPrisma, { agentId: 'agent-1' });
+            expect(logs[0]).toMatchObject({ entityType: 'AGENT', entityId: 'agent-1', action: 'ROLE_ASSIGNED', status: 'SUCCESS', metadata: { roleName: 'agent:reader' } });
         });
     });
 });

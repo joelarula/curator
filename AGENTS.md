@@ -106,8 +106,13 @@ while_loop "$context.turn <= 5",
 
 When this runs, `CuratorRequestProcessor` guarantees:
 1. `$context.turn` and state are committed to the database after each step.
-2. `Response` and audit records are created per turn automatically.
+2. `Response` records are created per step automatically (there is no `AuditLog` table; the audit view is derived from Responses via `AuditService.getLogs`).
 3. Peer sessions and token permissions are validated against the database.
+
+#### Every tool call and event is a Request
+- CLI, REPL, ClientShell and API paths must not call tool functions (`runAsync` / `execute`) directly. Use `host.runTool(name, args, { origin })` → `CuratorRequestProcessor.runToolRequest`, and `host.emitEvent(name, payload, opts)` → `emitEventRequest` (one matcher, `dispatchEvent`, for subscriptions and waits).
+- Actor and scope (user, project, conversation) come from the host session, never from client payloads.
+- Scripts are stored as immutable `ScriptVersion` rows (idempotent by AST hash); Requests reference `scriptId` + `scriptVersion` (+ `context.astPath`) instead of copying the AST, unless the host uses `astStorage: 'snapshot'`.
 
 ### 4.6 Multi-Database Schema Topology and Isolation Rules
 

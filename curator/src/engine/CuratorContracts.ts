@@ -112,6 +112,74 @@ export interface CuratorPluginDefinition {
   onDestroy?: () => Promise<void> | void;
 }
 
+// ── DB-driven execution contracts ──────────────────────────────────────────
+// Every event, tool call and choice is a Request row; what happened is a
+// structured Response row. No separate event or audit tables.
+
+/** Where a Request came from. Stored in `Request.context.origin`. */
+export type CuratorRequestOrigin = 'AST' | 'REPL' | 'CLI' | 'API' | 'MCP' | 'GRAPHQL';
+
+/** Machine-readable kind of a structured Response (`Response.content` JSON). */
+export type CuratorResponseRecordType =
+  | 'TOOL_RESULT'
+  | 'TOOL_BLOCKED'
+  | 'APPROVAL_REQUIRED'
+  | 'APPROVAL_EXPIRED'
+  | 'EVENT_EMITTED'
+  | 'CHOICE_PROMPT'
+  | 'CHOICE_RECEIVED'
+  | 'SUBSCRIBED'
+  | 'UNSUBSCRIBED'
+  | 'MODEL_CHANGED';
+
+/** A change to a Curator core model (Agent, Script, Role, Tool, ...) recorded as a Request + MODEL_CHANGED Response. */
+export interface CuratorModelChange {
+  /** Model name, e.g. 'AGENT', 'SCRIPT', 'ROLE', 'TOOL_APPROVAL'. */
+  entityType: string;
+  entityId: string;
+  /** e.g. 'AGENT_CREATED', 'AGENT_UPDATED', 'AGENT_DELETED', 'ROLE_ASSIGNED'. */
+  action: string;
+  /** Changed fields (new values) or a compact description of the change. */
+  changes?: JsonRecord;
+}
+
+/** Result of an emit_event Request: which requests were created or resumed. */
+export interface CuratorEventEmitResult {
+  eventName: string;
+  /** Child Request ids spawned from event subscriptions. */
+  spawned: number[];
+  /** Parked Request ids resumed by this event. */
+  woken: number[];
+}
+
+/**
+ * Structured payload serialized into `Response.content` when a step must be
+ * machine-readable (audit, event delivery). Free-text content stays valid for LLM output.
+ */
+export interface CuratorStructuredResponse {
+  type: CuratorResponseRecordType;
+  ok?: boolean;
+  tool?: string;
+  reason?: string;
+  roles?: string[];
+  approvalScope?: string | null;
+  event?: CuratorEventEmitResult;
+  /** Choice id for CHOICE_RECEIVED. */
+  choiceId?: string;
+  /** ISO time an approval wait expires (APPROVAL_REQUIRED) or expired (APPROVAL_EXPIRED). */
+  expiresAt?: string;
+  /** Core model change (MODEL_CHANGED). */
+  change?: CuratorModelChange;
+  metadata?: JsonRecord;
+}
+
+/** Reply to a parked choice prompt. `requestId` is the parked Request id (the resume token). */
+export interface CuratorChoiceReply {
+  requestId: number;
+  choiceId?: string;
+  payload?: unknown;
+}
+
 export interface CuratorDatabaseContext {
   prisma?: PrismaClient;
 }

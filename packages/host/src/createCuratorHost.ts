@@ -9,12 +9,14 @@ import {
 } from '@curator/agent-server';
 import { CuratorHostEvents } from './events/CuratorHostEvents.js';
 import { seedAgentsAndTools } from './seed/seedAgentsAndTools.js';
-import type { CuratorHost, CuratorHostConfig, SeedResult } from './types.js';
+import { resolveHostPolicy } from './hostPolicy.js';
+import type { CuratorHost, CuratorHostConfig, SeedResult, HostRunToolOptions, HostEmitEventOptions } from './types.js';
 
 export async function createCuratorHost(config: CuratorHostConfig): Promise<CuratorHost> {
   const name = config.name || 'curator';
   const dataDir = config.dataDir ?? process.env.DATA_DIR ?? './data';
   const logger = config.logger ?? console;
+  const policy = resolveHostPolicy(config);
 
   // 1. Resolve database connection / path
   const curatorDbUrl = config.curatorDb?.url ?? process.env.CURATOR_DATABASE_URL ?? process.env.DATABASE_URL;
@@ -82,7 +84,14 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
   const events = new CuratorHostEvents();
 
   // 5. Instantiate RequestProcessor
+  // `host` is attached after construction (the processor keeps this object by reference).
+  const toolContextExtras: Record<string, any> = config.domainDb ? { domainDb: config.domainDb } : {};
   const processor = new (CuratorRequestProcessor as any)(prisma, {
+    astStorage: policy.astStorage,
+    retention: policy.retention,
+    approvalTtlMs: config.approvalTtlMs,
+    engine: registeredEngine,
+    toolContextExtras,
     onEvent: (type: string, payload: any) => {
       events.broadcast(type, payload);
       if (type === 'request_done') {
@@ -153,6 +162,7 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
   });
 
   const host: CuratorHost = {
+    policy,
     config,
     events,
     prisma,
@@ -183,6 +193,34 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
       await host.stop();
     },
 
+    async runTool(toolName: string, args: Record<string, any> = {}, opts: HostRunToolOptions = {}) {
+      return processor.runToolRequest({
+        toolName,
+        args,
+        runtimeArgs: opts.runtimeArgs,
+        runtimeContext: opts.runtimeContext,
+        conversationId: opts.conversationId ?? conversation.id,
+        userId: opts.userId ?? user.id,
+        projectId: opts.projectId ?? project.id,
+        agentId: opts.agentId,
+        origin: opts.origin ?? 'API',
+        context: opts.context,
+        broadcastToolEvents: opts.broadcastToolEvents,
+      });
+    },
+
+    async emitEvent(eventName: string, payload?: any, opts: HostEmitEventOptions = {}) {
+      return processor.emitEventRequest({
+        ...opts,
+        eventName,
+        payload,
+        conversationId: opts.conversationId ?? conversation.id,
+        userId: opts.userId ?? user.id,
+        projectId: opts.projectId ?? project.id,
+        origin: opts.origin ?? 'API',
+      });
+    },
+
     async seed(): Promise<SeedResult> {
       const result = await seedAgentsAndTools(prisma, registeredEngine, {
         projectName,
@@ -192,6 +230,7 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
         userEmail,
         logger,
         rbacManagers: config.rbac?.managers,
+        definitions: policy.definitions,
       });
       return {
         ...result,
@@ -325,7 +364,7 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
           }
         }
         for (const roleName of defaultRoles) {
-          const roleRec = await prisma.role.findUnique({ where: { name: roleName } });
+          const roleRec = await prisma.role.findFirst({ where: { OR: [{ id: roleName }, { name: roleName }] } });
           if (roleRec) {
             const existingUr = await prisma.userRole.findFirst({
               where: { userId: pUserId, roleId: roleRec.id, projectId: newProject.id },
@@ -404,6 +443,7 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
       return userRoles.map((ur: any) => ur.role?.name).filter(Boolean);
     },
   };
+  toolContextExtras.host = host;
 
   // 7. Seed tools, scripts, and agents if not already in database (idempotent setup)
   if (config.autoSeed !== false) {

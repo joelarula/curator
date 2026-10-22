@@ -14,6 +14,12 @@ import type {
   CuratorScriptNode,
   CuratorWaitEventNode,
   CuratorToolNode,
+  CuratorModuleNode,
+  CuratorSubroutine,
+  CuratorParamSpec,
+  CuratorCallNode,
+  CuratorSubscribeNode,
+  CuratorUnsubscribeNode,
 } from '../CuratorAst.js';
 
 /**
@@ -67,6 +73,45 @@ export class CuratorCoreBuilder {
    */
   static waitEvent(eventName: string, payloadAlias?: string): CuratorWaitEventNode {
     return { type: 'Curator_WaitEvent', eventName, payloadAlias };
+  }
+
+  /**
+   * Declares a reusable module (root of a Script AST).
+   * e.g. defineModule('poker_table', { main, subroutines: { onPing: sub(...) }, subscriptions: [subscribe(...)] })
+   */
+  static defineModule(
+    name: string,
+    options: {
+      main?: CuratorAstNode | { build: () => CuratorAstNode };
+      params?: Record<string, CuratorParamSpec>;
+      subroutines?: Record<string, CuratorSubroutine>;
+      subscriptions?: CuratorSubscribeNode[];
+      description?: string;
+    }
+  ): CuratorModuleNode {
+    const main = options.main && typeof (options.main as any).build === 'function' ? (options.main as any).build() : options.main;
+    return { type: 'Curator_Module', name, ...options, main };
+  }
+
+  /** Declares a subroutine for a module's `subroutines` map. */
+  static sub(params: Record<string, CuratorParamSpec> | undefined, body: CuratorAstNode | { build: () => CuratorAstNode }, returns?: string): CuratorSubroutine {
+    const resolved = typeof (body as any).build === 'function' ? (body as any).build() : body;
+    return { params, body: resolved, ...(returns ? { returns } : {}) };
+  }
+
+  /** Invokes a subroutine by ref ('script', 'script#sub', '#sub'). Default mode: 'child'. */
+  static call(ref: string, args?: Record<string, any>, options: { as?: string; mode?: 'child' | 'inline' } = {}): CuratorCallNode {
+    return { type: 'Curator_Call', ref, ...(args ? { args } : {}), ...options };
+  }
+
+  /** Declares that `handler` runs whenever `eventName` is emitted. */
+  static subscribe(eventName: string, handler: string, options: { as?: string; when?: string; scope?: 'conversation' | 'project' } = {}): CuratorSubscribeNode {
+    return { type: 'Curator_Subscribe', eventName, handler, ...options };
+  }
+
+  /** Removes dynamic subscriptions for `eventName` (optionally only for `handler`). */
+  static unsubscribe(eventName: string, handler?: string): CuratorUnsubscribeNode {
+    return { type: 'Curator_Unsubscribe', eventName, ...(handler ? { handler } : {}) };
   }
 
   /**

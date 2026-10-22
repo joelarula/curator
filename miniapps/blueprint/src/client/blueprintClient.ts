@@ -48,14 +48,15 @@ export async function createDirectSessionChannel(
       host.events.broadcast(type, payload);
       if (type === 'curator:tool_call') {
         const { tool, args } = payload || {};
-        const toolDef = host.engine.tools.get(tool);
-        if (toolDef) {
-          const res = await toolDef.runAsync({
-            args,
-            toolContext: { prisma: host.prisma },
-          });
-          console.log(`\x1b[32m✔ [Tool "${tool}" Result]:\x1b[0m`, JSON.stringify(res, null, 2));
-          return res;
+        if (host.engine.tools.get(tool)) {
+          // Every tool call is a Request (RBAC, approval, Response) — never a direct function call.
+          const { result, status, requestId } = await host.runTool(tool, args || {}, { origin: 'REPL' });
+          if (status === 'WAITING_FOR_USER') {
+            console.log(`\x1b[33m⏸ [Tool "${tool}"] awaiting approval (request #${requestId})\x1b[0m`);
+            return { status, requestId };
+          }
+          console.log(`\x1b[32m✔ [Tool "${tool}" Result]:\x1b[0m`, JSON.stringify(result, null, 2));
+          return result;
         }
       }
     },

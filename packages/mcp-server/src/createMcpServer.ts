@@ -4,8 +4,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { McpToolRegistry } from './McpToolRegistry.js';
-import { buildToolContext } from './context/buildToolContext.js';
+import { McpToolRegistry, createHostToolExecutor } from './McpToolRegistry.js';
 import { mcpCorePlugin } from './plugins/mcp-core-plugin.js';
 import { mcpOrchestrationPlugin } from './plugins/mcp-orchestration-plugin.js';
 import type { McpServerConfig } from './types.js';
@@ -22,13 +21,21 @@ export async function createMcpServer(config: McpServerConfig): Promise<CuratorM
   const {
     name = 'curator-mcp-server',
     version = '1.0.0',
-    engine,
-    prisma,
     host,
     transport = 'stdio',
     registerBuiltinPlugins = true,
     logger = console,
   } = config;
+  const engine = config.engine ?? host?.engine;
+  const prisma = config.prisma ?? host?.prisma;
+  if (!engine) {
+    throw new Error('createMcpServer requires a Curator host (or an engine with an executor).');
+  }
+  // MCP never runs tool functions directly: every call is a Request in the durable database.
+  const execute = config.execute ?? (host ? createHostToolExecutor(host) : undefined);
+  if (!execute) {
+    throw new Error('createMcpServer requires a durable executor: pass `host` or `execute`.');
+  }
 
   // 1. Optionally register core & orchestration plugins into CuratorEngine
   if (registerBuiltinPlugins) {
@@ -45,15 +52,9 @@ export async function createMcpServer(config: McpServerConfig): Promise<CuratorM
     }
   }
 
-  // 2. Build MCP registry from CuratorEngine with dynamic exposure controller
+  // 2. Build MCP registry (listing from the engine, execution as Requests) with dynamic exposure controller
   const exposureController = config.exposureController || host?.conversations?.exposure;
-  const registry = McpToolRegistry.fromEngine(
-    engine,
-    async () => {
-      return buildToolContext({ prisma, host });
-    },
-    exposureController
-  );
+  const registry = McpToolRegistry.fromEngine(engine, execute, exposureController);
 
   // 3. Initialize MCP Server with tool list change notification capability
   const server = new Server(
@@ -129,6 +130,8 @@ export async function createMcpServerFromHost(
     host,
     transport: options.transport || 'stdio',
     registerBuiltinPlugins: options.registerBuiltinPlugins ?? true,
+    exposureController: options.exposureController,
+    session: options.session,
     logger: options.logger,
   });
 }

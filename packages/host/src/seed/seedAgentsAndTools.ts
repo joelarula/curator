@@ -1,4 +1,4 @@
-import type { CuratorLogger, SeedResult } from '../types.js';
+import type { CuratorDefinitionsPolicy, CuratorLogger, SeedResult } from '../types.js';
 
 export interface SeedOptions {
   projectId?: string;
@@ -8,6 +8,8 @@ export interface SeedOptions {
   userEmail?: string;
   logger?: CuratorLogger;
   rbacManagers?: string[];
+  /** Definition ownership/drift policy (resolved from the host profile). Defaults: owner='code', onDrift='update'. */
+  definitions?: CuratorDefinitionsPolicy;
 }
 
 export async function seedAgentsAndTools(
@@ -255,66 +257,85 @@ export async function seedAgentsAndTools(
     }
   }
 
-  // 3. Sync standalone scripts idempotently (scoped to system)
+  // 3. Sync standalone scripts as immutable versions (scoped to system)
+  const owner = options.definitions?.owner ?? 'code';
+  const onDrift = options.definitions?.onDrift ?? 'update';
+  const agentServer = (await import('@curator/agent-server').catch(() => ({}))) as any;
+
+  /**
+   * Persists a code-defined script. With an AST it becomes a ScriptVersion (dedup by hash, drift policy);
+   * owner='database' never touches an already versioned script. Body-only scripts keep the legacy row update.
+   */
+  const persistScript = async (name: string, body: string, ast: any): Promise<{ id: number; created: boolean }> => {
+    const existing = await prisma.script.findUnique({ where: { name } });
+    if (existing && owner === 'database' && (existing.currentVersion ?? 0) > 0) {
+      return { id: existing.id, created: false };
+    }
+    if (ast && typeof agentServer.saveScriptVersion === 'function') {
+      const res = await agentServer.saveScriptVersion(prisma, {
+        name,
+        ast,
+        body,
+        userId: systemUser.id,
+        projectId: systemProject.id,
+        createdBy: systemUser.id,
+        onDrift,
+      });
+      if (res.drift) logger.warn?.(`[Seed] Script '${name}' differs from active v${res.version}; kept (onDrift=${onDrift})`);
+      return { id: res.scriptId, created: !existing };
+    }
+    if (!existing) {
+      const created = await prisma.script.create({
+        data: { name, body, ast: ast ?? null, userId: systemUser.id, projectId: systemProject.id },
+      });
+      return { id: created.id, created: true };
+    }
+    if (owner === 'code' && body && existing.body !== body && onDrift === 'update') {
+      await prisma.script.update({ where: { id: existing.id }, data: { body } });
+    }
+    return { id: existing.id, created: false };
+  };
+
   const seededScripts: string[] = [];
   if (engine?.scripts) {
     for (const [name, rawDef] of engine.scripts.entries()) {
-      const existing = await prisma.script.findUnique({ where: { name } });
       const def = rawDef as any;
       const body = typeof def === 'string' ? def : def?.body ?? `// Workflow: ${name}`;
       let ast = def?.ast;
 
       // If CoffeeScript body is present but ast is missing, compile it to AST
-      if (!ast && body) {
+      if (!ast && body && typeof agentServer.compileCoffeeScriptToAST === 'function') {
         try {
-          const mod = (await import('@curator/agent-server')) as any;
-          if (typeof mod.compileCoffeeScriptToAST === 'function') {
-            ast = await mod.compileCoffeeScriptToAST(body);
-          }
+          ast = await agentServer.compileCoffeeScriptToAST(body);
         } catch {
-          try {
-            const { compileCoffeeScriptToAST } = (await import('@curator/agent-server')) as any;
-            if (typeof compileCoffeeScriptToAST === 'function') {
-              ast = await compileCoffeeScriptToAST(body);
-            }
-          } catch {
-            // pure coffee/script without AST verbs
-          }
+          // pure coffee/script without AST verbs
         }
       }
 
-      if (!existing) {
-        await prisma.script.create({
-          data: {
-            name,
-            body,
-            ast: ast ?? null,
-            userId: systemUser.id,
-            projectId: systemProject.id,
-          },
-        });
-        seededScripts.push(name);
-      } else {
-        const needsUpdate =
-          existing.userId !== systemUser.id ||
-          existing.projectId !== systemProject.id ||
-          (ast && !existing.ast) ||
-          (body && existing.body !== body);
-
-        if (needsUpdate) {
-          await prisma.script.update({
-            where: { id: existing.id },
-            data: {
-              body: body || existing.body,
-              ast: ast ?? existing.ast,
-              userId: systemUser.id,
-              projectId: systemProject.id,
-            },
-          });
-        }
-      }
+      const res = await persistScript(name, body, ast);
+      if (res.created) seededScripts.push(name);
     }
   }
+
+  /** Script an agent should point to: explicit id, named script, or a dedicated `agent_<name>` script for inline ASTs. */
+  const resolveAgentScriptId = async (name: string, definition: any): Promise<number | null> => {
+    if (definition.scriptId) return definition.scriptId;
+    const targetScriptName = definition.scriptName || definition.script;
+    if (targetScriptName) {
+      const matched = await prisma.script.findUnique({ where: { name: targetScriptName } });
+      if (matched) return matched.id;
+    }
+    if (definition.ast || definition.body) {
+      const ast = definition.ast ?? {
+        type: definition.type || 'Curator_Tool',
+        toolName: definition.toolName || name,
+        args: definition.args || {},
+      };
+      const body = definition.body ?? `// Workflow: ${name}`;
+      return (await persistScript(`agent_${name}`, body, ast)).id;
+    }
+    return null;
+  };
 
   // 4. Sync agents idempotently (scoped to system, schedule defaults to manual)
   const seededAgents: string[] = [];
@@ -329,38 +350,7 @@ export async function seedAgentsAndTools(
       });
 
       if (!existing) {
-        // Resolve script for this agent
-        let scriptId = definition.scriptId;
-        if (!scriptId && (definition.scriptName || definition.script)) {
-          const targetScriptName = definition.scriptName || definition.script;
-          const matchedScript = await prisma.script.findUnique({
-            where: { name: targetScriptName },
-          });
-          if (matchedScript) {
-            scriptId = matchedScript.id;
-          }
-        }
-
-        // If agent has inline workflow/ast and no script was linked, create a dedicated script
-        if (!scriptId && (definition.ast || definition.body)) {
-          const ast = definition.ast ?? {
-            type: definition.type || 'Curator_Tool',
-            toolName: definition.toolName || name,
-            args: definition.args || {},
-          };
-          const body = definition.body ?? `// Workflow: ${name}`;
-          const agentScript = await prisma.script.create({
-            data: {
-              name: `agent_${name}`,
-              body,
-              ast,
-              userId: systemUser.id,
-              projectId: systemProject.id,
-            },
-          });
-          scriptId = agentScript.id;
-        }
-
+        const scriptId = await resolveAgentScriptId(name, definition);
         const isExplicitlyEnabled = definition.enabled !== false;
 
         await prisma.agent.create({
@@ -378,13 +368,21 @@ export async function seedAgentsAndTools(
         seededAgents.push(agentName);
       } else {
         const targetSchedule = definition.schedule ?? (existing.schedule === 'every 10 minutes' ? 'manual' : existing.schedule);
-        if (existing.userId !== systemUser.id || existing.projectId !== systemProject.id || existing.schedule !== targetSchedule) {
+        // Code-owned definitions also re-point the agent to its (possibly renamed) script.
+        const targetScriptId = owner === 'code' ? (await resolveAgentScriptId(name, definition)) ?? existing.scriptId : existing.scriptId;
+        if (
+          existing.userId !== systemUser.id ||
+          existing.projectId !== systemProject.id ||
+          existing.schedule !== targetSchedule ||
+          existing.scriptId !== targetScriptId
+        ) {
           await prisma.agent.update({
             where: { id: existing.id },
             data: {
               userId: systemUser.id,
               projectId: systemProject.id,
               schedule: targetSchedule,
+              scriptId: targetScriptId ?? null,
             },
           });
         }

@@ -6,14 +6,18 @@ import { curatorContext } from './CuratorContext.js';
 
 import type { CuratorAstNode, CuratorAgentNode, CuratorSequentialNode, CuratorParallelNode, CuratorJoinNode, CuratorToolNode, CuratorScriptNode, CuratorRouteNode, CuratorGraphNode } from './CuratorAst.js';
 import { logger } from '../utils/logger.js';
-import { validateCuratorAst } from './CuratorAstValidation.js';
+import { validateCuratorAst, parseCuratorRef } from './CuratorAstValidation.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import type { CuratorCallNode, CuratorSubscribeNode, CuratorUnsubscribeNode, CuratorParamSpec } from './CuratorAst.js';
+import type { CuratorEventEmitResult, CuratorStructuredResponse } from './CuratorContracts.js';
+import { resolveRef, resolveRequestNode, getScriptVersionAst, getEntry, entryAstPath, expandInlineCalls, saveAdhocScript } from './ScriptRegistry.js';
 import { coffeeAstVerbs } from './CoffeeVerbs.js';
 import type { Prisma } from '@prisma/client';
 import { LlmFactory } from './llm/LlmFactory.js';
 import type { LlmMessage, LlmToolDefinition, LlmRequest } from './llm/ILlmProvider.js';
 import { AgentRoleService } from '../services/AgentRoleService.js';
 import { ApprovalService } from '../services/ApprovalService.js';
-import { AuditService } from '../services/AuditService.js';
+// Audit trail = Request/Response rows (see AuditService for the derived read view).
 import { SecretService } from '../services/SecretService.js';
 
 export interface CuratorRequestProcessorOptions {
@@ -21,6 +25,73 @@ export interface CuratorRequestProcessorOptions {
   maxConcurrency?: number;
   reserveWebConnections?: number;
   poolLimit?: number;
+  /** 'reference' (default): child Requests point to scriptId+scriptVersion+context.astPath; 'snapshot': they carry the AST. */
+  astStorage?: 'reference' | 'snapshot';
+  /** Maximum nested Curator_Call depth (child mode). Default 16. */
+  maxCallDepth?: number;
+  /** Tool registry used for Curator_Tool nodes and direct tool Requests. Default: the global curatorEngine. */
+  engine?: { tools: Map<string, any> };
+  /** Non-serializable values merged into every tool's toolContext (e.g. `{ host }`). */
+  toolContextExtras?: Record<string, any>;
+  /** Default lifetime of an approval wait in ms (0 = never expires). Default 24h. Tool nodes may override (`approvalTtlMs`). */
+  approvalTtlMs?: number;
+  /** Retention of completed read-only direct tool Requests. Workflow Requests are never pruned. */
+  retention?: { readOnlyRequests?: 'keep' | 'prune'; readOnlyTtlMs?: number };
+}
+
+export type CuratorRequestOriginKind = 'AST' | 'REPL' | 'CLI' | 'API' | 'MCP' | 'GRAPHQL';
+
+/** A single direct tool call (REPL / CLI / API) executed as a light Request. */
+export interface RunToolRequestInput {
+  toolName: string;
+  /** Literal arguments, persisted on the Request (no `$`/`{{ }}` evaluation). */
+  args?: Record<string, any>;
+  /** Runtime-only arguments merged at execution and never persisted (e.g. derived game state). */
+  runtimeArgs?: Record<string, any>;
+  /** Runtime-only toolContext values (e.g. `{ host }`). */
+  runtimeContext?: Record<string, any>;
+  conversationId: number;
+  userId: string;
+  projectId?: string | null;
+  agentId?: string | null;
+  origin: CuratorRequestOriginKind;
+  /** Extra persisted context (e.g. sessionId). */
+  context?: Record<string, any>;
+  /** Broadcast `result.event` via onEvent. Default true; set false when the caller broadcasts it. */
+  broadcastToolEvents?: boolean;
+}
+
+export interface RunToolRequestResult {
+  requestId: number;
+  status: string;
+  /** Raw tool output (in-process), falling back to the parsed Response content. */
+  result: any;
+  /** Structured record when the Response is TOOL_BLOCKED / APPROVAL_REQUIRED. */
+  record?: CuratorStructuredResponse;
+}
+
+/** Options for the shared event matcher. */
+export interface DispatchEventOptions {
+  /** Additional wait matching beyond `waitEvent === eventName` (e.g. domain event families). */
+  matchWait?: (waitEvent: string | undefined, eventName: string, payload: any) => boolean;
+  /** Value bound to the resumed Request's alias. Default: the payload. */
+  waitValue?: (payload: any) => any;
+  /** Keys merged into resumed Requests' context (and context.state when present), e.g. sessionId. */
+  contextPatch?: Record<string, any>;
+}
+
+/** A single emitted event (REPL / CLI / API) recorded as a Request with an EVENT_EMITTED Response. */
+export interface EmitEventRequestInput extends DispatchEventOptions {
+  eventName: string;
+  payload?: any;
+  conversationId: number;
+  userId: string;
+  projectId?: string | null;
+  agentId?: string | null;
+  targetAgentId?: string;
+  origin: CuratorRequestOriginKind;
+  /** Also broadcast via onEvent (ephemeral). Default true. */
+  broadcast?: boolean;
 }
 
 export interface StepUntilOptions {
@@ -49,10 +120,30 @@ export class CuratorRequestProcessor {
   private poolLimit: number;
   private reserveWebConnections: number;
   private maxConcurrency: number;
+  private astStorage: 'reference' | 'snapshot';
+  private maxCallDepth: number;
+  /** Script version of the Request being executed; pins child Requests to the same version. */
+  private execScope = new AsyncLocalStorage<{ scriptId?: number | null; scriptVersion?: number | null }>();
+  private engine: { tools: Map<string, any> };
+  private toolContextExtras: Record<string, any>;
+  /** In-process data of direct tool Requests: runtime-only inputs and the raw output/error. */
+  private inflight = new Map<number, { runtimeArgs?: Record<string, any>; runtimeContext?: Record<string, any>; broadcastToolEvents?: boolean; raw?: any; error?: any }>();
+  private approvalTtlMs: number;
+  private retention: { readOnlyRequests: 'keep' | 'prune'; readOnlyTtlMs: number };
+  private lastPruneAt = 0;
 
   constructor(prisma: any, options: CuratorRequestProcessorOptions = {}) {
     this.prisma = prisma;
     this.onEvent = options.onEvent;
+    this.astStorage = options.astStorage ?? 'reference';
+    this.maxCallDepth = options.maxCallDepth ?? 16;
+    this.engine = options.engine ?? curatorEngine;
+    this.toolContextExtras = options.toolContextExtras ?? {};
+    this.approvalTtlMs = options.approvalTtlMs ?? 24 * 60 * 60 * 1000;
+    this.retention = {
+      readOnlyRequests: options.retention?.readOnlyRequests ?? 'keep',
+      readOnlyTtlMs: options.retention?.readOnlyTtlMs ?? 30 * 24 * 60 * 60 * 1000
+    };
 
     // Capacity & Web Headroom Configuration:
     // Guarantees background task execution never exhausts DB pool or starves web threads
@@ -77,6 +168,16 @@ export class CuratorRequestProcessor {
   }
 
   private async createValidatedRequest(args: any) {
+    const scope = this.execScope.getStore();
+    if (scope?.scriptVersion && args.data.scriptId != null && args.data.scriptId === scope.scriptId && args.data.scriptVersion === undefined) {
+      args = { ...args, data: { ...args.data, scriptVersion: scope.scriptVersion } };
+    }
+    if (args.data.ast == null && args.data.scriptId != null) {
+      // Reference mode: the node lives in ScriptVersion (validated on save), addressed by context.astPath.
+      const { ast: _omit, ...refData } = args.data;
+      if (refData.scheduledAt === null || refData.scheduledAt === undefined) delete refData.scheduledAt;
+      return this.prisma.request.create({ ...args, data: refData });
+    }
     const validation = validateCuratorAst(args.data.ast);
     if (!validation.valid) {
       throw new Error(`Invalid child Curator AST: ${validation.errors.join('; ')}`);
@@ -463,6 +564,10 @@ export class CuratorRequestProcessor {
       // 0. Poll enabled scheduled agents if due
       await this.pollScheduledAgents();
 
+      // 0b. Expire approval waits past their deadline; prune old read-only direct tool Requests (if enabled)
+      await this.expireApprovalWaits();
+      await this.pruneReadOnlyRequests();
+
       // 1. Wake up requests that were WAITING_FOR_USER and just received a response
       const userRespondedRequests = await this.prisma.request.findMany({
         where: {
@@ -474,6 +579,15 @@ export class CuratorRequestProcessor {
       });
 
       for (const req of userRespondedRequests) {
+        // Approval waits are resumed only by an approval (approveRequest) or by expiry, never by a Response.
+        if ((req.context as any)?.pendingToolCall) continue;
+
+        // System records written on the parked Request itself (prompt, approval notice, ...) are not human input.
+        const latest = (req as any).responses?.[0];
+        let latestParsed: any = null;
+        try { latestParsed = typeof latest?.content === 'string' ? JSON.parse(latest.content) : null; } catch (_) {}
+        if (CuratorRequestProcessor.isStructuredRecord(latestParsed) && latestParsed.type !== 'CHOICE_RECEIVED') continue;
+
         // Check targetUserId — if set, only a response from that specific user counts
         const targetUserId = (req.context as any)?.targetUserId;
         if (targetUserId) {
@@ -772,7 +886,19 @@ export class CuratorRequestProcessor {
         }
       } catch (_) {}
 
-      const validation = validateCuratorAst(req.ast);
+      await this.ensureScriptReference(req);
+      let resolvedNode: CuratorAstNode | null;
+      try {
+        resolvedNode = (await resolveRequestNode(this.prisma, req)).node;
+      } catch (resolveErr: any) {
+        const message = `Cannot resolve AST: ${resolveErr.message}`;
+        logger.error(`[CuratorRequestProcessor] Request ${request.id} rejected: ${message}`);
+        await this.saveResponse(req, `ERROR: ${message}`);
+        await this.prisma.request.update({ where: { id: request.id }, data: { status: 'FAILED', lockedBy: null, lockedAt: null } });
+        this.emit('request_done', { requestId: request.id, success: false, error: message });
+        return;
+      }
+      const validation = validateCuratorAst(resolvedNode);
       if (!validation.valid) {
         const message = `Invalid Curator AST: ${validation.errors.join('; ')}`;
         logger.error(`[CuratorRequestProcessor] Request ${request.id} rejected: ${message}`);
@@ -783,7 +909,7 @@ export class CuratorRequestProcessor {
       }
       const ast: CuratorAstNode = validation.node!;
 
-      await curatorContext.run({
+      await this.execScope.run({ scriptId: req.scriptId, scriptVersion: req.scriptVersion }, () => curatorContext.run({
         userId: req.userId,
         projectId: req.projectId || 1,
         userIds: [req.userId],
@@ -797,7 +923,7 @@ export class CuratorRequestProcessor {
           return;
         }
 
-        const nodeTypes = ['Curator_Agent', 'Curator_Sequential', 'Curator_Parallel', 'Curator_Join', 'Curator_Tool', 'Curator_Script', 'Curator_Route', 'Curator_HumanInput', 'Curator_Graph', 'Curator_AgentRef', 'Curator_SetState', 'Curator_Interrupt', 'Curator_EmitEvent', 'Curator_WaitEvent', 'Curator_Assign', 'Curator_IfElse', 'Curator_While', 'Curator_ForEach'];
+        const nodeTypes = ['Curator_Agent', 'Curator_Sequential', 'Curator_Parallel', 'Curator_Join', 'Curator_Tool', 'Curator_Script', 'Curator_Route', 'Curator_HumanInput', 'Curator_Graph', 'Curator_AgentRef', 'Curator_SetState', 'Curator_Interrupt', 'Curator_EmitEvent', 'Curator_WaitEvent', 'Curator_Assign', 'Curator_IfElse', 'Curator_While', 'Curator_ForEach', 'Curator_Call', 'Curator_Subscribe', 'Curator_Unsubscribe'];
         if (nodeTypes.includes(ast.type)) {
           switch (ast.type) {
             case 'Curator_Agent': return await this.executeAgent(ast as CuratorAgentNode, req);
@@ -818,6 +944,9 @@ export class CuratorRequestProcessor {
             case 'Curator_IfElse': return await this.handleIfElse(ast as any, req);
             case 'Curator_While': return await this.handleWhile(ast as any, req);
             case 'Curator_ForEach': return await this.handleForEach(ast as any, req);
+            case 'Curator_Call': return await this.handleCall(ast as CuratorCallNode, req);
+            case 'Curator_Subscribe': return await this.handleSubscribe(ast as CuratorSubscribeNode, req);
+            case 'Curator_Unsubscribe': return await this.handleUnsubscribe(ast as CuratorUnsubscribeNode, req);
             default:
               logger.warn(`[CuratorRequestProcessor] Node type ${ast.type} not implemented.`);
               await this.completeRequest(req.id, 'COMPLETED');
@@ -826,7 +955,7 @@ export class CuratorRequestProcessor {
           logger.warn(`[CuratorRequestProcessor] Request ${req.id} has unknown AST type: ${(ast as any).type}. Skipping.`);
           await this.prisma.request.update({ where: { id: req.id }, data: { status: 'SKIPPED', lockedBy: null, lockedAt: null } });
         }
-      });
+      }));
     } catch (error: any) {
       const msg = error.message || String(error);
       const retryMatch = msg.match(/Please retry in ([\d\.]+)s/);
@@ -895,42 +1024,86 @@ export class CuratorRequestProcessor {
       targetAgentId = await this.evaluateExpressionAsync(targetAgentId, req);
     }
 
+    const result = await this.dispatchEvent(node.eventName, payload, req, targetAgentId);
+    const record: CuratorStructuredResponse = { type: 'EVENT_EMITTED', ok: true, event: result };
+    await this.saveResponse(req, JSON.stringify(record));
+    await this.completeRequest(req.id, 'COMPLETED');
+  }
+
+  /**
+   * Single event matcher for subscribe and wait (design 4.3):
+   *  - EventSubscription rows (static + conversation-scoped) spawn handler Requests (`parentId` = emitter);
+   *  - parked WAITING_FOR_EVENT / WAITING_FOR_USER Requests with a matching `waitEvent` are resumed.
+   */
+  public async dispatchEvent(eventName: string, payload: any, req: any, targetAgentId?: string, opts: DispatchEventOptions = {}): Promise<CuratorEventEmitResult> {
     const subscriptions = this.prisma.eventSubscription
       ? await this.prisma.eventSubscription.findMany({
-          where: { 
-            eventName: node.eventName, 
+          where: {
+            eventName,
             isActive: true,
             OR: [
               { conversationId: req.conversationId },
               { conversationId: null }
             ]
           },
-          include: { agentWorkflow: true }
+          include: { script: true }
         })
       : [];
 
-    let spawnedCount = 0;
+    const spawned: number[] = [];
     for (const sub of subscriptions) {
-      if (targetAgentId && sub.agentWorkflow?.agentId !== targetAgentId) {
+      if (targetAgentId && sub.agentId !== targetAgentId) continue;
+      if (!sub.script) continue;
+      const alias = sub.payloadAs || 'event';
+
+      if (sub.when) {
+        const matches = await this.evaluateExpressionAsync(sub.when, {
+          conversationId: req.conversationId,
+          context: { [alias]: payload, event: payload, payload, params: { [alias]: payload } }
+        });
+        if (!matches) continue;
+      }
+
+      // The declaring Script's AST is the source of truth; reference its active version when versioned.
+      let astData: any;
+      let astPath: string | undefined;
+      let scriptVersion: number | undefined;
+      try {
+        if (sub.script.currentVersion > 0) {
+          const loaded = await getScriptVersionAst(this.prisma, sub.scriptId, sub.script.currentVersion);
+          scriptVersion = loaded.version;
+          astPath = entryAstPath(loaded.ast, sub.entry);
+          if (this.astStorage === 'snapshot') {
+            const entryNode = getEntry(loaded.ast, sub.entry ?? undefined).node;
+            astData = loaded.ast.type === 'Curator_Module' ? expandInlineCalls(entryNode, loaded.ast as any) : entryNode;
+          }
+        } else {
+          const legacy = typeof sub.script.ast === 'string' ? JSON.parse(sub.script.ast) : sub.script.ast;
+          if (!legacy) continue;
+          astData = getEntry(legacy, sub.entry ?? undefined).node;
+        }
+      } catch (err: any) {
+        logger.warn(`[CuratorRequestProcessor] Subscription ${sub.id} for '${eventName}' skipped: ${err.message}`);
         continue;
       }
 
-      const targetAst = sub.workflowAst || sub.agentWorkflow?.ast;
-      if (!targetAst) continue;
-
-      await this.createValidatedRequest({
+      const child = await this.createValidatedRequest({
         data: {
           userId: sub.userId,
           projectId: sub.projectId,
           conversationId: req.conversationId,
+          parentId: req.id, // causality: spawned by this emit Request
+          scriptId: sub.scriptId,
+          scriptVersion,
+          agentId: sub.agentId ?? undefined,
           status: 'NEW',
-          ast: targetAst as any,
-          context: { input: payload, eventName: node.eventName }
+          ast: astData,
+          context: { params: { [alias]: payload }, input: payload, eventName, origin: 'AST', astPath }
         }
       });
-      spawnedCount++;
+      spawned.push(child.id);
     }
-    
+
     // Wake up WAITING_FOR_EVENT and WAITING_FOR_USER requests matching waitEvent
     const waitingRequests = await this.prisma.request.findMany({
       where: {
@@ -939,41 +1112,47 @@ export class CuratorRequestProcessor {
       }
     });
 
-    let wokenCount = 0;
+    const woken: number[] = [];
     for (const waitReq of waitingRequests) {
       const ctx = waitReq.context as any;
-      if (ctx?.waitEvent === node.eventName) {
-        logger.info(`[CuratorRequestProcessor] Waking up request ${waitReq.id} waiting for event ${node.eventName}`);
-        
+      const matches = ctx?.waitEvent === eventName || (opts.matchWait?.(ctx?.waitEvent, eventName, payload) ?? false);
+      if (matches) {
+        logger.info(`[CuratorRequestProcessor] Waking up request ${waitReq.id} waiting for event ${eventName}`);
+        const value = opts.waitValue ? opts.waitValue(payload) : payload;
+
         const aliasKey = ctx.payloadAlias || ctx.choiceAs || ctx.as;
         let newState = {};
         if (aliasKey) {
-           newState = { [aliasKey]: payload };
+           newState = { [aliasKey]: value };
         }
-        
+
         const updatedContext = { ...ctx };
         delete updatedContext.waitEvent;
         delete updatedContext.payloadAlias;
         updatedContext.__humanInputReceived__ = true;
         if (aliasKey) {
-           updatedContext[aliasKey] = payload;
+           updatedContext[aliasKey] = value;
            updatedContext.state = { ...(updatedContext.state || {}), ...newState };
-           
+
            const conv = await this.prisma.conversation.findUnique({ where: { id: waitReq.conversationId } });
            const currentConvState = this.getConversationState(conv);
            await this.updateConversationState(waitReq.conversationId, { ...currentConvState, ...newState });
         }
-        
+        if (opts.contextPatch) {
+          Object.assign(updatedContext, opts.contextPatch);
+          if (updatedContext.state) updatedContext.state = { ...updatedContext.state, ...opts.contextPatch };
+        }
+
         await this.prisma.request.update({
           where: { id: waitReq.id },
           data: { status: 'NEW', context: updatedContext }
         });
-        wokenCount++;
+        woken.push(waitReq.id);
       }
     }
 
-    await this.saveResponse(req, `Emitted event '${node.eventName}' to ${spawnedCount} listeners. Woke up ${wokenCount} waiting workflows.`);
-    await this.completeRequest(req.id, 'COMPLETED');
+    logger.info(`[CuratorRequestProcessor] Event '${eventName}': spawned ${spawned.length}, woke ${woken.length}`);
+    return { eventName, spawned, woken };
   }
 
   private async handleWaitEvent(ast: any, req: any) {
@@ -1378,90 +1557,321 @@ export class CuratorRequestProcessor {
     });
   }
 
+  /**
+   * Curator_AgentRef is normalized to Curator_Call through the agent's Script
+   * (Agent has no AST of its own); the child Request runs with the agent as actor.
+   */
   private async handleAgentRef(req: any, ast: any, context: any) {
-    if (context.spawnedChild) {
-      // Phase 2: Child finished. Output is in context.input.
-      const outputStr = typeof context.input === 'string' ? context.input : JSON.stringify(context.input || {});
-      await this.saveResponse(req, outputStr);
-      await this.completeRequest(req.id, 'COMPLETED');
+    if (context?.callPending) return this.handleCall({ type: 'Curator_Call', ref: '', as: ast.as } as any, req);
+
+    const agentDef = ast.agentName
+      ? await this.prisma.agent.findFirst({
+          where: { OR: [{ id: ast.agentName }, { name: ast.agentName }] },
+          include: { script: { select: { name: true } } }
+        })
+      : null;
+    if (!agentDef?.script?.name) {
+      const reason = !ast.agentName ? 'Missing agentName parameter' : `Agent '${ast.agentName}' not found or has no script`;
+      logger.error(`[CuratorRequestProcessor] AgentRef failed for request ${req.id}: ${reason}`);
+      await this.saveResponse(req, `[Agent Error] ${reason}`);
+      await this.completeRequest(req.id, 'FAILED');
       return;
     }
+    return this.handleCall(
+      { type: 'Curator_Call', ref: agentDef.script.name, args: { input: '$context.input' }, as: ast.as } as any,
+      req,
+      { agentId: agentDef.id }
+    );
+  }
 
-    if (!ast.agentName) {
-      await this.saveResponse(req, `[Agent Error] Missing agentName parameter`);
-      await this.completeRequest(req.id, 'COMPLETED');
-      return;
-    }
-
-    logger.info(`[CuratorRequestProcessor] Executing AgentRef '${ast.agentName}' for request ${req.id}`);
-    
-    // Look up the agent AST from the database
-    const agentDef = await this.prisma.agent.findUnique({
-      where: { name: ast.agentName }
-    });
-
-    if (!agentDef) {
-      logger.error(`[CuratorRequestProcessor] Agent '${ast.agentName}' not found in DB.`);
-      await this.saveResponse(req, `[Agent Error] Agent '${ast.agentName}' not found.`);
-      await this.completeRequest(req.id, 'COMPLETED');
-      return;
-    }
-
-    let agentAst: any = null;
-    
-    if (agentDef.ast) {
-      agentAst = typeof agentDef.ast === 'string' ? JSON.parse(agentDef.ast) : agentDef.ast;
-    } else if (agentDef.sourceCode) {
-      logger.info(`[CuratorRequestProcessor] Evaluating sourceCode for agent '${ast.agentName}'`);
-      const sandbox = { console, input: context.input || '' };
-      const vmContext = vm.createContext(sandbox);
-      try {
-        const output = vm.runInContext(agentDef.sourceCode, vmContext);
-        if (typeof output === 'string') {
-          agentAst = JSON.parse(output);
-        } else {
-          agentAst = output;
-        }
-      } catch (err: any) {
-        logger.error(`[CuratorRequestProcessor] Failed to evaluate agent sourceCode for '${ast.agentName}':`, err);
-        await this.saveResponse(req, `[Agent Error] Evaluation failed: ${err.message}`);
-        await this.completeRequest(req.id, 'COMPLETED');
+  /** Q4: composite ad-hoc root ASTs become anonymous ScriptVersions; versioned roots record their version. */
+  private async ensureScriptReference(req: any) {
+    if (req.parentId || req.notifyId || !this.prisma.scriptVersion) return;
+    try {
+      if (req.scriptId) {
+        if (req.scriptVersion) return;
+        const script = await this.prisma.script.findUnique({ where: { id: req.scriptId }, select: { currentVersion: true } });
+        if (!script?.currentVersion) return;
+        await this.prisma.request.update({ where: { id: req.id }, data: { scriptVersion: script.currentVersion } });
+        req.scriptVersion = script.currentVersion;
         return;
       }
+      const ast = typeof req.ast === 'string' ? JSON.parse(req.ast) : req.ast;
+      // Light single-tool Requests stay snapshot-only (no script per distinct argument set).
+      if (!ast?.type || ast.type === 'Curator_Tool') return;
+      const saved = await saveAdhocScript(this.prisma, ast, { userId: req.userId, projectId: req.projectId });
+      await this.prisma.request.update({ where: { id: req.id }, data: { scriptId: saved.scriptId, scriptVersion: saved.version } });
+      req.scriptId = saved.scriptId;
+      req.scriptVersion = saved.version;
+    } catch (err: any) {
+      logger.warn(`[CuratorRequestProcessor] Request ${req.id}: script reference not recorded: ${err.message}`);
     }
+  }
 
-    if (!agentAst) {
-      logger.error(`[CuratorRequestProcessor] Agent '${ast.agentName}' has no valid AST or sourceCode.`);
-      await this.saveResponse(req, `[Agent Error] Agent '${ast.agentName}' has no valid AST.`);
+  private isDynamicExpr(v: unknown): v is string {
+    return typeof v === 'string' && (v.startsWith('{{') || v.startsWith('$') || (v.startsWith('(') && v.endsWith('(context)')));
+  }
+
+  /** Evaluates `$context...` / `{{ }}` values of an args object in the caller's context. */
+  private async evaluateArgs(args: Record<string, any> | undefined, req: any): Promise<Record<string, any>> {
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(args || {})) {
+      out[k] = this.isDynamicExpr(v) ? await this.evaluateExpressionAsync(v, req) : v;
+    }
+    return out;
+  }
+
+  /** Binds call args to declared params (defaults, required). Undeclared args pass through. */
+  private async bindParams(spec: Record<string, CuratorParamSpec> | undefined, args: Record<string, any> | undefined, req: any) {
+    const params = await this.evaluateArgs(args, req);
+    for (const [name, p] of Object.entries(spec || {})) {
+      if (params[name] === undefined && p?.default !== undefined) params[name] = p.default;
+      if (params[name] === undefined && p?.required) throw new Error(`Missing required param '${name}'`);
+    }
+    return params;
+  }
+
+  private async failRequest(req: any, reason: string) {
+    logger.error(`[CuratorRequestProcessor] Request ${req.id} failed: ${reason}`);
+    await this.saveResponse(req, `ERROR: ${reason}`);
+    await this.completeRequest(req.id, 'FAILED');
+  }
+
+  /**
+   * Paths B/C: one direct tool call (REPL, CLI, API) as a light Request, executed synchronously through
+   * the same handler as AST tool nodes (RBAC, approval gate, secrets, Response). Throws on tool error
+   * or when access is denied; returns status WAITING_FOR_USER when approval is required.
+   */
+  public async runToolRequest(input: RunToolRequestInput): Promise<RunToolRequestResult> {
+    if (!this.engine.tools.get(input.toolName)) throw new Error(`Tool '${input.toolName}' not found`);
+    // Created locked (WAITING + lockedBy) so the poller never picks it up concurrently.
+    const created = await this.prisma.request.create({
+      data: {
+        userId: input.userId,
+        projectId: input.projectId ?? null,
+        conversationId: input.conversationId,
+        agentId: input.agentId ?? undefined,
+        toolName: input.toolName,
+        status: 'WAITING',
+        lockedBy: this.workerId,
+        lockedAt: new Date(),
+        ast: { type: 'Curator_Tool', toolName: input.toolName, args: input.args ?? {} },
+        context: { ...(input.context || {}), origin: input.origin, literalArgs: true }
+      }
+    });
+    this.inflight.set(created.id, { runtimeArgs: input.runtimeArgs, runtimeContext: input.runtimeContext, broadcastToolEvents: input.broadcastToolEvents });
+    try {
+      await this.processRequest({ id: created.id });
+      const flight = this.inflight.get(created.id);
+      if (flight?.error) throw flight.error;
+
+      const done = await this.prisma.request.findUnique({
+        where: { id: created.id },
+        include: { responses: { orderBy: { createdAt: 'desc' }, take: 1 } }
+      });
+      const content = done?.responses?.[0]?.content ?? null;
+      let parsed: any = content;
+      if (typeof content === 'string') {
+        try { parsed = JSON.parse(content); } catch { /* plain text */ }
+      }
+      const record = CuratorRequestProcessor.isStructuredRecord(parsed) ? (parsed as CuratorStructuredResponse) : undefined;
+      if (done?.status === 'FAILED') {
+        throw new Error(record?.reason || (typeof content === 'string' ? content : `Tool '${input.toolName}' failed`));
+      }
+      return {
+        requestId: created.id,
+        status: done?.status ?? 'UNKNOWN',
+        result: record ? undefined : (flight?.raw !== undefined ? flight.raw : parsed),
+        record
+      };
+    } finally {
+      this.inflight.delete(created.id);
+    }
+  }
+
+  /**
+   * One emitted event (REPL, CLI, API) recorded as a Request whose Response is EVENT_EMITTED.
+   * Uses the same matcher as Curator_EmitEvent (subscriptions + waits).
+   */
+  public async emitEventRequest(input: EmitEventRequestInput): Promise<CuratorEventEmitResult & { requestId: number }> {
+    const req = await this.prisma.request.create({
+      data: {
+        userId: input.userId,
+        projectId: input.projectId ?? null,
+        conversationId: input.conversationId,
+        agentId: input.agentId ?? undefined,
+        status: 'WAITING',
+        lockedBy: this.workerId,
+        lockedAt: new Date(),
+        ast: { type: 'Curator_EmitEvent', eventName: input.eventName, payload: input.payload ?? null },
+        context: { origin: input.origin }
+      }
+    });
+    try {
+      const result = await this.dispatchEvent(input.eventName, input.payload, req, input.targetAgentId, input);
+      if (input.broadcast !== false) this.emit(input.eventName, input.payload);
+      const record: CuratorStructuredResponse = { type: 'EVENT_EMITTED', ok: true, event: result };
+      await this.saveResponse(req, JSON.stringify(record));
+      await this.completeRequest(req.id, 'COMPLETED');
+      return { ...result, requestId: req.id };
+    } catch (err: any) {
+      await this.failRequest(req, `Emit '${input.eventName}': ${err.message}`);
+      throw err;
+    }
+  }
+
+  /**
+   * Curator_Call (child mode): the callee runs as its own Request (parentId/notifyId = caller) with an
+   * isolated context `{ params }`. Phase 2 writes the callee's result to `as`.
+   * Inline calls never reach here: they are macro-expanded when the node is resolved.
+   */
+  private async handleCall(ast: CuratorCallNode, req: any, opts: { agentId?: string } = {}) {
+    const ctx = (typeof req.context === 'string' ? JSON.parse(req.context) : req.context) || {};
+
+    if (ctx.callPending) {
+      // Phase 2: the callee chain finished; the latest Response of a request that notified us is the result.
+      const last = await this.prisma.request.findFirst({
+        where: { notifyId: req.id, status: 'COMPLETED', responses: { some: {} } },
+        orderBy: { id: 'desc' },
+        include: { responses: { orderBy: { createdAt: 'desc' }, take: 1 } }
+      });
+      let result: any = last?.responses?.[0]?.content ?? null;
+      if (typeof result === 'string') {
+        try { result = JSON.parse(result); } catch { /* plain text result */ }
+      }
+      if (ctx.callReturns && last) {
+        const lastCtx = typeof last.context === 'string' ? JSON.parse(last.context) : last.context;
+        result = await this.evaluateExpressionAsync(ctx.callReturns, { conversationId: last.conversationId, context: lastCtx || {} });
+      }
+      const as = ast.as ?? ctx.callAs;
+      const { callPending: _p, callReturns: _r, callAs: _a, ...rest } = ctx;
+      const newContext: any = { ...rest };
+      if (as) {
+        newContext[as] = result;
+        const conv = await this.prisma.conversation.findUnique({ where: { id: req.conversationId } });
+        const newState = { ...this.getConversationState(conv), [as]: result };
+        await this.updateConversationState(req.conversationId, newState);
+        newContext.state = newState;
+      }
+      await this.prisma.request.update({ where: { id: req.id }, data: { context: newContext } });
+      await this.saveResponse(req, typeof result === 'string' ? result : JSON.stringify(result ?? null));
       await this.completeRequest(req.id, 'COMPLETED');
       return;
     }
 
-    // Spawn the loaded AST as a child request, inheriting the input context
-    await this.createValidatedRequest({
-      data: {
-        userId: req.userId,
-        conversationId: req.conversationId,
-        status: 'NEW',
-        pendingDependencies: 0,
-        notifyId: req.id,
-        ast: agentAst,
-        context: { input: context.input }
-      }
-    });
+    const depth = (ctx.callDepth ?? 0) + 1;
+    if (depth > this.maxCallDepth) return this.failRequest(req, `Call depth ${depth} exceeds maxCallDepth ${this.maxCallDepth} at '${ast.ref}'`);
 
-    // Put this request to sleep waiting for the child to complete
-    context.spawnedChild = true;
+    let target: Awaited<ReturnType<typeof resolveRef>>;
+    let params: Record<string, any>;
+    let astPath: string;
+    let rootAst: CuratorAstNode;
+    try {
+      target = await resolveRef(this.prisma, ast.ref, { scriptId: req.scriptId, scriptVersion: req.scriptVersion });
+      params = await this.bindParams(target.params, ast.args, req);
+      rootAst = (await getScriptVersionAst(this.prisma, target.scriptId, target.version)).ast;
+      astPath = entryAstPath(rootAst, target.entry);
+    } catch (err: any) {
+      return this.failRequest(req, `Call '${ast.ref}': ${err.message}`);
+    }
+
+    // Park the caller first so a fast callee can never complete before we are WAITING.
     await this.prisma.request.update({
       where: { id: req.id },
       data: {
-        pendingDependencies: 1,
-        status: 'NEW',
-        lockedBy: null,
-        lockedAt: null,
-        context
+        status: 'WAITING', pendingDependencies: 1, lockedBy: null, lockedAt: null,
+        context: { ...ctx, callPending: true, callReturns: target.returns ?? null, callAs: ast.as ?? null }
       }
     });
+
+    await this.createValidatedRequest({
+      data: {
+        userId: req.userId,
+        projectId: req.projectId,
+        conversationId: req.conversationId,
+        parentId: req.id,
+        notifyId: req.id,
+        scriptId: target.scriptId,
+        scriptVersion: target.version,
+        agentId: opts.agentId ?? req.agentId ?? undefined,
+        status: 'NEW',
+        pendingDependencies: 0,
+        ast: this.astStorage === 'snapshot'
+          ? (rootAst.type === 'Curator_Module' ? expandInlineCalls(target.node, rootAst as any) : target.node)
+          : undefined,
+        // Isolated: the callee sees only its params (plus conversation state), never the caller's context.
+        context: { params, input: params.input, origin: 'AST', ref: ast.ref, astPath, callDepth: depth }
+      }
+    });
+    // No Response while parked: the poller treats a WAITING Request with a Response as answered.
+    // Lineage is the child's parentId; the result Response is written in phase 2.
+  }
+
+  /** Resolves a handler ref to its Script row id and entry (local refs use the executing script). */
+  private async resolveHandler(handler: string, req: any): Promise<{ scriptId: number; entry: string | null }> {
+    const parsed = parseCuratorRef(handler);
+    if (!parsed) throw new Error(`Invalid handler ref '${handler}'`);
+    if (!parsed.script) {
+      if (!req.scriptId) throw new Error(`Local handler '${handler}' used outside a stored script`);
+      return { scriptId: req.scriptId, entry: parsed.entry ?? null };
+    }
+    const script = await this.prisma.script.findUnique({ where: { name: parsed.script }, select: { id: true } });
+    if (!script) throw new Error(`Script '${parsed.script}' not found`);
+    return { scriptId: script.id, entry: parsed.entry ?? null };
+  }
+
+  /** Dynamic Curator_Subscribe: materializes a conversation-scoped EventSubscription bound to the handler's Script. */
+  private async handleSubscribe(ast: CuratorSubscribeNode, req: any) {
+    if (!this.prisma.eventSubscription) return this.failRequest(req, 'EventSubscription model is not available');
+    if (ast.scope === 'project') {
+      return this.failRequest(req, `Project-scoped subscriptions must be declared in Curator_Module.subscriptions (static)`);
+    }
+    try {
+      const { scriptId, entry } = await this.resolveHandler(ast.handler, req);
+      const where = { scriptId, entry, eventName: ast.eventName, conversationId: req.conversationId };
+      const data = {
+        isActive: true,
+        when: ast.when ?? null,
+        payloadAs: ast.as ?? null,
+        userId: req.userId,
+        projectId: req.projectId ?? null,
+        agentId: req.agentId ?? null
+      };
+      const found = await this.prisma.eventSubscription.findFirst({ where });
+      const row = found
+        ? await this.prisma.eventSubscription.update({ where: { id: found.id }, data })
+        : await this.prisma.eventSubscription.create({ data: { ...where, ...data } });
+      const record: CuratorStructuredResponse = {
+        type: 'SUBSCRIBED',
+        ok: true,
+        metadata: { subscriptionId: row.id, eventName: ast.eventName, handler: ast.handler }
+      };
+      await this.saveResponse(req, JSON.stringify(record));
+      await this.completeRequest(req.id, 'COMPLETED');
+    } catch (err: any) {
+      return this.failRequest(req, `Subscribe '${ast.eventName}': ${err.message}`);
+    }
+  }
+
+  /** Dynamic Curator_Unsubscribe: deactivates conversation-scoped subscriptions (all, or for one handler). */
+  private async handleUnsubscribe(ast: CuratorUnsubscribeNode, req: any) {
+    if (!this.prisma.eventSubscription) return this.failRequest(req, 'EventSubscription model is not available');
+    try {
+      const handlerWhere = ast.handler ? await this.resolveHandler(ast.handler, req) : {};
+      const res = await this.prisma.eventSubscription.updateMany({
+        where: { eventName: ast.eventName, conversationId: req.conversationId, isActive: true, ...handlerWhere },
+        data: { isActive: false }
+      });
+      const record: CuratorStructuredResponse = {
+        type: 'UNSUBSCRIBED',
+        ok: true,
+        metadata: { eventName: ast.eventName, handler: ast.handler ?? null, count: res?.count ?? 0 }
+      };
+      await this.saveResponse(req, JSON.stringify(record));
+      await this.completeRequest(req.id, 'COMPLETED');
+    } catch (err: any) {
+      return this.failRequest(req, `Unsubscribe '${ast.eventName}': ${err.message}`);
+    }
   }
 
   private async handleScript(ast: CuratorScriptNode, req: any) {
@@ -1582,7 +1992,7 @@ export class CuratorRequestProcessor {
     return permissions;
   }
 
-  private async checkToolAccess(req: any, toolName: string, tool: any): Promise<{ allowed: boolean; requiresConfirmation: boolean; reason?: string; approvalScope?: string }> {
+  private async checkToolAccess(req: any, toolName: string, tool: any): Promise<{ allowed: boolean; requiresConfirmation: boolean; reason?: string; approvalScope?: string; roles?: string[] }> {
     const accessLevel = (tool as any).accessLevel || 'safe_write';
     const requiresConfirmation = (tool as any).requiresConfirmation || (tool as any).requiresHumanApproval || accessLevel === 'destructive' || accessLevel === 'elevated';
 
@@ -1609,24 +2019,12 @@ export class CuratorRequestProcessor {
           }
         );
         if (!roleCheck.allowed) {
-          await AuditService.log(this.prisma, {
-            entityType: effectiveAgentId ? 'AGENT' : 'USER',
-            entityId: effectiveAgentId ? String(effectiveAgentId) : String(effectiveUserId || 'unbound'),
-            action: 'TOOL_EXECUTION_BLOCKED',
-            userId: effectiveUserId ? String(effectiveUserId) : null,
-            agentId: effectiveAgentId ? String(effectiveAgentId) : null,
-            requestId: req.id,
-            status: 'BLOCKED',
-            metadata: {
-              tool: toolName,
-              roles: roleCheck.roleNames,
-              reason: roleCheck.reason
-            }
-          });
+          // Recorded by the caller as a TOOL_BLOCKED Response.
           return {
             allowed: false,
             requiresConfirmation: false,
-            reason: roleCheck.reason
+            reason: roleCheck.reason,
+            roles: roleCheck.roleNames
           };
         }
       } catch (roleErr) {
@@ -1645,21 +2043,7 @@ export class CuratorRequestProcessor {
       });
 
       if (!approvalResult.approved) {
-        await AuditService.log(this.prisma, {
-          entityType: req.agentId ? 'AGENT' : 'REQUEST',
-          entityId: req.agentId ? String(req.agentId) : String(req.id),
-          action: 'HUMAN_APPROVAL_REQUIRED',
-          userId: req.userId ? String(req.userId) : null,
-          agentId: req.agentId ? String(req.agentId) : null,
-          requestId: req.id,
-          status: 'PENDING_APPROVAL',
-          metadata: {
-            tool: toolName,
-            accessLevel,
-            reason: approvalResult.reason
-          }
-        });
-
+        // Recorded by the caller as an APPROVAL_REQUIRED Response.
         return {
           allowed: false,
           requiresConfirmation: true,
@@ -1695,16 +2079,102 @@ export class CuratorRequestProcessor {
     };
   }
 
+  /**
+   * Approval waits (WAITING_FOR_USER + context.pendingToolCall) are resumed only by an approval.
+   * Past `pendingToolCall.expiresAt` they are closed with an APPROVAL_EXPIRED Response, and the AST decides
+   * the outcome via the tool node's `onApprovalExpired`: 'fail' (default) fails the step, 'continue'
+   * completes it with `{ ok: false, expired: true }` under `as` / toolName so the flow can branch.
+   */
+  private async expireApprovalWaits() {
+    const parked = await this.prisma.request.findMany({
+      where: { status: 'WAITING_FOR_USER' },
+      orderBy: { updatedAt: 'asc' },
+      take: 50
+    });
+    const now = Date.now();
+    for (const req of parked) {
+      const ctx = (typeof req.context === 'string' ? JSON.parse(req.context) : req.context) || {};
+      const pending = ctx.pendingToolCall;
+      if (!pending?.expiresAt || Date.parse(pending.expiresAt) > now) continue;
+
+      // Claim it atomically so only one worker expires it.
+      const claimed = await this.prisma.request.updateMany({
+        where: { id: req.id, status: 'WAITING_FOR_USER' },
+        data: { status: 'WAITING', lockedBy: this.workerId, lockedAt: new Date() }
+      });
+      if (claimed.count === 0) continue;
+
+      logger.info(`[CuratorRequestProcessor] Approval wait for '${pending.name}' on request ${req.id} expired.`);
+      const record: CuratorStructuredResponse = {
+        type: 'APPROVAL_EXPIRED', ok: false, tool: pending.name, expiresAt: pending.expiresAt, reason: ctx.reason
+      };
+      const nextCtx: any = { ...ctx };
+      delete nextCtx.pendingToolCall;
+      const proceed = pending.onExpired === 'continue';
+      if (proceed) {
+        const outcome = { ok: false, expired: true, type: 'APPROVAL_EXPIRED', tool: pending.name };
+        nextCtx[pending.name] = outcome;
+        if (pending.as) nextCtx[pending.as] = outcome;
+      }
+      await this.prisma.request.update({ where: { id: req.id }, data: { context: nextCtx } });
+      req.context = nextCtx;
+      await this.saveResponse(req, JSON.stringify(record));
+      await this.completeRequest(req.id, proceed ? 'COMPLETED' : 'FAILED');
+    }
+  }
+
+  /**
+   * Retention cleanup (policy `readOnlyRequests: 'prune'`): deletes COMPLETED direct (root, non-workflow)
+   * tool Requests of read-only tools older than `readOnlyTtlMs`, with their Responses.
+   * Workflow Requests, failures and anything with children are never pruned. Runs at most every 10 minutes.
+   */
+  public async pruneReadOnlyRequests(force = false): Promise<number> {
+    if (this.retention.readOnlyRequests !== 'prune') return 0;
+    if (!force && Date.now() - this.lastPruneAt < 10 * 60 * 1000) return 0;
+    this.lastPruneAt = Date.now();
+
+    const readOnlyTools: string[] = [];
+    for (const [name, tool] of this.engine.tools.entries()) {
+      const level = String((tool as any)?.accessLevel || '').toLowerCase();
+      if (level === 'safe_read' || level === 'read_only' || level === 'readonly') readOnlyTools.push(name);
+    }
+    if (readOnlyTools.length === 0) return 0;
+
+    const cutoff = new Date(Date.now() - this.retention.readOnlyTtlMs);
+    const victims = await this.prisma.request.findMany({
+      where: {
+        status: 'COMPLETED',
+        toolName: { in: readOnlyTools },
+        parentId: null,
+        scriptId: null,
+        createdAt: { lt: cutoff },
+        children: { none: {} }
+      },
+      select: { id: true },
+      take: 500
+    });
+    if (victims.length === 0) return 0;
+    const ids = victims.map((v: any) => v.id);
+    await this.prisma.response.deleteMany({ where: { requestId: { in: ids } } });
+    const deleted = await this.prisma.request.deleteMany({ where: { id: { in: ids } } });
+    logger.info(`[CuratorRequestProcessor] Retention: pruned ${deleted.count} read-only tool request(s) older than ${cutoff.toISOString()}.`);
+    return deleted.count;
+  }
+
   private async handleTool(ast: CuratorToolNode, req: any) {
     logger.info(`[CuratorRequestProcessor] Executing Tool '${ast.toolName}' for request ${req.id}`);
-    const tool = curatorEngine.tools.get(ast.toolName);
+    const tool = this.engine.tools.get(ast.toolName);
     if (!tool) throw new Error(`Tool ${ast.toolName} not found in dynamic registry.`);
 
     const toolArgs = ast.args || { url: req.context?.input || '' };
+    // Direct calls (REPL/CLI/API) carry literal args: a value like "$100" must not be evaluated.
+    const literalArgs = req.context?.literalArgs === true;
+    const inflight = this.inflight.get(req.id);
     
     // Evaluate string expressions in toolArgs — supports both {{expr}} templates and (fn)(context) patterns
     const evaluatedArgs: Record<string, any> = {};
     for (const [k, v] of Object.entries(toolArgs)) {
+      if (literalArgs) { evaluatedArgs[k] = v; continue; }
       if (typeof v === 'string' && (v.startsWith('{{') || v.startsWith('$') || (v.startsWith('(') && v.endsWith('(context)')))) {
         evaluatedArgs[k] = await this.evaluateExpressionAsync(v, req);
       } else if (typeof v === 'object' && v !== null) {
@@ -1728,6 +2198,8 @@ export class CuratorRequestProcessor {
     if (!accessCheck.allowed) {
       if (accessCheck.requiresConfirmation) {
         logger.info(`[CuratorRequestProcessor] Request ${req.id} pausing on WAITING_FOR_USER for tool '${ast.toolName}'.`);
+        const ttlMs = ast.approvalTtlMs ?? (tool as any).approvalTtlMs ?? this.approvalTtlMs;
+        const expiresAt = ttlMs > 0 ? new Date(Date.now() + ttlMs).toISOString() : undefined;
         await this.prisma.request.update({
           where: { id: req.id },
           data: {
@@ -1736,15 +2208,26 @@ export class CuratorRequestProcessor {
             lockedAt: null,
             context: {
               ...req.context,
-              pendingToolCall: { name: ast.toolName, args: evaluatedArgs },
+              pendingToolCall: {
+                name: ast.toolName,
+                args: evaluatedArgs,
+                as: ast.as,
+                expiresAt,
+                onExpired: ast.onApprovalExpired ?? 'fail'
+              },
               reason: accessCheck.reason
             }
           }
         });
-        await this.saveResponse(req, `[WAITING_FOR_USER] ${accessCheck.reason}`);
+        // Audit record only: the poller never treats this Response as the approval (see pendingToolCall guard).
+        await this.saveResponse(req, JSON.stringify({
+          type: 'APPROVAL_REQUIRED', ok: false, tool: ast.toolName, reason: accessCheck.reason, expiresAt
+        } satisfies CuratorStructuredResponse));
         return;
       } else {
-        await this.saveResponse(req, `[Access Denied] ${accessCheck.reason}`);
+        await this.saveResponse(req, JSON.stringify({
+          type: 'TOOL_BLOCKED', ok: false, tool: ast.toolName, reason: accessCheck.reason, roles: accessCheck.roles
+        } satisfies CuratorStructuredResponse));
         await this.completeRequest(req.id, 'FAILED');
         return;
       }
@@ -1764,25 +2247,30 @@ export class CuratorRequestProcessor {
       hydratedSecrets = hydration.secretsMap;
 
       rawOutput = await tool.runAsync({
-        args: hydration.hydrated,
+        args: { ...hydration.hydrated, ...(inflight?.runtimeArgs || {}) },
         toolContext: {
+          ...this.toolContextExtras,
           conversationId: req.conversationId,
           userId: req.userId,
+          agentId: req.agentId,
           projectId: req.projectId,
           prisma: this.prisma,
           context: req.context,
-          state: req.context?.state
+          state: req.context?.state,
+          ...(inflight?.runtimeContext || {})
         }
       });
+      if (inflight) inflight.raw = rawOutput;
       result = typeof rawOutput === 'string' ? rawOutput : JSON.stringify(rawOutput);
 
-      if (rawOutput && typeof rawOutput === 'object' && (rawOutput as any).event) {
+      if (rawOutput && typeof rawOutput === 'object' && (rawOutput as any).event && inflight?.broadcastToolEvents !== false) {
         const evt = (rawOutput as any).event;
         const eventName = typeof evt === 'string' ? evt : evt.name;
         const payload = typeof evt === 'object' && evt.payload !== undefined ? evt.payload : rawOutput;
         this.emit(eventName, payload);
       }
     } catch(e: any) {
+      if (inflight) inflight.error = e;
       result = `[Tool Error] ${e.message}`;
     }
 
@@ -1797,6 +2285,8 @@ export class CuratorRequestProcessor {
         ? SecretService.mask(rawOutput, hydratedSecrets)
         : SecretService.sanitizeContext(rawOutput, hydratedSecrets);
       const updatedContext = { ...(req.context || {}) };
+      // An approved wait is consumed once the tool has run.
+      delete updatedContext.pendingToolCall;
       updatedContext[ast.toolName] = sanitizedOutput;
 
       // Allow AST node (`as` / `outputKey`) or tool definition (`outputKey` / `contextKey`) to define an alias
@@ -1829,21 +2319,7 @@ export class CuratorRequestProcessor {
       }
     }
 
-    // Immutable Activity Audit Log
-    await AuditService.log(this.prisma, {
-      entityType: req.agentId ? 'AGENT' : 'REQUEST',
-      entityId: req.agentId ? String(req.agentId) : String(req.id),
-      action: 'TOOL_EXECUTION',
-      userId: req.userId ? String(req.userId) : null,
-      agentId: req.agentId ? String(req.agentId) : null,
-      requestId: req.id,
-      status: rawOutput !== undefined && !(typeof result === 'string' && result.startsWith('[Tool Error]')) ? 'SUCCESS' : 'FAILED',
-      metadata: {
-        tool: ast.toolName,
-        approvalScope: accessCheck.approvalScope || null
-      }
-    });
-
+    // The Response below is the audit record of this tool execution.
     await this.saveResponse(req, result);
     await this.completeRequest(req.id, 'COMPLETED');
   }
@@ -2116,7 +2592,7 @@ export class CuratorRequestProcessor {
     const toolDefs: LlmToolDefinition[] = [];
     if (hasTools) {
       for (const toolOrName of ast.tools!) {
-        const tool = typeof toolOrName === 'string' ? curatorEngine.tools.get(toolOrName) : null;
+        const tool = typeof toolOrName === 'string' ? this.engine.tools.get(toolOrName) : null;
         if (tool) {
           toolDefs.push({
             name: tool.name,
@@ -2179,7 +2655,7 @@ export class CuratorRequestProcessor {
       let pausedForUser = false;
 
       for (const tc of response.toolCalls) {
-        const tool = curatorEngine.tools.get(tc.name);
+        const tool = this.engine.tools.get(tc.name);
         let toolOutput = '';
         let isError = false;
 
@@ -2189,6 +2665,8 @@ export class CuratorRequestProcessor {
           if (!accessCheck.allowed) {
             if (accessCheck.requiresConfirmation) {
               logger.info(`[CuratorRequestProcessor] Request ${req.id} pausing on WAITING_FOR_USER for tool '${tc.name}'.`);
+              const ttlMs = (tool as any).approvalTtlMs ?? this.approvalTtlMs;
+              const expiresAt = ttlMs > 0 ? new Date(Date.now() + ttlMs).toISOString() : undefined;
               await this.prisma.request.update({
                 where: { id: req.id },
                 data: {
@@ -2197,12 +2675,14 @@ export class CuratorRequestProcessor {
                   lockedAt: null,
                   context: {
                     ...req.context,
-                    pendingToolCall: tc,
+                    pendingToolCall: { ...tc, expiresAt, onExpired: 'fail' },
                     reason: accessCheck.reason
                   }
                 }
               });
-              await this.saveResponse(req, `[WAITING_FOR_USER] Approval required to execute '${tc.name}' with args: ${JSON.stringify(tc.args)}`);
+              await this.saveResponse(req, JSON.stringify({
+                type: 'APPROVAL_REQUIRED', ok: false, tool: tc.name, reason: accessCheck.reason, expiresAt
+              } satisfies CuratorStructuredResponse));
               pausedForUser = true;
               break;
             } else {
@@ -2252,21 +2732,8 @@ export class CuratorRequestProcessor {
                     req.context.__approvedTools__ = req.context.__approvedTools__.filter((t: string) => t !== tc.name);
                   }
                 }
-
-                // Immutable Activity Audit Log
-                await AuditService.log(this.prisma, {
-                  entityType: req.agentId ? 'AGENT' : 'REQUEST',
-                  entityId: req.agentId ? String(req.agentId) : String(req.id),
-                  action: 'TOOL_EXECUTION',
-                  userId: req.userId ? String(req.userId) : null,
-                  agentId: req.agentId ? String(req.agentId) : null,
-                  requestId: req.id,
-                  status: 'SUCCESS',
-                  metadata: {
-                    tool: tc.name,
-                    approvalScope: accessCheck.approvalScope || null
-                  }
-                });
+                // TODO(db-driven): LLM tool calls should become child Requests; until then the agent's
+                // conversation history is the record of this call.
               } catch (err: any) {
                 toolOutput = `[Tool Error] ${SecretService.mask(err.message, hydratedSecrets)}`;
                 isError = true;
@@ -2349,6 +2816,16 @@ export class CuratorRequestProcessor {
     }
   }
 
+  private static readonly STRUCTURED_RECORD_TYPES = new Set([
+    'TOOL_BLOCKED', 'APPROVAL_REQUIRED', 'APPROVAL_EXPIRED', 'EVENT_EMITTED', 'CHOICE_PROMPT', 'CHOICE_RECEIVED',
+    'SUBSCRIBED', 'UNSUBSCRIBED', 'MODEL_CHANGED'
+  ]);
+
+  /** True for CuratorStructuredResponse audit records (not tool/workflow output). */
+  private static isStructuredRecord(value: any): boolean {
+    return typeof value?.type === 'string' && CuratorRequestProcessor.STRUCTURED_RECORD_TYPES.has(value.type) && 'ok' in value;
+  }
+
   private async completeRequest(requestId: number, status: string = 'COMPLETED', skipNotify: boolean = false) {
     let req: any;
     try {
@@ -2393,7 +2870,10 @@ export class CuratorRequestProcessor {
           if (lastContent) {
             try {
               const parsed = JSON.parse(lastContent);
-              if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+              if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) && CuratorRequestProcessor.isStructuredRecord(parsed)) {
+                // Structured audit records (EVENT_EMITTED, CALL_STARTED, ...) are not workflow data.
+                newUpdates = {};
+              } else if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
                 newUpdates = parsed;
               } else {
                 newUpdates = { output: lastContent };
@@ -2417,9 +2897,12 @@ export class CuratorRequestProcessor {
             try { sourceContext = JSON.parse(sourceContext); } catch (_) {}
           }
           const skipKeys = new Set(['forEachIndex', 'forEachCollection', 'ifElseEvaluated',
-            'spawnedChild', 'routeDecided', 'pendingToolCall', 'waitEvent', 'payloadAlias']);
-          for (const [k, v] of Object.entries(sourceContext)) {
-            if (!skipKeys.has(k)) targetContext[k] = v;
+            'spawnedChild', 'routeDecided', 'pendingToolCall', 'waitEvent', 'payloadAlias', 'astPath']);
+          // A parked Curator_Call caller is isolated from its callee: the result flows back only via `as`.
+          if (!targetContext.callPending) {
+            for (const [k, v] of Object.entries(sourceContext)) {
+              if (!skipKeys.has(k)) targetContext[k] = v;
+            }
           }
           targetContext.input = JSON.stringify(mergedState);
           targetContext.state = mergedState;
@@ -2482,6 +2965,7 @@ export class CuratorRequestProcessor {
     safeSandbox.context = req.context;
     safeSandbox.$context = req.context;
     safeSandbox.$state = convState;
+    safeSandbox.$params = req.context.params ?? {};
 
     const vmContext = vm.createContext(safeSandbox);
     try {

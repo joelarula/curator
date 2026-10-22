@@ -247,6 +247,58 @@ while_loop "$context.turn <= 5",
 
 ### Guarantees Enforced by `CuratorRequestProcessor`
 1. **Context Persistence**: `$context.turn` and state are committed to the database `Request.context` after each step.
-2. **Response Generation**: `Response` records and audit history are created per turn automatically in SQLite / PostgreSQL.
+2. **Response Generation**: a `Response` record is created per step automatically in SQLite / PostgreSQL. There is no separate audit table — the audit view (`auditLogs`) is derived from Responses.
 3. **Session & Security Validation**: Peer sessions, user roles, and token permissions are validated against the database for every tool and event invocation.
+
+---
+
+## Modules, subroutines and calls
+
+A stored script may have a `Curator_Module` root with a `main` entry and named `subroutines`. A plain node root is treated as a module with only `main`.
+
+```coffeescript
+define_module 'poker_table',
+  params: { seats: { type: 'number', default: 6 } }
+  subscriptions: [
+    subscribe 'game:ping', '#onPing', as: 'ping'
+  ]
+  subroutines:
+    onPing: sub { ping: {} },
+      seq 'pong', [
+        set_state turn: '$params.ping.turn + 1'
+        publish 'game:pong', turn: '$context.turn'
+      ]
+    fmtPot: sub { pot: { type: 'number' } },
+      assign 'label', '"$" + $params.pot'
+  main: seq 'table', [
+    call 'deck#shuffle', { seed: '$context.seed' }, as: 'deck'
+    call '#fmtPot', { pot: '$context.pot' }, as: 'potLabel', mode: 'inline'
+    wait_event 'game:end', 'result'
+  ]
+```
+
+| Ref | Meaning |
+|-----|---------|
+| `'poker_table'` | `main` of script `poker_table` |
+| `'poker_table#onPing'` | subroutine `onPing` of that script |
+| `'#onPing'` | subroutine of the current module |
+
+- `call ref, args, as:, mode:` — `mode: 'child'` (default) runs the callee as a child `Request` (one Request + Response per call); the caller waits and receives the result in `$context[as]`. `mode: 'inline'` is a compile-time macro for small pure helpers (no waits, human input or subscribe).
+- Callees only see their arguments as `$params.*` (plus conversation state), never the caller's context.
+- Local refs (`#sub`) are pinned to the caller's script version; cross-script refs use the target's current version, recorded on the child Request (`scriptVersion`).
+
+## Events: publish, subscribe, wait
+
+- `emit_event name, payload` (alias `publish`) runs as a Request; its Response is `{ "type": "EVENT_EMITTED", "event": { eventName, spawned, woken } }`.
+- `subscribe name, handlerRef, as:, when:` — static when declared in `subscriptions` (materialized as `EventSubscription` rows on script save), dynamic (conversation-scoped) when used inside a flow. Handlers must be named refs. A matching event **spawns** a child Request with the payload in `$params[as]`.
+- `wait_event name, alias` **resumes** the parked flow with the payload in `$context[alias]`.
+- Subscriptions and waits share one matcher in core (`dispatchEvent`).
+
+## Structured Responses
+
+Besides tool output, the processor writes JSON records, e.g. `EVENT_EMITTED`, `APPROVAL_REQUIRED` (`{ tool, roles }`) and `TOOL_BLOCKED` (`{ tool, reason, roles }`). These are not merged into conversation state.
+
+## Direct tool calls are Requests too
+
+CLI, REPL and API tool calls never invoke tool functions directly. Hosts call `host.runTool(name, args, { origin })` (→ `CuratorRequestProcessor.runToolRequest`) and `host.emitEvent(name, payload, opts)` (→ `emitEventRequest`), so RBAC, approval and the Response trail apply exactly as in workflows. Actor and scope come from the host session, never from client payloads.
 

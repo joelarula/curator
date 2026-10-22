@@ -33,6 +33,20 @@ import { AuditService } from '../services/AuditService.js';
 import { AgentRoleService } from '../services/AgentRoleService.js';
 import { ApprovalService } from '../services/ApprovalService.js';
 
+/** Core model change audit: a Request + MODEL_CHANGED Response. Actor/scope come from the authenticated context. */
+function recordChange(context: any, entityType: string, entityId: string, action: string, changes?: Record<string, any>, agentId?: string | null) {
+    return AuditService.recordModelChange(context.prisma, {
+        entityType,
+        entityId,
+        action,
+        userId: context.user.id,
+        projectId: context.activeProjectId ?? null,
+        agentId: agentId ?? null,
+        changes,
+        origin: 'GRAPHQL',
+    });
+}
+
 async function anchorAgentIdentityResource(prisma: any, agent: any, userId: string, projectId?: string | null) {
     const uri = agent.uri || `agent:${agent.name}`;
     try {
@@ -586,16 +600,7 @@ export const agenticResolvers = {
 
             await anchorAgentIdentityResource(context.prisma, agent, context.user.id, context.activeProjectId);
             await syncAgentRoles(context.prisma, agent.id, input.roleNames, input.roleIds);
-
-            await AuditService.log(context.prisma, {
-                entityType: 'AGENT',
-                entityId: agent.id,
-                action: 'AGENT_CREATED',
-                userId: context.user.id,
-                agentId: agent.id,
-                status: 'SUCCESS',
-                metadata: { name: agent.name, uri: agent.uri, roles: input.roleNames }
-            });
+            await recordChange(context, 'AGENT', agent.id, 'AGENT_CREATED', { name: agent.name, uri: agent.uri, scriptId: agent.scriptId, roles: input.roleNames ?? input.roleIds ?? [] }, agent.id);
 
             return agent;
         },
@@ -647,16 +652,7 @@ export const agenticResolvers = {
 
             await anchorAgentIdentityResource(context.prisma, updated, context.user.id, context.activeProjectId);
             await syncAgentRoles(context.prisma, updated.id, input.roleNames, input.roleIds);
-
-            await AuditService.log(context.prisma, {
-                entityType: 'AGENT',
-                entityId: updated.id,
-                action: 'AGENT_UPDATED',
-                userId: context.user.id,
-                agentId: updated.id,
-                status: 'SUCCESS',
-                metadata: { updatedFields: Object.keys(data) }
-            });
+            await recordChange(context, 'AGENT', updated.id, 'AGENT_UPDATED', { ...data, ...(input.roleNames || input.roleIds ? { roles: input.roleNames ?? input.roleIds } : {}) }, updated.id);
 
             return updated;
         },
@@ -746,16 +742,9 @@ export const agenticResolvers = {
 
             await anchorAgentIdentityResource(context.prisma, agent, userId, context.activeProjectId);
             await syncAgentRoles(context.prisma, agent.id, input.roleNames, input.roleIds);
-
-            await AuditService.log(context.prisma, {
-                entityType: 'AGENT',
-                entityId: agent.id,
-                action: existingAgent ? 'AGENT_UPDATED' : 'AGENT_CREATED',
-                userId,
-                agentId: agent.id,
-                status: 'SUCCESS',
-                metadata: { name: agent.name, uri: agent.uri }
-            });
+            await recordChange(context, 'AGENT', agent.id, existingAgent ? 'AGENT_UPDATED' : 'AGENT_CREATED', {
+                name: agent.name, uri: agent.uri, scriptId: script.id, scriptName: input.scriptName, schedule: input.schedule
+            }, agent.id);
 
             return agent;
         },
@@ -814,6 +803,7 @@ export const agenticResolvers = {
                 }
             }
 
+            await recordChange(context, 'AGENT', id, enabled ? 'AGENT_ENABLED' : 'AGENT_DISABLED', { enabled }, id);
             return updated;
         },
 
@@ -894,6 +884,7 @@ export const agenticResolvers = {
                 }
             });
 
+            await recordChange(context, 'AGENT', id, 'AGENT_DELETED', { name: agent.name, scriptId: agent.scriptId }, id);
             return true;
         },
 
@@ -906,7 +897,12 @@ export const agenticResolvers = {
             if (!req) throw new Error(`Request ${id} not found`);
 
             const currentContext = (req.context && typeof req.context === 'object') ? req.context as any : {};
-            const toolName = currentContext.__pendingApprovalTool__ || req.toolName || '*';
+            const pending = currentContext.pendingToolCall;
+            // An expired approval wait is closed by the processor (APPROVAL_EXPIRED); it cannot be approved anymore.
+            if (pending?.expiresAt && Date.parse(pending.expiresAt) <= Date.now()) {
+                throw new Error(`Approval for '${pending.name}' on request ${id} expired at ${pending.expiresAt}`);
+            }
+            const toolName = pending?.name || currentContext.__pendingApprovalTool__ || req.toolName || '*';
             const approvalScope = scope || 'ONETIME';
 
             // Grant approval using ApprovalService
@@ -919,6 +915,7 @@ export const agenticResolvers = {
                 requestId: req.id,
                 userId: context.user.id
             });
+            await recordChange(context, 'TOOL_APPROVAL', String(req.id), 'APPROVAL_GRANTED', { toolName, scope: approvalScope, requestId: req.id }, req.agentId);
 
             currentContext.__humanApproved__ = true;
             currentContext.__approvalScope__ = approvalScope;
@@ -941,24 +938,28 @@ export const agenticResolvers = {
         revokeToolApproval: async (_parent: any, { id }: { id: string }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             await ApprovalService.revokeApproval(context.prisma, id, context.user.email || context.user.id);
+            await recordChange(context, 'TOOL_APPROVAL', id, 'APPROVAL_REVOKED');
             return true;
         },
 
         revokeAgentToolApproval: async (_parent: any, { agentId, toolName }: { agentId: string; toolName: string }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             await ApprovalService.revokeAgentToolApproval(context.prisma, agentId, toolName, context.user.email || context.user.id);
+            await recordChange(context, 'TOOL_APPROVAL', `${agentId}:${toolName}`, 'APPROVAL_REVOKED', { toolName }, agentId);
             return true;
         },
 
         grantToolApproval: async (_parent: any, { agentId, toolName, scope }: { agentId: string; toolName: string; scope: 'ONETIME' | 'CONVERSATION' | 'PERMANENT' }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
-            return await ApprovalService.grantApproval(context.prisma, {
+            const approval = await ApprovalService.grantApproval(context.prisma, {
                 toolName,
                 scope,
                 agentId,
                 approvedBy: context.user.email || context.user.id,
                 userId: context.user.id
             });
+            await recordChange(context, 'TOOL_APPROVAL', String(approval?.id ?? `${agentId}:${toolName}`), 'APPROVAL_GRANTED', { toolName, scope }, agentId);
+            return approval;
         },
 
         assignAgentRole: async (_parent: any, { agentId, roleName }: { agentId: string, roleName: string }, context: any) => {
@@ -972,15 +973,7 @@ export const agenticResolvers = {
                 update: {},
                 create: { agentId, roleId: role.id }
             });
-            await AuditService.log(context.prisma, {
-                entityType: 'AGENT',
-                entityId: agentId,
-                action: 'ROLE_ASSIGNED',
-                userId: context.user.id,
-                agentId,
-                status: 'SUCCESS',
-                metadata: { roleName }
-            });
+            await recordChange(context, 'AGENT', agentId, 'ROLE_ASSIGNED', { roleName }, agentId);
             return await context.prisma.agent.findUnique({
                 where: { id: agentId },
                 include: { user: true, script: true }
@@ -994,15 +987,7 @@ export const agenticResolvers = {
                 await context.prisma.agentRole.deleteMany({
                     where: { agentId, roleId: role.id }
                 });
-                await AuditService.log(context.prisma, {
-                    entityType: 'AGENT',
-                    entityId: agentId,
-                    action: 'ROLE_REMOVED',
-                    userId: context.user.id,
-                    agentId,
-                    status: 'SUCCESS',
-                    metadata: { roleName }
-                });
+                await recordChange(context, 'AGENT', agentId, 'ROLE_REMOVED', { roleName }, agentId);
             }
             return await context.prisma.agent.findUnique({
                 where: { id: agentId },

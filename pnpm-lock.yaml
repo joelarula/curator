@@ -261,6 +261,9 @@ importers:
       '@prisma/client':
         specifier: ^7.6.0
         version: 7.10.1(prisma@7.10.1(@types/node@22.20.5)(@types/react@19.3.0)(better-sqlite3@12.11.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(typescript@5.9.3))(typescript@5.9.3)
+      '@prisma/client-runtime-utils':
+        specifier: 7.10.1
+        version: 7.10.1
       ajv:
         specifier: ^8.20.0
         version: 8.20.0
@@ -8552,6 +8555,7 @@ snapshots:
       '@prisma/adapter-better-sqlite3': 7.10.1
       '@prisma/adapter-mariadb': 7.10.1
       '@prisma/client': 7.10.1(prisma@7.10.1(@types/node@25.9.9)(@types/react@19.3.0)(better-sqlite3@12.11.1)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(typescript@6.0.3))(typescript@6.0.3)
+      '@prisma/client-runtime-utils': 7.10.1
       ajv: 8.20.0
       better-sqlite3: 12.11.1
       bree: 9.2.9

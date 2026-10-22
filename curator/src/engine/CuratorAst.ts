@@ -41,7 +41,11 @@ export type CuratorAstNode =
   | CuratorIfElseNode
   | CuratorWhileNode
   | CuratorForEachNode
-  | CuratorWaitEventNode;
+  | CuratorWaitEventNode
+  | CuratorModuleNode
+  | CuratorCallNode
+  | CuratorSubscribeNode
+  | CuratorUnsubscribeNode;
 
 // ADK_* nodes belong to the legacy ADK processor and are intentionally not
 // part of the Curator AST contract.
@@ -169,6 +173,14 @@ export interface CuratorToolNode extends CuratorBaseNode {
   outputKey?: string;
   /** @deprecated Use args. Legacy scripts are normalized at the AST boundary. */
   parameters?: Record<string, any>;
+  /** Approval wait lifetime in ms when the tool requires approval (0 = never expires). Default: processor `approvalTtlMs`. */
+  approvalTtlMs?: number;
+  /**
+   * What happens when the approval wait expires:
+   * 'fail' (default) fails the step; 'continue' completes it with `{ ok: false, expired: true }`
+   * under `as` / toolName so the flow can branch (e.g. `if_else "$context.<as>.expired"`).
+   */
+  onApprovalExpired?: 'fail' | 'continue';
 }
 
 export interface CuratorScriptNode extends CuratorBaseNode {
@@ -255,4 +267,81 @@ export interface CuratorInterruptNode extends CuratorBaseNode {
   handler?: CuratorAstNode;
   /** Optional node to run after the handler completes (recovery / resume). */
   resume?: CuratorAstNode;
+}
+
+// ── Reusable subroutines & declarative events ─────────────────────────────────────
+//
+// Reference syntax (used by Call.ref and Subscribe.handler):
+//   'script'       → `main` of the Script named `script` (whole script)
+//   'script#sub'   → subroutine `sub` of that Script (subscript)
+//   '#sub'         → subroutine `sub` of the current module
+
+export interface CuratorParamSpec {
+  type?: 'string' | 'number' | 'boolean' | 'object' | 'array' | 'any';
+  required?: boolean;
+  default?: any;
+  description?: string;
+}
+
+export interface CuratorSubroutine {
+  params?: Record<string, CuratorParamSpec>;
+  body: CuratorAstNode;
+  /** Expression producing the result; defaults to the last step output. */
+  returns?: string;
+  description?: string;
+}
+
+/**
+ * Curator_Module — root of a reusable Script AST.
+ * A plain (non-module) root is equivalent to a module with only `main`.
+ */
+export interface CuratorModuleNode extends CuratorBaseNode {
+  type: 'Curator_Module';
+  /** Should equal the owning Script.name. */
+  name: string;
+  description?: string;
+  /** Inputs of `main`. */
+  params?: Record<string, CuratorParamSpec>;
+  /** Entry executed when the module is run, called or triggered without `#entry`. */
+  main?: CuratorAstNode;
+  subroutines?: Record<string, CuratorSubroutine>;
+  /** Static subscriptions, materialized into EventSubscription rows when the Script is saved. */
+  subscriptions?: CuratorSubscribeNode[];
+}
+
+/**
+ * Curator_Call — invoke a subroutine.
+ * - 'child' (default): runs as its own Request (parentId/notifyId = caller), isolated `$params` context.
+ * - 'inline': expanded into the caller at compile time; local refs only, no waits / input / subscribe.
+ */
+export interface CuratorCallNode extends CuratorBaseNode {
+  type: 'Curator_Call';
+  ref: string;
+  args?: Record<string, any>;
+  /** Caller context key receiving the result. */
+  as?: string;
+  mode?: 'child' | 'inline';
+}
+
+/**
+ * Curator_Subscribe — declare that `handler` runs (as a new child Request) whenever `eventName` is emitted.
+ * Static when listed in Module.subscriptions; dynamic (conversation-scoped) when executed inside a flow.
+ */
+export interface CuratorSubscribeNode extends CuratorBaseNode {
+  type: 'Curator_Subscribe';
+  eventName: string;
+  /** Named ref only ('script', 'script#sub', '#sub'); inline AST is not allowed. */
+  handler: string;
+  /** Param name receiving the event payload. Default: 'event'. */
+  as?: string;
+  /** Filter expression evaluated against the payload. */
+  when?: string;
+  scope?: 'conversation' | 'project';
+}
+
+export interface CuratorUnsubscribeNode extends CuratorBaseNode {
+  type: 'Curator_Unsubscribe';
+  eventName: string;
+  /** If omitted, removes all dynamic subscriptions for eventName in this conversation. */
+  handler?: string;
 }

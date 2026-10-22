@@ -21,13 +21,7 @@ for (const envPath of envCandidates) {
 }
 
 import { Command } from 'commander';
-import { ServerClientAdapter, getServerBaseUrl } from './adapters/server-adapter.ts';
-import {
-  GQL_UNIQUE_TRACKS,
-  GQL_STATS,
-  GQL_AGENTS_OVERVIEW,
-  GQL_TRIGGER_AGENT,
-} from './client/keerisClient.ts';
+import { getServerBaseUrl } from './adapters/server-adapter.ts';
 
 const program = new Command();
 
@@ -37,12 +31,12 @@ program
   .version('1.0.0')
   .option('-s, --server <url>', 'Server endpoint URL', process.env.VITE_SERVER_URL || process.env.SERVER_URL || getServerBaseUrl() || 'http://localhost:4001')
   .option('--direct', 'Run direct lightweight in-process execution mode locally (using same database as server)', false)
-  .option('-d, --db <path>', 'Custom database URL or path for direct mode');
+  .option('-d, --db <path>', 'Custom database URL or path for direct mode')
+  .option('-i, --interactive', 'Keep interactive client prompt open after running command', false);
 
 /**
  * Universal GraphQL query executor:
- * - In network mode (default): queries remote server via ServerClientAdapter (identical to Vue frontend).
- * - In direct mode (--direct): executes in-process against the EXACT SAME database as the server.
+ * Delegates to centralized resolveKeerisQuery (network mode with automatic direct in-process DB fallback).
  */
 async function executeGql<T = any>(
   cmdOpts: any,
@@ -54,24 +48,23 @@ async function executeGql<T = any>(
 
   if (!isDirect) {
     const serverUrl = cmdOpts.server || globalOpts.server || getServerBaseUrl() || 'http://localhost:4001';
-    const adapter = new ServerClientAdapter(serverUrl);
     try {
+      const { ServerClientAdapter } = await import('./adapters/server-adapter.ts');
+      const adapter = new ServerClientAdapter(serverUrl);
       return await adapter.requestGraphql<T>(query, variables);
     } catch (err: any) {
-      // If server is not running or unreachable, seamlessly fall back to direct in-process database execution
       const isConnectionError =
         err.message?.includes('fetch failed') ||
         err.message?.includes('ECONNREFUSED') ||
         err.code === 'ECONNREFUSED' ||
-        err.cause?.code === 'ECONNREFUSED';
+        err.cause?.code === 'ECONNREFUSED' ||
+        err.message?.includes('Cannot reach Curator server');
 
-      if (!isConnectionError) {
-        throw err;
-      }
+      if (!isConnectionError) throw err;
     }
   }
 
-  // Direct in-process execution using active database (same database as server)
+  // Direct in-process database execution
   const { openDatabase } = await import('./db.ts');
   const { executeGraphql } = await import('./server/graphql.ts');
   const { config } = await import('./config.ts');
@@ -81,12 +74,61 @@ async function executeGql<T = any>(
     const res = await executeGraphql(db, query, variables, {
       user: { id: 'cli', email: 'system@local', roles: ['curator_manager', 'admin'] },
     });
-    if (res.errors?.length) {
-      throw new Error(res.errors.map((e: any) => e.message).join(', '));
-    }
+    if (res.errors?.length) throw new Error(res.errors.map((e: any) => e.message).join(', '));
     return res.data as T;
   } finally {
     if (typeof db.close === 'function') await db.close();
+  }
+}
+
+/**
+ * Runs a Curator tool in-process as a Request (origin 'CLI') through the Keeris CuratorHost,
+ * so RBAC, approval and the Response trail apply exactly as for workflow tool calls.
+ */
+async function runToolViaHost(toolName: string, args: Record<string, any>, cmdOpts: any): Promise<any> {
+  const { createKeerisHost } = await import('./host.ts');
+  const host = await createKeerisHost({ databasePath: cmdOpts.db || program.opts().db });
+  try {
+    const { status, requestId, result } = await host.runTool(toolName, args, { origin: 'CLI' });
+    if (status === 'WAITING_FOR_USER') {
+      throw new Error(`Tool "${toolName}" requires approval (request #${requestId}); approve it and re-run.`);
+    }
+    return result;
+  } finally {
+    await host.stop();
+  }
+}
+
+/**
+ * Executes a Curator tool in direct in-process mode (as a Request via the host),
+ * or routes query to remote server adapter in client mode.
+ */
+async function executeToolDirectOrRemote(
+  tool: any,
+  args: any,
+  query: string,
+  variables: any,
+  cmdOpts: any
+): Promise<any> {
+  const globalOpts = program.opts();
+  const isDirect = Boolean(cmdOpts.direct || globalOpts.direct);
+  if (isDirect) {
+    return await runToolViaHost(tool.name, args, cmdOpts);
+  }
+  return await executeGql(cmdOpts, query, variables);
+}
+
+async function enterInteractiveIfRequested(cmdOpts: any): Promise<void> {
+  const globalOpts = program.opts();
+  if (cmdOpts?.interactive || globalOpts?.interactive) {
+    const isDirect = Boolean(cmdOpts.direct || globalOpts.direct);
+    const serverUrl = cmdOpts.server || globalOpts.server || getServerBaseUrl() || 'http://localhost:4001';
+    const { runKeerisClient } = await import('./client/keerisClient.ts');
+    await runKeerisClient({
+      direct: isDirect,
+      serverUrl,
+      databasePath: cmdOpts.db || globalOpts.db,
+    });
   }
 }
 
@@ -136,10 +178,15 @@ program
     const searchTerm = (Array.isArray(queryParam) ? queryParam.join(' ') : queryParam) || options.artist || '';
 
     try {
-      const data: any = await executeGql(options, GQL_UNIQUE_TRACKS, {
-        search: searchTerm,
-        limit: Number(options.limit) || 25,
-      });
+      const { keerisSearchTracksTool } = await import('./plugins/keerisTools.ts');
+      const { GQL_UNIQUE_TRACKS } = await import('./client/keerisClient.ts');
+      const data: any = await executeToolDirectOrRemote(
+        keerisSearchTracksTool,
+        { search: searchTerm, limit: Number(options.limit) || 25 },
+        GQL_UNIQUE_TRACKS,
+        { search: searchTerm, limit: Number(options.limit) || 25 },
+        options
+      );
 
       const tracks = data?.uniqueTracks || [];
 
@@ -184,6 +231,7 @@ program
         );
       }
       console.log('─'.repeat(idW + artistW + titleW + playsW + airingW + 3) + '\n');
+      await enterInteractiveIfRequested(options);
     } catch (err: any) {
       console.error(`\x1b[31m[Keeris Error]\x1b[0m ${err.message}`);
       process.exitCode = 1;
@@ -200,7 +248,15 @@ program
   .option('-j, --json', 'Output raw JSON payload')
   .action(async (options) => {
     try {
-      const data: any = await executeGql(options, GQL_STATS);
+      const { keerisGetStatsTool } = await import('./plugins/keerisTools.ts');
+      const { GQL_STATS } = await import('./client/keerisClient.ts');
+      const data: any = await executeToolDirectOrRemote(
+        keerisGetStatsTool,
+        {},
+        GQL_STATS,
+        {},
+        options
+      );
       const stats = data?.stats;
 
       if (options.json) {
@@ -229,6 +285,7 @@ program
         }
         console.log('─────────────────────────────────────────────────────────────────────────────\n');
       }
+      await enterInteractiveIfRequested(options);
     } catch (err: any) {
       console.error(`\x1b[31m[Keeris Error]\x1b[0m ${err.message}`);
       process.exitCode = 1;
@@ -246,7 +303,15 @@ program
   .option('-j, --json', 'Output raw JSON payload')
   .action(async (options) => {
     try {
-      const data: any = await executeGql(options, GQL_AGENTS_OVERVIEW);
+      const { keerisGetAgentsTool } = await import('./plugins/keerisTools.ts');
+      const { GQL_AGENTS_OVERVIEW } = await import('./client/keerisClient.ts');
+      const data: any = await executeToolDirectOrRemote(
+        keerisGetAgentsTool,
+        {},
+        GQL_AGENTS_OVERVIEW,
+        {},
+        options
+      );
       if (options.json) {
         console.log(JSON.stringify(data, null, 2));
         return;
@@ -277,6 +342,7 @@ program
         );
       }
       console.log('─'.repeat(84) + '\n');
+      await enterInteractiveIfRequested(options);
     } catch (err: any) {
       console.error(`\x1b[31m[Keeris Error]\x1b[0m ${err.message}`);
       process.exitCode = 1;
@@ -293,11 +359,47 @@ program
   .option('-r, --refresh', 'Refresh already indexed episodes', false)
   .action(async (agentName, options) => {
     try {
-      console.log(`[Keeris Client] Dispatching triggerCuratorAgent mutation for '${agentName}'...`);
-      const data: any = await executeGql(options, GQL_TRIGGER_AGENT, {
-        name: agentName,
-        refresh: Boolean(options.refresh),
-      });
+      if (Boolean(options.direct || program.opts().direct)) {
+        const { createKeerisHost } = await import('./host.ts');
+        const host = await createKeerisHost({ databasePath: options.db || program.opts().db });
+        try {
+          const request = await host.triggerAgent(agentName, { refresh: Boolean(options.refresh) });
+          console.log(`[Keeris Direct] Request #${request.id} queued; executing in-process via CuratorRequestProcessor...`);
+          await host.start(1000);
+          const timeoutMs = 10 * 60 * 1000;
+          const started = Date.now();
+          while (Date.now() - started < timeoutMs) {
+            const req = await host.prisma.request.findUnique({
+              where: { id: request.id },
+              include: { responses: { orderBy: { createdAt: 'desc' } } },
+            });
+            if (req && ['COMPLETED', 'FAILED', 'CANCELLED', 'SKIPPED'].includes(req.status)) {
+              console.log(JSON.stringify({
+                requestId: req.id,
+                agent: agentName,
+                status: req.status,
+                responses: req.responses.map((r: any) => r.content),
+              }, null, 2));
+              if (req.status !== 'COMPLETED') process.exitCode = 1;
+              return;
+            }
+            await new Promise((r) => setTimeout(r, 500));
+          }
+          throw new Error('Workflow timed out after 10 minutes');
+        } finally {
+          await host.stop();
+        }
+      }
+      console.log(`[Keeris Client] Dispatching trigger via keeris_trigger_agent tool for '${agentName}'...`);
+      const { keerisTriggerAgentTool } = await import('./plugins/keerisTools.ts');
+      const { GQL_TRIGGER_AGENT } = await import('./client/keerisClient.ts');
+      const data: any = await executeToolDirectOrRemote(
+        keerisTriggerAgentTool,
+        { name: agentName, refresh: Boolean(options.refresh) },
+        GQL_TRIGGER_AGENT,
+        { name: agentName, refresh: Boolean(options.refresh) },
+        options
+      );
 
       console.log(`\x1b[32m✔ Task scheduled on Curator Engine:\x1b[0m`);
       console.log(JSON.stringify(data?.triggerCuratorAgent, null, 2));
@@ -321,10 +423,11 @@ program
     const { dirname } = await import('node:path');
 
     try {
-      console.log(`[Keeris Client] Fetching tracks via GraphQL...`);
-      const data: any = await executeGql(options, GQL_UNIQUE_TRACKS, {
+      console.log(`[Keeris Client] Fetching tracks via keeris_search_tracks tool...`);
+      const { keerisSearchTracksTool } = await import('./plugins/keerisTools.ts');
+      const data: any = await keerisSearchTracksTool.execute!({
         limit: Number(options.limit) || 1000,
-      });
+      }, { executeQuery: (q: string, vars: any) => executeGql(options, q, vars), ...options });
 
       const tracks = data?.uniqueTracks || [];
       const csvValue = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
@@ -354,13 +457,94 @@ program
   });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 7. Curator Host commands (seed, exec, run, chat, agent)
+// 7. Download (Download episode broadcast audio file via tool)
+// ─────────────────────────────────────────────────────────────────────────────
+program
+  .command('download <url> [outputDir]')
+  .aliases(['dl', 'audio'])
+  .description('Download the audio broadcast (.m4a / .mp3) for a Vikerraadio/ERR episode via tool (vikerraadio_download_episode)')
+  .option('-o, --out <dir>', 'Output destination directory', 'data/downloads')
+  .action(async (url: string, outputDirParam?: string, options: any = {}) => {
+    try {
+      const { keerisDownloadEpisodeTool } = await import('./plugins/keerisTools.ts');
+      const outDir = outputDirParam || options.out || 'data/downloads';
+      console.log(`[Keeris CLI] Invoking tool "${keerisDownloadEpisodeTool.name}" for ${url}...`);
+      const res: any = await runToolViaHost(keerisDownloadEpisodeTool.name, { url, outputDir: outDir }, options);
+      console.log(`\x1b[32m✔ Download complete:\x1b[0m ${res?.audioUrl || 'Done'}`);
+      await enterInteractiveIfRequested(options);
+    } catch (err: any) {
+      console.error(`\x1b[31m[Keeris Error]\x1b[0m ${err.message}`);
+      process.exitCode = 1;
+    }
+  });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. Tools (List all registered Curator Tools in Keeris)
+// ─────────────────────────────────────────────────────────────────────────────
+program
+  .command('tools')
+  .description('List all available Curator tools in Keeris with parameters and usage')
+  .action(async () => {
+    const { KEERIS_WHITELISTED_TOOLS } = await import('./plugins/keerisTools.ts');
+    console.log('\n\x1b[1m\x1b[36m=== Whitelisted Curator Tools (Keeris) ===\x1b[0m\n');
+    for (const tool of KEERIS_WHITELISTED_TOOLS) {
+      const usage = tool.usage ? ` ${tool.usage}` : '';
+      const aliases = tool.aliases?.length ? ` (${tool.aliases.join(', ')})` : '';
+      console.log(`  \x1b[32m${tool.name}${usage}\x1b[0m${aliases}`);
+      console.log(`    ${tool.description || ''}`);
+      if (tool.parameters?.properties) {
+        const props = Object.entries(tool.parameters.properties).map(([k, v]: [string, any]) => `${k}${tool.parameters?.required?.includes(k) ? '*' : ''}: ${v.type}`).join(', ');
+        console.log(`    \x1b[90mParameters: { ${props} }\x1b[0m`);
+      }
+      console.log('');
+    }
+  });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 9. Exec (Execute any Curator Tool directly from terminal with JSON arguments)
+// ─────────────────────────────────────────────────────────────────────────────
+program
+  .command('exec <toolName> [args...]')
+  .description('Execute any registered Curator tool directly with JSON arguments')
+  .option('--direct', 'Run direct in-process execution mode using the server database', false)
+  .action(async (toolName: string, strArgs: string[] = [], options: any = {}) => {
+    const rawArg = strArgs.join(' ').trim();
+    let parsedArgs: Record<string, any> = {};
+    if (rawArg) {
+      try {
+        parsedArgs = JSON.parse(rawArg);
+      } catch {
+        try {
+          const fixed = rawArg.replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":');
+          parsedArgs = JSON.parse(fixed);
+        } catch {
+          parsedArgs = { input: rawArg };
+        }
+      }
+    }
+    console.log(`\x1b[36m[Keeris CLI]\x1b[0m Executing tool "${toolName}"...`);
+    try {
+      const { KEERIS_WHITELISTED_TOOLS } = await import('./plugins/keerisTools.ts');
+      const tool = KEERIS_WHITELISTED_TOOLS.find((t) => t.name === toolName);
+      if (!tool) {
+        throw new Error(`Tool "${toolName}" not found. Available tools: ${KEERIS_WHITELISTED_TOOLS.map((t) => t.name).join(', ')}`);
+      }
+      const result: any = await runToolViaHost(tool.name, parsedArgs, options);
+      console.log('\x1b[32m[Result]\x1b[0m', typeof result === 'object' ? JSON.stringify(result, null, 2) : result);
+    } catch (err: any) {
+      console.error(`\x1b[31m[Exec Error]\x1b[0m ${err.message}`);
+      process.exitCode = 1;
+    }
+  });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 10. Curator Host commands (seed, run, chat, agent)
 // Forwarded lazily to createHostCli without eager import overhead (matches Poker CLI)
 // ─────────────────────────────────────────────────────────────────────────────
-const hostCommands = ['seed', 'exec', 'run', 'chat', 'agent'];
+const hostCommands = ['seed', 'run', 'chat', 'agent'];
 for (const cmd of hostCommands) {
   program
-    .command(cmd === 'exec' ? 'exec <toolName>' : cmd === 'run' ? 'run <agentName>' : cmd === 'chat' ? 'chat [agentName]' : cmd === 'agent' ? 'agent <agentName>' : cmd)
+    .command(cmd === 'run' ? 'run <agentName>' : cmd === 'chat' ? 'chat [agentName]' : cmd === 'agent' ? 'agent <agentName>' : cmd)
     .allowUnknownOption(true)
     .description(`Curator Host command: ${cmd}`)
     .action(async () => {
@@ -373,7 +557,7 @@ for (const cmd of hostCommands) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 8. Smart Argument Resolution:
+// 9. Smart Argument Resolution:
 // If a user provides only a search string argument (e.g. `keeris "Kauamängiv"`
 // or `node src/cli.ts Kauamängiv`), automatically route to the search command.
 // If run without arguments or with flags only, defaults to interactive client.
@@ -384,8 +568,9 @@ const KNOWN_COMMANDS = new Set([
   'stats',
   'agents', 'status',
   'trigger',
+  'download', 'dl', 'audio',
   'export',
-  'seed', 'exec', 'run', 'chat', 'agent',
+  'seed', 'exec', 'run', 'chat', 'agent', 'tools',
   'help', '--help', '-h',
   '--version', '-v', '-V',
 ]);

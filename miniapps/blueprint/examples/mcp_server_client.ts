@@ -16,16 +16,9 @@ async function main() {
   // 1. Boot host
   const host = await createBlueprintHost();
 
-  // 2. Build MCP Tool Registry bound to Host engine & context
+  // 2. Build MCP Tool Registry bound to the Host: listing from host.engine, calls run as Requests (origin MCP)
   console.log('Initializing MCP Tool Registry...');
-  const mcpRegistry = McpToolRegistry.fromEngine(
-    host.engine,
-    async () => ({
-      prisma: host.prisma,
-      userId: '1',
-      projectId: '1',
-    })
-  );
+  const mcpRegistry = McpToolRegistry.fromHost(host);
 
   // 3. Discover available MCP tools
   const tools = mcpRegistry.list();

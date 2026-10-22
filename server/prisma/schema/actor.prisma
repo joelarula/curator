@@ -221,23 +221,7 @@ model TermsAndConditions {
 }
 
 
-model AuditLog {
-  id         String   @id @default(cuid())
-  entityType String   // "AGENT", "REQUEST", "TOOL", "USER"
-  entityId   String
-  action     String   // e.g. "TOOL_EXECUTION", "TOOL_BLOCKED", "HUMAN_APPROVAL_REQUIRED", "HUMAN_APPROVAL_GRANTED", "AGENT_TRIGGERED"
-  userId     String?
-  agentId    String?
-  agent      Agent?   @relation(fields: [agentId], references: [id], onDelete: SetNull)
-  requestId  Int?
-  status     String   @default("SUCCESS") // "SUCCESS", "BLOCKED", "PENDING_APPROVAL", "FAILED"
-  metadata   Json?
-  timestamp  DateTime @default(now())
-
-  @@index([agentId])
-  @@index([entityType, entityId])
-  @@index([timestamp])
-}
+// Audit trail is derived from Request/Response rows (AuditService.getLogs); no separate AuditLog table.
 
 model ToolApproval {
   id             String    @id @default(cuid())

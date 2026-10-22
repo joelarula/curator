@@ -517,47 +517,31 @@ export async function createPokerGameSession(
   ): Promise<any> => {
     const targetConvId = tableId !== undefined ? Number(tableId) : conversation.id;
 
+    // Every client interaction is a Request (audit + RBAC + approval in the core). The actor is the
+    // host session; client payloads cannot choose userId/agentId.
+    const requestScope = {
+      conversationId: targetConvId,
+      origin: 'REPL' as const,
+      context: sessionId ? { sessionId } : undefined,
+    };
+
     if (eventName === 'poker:speech') {
-      const tool = host.engine.tools.get('poker_human_speech');
-      if (!tool) return null;
+      if (!host.engine.tools.get('poker_human_speech')) return null;
 
       const currentGameState = await getGameState(targetConvId);
       const speakerName = payload?.speakerName || 'You';
       const speakerId = payload?.speakerId || sessionId || 'player-human';
-
-      const actorUserId = payload?.userId || host.user?.id;
-      const actorAgentId = payload?.agentId;
-      const actorProjectId = payload?.projectId || host.project?.id || conversation?.projectId;
-      const access = await AgentRoleService.validateActorToolAccess(
-        prisma,
-        { userId: actorUserId, agentId: actorAgentId, projectId: actorProjectId },
-        tool.name,
-        {
-          name: tool.name,
-          requiredRole: (tool as any).requiredRole,
-          accessLevel: (tool as any).accessLevel,
-        }
-      );
-      if (!access.allowed) {
-        console.warn(`[PokerSession] Speech tool access blocked: ${access.reason}`);
-        throw new Error(access.reason);
-      }
-
       const speechAct = payload?.speechAct || payload?.args?.speechAct || 'TABLE_TALK';
       const text = payload?.text || payload?.args?.text || '';
       const targetId = payload?.targetId || payload?.args?.targetId;
 
-      const result: any = await tool.runAsync({
-        args: {
-          state: currentGameState,
-          speechAct,
-          text,
-          targetId,
-          speakerId,
-          speakerName,
-        },
-        toolContext: { prisma, host, conversationId: targetConvId, userId: actorUserId, agentId: actorAgentId, projectId: actorProjectId },
-      });
+      const run = await host.runTool(
+        'poker_human_speech',
+        { speechAct, text, targetId, speakerId, speakerName },
+        { ...requestScope, runtimeArgs: { state: currentGameState }, runtimeContext: { state: currentGameState } }
+      );
+      if (run.status === 'WAITING_FOR_USER') return run.record;
+      const result: any = run.result;
 
       host.events.broadcast('poker:speech_response', {
         speaker: speakerName,
@@ -576,35 +560,20 @@ export async function createPokerGameSession(
 
     if (eventName === 'curator:tool_call' || eventName === 'poker:tool_call') {
       const toolName = payload?.tool || payload?.name;
-      const tool = host.engine.tools.get(toolName);
-      if (!tool) {
+      if (!host.engine.tools.get(toolName)) {
         console.warn(`[PokerSession] Tool "${toolName}" not found on engine.`);
         return null;
       }
 
-      const actorUserId = payload?.userId || host.user?.id;
-      const actorAgentId = payload?.agentId;
-      const actorProjectId = payload?.projectId || host.project?.id || conversation?.projectId;
-      const access = await AgentRoleService.validateActorToolAccess(
-        prisma,
-        { userId: actorUserId, agentId: actorAgentId, projectId: actorProjectId },
-        tool.name,
-        {
-          name: tool.name,
-          requiredRole: (tool as any).requiredRole,
-          accessLevel: (tool as any).accessLevel,
-        }
-      );
-      if (!access.allowed) {
-        console.warn(`[PokerSession] Tool access blocked: ${access.reason}`);
-        throw new Error(access.reason);
-      }
-
       const currentGameState = await getGameState(targetConvId);
-      const result: any = await tool.runAsync({
-        args: { state: currentGameState, ...(payload?.args || {}) },
-        toolContext: { prisma, host, conversationId: targetConvId, state: currentGameState, userId: actorUserId, agentId: actorAgentId, projectId: actorProjectId },
+      const run = await host.runTool(toolName, payload?.args || {}, {
+        ...requestScope,
+        runtimeArgs: { state: currentGameState },
+        runtimeContext: { state: currentGameState },
+        broadcastToolEvents: false, // broadcast below with table scoping
       });
+      if (run.status === 'WAITING_FOR_USER') return run.record;
+      const result: any = run.result;
 
       if (result && typeof result === 'object' && result.event) {
         const evtName = typeof result.event === 'string' ? result.event : result.event.name;
@@ -672,59 +641,21 @@ export async function createPokerGameSession(
       return res;
     }
 
-    // 3. Wake matching waiting requests in the AST state machine
-    const waitingReqs = await prisma.request.findMany({
-      where: {
-        conversationId: targetConvId,
-        status: { in: ['WAITING_FOR_EVENT', 'WAITING_FOR_USER'] },
-      },
+    // 3. Emit as a Request: the core matcher spawns subscriptions and resumes matching waits.
+    //    Poker adds its event families on top of exact `waitEvent` matching.
+    const choiceFamily = new Set(['poker:human_action', 'poker:lobby_choice', 'poker:table_selected']);
+    const emitted = await host.emitEvent(targetEvent, targetPayload, {
+      conversationId: targetConvId,
+      origin: 'REPL',
+      broadcast: false, // broadcast below with table scoping, only when something was resumed
+      matchWait: (waitEvent, evt, p) =>
+        evt === 'curator:choice' ||
+        (waitEvent === 'curator:choice' && choiceFamily.has(evt)) ||
+        (waitEvent === 'poker:resume_action' && evt === 'poker:human_action' && (p?.type === 'RESUME' || p?.type === 'EXIT')),
+      waitValue: (p) => (p?.choice !== undefined ? p.choice : p),
+      contextPatch: sessionId ? { sessionId } : undefined,
     });
-
-    let woken = false;
-    for (const req of waitingReqs) {
-      const ctx = (req.context as any) || {};
-
-      // Match direct target event, universal curator:choice, or resume action
-      const matches =
-        ctx.waitEvent === targetEvent ||
-        targetEvent === 'curator:choice' ||
-        (ctx.waitEvent === 'curator:choice' &&
-          (targetEvent === 'poker:human_action' ||
-            targetEvent === 'poker:lobby_choice' ||
-            targetEvent === 'poker:table_selected')) ||
-        (ctx.waitEvent === 'poker:resume_action' &&
-          targetEvent === 'poker:human_action' &&
-          (targetPayload?.type === 'RESUME' || targetPayload?.type === 'EXIT'));
-
-      if (matches) {
-        const alias = ctx.payloadAlias || ctx.choiceAs || ctx.as;
-        const updatedContext = { ...ctx };
-        delete updatedContext.waitEvent;
-        delete updatedContext.payloadAlias;
-        updatedContext.__humanInputReceived__ = true;
-
-        const actualValue =
-          targetPayload?.choice !== undefined ? targetPayload.choice : targetPayload;
-
-        if (alias) {
-          updatedContext.state = { ...(updatedContext.state || {}), [alias]: actualValue };
-          updatedContext[alias] = actualValue;
-        }
-
-        if (sessionId) {
-          updatedContext.sessionId = sessionId;
-          if (updatedContext.state) {
-            updatedContext.state.sessionId = sessionId;
-          }
-        }
-
-        await prisma.request.update({
-          where: { id: req.id },
-          data: { status: 'NEW', context: updatedContext },
-        });
-        woken = true;
-      }
-    }
+    const woken = emitted.woken.length > 0;
 
     if (woken) {
       host.events.broadcast(targetEvent, {

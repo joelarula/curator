@@ -5,12 +5,13 @@ import { config } from './config.ts';
 
 export interface CreateKeerisHostOptions {
   domainDb?: DatabaseAdapter;
+  databasePath?: string;
   dataDir?: string;
   intervalMs?: number;
 }
 
 export async function createKeerisHost(options: CreateKeerisHostOptions = {}): Promise<CuratorHost> {
-  const databasePath = process.env.DATABASE_URL || process.env.DATABASE_PATH || config.defaultDatabase;
+  const databasePath = options.databasePath || process.env.DATABASE_URL || process.env.DATABASE_PATH || config.defaultDatabase;
   const domainDb = options.domainDb || openDatabase(databasePath);
 
   const curatorDbUrl = process.env.CURATOR_DATABASE_URL || (process.env.DATABASE_URL?.startsWith('mysql://') || process.env.DATABASE_URL?.startsWith('mariadb://') ? process.env.DATABASE_URL : undefined);

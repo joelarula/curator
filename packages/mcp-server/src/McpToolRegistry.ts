@@ -1,29 +1,66 @@
 import type {
   CuratorEngine,
   CuratorTool,
-  CuratorToolContext,
   ExposurePolicyController,
   PeerSessionContext,
 } from '@curator/agent-server';
+import type { CuratorHost } from '@curator/host';
 import type { McpCallResult, McpToolDeclaration } from './types.js';
+
+/** Outcome of a durable tool execution (a Request row with its Response). */
+export interface McpToolExecution {
+  requestId: number;
+  status: string;
+  result?: unknown;
+}
+
+/**
+ * Durable executor: runs the tool as a Request on a Curator host (database + engine).
+ * MCP never calls tool functions directly.
+ */
+export type McpToolExecutor = (
+  toolName: string,
+  args: Record<string, unknown>,
+  session?: PeerSessionContext
+) => Promise<McpToolExecution>;
+
+/** Executor bound to a host: `host.runTool(..., { origin: 'MCP' })`; the actor is the host session, the peer is recorded in context. */
+export function createHostToolExecutor(host: CuratorHost): McpToolExecutor {
+  return (toolName, args, session) =>
+    host.runTool(toolName, args as Record<string, any>, {
+      origin: 'MCP',
+      context: session
+        ? { mcpPeerId: session.peerId, mcpTrustTier: session.trustTier, mcpConversationId: (session as any).conversationId }
+        : undefined,
+    });
+}
 
 export class McpToolRegistry {
   private exposedTools = new Map<string, CuratorTool>(); // key: MCP exposed name -> tool
 
   constructor(
     private engine: CuratorEngine,
-    private getContext: () => Promise<CuratorToolContext>,
+    private execute: McpToolExecutor,
     private exposureController?: ExposurePolicyController
   ) {
+    if (typeof execute !== 'function') {
+      throw new Error('McpToolRegistry requires a durable tool executor (Curator host); use McpToolRegistry.fromHost(host).');
+    }
     this.refresh();
   }
 
+  /** Preferred: tools from the host engine, executed as Requests in the host database. */
+  public static fromHost(host: CuratorHost, exposureController?: ExposurePolicyController): McpToolRegistry {
+    return new McpToolRegistry(host.engine, createHostToolExecutor(host), exposureController ?? host.conversations?.exposure);
+  }
+
+  /** Engine listing with an explicit durable executor (e.g. a host's runTool bound to another engine view). */
   public static fromEngine(
     engine: CuratorEngine,
-    getContext: () => Promise<CuratorToolContext>,
+    execute: McpToolExecutor,
     exposureController?: ExposurePolicyController
   ): McpToolRegistry {
-    return new McpToolRegistry(engine, getContext, exposureController);
+    return new McpToolRegistry(engine, execute, exposureController);
   }
 
   public getExposureController(): ExposurePolicyController | undefined {
@@ -130,24 +167,50 @@ export class McpToolRegistry {
     }
 
     try {
-      const toolContext = await this.getContext();
-      const output = await tool.runAsync({
-        args,
-        toolContext,
-      });
+      // Durable execution: a Request row (origin MCP) with RBAC, approval and a Response.
+      const execution = await this.execute(tool.name, args, session);
+
+      if (execution.status === 'WAITING_FOR_USER') {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Tool "${name}" requires human approval (request #${execution.requestId}); it runs once approved.`,
+            },
+          ],
+          isError: true,
+          requestId: execution.requestId,
+        };
+      }
+
+      if (execution.status === 'FAILED') {
+        const failure = execution.result;
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error: Tool "${name}" failed (request #${execution.requestId}): ${typeof failure === 'string' ? failure : JSON.stringify(failure ?? null)}`,
+            },
+          ],
+          isError: true,
+          requestId: execution.requestId,
+        };
+      }
 
       // Record invocation against lease if an ephemeral lease was utilized
       if (this.exposureController && session?.peerId) {
         this.exposureController.recordLeaseInvocation(session.peerId, tool.name, session.conversationId);
       }
 
+      const output = execution.result;
       const formattedText =
         typeof output === 'string'
           ? output
           : JSON.stringify(output, null, 2);
 
       return {
-        content: [{ type: 'text', text: formattedText }],
+        content: [{ type: 'text', text: formattedText ?? '' }],
+        requestId: execution.requestId,
       };
     } catch (err: any) {
       return {

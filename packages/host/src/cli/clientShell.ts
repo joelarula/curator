@@ -330,14 +330,13 @@ export class ClientShell<TState = any, TAction = ToolAction> {
           }
         }
         console.log(`\x1b[36m[Exec]\x1b[0m Executing tool "${toolName}"...`);
-        const ctx = this.buildContext();
-        if (this.config.onToolCall) {
-          const result = await this.config.onToolCall(toolName, parsedArgs, ctx);
+        try {
+          const result = await this.dispatchTool(toolName, parsedArgs);
           if (result !== undefined) {
             console.log('\x1b[32m[Result]\x1b[0m', typeof result === 'object' ? JSON.stringify(result, null, 2) : result);
           }
-        } else {
-          console.log(`\x1b[31m[Exec Error] No tool handler configured in shell context.\x1b[0m`);
+        } catch (err: any) {
+          console.log(`\x1b[31m[Exec Error]\x1b[0m ${err.message}`);
         }
       });
 
@@ -381,7 +380,7 @@ export class ClientShell<TState = any, TAction = ToolAction> {
           }
           c.allowUnknownOption(true);
           c.action(async (...args) => {
-            const strTokens = args.filter((a) => typeof a === 'string');
+            const strTokens = args.flatMap((a) => (Array.isArray(a) ? a.filter((x) => typeof x === 'string') : typeof a === 'string' ? [a] : []));
             const res = await this.executeChoice(choice, strTokens);
             this.activeChoices = [];
             onResult?.(res);
@@ -396,7 +395,7 @@ export class ClientShell<TState = any, TAction = ToolAction> {
             .description(`Select [${numStr}]: ${choice.label}`)
             .allowUnknownOption(true)
             .action(async (...args) => {
-              const strTokens = args.filter((a) => typeof a === 'string');
+              const strTokens = args.flatMap((a) => (Array.isArray(a) ? a.filter((x) => typeof x === 'string') : typeof a === 'string' ? [a] : []));
               const res = await this.executeChoice(choice, strTokens);
               this.activeChoices = [];
               onResult?.(res);
@@ -423,7 +422,7 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       }
       c.allowUnknownOption(true);
       c.action(async (...args) => {
-        const strTokens = args.filter((a) => typeof a === 'string');
+        const strTokens = args.flatMap((a) => (Array.isArray(a) ? a.filter((x) => typeof x === 'string') : typeof a === 'string' ? [a] : []));
         const joinedArgs = strTokens.join(' ');
         if ((cmd as any).parse) {
           const parsed = await (cmd as any).parse(joinedArgs, strTokens, this.config);
@@ -485,6 +484,17 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       return await this.config.onToolCall(toolName, args, this.config);
     }
 
+    // Prefer the channel: the host runs the call as a Request (RBAC, approval, Response).
+    if (this.config.channel) {
+      return await this.config.channel.send('curator:tool_call', {
+        tool: toolName,
+        args,
+        tableId: this.config.channel.tableId,
+        conversationId: this.config.conversationId,
+      });
+    }
+
+    // Host-less fallback (no channel): local client-side tool definition, not recorded as a Request.
     if (tool && (tool.runAsync || tool.execute)) {
       const state = this.config.getState?.();
       if (tool.runAsync) {
@@ -498,14 +508,7 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       }
     }
 
-    if (this.config.channel) {
-      return await this.config.channel.send('curator:tool_call', {
-        tool: toolName,
-        args,
-        tableId: this.config.channel.tableId,
-        conversationId: this.config.conversationId,
-      });
-    }
+    throw new Error(`Tool "${toolName}" not found. Available tools: ${[...this.tools.keys()].join(', ')}`);
   }
 
   /**

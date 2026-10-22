@@ -3,6 +3,20 @@ import assert from 'node:assert/strict';
 import { CuratorEngine, defineTool } from '../../../curator/dist/src/index.js';
 import { McpToolRegistry } from '../dist/McpToolRegistry.js';
 
+/** Stub durable executor simulating host.runTool: each call becomes a numbered Request. */
+function stubExecutor(engine: any, opts: { status?: string } = {}) {
+  let nextId = 1;
+  const calls: Array<{ toolName: string; args: any; session?: any }> = [];
+  const execute = async (toolName: string, args: any, session?: any) => {
+    calls.push({ toolName, args, session });
+    const requestId = nextId++;
+    if (opts.status) return { requestId, status: opts.status, result: null };
+    const tool = engine.tools.get(toolName);
+    return { requestId, status: 'COMPLETED', result: await tool.execute(args) };
+  };
+  return Object.assign(execute, { calls });
+}
+
 test('McpToolRegistry correctly filters exposed tools and executes them', async () => {
   const engine = new CuratorEngine();
 
@@ -36,22 +50,49 @@ test('McpToolRegistry correctly filters exposed tools and executes them', async 
   engine.registerTool(exposedTool);
   engine.registerTool(hiddenTool);
 
-  const registry = McpToolRegistry.fromEngine(engine, async () => ({}));
+  const executor = stubExecutor(engine);
+  const registry = McpToolRegistry.fromEngine(engine, executor);
 
   const tools = registry.list();
   assert.equal(tools.length, 1);
   assert.equal(tools[0].name, 'test_exposed');
   assert.equal(tools[0].description, 'An exposed MCP tool');
 
-  // Call exposed tool
+  // Call exposed tool (durable: goes through the executor and returns the Request id)
   const result = await registry.call('test_exposed', { msg: 'hello' });
   assert.equal(result.isError, undefined);
   assert.ok(result.content[0].text.includes('"echoed": "hello"'));
+  assert.equal(result.requestId, 1);
+  assert.equal(executor.calls.length, 1);
 
   // Call hidden tool
   const hiddenResult = await registry.call('test_hidden', {});
   assert.equal(hiddenResult.isError, true);
   assert.ok(hiddenResult.content[0].text.includes('Unknown or unexposed MCP tool'));
+  assert.equal(executor.calls.length, 1);
+});
+
+test('McpToolRegistry requires a durable executor and maps approval waits', async () => {
+  const engine = new CuratorEngine();
+  engine.registerTool(defineTool({
+    name: 'needs_approval',
+    description: 'Tool gated by approval',
+    mcp: { expose: true },
+    parameters: { type: 'object', properties: {} },
+    execute: async () => ({ ok: true }),
+  }));
+
+  assert.throws(() => McpToolRegistry.fromEngine(engine, undefined as any), /durable tool executor/);
+
+  const registry = McpToolRegistry.fromEngine(engine, stubExecutor(engine, { status: 'WAITING_FOR_USER' }));
+  const waiting = await registry.call('needs_approval', {});
+  assert.equal(waiting.isError, true);
+  assert.equal(waiting.requestId, 1);
+  assert.ok(waiting.content[0].text.includes('requires human approval'));
+
+  const failing = McpToolRegistry.fromEngine(engine, stubExecutor(engine, { status: 'FAILED' }));
+  const failed = await failing.call('needs_approval', {});
+  assert.equal(failed.isError, true);
 });
 
 test('McpToolRegistry respects plugin policies (exposeAll, exclude, include)', async () => {
@@ -83,7 +124,7 @@ test('McpToolRegistry respects plugin policies (exposeAll, exclude, include)', a
     },
   });
 
-  const registry = McpToolRegistry.fromEngine(engine, async () => ({}));
+  const registry = McpToolRegistry.fromEngine(engine, stubExecutor(engine));
   const list = registry.list();
 
   assert.equal(list.length, 1);
@@ -127,7 +168,7 @@ test('McpToolRegistry integrates ExposurePolicyController for dynamic gating and
   engine.registerTool(heavyTool);
   engine.registerTool(adminTool);
 
-  const registry = McpToolRegistry.fromEngine(engine, async () => ({}), exposure);
+  const registry = McpToolRegistry.fromEngine(engine, stubExecutor(engine), exposure);
 
   // 1. Guest session: only sees read_only tool, not adminTool
   const guestList = registry.list({ peerId: 'peer_guest', trustTier: 'guest' });
