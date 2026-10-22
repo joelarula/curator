@@ -1,0 +1,522 @@
+{
+  "requests": [
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "edges": {
+          "GREEN": "YELLOW",
+          "RED": {
+            "code": "(() => {\n          let state = {};\n          try { state = JSON.parse(input); } catch(e) {}\n          if (state.message === 'STOP') return '__end__';\n          return 'GREEN';\n        })()",
+            "language": "javascript",
+            "type": "Curator_Script"
+          },
+          "YELLOW": "RED"
+        },
+        "name": "Traffic Light Test Graph",
+        "nodes": {
+          "GREEN": {
+            "code": "(() => {\n          console.log('GREEN LIGHT!');\n          return JSON.stringify({ currentColor: 'GREEN', message: 'Go!' });\n        })()",
+            "language": "javascript",
+            "type": "Curator_Script"
+          },
+          "RED": {
+            "code": "(() => {\n          let state = {};\n          try { state = JSON.parse(input); } catch(e) {}\n          \n          const count = (state.count || 0) + 1;\n          const msg = count > 3 ? 'STOP' : 'Waiting...';\n          console.log('RED LIGHT! count:', count);\n          \n          return JSON.stringify({ count, currentColor: 'RED', message: msg });\n        })()",
+            "language": "javascript",
+            "type": "Curator_Script"
+          },
+          "YELLOW": {
+            "code": "(() => {\n          console.log('YELLOW LIGHT!');\n          return JSON.stringify({ currentColor: 'YELLOW', message: 'Slow down!' });\n        })()",
+            "language": "javascript",
+            "type": "Curator_Script"
+          }
+        },
+        "startNode": "RED",
+        "stateSchema": "interface TrafficState {\n      count: number;\n      currentColor: string;\n      message: string;\n    }",
+        "type": "Curator_Graph"
+      },
+      "context": {
+        "activeNode": "RED",
+        "input": "{\"count\":4,\"currentColor\":\"RED\",\"message\":\"STOP\",\"output\":\"__end__\"}",
+        "state": {
+          "count": 4,
+          "currentColor": "RED",
+          "message": "STOP",
+          "output": "__end__"
+        },
+        "stateData": "{\"count\":4,\"currentColor\":\"RED\",\"message\":\"STOP\",\"output\":\"GREEN\"}",
+        "waitingFor": "ROUTER"
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:1>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": "Curator_Workflow"
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "code": "(() => {\n          let state = {};\n          try { state = JSON.parse(input); } catch(e) {}\n          \n          const count = (state.count || 0) + 1;\n          const msg = count > 3 ? 'STOP' : 'Waiting...';\n          console.log('RED LIGHT! count:', count);\n          \n          return JSON.stringify({ count, currentColor: 'RED', message: msg });\n        })()",
+        "language": "javascript",
+        "type": "Curator_Script"
+      },
+      "context": {
+        "input": ""
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:2>",
+      "notifyId": "<req:1>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "code": "(() => {\n          let state = {};\n          try { state = JSON.parse(input); } catch(e) {}\n          if (state.message === 'STOP') return '__end__';\n          return 'GREEN';\n        })()",
+        "language": "javascript",
+        "type": "Curator_Script"
+      },
+      "context": {
+        "input": "{\"count\":1,\"currentColor\":\"RED\",\"message\":\"Waiting...\"}"
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:3>",
+      "notifyId": "<req:1>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "code": "(() => {\n          console.log('GREEN LIGHT!');\n          return JSON.stringify({ currentColor: 'GREEN', message: 'Go!' });\n        })()",
+        "language": "javascript",
+        "type": "Curator_Script"
+      },
+      "context": {
+        "input": "{\"count\":1,\"currentColor\":\"RED\",\"message\":\"Waiting...\"}"
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:4>",
+      "notifyId": "<req:1>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "code": "(() => {\n          console.log('YELLOW LIGHT!');\n          return JSON.stringify({ currentColor: 'YELLOW', message: 'Slow down!' });\n        })()",
+        "language": "javascript",
+        "type": "Curator_Script"
+      },
+      "context": {
+        "input": "{\"count\":1,\"currentColor\":\"GREEN\",\"message\":\"Go!\",\"output\":\"GREEN\"}"
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:5>",
+      "notifyId": "<req:1>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "code": "(() => {\n          let state = {};\n          try { state = JSON.parse(input); } catch(e) {}\n          \n          const count = (state.count || 0) + 1;\n          const msg = count > 3 ? 'STOP' : 'Waiting...';\n          console.log('RED LIGHT! count:', count);\n          \n          return JSON.stringify({ count, currentColor: 'RED', message: msg });\n        })()",
+        "language": "javascript",
+        "type": "Curator_Script"
+      },
+      "context": {
+        "input": "{\"count\":1,\"currentColor\":\"YELLOW\",\"message\":\"Slow down!\",\"output\":\"GREEN\"}"
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:6>",
+      "notifyId": "<req:1>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "code": "(() => {\n          let state = {};\n          try { state = JSON.parse(input); } catch(e) {}\n          if (state.message === 'STOP') return '__end__';\n          return 'GREEN';\n        })()",
+        "language": "javascript",
+        "type": "Curator_Script"
+      },
+      "context": {
+        "input": "{\"count\":2,\"currentColor\":\"RED\",\"message\":\"Waiting...\",\"output\":\"GREEN\"}"
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:7>",
+      "notifyId": "<req:1>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "code": "(() => {\n          console.log('GREEN LIGHT!');\n          return JSON.stringify({ currentColor: 'GREEN', message: 'Go!' });\n        })()",
+        "language": "javascript",
+        "type": "Curator_Script"
+      },
+      "context": {
+        "input": "{\"count\":2,\"currentColor\":\"RED\",\"message\":\"Waiting...\",\"output\":\"GREEN\"}"
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:8>",
+      "notifyId": "<req:1>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "code": "(() => {\n          console.log('YELLOW LIGHT!');\n          return JSON.stringify({ currentColor: 'YELLOW', message: 'Slow down!' });\n        })()",
+        "language": "javascript",
+        "type": "Curator_Script"
+      },
+      "context": {
+        "input": "{\"count\":2,\"currentColor\":\"GREEN\",\"message\":\"Go!\",\"output\":\"GREEN\"}"
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:9>",
+      "notifyId": "<req:1>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "code": "(() => {\n          let state = {};\n          try { state = JSON.parse(input); } catch(e) {}\n          \n          const count = (state.count || 0) + 1;\n          const msg = count > 3 ? 'STOP' : 'Waiting...';\n          console.log('RED LIGHT! count:', count);\n          \n          return JSON.stringify({ count, currentColor: 'RED', message: msg });\n        })()",
+        "language": "javascript",
+        "type": "Curator_Script"
+      },
+      "context": {
+        "input": "{\"count\":2,\"currentColor\":\"YELLOW\",\"message\":\"Slow down!\",\"output\":\"GREEN\"}"
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:10>",
+      "notifyId": "<req:1>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "code": "(() => {\n          let state = {};\n          try { state = JSON.parse(input); } catch(e) {}\n          if (state.message === 'STOP') return '__end__';\n          return 'GREEN';\n        })()",
+        "language": "javascript",
+        "type": "Curator_Script"
+      },
+      "context": {
+        "input": "{\"count\":3,\"currentColor\":\"RED\",\"message\":\"Waiting...\",\"output\":\"GREEN\"}"
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:11>",
+      "notifyId": "<req:1>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "code": "(() => {\n          console.log('GREEN LIGHT!');\n          return JSON.stringify({ currentColor: 'GREEN', message: 'Go!' });\n        })()",
+        "language": "javascript",
+        "type": "Curator_Script"
+      },
+      "context": {
+        "input": "{\"count\":3,\"currentColor\":\"RED\",\"message\":\"Waiting...\",\"output\":\"GREEN\"}"
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:12>",
+      "notifyId": "<req:1>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "code": "(() => {\n          console.log('YELLOW LIGHT!');\n          return JSON.stringify({ currentColor: 'YELLOW', message: 'Slow down!' });\n        })()",
+        "language": "javascript",
+        "type": "Curator_Script"
+      },
+      "context": {
+        "input": "{\"count\":3,\"currentColor\":\"GREEN\",\"message\":\"Go!\",\"output\":\"GREEN\"}"
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:13>",
+      "notifyId": "<req:1>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "code": "(() => {\n          let state = {};\n          try { state = JSON.parse(input); } catch(e) {}\n          \n          const count = (state.count || 0) + 1;\n          const msg = count > 3 ? 'STOP' : 'Waiting...';\n          console.log('RED LIGHT! count:', count);\n          \n          return JSON.stringify({ count, currentColor: 'RED', message: msg });\n        })()",
+        "language": "javascript",
+        "type": "Curator_Script"
+      },
+      "context": {
+        "input": "{\"count\":3,\"currentColor\":\"YELLOW\",\"message\":\"Slow down!\",\"output\":\"GREEN\"}"
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:14>",
+      "notifyId": "<req:1>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "code": "(() => {\n          let state = {};\n          try { state = JSON.parse(input); } catch(e) {}\n          if (state.message === 'STOP') return '__end__';\n          return 'GREEN';\n        })()",
+        "language": "javascript",
+        "type": "Curator_Script"
+      },
+      "context": {
+        "input": "{\"count\":4,\"currentColor\":\"RED\",\"message\":\"STOP\",\"output\":\"GREEN\"}"
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:15>",
+      "notifyId": "<req:1>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    }
+  ],
+  "responses": [
+    {
+      "aiModelId": null,
+      "content": "{\"count\":1,\"currentColor\":\"RED\",\"message\":\"Waiting...\"}",
+      "existent": true,
+      "id": "<res:1>",
+      "projectId": null,
+      "requestId": "<req:2>"
+    },
+    {
+      "aiModelId": null,
+      "content": "GREEN",
+      "existent": true,
+      "id": "<res:2>",
+      "projectId": null,
+      "requestId": "<req:3>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"currentColor\":\"GREEN\",\"message\":\"Go!\"}",
+      "existent": true,
+      "id": "<res:3>",
+      "projectId": null,
+      "requestId": "<req:4>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"currentColor\":\"YELLOW\",\"message\":\"Slow down!\"}",
+      "existent": true,
+      "id": "<res:4>",
+      "projectId": null,
+      "requestId": "<req:5>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"count\":2,\"currentColor\":\"RED\",\"message\":\"Waiting...\"}",
+      "existent": true,
+      "id": "<res:5>",
+      "projectId": null,
+      "requestId": "<req:6>"
+    },
+    {
+      "aiModelId": null,
+      "content": "GREEN",
+      "existent": true,
+      "id": "<res:6>",
+      "projectId": null,
+      "requestId": "<req:7>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"currentColor\":\"GREEN\",\"message\":\"Go!\"}",
+      "existent": true,
+      "id": "<res:7>",
+      "projectId": null,
+      "requestId": "<req:8>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"currentColor\":\"YELLOW\",\"message\":\"Slow down!\"}",
+      "existent": true,
+      "id": "<res:8>",
+      "projectId": null,
+      "requestId": "<req:9>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"count\":3,\"currentColor\":\"RED\",\"message\":\"Waiting...\"}",
+      "existent": true,
+      "id": "<res:9>",
+      "projectId": null,
+      "requestId": "<req:10>"
+    },
+    {
+      "aiModelId": null,
+      "content": "GREEN",
+      "existent": true,
+      "id": "<res:10>",
+      "projectId": null,
+      "requestId": "<req:11>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"currentColor\":\"GREEN\",\"message\":\"Go!\"}",
+      "existent": true,
+      "id": "<res:11>",
+      "projectId": null,
+      "requestId": "<req:12>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"currentColor\":\"YELLOW\",\"message\":\"Slow down!\"}",
+      "existent": true,
+      "id": "<res:12>",
+      "projectId": null,
+      "requestId": "<req:13>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"count\":4,\"currentColor\":\"RED\",\"message\":\"STOP\"}",
+      "existent": true,
+      "id": "<res:13>",
+      "projectId": null,
+      "requestId": "<req:14>"
+    },
+    {
+      "aiModelId": null,
+      "content": "__end__",
+      "existent": true,
+      "id": "<res:14>",
+      "projectId": null,
+      "requestId": "<req:15>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"count\":4,\"currentColor\":\"RED\",\"message\":\"STOP\",\"output\":\"GREEN\"}",
+      "existent": true,
+      "id": "<res:15>",
+      "projectId": null,
+      "requestId": "<req:1>"
+    }
+  ]
+}

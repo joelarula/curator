@@ -1,0 +1,121 @@
+{
+  "requests": [
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "defaultRoute": "optionA",
+        "name": "Test Router",
+        "router": {
+          "code": "'optionB'",
+          "language": "javascript",
+          "type": "Curator_Script"
+        },
+        "subAgents": {
+          "optionA": {
+            "code": "'took A'",
+            "language": "javascript",
+            "type": "Curator_Script"
+          },
+          "optionB": {
+            "code": "'took B'",
+            "language": "javascript",
+            "type": "Curator_Script"
+          }
+        },
+        "type": "Curator_Route"
+      },
+      "context": {
+        "input": "{\"output\":\"optionB\"}",
+        "routeDecided": true,
+        "state": {
+          "output": "optionB"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:1>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": "Curator_Workflow"
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "code": "'optionB'",
+        "language": "javascript",
+        "type": "Curator_Script"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:2>",
+      "notifyId": "<req:1>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "code": "'took B'",
+        "language": "javascript",
+        "type": "Curator_Script"
+      },
+      "context": {
+        "input": "{\"output\":\"optionB\"}"
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:3>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    }
+  ],
+  "responses": [
+    {
+      "aiModelId": null,
+      "content": "optionB",
+      "existent": true,
+      "id": "<res:1>",
+      "projectId": null,
+      "requestId": "<req:2>"
+    },
+    {
+      "aiModelId": null,
+      "content": "[Route Decided: optionB]",
+      "existent": true,
+      "id": "<res:2>",
+      "projectId": null,
+      "requestId": "<req:1>"
+    },
+    {
+      "aiModelId": null,
+      "content": "took B",
+      "existent": true,
+      "id": "<res:3>",
+      "projectId": null,
+      "requestId": "<req:3>"
+    }
+  ]
+}

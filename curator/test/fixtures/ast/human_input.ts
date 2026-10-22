@@ -1,6 +1,4 @@
-import { PrismaClient } from '@prisma/client';
-import type { CuratorSequentialNode } from '../src/engine/CuratorAst.js';
-import { curatorContext } from '../src/engine/CuratorContext.js';
+import type { CuratorSequentialNode } from '../../../src/engine/CuratorAst.js';
 
 export function run(): CuratorSequentialNode {
   return {
@@ -18,18 +16,13 @@ export function run(): CuratorSequentialNode {
       {
         type: 'Curator_HumanInput',
         prompt: 'Please enter your approval code:',
-        inputType: 'text'
+        inputType: 'text',
+        as: 'code'
       },
       {
-        type: 'Curator_Script',
-        language: 'javascript',
-        code: `(() => {
-          let state = {};
-          try { state = JSON.parse(input); } catch(e) {}
-          console.log('Script 2: Post-processing...');
-          console.log('Received Human Approval Code:', state.output);
-          return JSON.stringify({ status: 'post-processed', approval: state.output });
-        })()`
+        type: 'Curator_Tool',
+        toolName: 'echo',
+        args: { text: '$state.code' }
       }
     ]
   };

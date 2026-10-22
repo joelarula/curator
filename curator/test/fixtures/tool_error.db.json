@@ -1,0 +1,113 @@
+{
+  "requests": [
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "name": "tool_error",
+        "subAgents": [
+          {
+            "args": {
+              "why": "test"
+            },
+            "toolName": "boom",
+            "type": "Curator_Tool"
+          },
+          {
+            "args": {
+              "text": "after"
+            },
+            "toolName": "echo",
+            "type": "Curator_Tool"
+          }
+        ],
+        "type": "Curator_Sequential"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:1>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": "Curator_Workflow"
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "args": {
+          "text": "after"
+        },
+        "toolName": "echo",
+        "type": "Curator_Tool"
+      },
+      "context": {
+        "echo": "{\"echoed\":\"after\"}",
+        "input": "{\"output\":\"[Tool Error] kaboom\"}",
+        "state": {
+          "output": "[Tool Error] kaboom"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:2>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "args": {
+          "why": "test"
+        },
+        "toolName": "boom",
+        "type": "Curator_Tool"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:3>",
+      "notifyId": "<req:2>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    }
+  ],
+  "responses": [
+    {
+      "aiModelId": null,
+      "content": "[Tool Error] kaboom",
+      "existent": true,
+      "id": "<res:1>",
+      "projectId": null,
+      "requestId": "<req:3>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"echoed\":\"after\"}",
+      "existent": true,
+      "id": "<res:2>",
+      "projectId": null,
+      "requestId": "<req:2>"
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-import type { CuratorGraphNode } from '../src/engine/CuratorAst.js';
+import type { CuratorGraphNode } from '../../../src/engine/CuratorAst.js';
 
 export function run(): CuratorGraphNode {
   return {

@@ -18,6 +18,8 @@
   "scripts": {
     "serve": "node --import tsx --max-old-space-size=4096 --no-warnings --watch src/bin/cli.ts serve",
     "cli": "node --import tsx --max-old-space-size=4096 --no-warnings src/bin/cli.ts run",
+    "test": "node --import tsx --no-warnings --test \"test/**/*.test.ts\"",
+    "test:unit": "node --import tsx --no-warnings --test \"test/compiler/*.test.ts\"",
     "test:process-feed:mock": "node --import tsx --no-warnings run_test_process_feed_with_mocks.ts",
     "build": "tsc",
     "start": "node dist/src/bin/cli.js serve",

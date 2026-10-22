@@ -1,0 +1,20 @@
+{
+  "type": "Curator_Sequential",
+  "name": "tool_error",
+  "subAgents": [
+    {
+      "type": "Curator_Tool",
+      "toolName": "boom",
+      "args": {
+        "why": "test"
+      }
+    },
+    {
+      "type": "Curator_Tool",
+      "toolName": "echo",
+      "args": {
+        "text": "after"
+      }
+    }
+  ]
+}

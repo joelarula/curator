@@ -1,0 +1,142 @@
+{
+  "requests": [
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "name": "Test Include Contents",
+        "subAgents": [
+          {
+            "instruction": "You are a helpful assistant. Be concise. Reply with exactly what you are told.",
+            "prompt": "Hi! My name is Alice. Acknowledge this fact.",
+            "type": "Curator_Agent"
+          },
+          {
+            "prompt": "What is my name? (Respond with just the name if you know it, otherwise say \"I do not know\").",
+            "type": "Curator_Agent"
+          },
+          {
+            "include_contents": "none",
+            "prompt": "What is my name? (Respond with just the name if you know it, otherwise say \"I do not know\").",
+            "type": "Curator_Agent"
+          }
+        ],
+        "type": "Curator_Sequential"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:1>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": "Curator_Workflow"
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "include_contents": "none",
+        "prompt": "What is my name? (Respond with just the name if you know it, otherwise say \"I do not know\").",
+        "type": "Curator_Agent"
+      },
+      "context": {
+        "input": "{\"output\":\"Alice\"}",
+        "state": {
+          "output": "Alice"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:2>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "prompt": "What is my name? (Respond with just the name if you know it, otherwise say \"I do not know\").",
+        "type": "Curator_Agent"
+      },
+      "context": {
+        "input": "{\"output\":\"Noted.\"}",
+        "state": {
+          "output": "Noted."
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:3>",
+      "notifyId": "<req:2>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "instruction": "You are a helpful assistant. Be concise. Reply with exactly what you are told.",
+        "prompt": "Hi! My name is Alice. Acknowledge this fact.",
+        "type": "Curator_Agent"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:4>",
+      "notifyId": "<req:3>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    }
+  ],
+  "responses": [
+    {
+      "aiModelId": null,
+      "content": "Noted.",
+      "existent": true,
+      "id": "<res:1>",
+      "projectId": null,
+      "requestId": "<req:4>"
+    },
+    {
+      "aiModelId": null,
+      "content": "Alice",
+      "existent": true,
+      "id": "<res:2>",
+      "projectId": null,
+      "requestId": "<req:3>"
+    },
+    {
+      "aiModelId": null,
+      "content": "I do not know",
+      "existent": true,
+      "id": "<res:3>",
+      "projectId": null,
+      "requestId": "<req:2>"
+    }
+  ]
+}

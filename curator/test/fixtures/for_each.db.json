@@ -1,0 +1,314 @@
+{
+  "requests": [
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "name": "for_each",
+        "subAgents": [
+          {
+            "state": {
+              "items": [
+                "a",
+                "b",
+                "c"
+              ]
+            },
+            "type": "Curator_SetState"
+          },
+          {
+            "body": {
+              "args": {
+                "text": "$context.item"
+              },
+              "toolName": "echo",
+              "type": "Curator_Tool"
+            },
+            "collectionExpression": "$state.items",
+            "type": "Curator_ForEach"
+          }
+        ],
+        "type": "Curator_Sequential"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:1>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": "Curator_Workflow"
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "body": {
+          "args": {
+            "text": "$context.item"
+          },
+          "toolName": "echo",
+          "type": "Curator_Tool"
+        },
+        "collectionExpression": "$state.items",
+        "type": "Curator_ForEach"
+      },
+      "context": {
+        "echo": "{\"echoed\":\"c\"}",
+        "forEachCollection": [
+          "a",
+          "b",
+          "c"
+        ],
+        "forEachIndex": 3,
+        "input": "{\"items\":[\"a\",\"b\",\"c\"],\"status\":\"State updated\",\"state\":{\"items\":[\"a\",\"b\",\"c\"]},\"echoed\":\"c\"}",
+        "item": "c",
+        "state": {
+          "echoed": "c",
+          "items": [
+            "a",
+            "b",
+            "c"
+          ],
+          "state": {
+            "items": [
+              "a",
+              "b",
+              "c"
+            ]
+          },
+          "status": "State updated"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:2>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "state": {
+          "items": [
+            "a",
+            "b",
+            "c"
+          ]
+        },
+        "type": "Curator_SetState"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:3>",
+      "notifyId": "<req:2>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "args": {
+          "text": "$context.item"
+        },
+        "toolName": "echo",
+        "type": "Curator_Tool"
+      },
+      "context": {
+        "echo": "{\"echoed\":\"a\"}",
+        "input": "{\"items\":[\"a\",\"b\",\"c\"],\"status\":\"State updated\",\"state\":{\"items\":[\"a\",\"b\",\"c\"]}}",
+        "item": "a",
+        "state": {
+          "items": [
+            "a",
+            "b",
+            "c"
+          ],
+          "state": {
+            "items": [
+              "a",
+              "b",
+              "c"
+            ]
+          },
+          "status": "State updated"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:4>",
+      "notifyId": "<req:2>",
+      "parentId": "<req:2>",
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "args": {
+          "text": "$context.item"
+        },
+        "toolName": "echo",
+        "type": "Curator_Tool"
+      },
+      "context": {
+        "echo": "{\"echoed\":\"b\"}",
+        "forEachCollection": [
+          "a",
+          "b",
+          "c"
+        ],
+        "forEachIndex": 1,
+        "input": "{\"items\":[\"a\",\"b\",\"c\"],\"status\":\"State updated\",\"state\":{\"items\":[\"a\",\"b\",\"c\"]},\"echoed\":\"a\"}",
+        "item": "b",
+        "state": {
+          "echoed": "a",
+          "items": [
+            "a",
+            "b",
+            "c"
+          ],
+          "state": {
+            "items": [
+              "a",
+              "b",
+              "c"
+            ]
+          },
+          "status": "State updated"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:5>",
+      "notifyId": "<req:2>",
+      "parentId": "<req:2>",
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "args": {
+          "text": "$context.item"
+        },
+        "toolName": "echo",
+        "type": "Curator_Tool"
+      },
+      "context": {
+        "echo": "{\"echoed\":\"c\"}",
+        "forEachCollection": [
+          "a",
+          "b",
+          "c"
+        ],
+        "forEachIndex": 2,
+        "input": "{\"items\":[\"a\",\"b\",\"c\"],\"status\":\"State updated\",\"state\":{\"items\":[\"a\",\"b\",\"c\"]},\"echoed\":\"b\"}",
+        "item": "c",
+        "state": {
+          "echoed": "b",
+          "items": [
+            "a",
+            "b",
+            "c"
+          ],
+          "state": {
+            "items": [
+              "a",
+              "b",
+              "c"
+            ]
+          },
+          "status": "State updated"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:6>",
+      "notifyId": "<req:2>",
+      "parentId": "<req:2>",
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    }
+  ],
+  "responses": [
+    {
+      "aiModelId": null,
+      "content": "{\"status\":\"State updated\",\"state\":{\"items\":[\"a\",\"b\",\"c\"]}}",
+      "existent": true,
+      "id": "<res:1>",
+      "projectId": null,
+      "requestId": "<req:3>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"echoed\":\"a\"}",
+      "existent": true,
+      "id": "<res:2>",
+      "projectId": null,
+      "requestId": "<req:4>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"echoed\":\"b\"}",
+      "existent": true,
+      "id": "<res:3>",
+      "projectId": null,
+      "requestId": "<req:5>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"echoed\":\"c\"}",
+      "existent": true,
+      "id": "<res:4>",
+      "projectId": null,
+      "requestId": "<req:6>"
+    },
+    {
+      "aiModelId": null,
+      "content": "ForEach finished.",
+      "existent": true,
+      "id": "<res:5>",
+      "projectId": null,
+      "requestId": "<req:2>"
+    }
+  ]
+}

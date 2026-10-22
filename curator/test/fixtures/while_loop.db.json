@@ -1,0 +1,540 @@
+{
+  "requests": [
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "name": "while_loop",
+        "subAgents": [
+          {
+            "state": {
+              "n": 0
+            },
+            "type": "Curator_SetState"
+          },
+          {
+            "body": {
+              "name": "body",
+              "subAgents": [
+                {
+                  "args": {
+                    "text": "tick"
+                  },
+                  "toolName": "echo",
+                  "type": "Curator_Tool"
+                },
+                {
+                  "expression": "$state.n + 1",
+                  "key": "n",
+                  "type": "Curator_Assign"
+                }
+              ],
+              "type": "Curator_Sequential"
+            },
+            "condition": "$state.n < 3",
+            "type": "Curator_While"
+          }
+        ],
+        "type": "Curator_Sequential"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:1>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": "Curator_Workflow"
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "body": {
+          "name": "body",
+          "subAgents": [
+            {
+              "args": {
+                "text": "tick"
+              },
+              "toolName": "echo",
+              "type": "Curator_Tool"
+            },
+            {
+              "expression": "$state.n + 1",
+              "key": "n",
+              "type": "Curator_Assign"
+            }
+          ],
+          "type": "Curator_Sequential"
+        },
+        "condition": "$state.n < 3",
+        "type": "Curator_While"
+      },
+      "context": {
+        "echo": "{\"echoed\":\"tick\"}",
+        "input": "{\"n\":3,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 3\"}",
+        "state": {
+          "echoed": "tick",
+          "n": 3,
+          "output": "Assigned n = 3",
+          "state": {
+            "n": 0
+          },
+          "status": "State updated"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:2>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "state": {
+          "n": 0
+        },
+        "type": "Curator_SetState"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:3>",
+      "notifyId": "<req:2>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "name": "body",
+        "subAgents": [
+          {
+            "args": {
+              "text": "tick"
+            },
+            "toolName": "echo",
+            "type": "Curator_Tool"
+          },
+          {
+            "expression": "$state.n + 1",
+            "key": "n",
+            "type": "Curator_Assign"
+          }
+        ],
+        "type": "Curator_Sequential"
+      },
+      "context": {
+        "input": "{\"n\":0,\"status\":\"State updated\",\"state\":{\"n\":0}}",
+        "state": {
+          "n": 0,
+          "state": {
+            "n": 0
+          },
+          "status": "State updated"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:4>",
+      "notifyId": "<req:2>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "expression": "$state.n + 1",
+        "key": "n",
+        "type": "Curator_Assign"
+      },
+      "context": {
+        "echo": "{\"echoed\":\"tick\"}",
+        "input": "{\"n\":0,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\"}",
+        "state": {
+          "echoed": "tick",
+          "n": 1,
+          "state": {
+            "n": 0
+          },
+          "status": "State updated"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:5>",
+      "notifyId": "<req:2>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "args": {
+          "text": "tick"
+        },
+        "toolName": "echo",
+        "type": "Curator_Tool"
+      },
+      "context": {
+        "echo": "{\"echoed\":\"tick\"}",
+        "input": "{\"n\":0,\"status\":\"State updated\",\"state\":{\"n\":0}}",
+        "state": {
+          "n": 0,
+          "state": {
+            "n": 0
+          },
+          "status": "State updated"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:6>",
+      "notifyId": "<req:5>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "name": "body",
+        "subAgents": [
+          {
+            "args": {
+              "text": "tick"
+            },
+            "toolName": "echo",
+            "type": "Curator_Tool"
+          },
+          {
+            "expression": "$state.n + 1",
+            "key": "n",
+            "type": "Curator_Assign"
+          }
+        ],
+        "type": "Curator_Sequential"
+      },
+      "context": {
+        "echo": "{\"echoed\":\"tick\"}",
+        "input": "{\"n\":1,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 1\"}",
+        "state": {
+          "echoed": "tick",
+          "n": 1,
+          "output": "Assigned n = 1",
+          "state": {
+            "n": 0
+          },
+          "status": "State updated"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:7>",
+      "notifyId": "<req:2>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "expression": "$state.n + 1",
+        "key": "n",
+        "type": "Curator_Assign"
+      },
+      "context": {
+        "echo": "{\"echoed\":\"tick\"}",
+        "input": "{\"n\":1,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 1\"}",
+        "state": {
+          "echoed": "tick",
+          "n": 2,
+          "output": "Assigned n = 1",
+          "state": {
+            "n": 0
+          },
+          "status": "State updated"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:8>",
+      "notifyId": "<req:2>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "args": {
+          "text": "tick"
+        },
+        "toolName": "echo",
+        "type": "Curator_Tool"
+      },
+      "context": {
+        "echo": "{\"echoed\":\"tick\"}",
+        "input": "{\"n\":1,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 1\"}",
+        "state": {
+          "echoed": "tick",
+          "n": 1,
+          "output": "Assigned n = 1",
+          "state": {
+            "n": 0
+          },
+          "status": "State updated"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:9>",
+      "notifyId": "<req:8>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "name": "body",
+        "subAgents": [
+          {
+            "args": {
+              "text": "tick"
+            },
+            "toolName": "echo",
+            "type": "Curator_Tool"
+          },
+          {
+            "expression": "$state.n + 1",
+            "key": "n",
+            "type": "Curator_Assign"
+          }
+        ],
+        "type": "Curator_Sequential"
+      },
+      "context": {
+        "echo": "{\"echoed\":\"tick\"}",
+        "input": "{\"n\":2,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 2\"}",
+        "state": {
+          "echoed": "tick",
+          "n": 2,
+          "output": "Assigned n = 2",
+          "state": {
+            "n": 0
+          },
+          "status": "State updated"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:10>",
+      "notifyId": "<req:2>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "expression": "$state.n + 1",
+        "key": "n",
+        "type": "Curator_Assign"
+      },
+      "context": {
+        "echo": "{\"echoed\":\"tick\"}",
+        "input": "{\"n\":2,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 2\"}",
+        "state": {
+          "echoed": "tick",
+          "n": 3,
+          "output": "Assigned n = 2",
+          "state": {
+            "n": 0
+          },
+          "status": "State updated"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:11>",
+      "notifyId": "<req:2>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "args": {
+          "text": "tick"
+        },
+        "toolName": "echo",
+        "type": "Curator_Tool"
+      },
+      "context": {
+        "echo": "{\"echoed\":\"tick\"}",
+        "input": "{\"n\":2,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 2\"}",
+        "state": {
+          "echoed": "tick",
+          "n": 2,
+          "output": "Assigned n = 2",
+          "state": {
+            "n": 0
+          },
+          "status": "State updated"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:12>",
+      "notifyId": "<req:11>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    }
+  ],
+  "responses": [
+    {
+      "aiModelId": null,
+      "content": "{\"status\":\"State updated\",\"state\":{\"n\":0}}",
+      "existent": true,
+      "id": "<res:1>",
+      "projectId": null,
+      "requestId": "<req:3>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"echoed\":\"tick\"}",
+      "existent": true,
+      "id": "<res:2>",
+      "projectId": null,
+      "requestId": "<req:6>"
+    },
+    {
+      "aiModelId": null,
+      "content": "Assigned n = 1",
+      "existent": true,
+      "id": "<res:3>",
+      "projectId": null,
+      "requestId": "<req:5>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"echoed\":\"tick\"}",
+      "existent": true,
+      "id": "<res:4>",
+      "projectId": null,
+      "requestId": "<req:9>"
+    },
+    {
+      "aiModelId": null,
+      "content": "Assigned n = 2",
+      "existent": true,
+      "id": "<res:5>",
+      "projectId": null,
+      "requestId": "<req:8>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"echoed\":\"tick\"}",
+      "existent": true,
+      "id": "<res:6>",
+      "projectId": null,
+      "requestId": "<req:12>"
+    },
+    {
+      "aiModelId": null,
+      "content": "Assigned n = 3",
+      "existent": true,
+      "id": "<res:7>",
+      "projectId": null,
+      "requestId": "<req:11>"
+    },
+    {
+      "aiModelId": null,
+      "content": "While loop finished.",
+      "existent": true,
+      "id": "<res:8>",
+      "projectId": null,
+      "requestId": "<req:2>"
+    }
+  ]
+}

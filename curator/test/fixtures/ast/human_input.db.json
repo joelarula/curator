@@ -1,0 +1,200 @@
+{
+  "requests": [
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "name": "Human-in-the-loop Test",
+        "subAgents": [
+          {
+            "code": "(() => {\n          console.log('Script 1: Pre-processing...');\n          return JSON.stringify({ status: 'pre-processed' });\n        })()",
+            "language": "javascript",
+            "type": "Curator_Script"
+          },
+          {
+            "as": "code",
+            "inputType": "text",
+            "prompt": "Please enter your approval code:",
+            "type": "Curator_HumanInput"
+          },
+          {
+            "args": {
+              "text": "$state.code"
+            },
+            "toolName": "echo",
+            "type": "Curator_Tool"
+          }
+        ],
+        "type": "Curator_Sequential"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:1>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": "Curator_Workflow"
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "args": {
+          "text": "$state.code"
+        },
+        "toolName": "echo",
+        "type": "Curator_Tool"
+      },
+      "context": {
+        "__humanInputReceived__": true,
+        "activeChoices": [],
+        "as": "code",
+        "choiceAs": "code",
+        "choicePrompt": "Please enter your approval code:",
+        "code": "CODE-42",
+        "echo": "{\"echoed\":\"CODE-42\"}",
+        "input": "{\"status\":\"pre-processed\",\"code\":\"CODE-42\",\"output\":\"CODE-42\"}",
+        "state": {
+          "code": "CODE-42",
+          "output": "CODE-42",
+          "status": "pre-processed"
+        },
+        "targetUserId": null
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:2>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "as": "code",
+        "inputType": "text",
+        "prompt": "Please enter your approval code:",
+        "type": "Curator_HumanInput"
+      },
+      "context": {
+        "__humanInputReceived__": true,
+        "activeChoices": [],
+        "as": "code",
+        "choiceAs": "code",
+        "choicePrompt": "Please enter your approval code:",
+        "code": "CODE-42",
+        "input": "{\"status\":\"pre-processed\"}",
+        "state": {
+          "code": "CODE-42",
+          "status": "pre-processed"
+        },
+        "targetUserId": null
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:3>",
+      "notifyId": "<req:2>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "code": "(() => {\n          console.log('Script 1: Pre-processing...');\n          return JSON.stringify({ status: 'pre-processed' });\n        })()",
+        "language": "javascript",
+        "type": "Curator_Script"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:4>",
+      "notifyId": "<req:3>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "eventName": "curator:choice",
+        "payload": "CODE-42",
+        "type": "Curator_EmitEvent"
+      },
+      "context": {
+        "origin": "API"
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:5>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    }
+  ],
+  "responses": [
+    {
+      "aiModelId": null,
+      "content": "{\"status\":\"pre-processed\"}",
+      "existent": true,
+      "id": "<res:1>",
+      "projectId": null,
+      "requestId": "<req:4>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"type\":\"EVENT_EMITTED\",\"ok\":true,\"event\":{\"eventName\":\"curator:choice\",\"spawned\":[],\"woken\":[3]}}",
+      "existent": true,
+      "id": "<res:2>",
+      "projectId": null,
+      "requestId": "<req:5>"
+    },
+    {
+      "aiModelId": null,
+      "content": "CODE-42",
+      "existent": true,
+      "id": "<res:3>",
+      "projectId": null,
+      "requestId": "<req:3>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"echoed\":\"CODE-42\"}",
+      "existent": true,
+      "id": "<res:4>",
+      "projectId": null,
+      "requestId": "<req:2>"
+    }
+  ]
+}

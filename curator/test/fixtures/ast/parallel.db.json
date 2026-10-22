@@ -1,0 +1,169 @@
+{
+  "requests": [
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "name": "ParallelResearch",
+        "subAgents": [
+          {
+            "code": "(() => {\n          console.log('📈 Finance Agent researching economic trends...');\n          return JSON.stringify({ section: 'Finance', content: 'Interest rates are expected to stabilize.' });\n        })()",
+            "language": "javascript",
+            "type": "Curator_Script"
+          },
+          {
+            "code": "(() => {\n          console.log('💻 Tech Agent researching technology trends...');\n          return JSON.stringify({ section: 'Tech', content: 'AI adoption will reach 80% across enterprises.' });\n        })()",
+            "language": "javascript",
+            "type": "Curator_Script"
+          },
+          {
+            "code": "(() => {\n          console.log('🌍 Environment Agent researching sustainability...');\n          return JSON.stringify({ section: 'Environment', content: 'Green energy investments will double.' });\n        })()",
+            "language": "javascript",
+            "type": "Curator_Script"
+          }
+        ],
+        "type": "Curator_Parallel"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:1>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": "Curator_Workflow"
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "name": "ParallelResearch_join",
+        "type": "Curator_Join"
+      },
+      "context": {
+        "input": "{\"section\":\"Environment\",\"content\":\"Green energy investments will double.\"}",
+        "state": {
+          "content": "Green energy investments will double.",
+          "section": "Environment"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:2>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "code": "(() => {\n          console.log('📈 Finance Agent researching economic trends...');\n          return JSON.stringify({ section: 'Finance', content: 'Interest rates are expected to stabilize.' });\n        })()",
+        "language": "javascript",
+        "type": "Curator_Script"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:3>",
+      "notifyId": "<req:2>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "code": "(() => {\n          console.log('💻 Tech Agent researching technology trends...');\n          return JSON.stringify({ section: 'Tech', content: 'AI adoption will reach 80% across enterprises.' });\n        })()",
+        "language": "javascript",
+        "type": "Curator_Script"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:4>",
+      "notifyId": "<req:2>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "code": "(() => {\n          console.log('🌍 Environment Agent researching sustainability...');\n          return JSON.stringify({ section: 'Environment', content: 'Green energy investments will double.' });\n        })()",
+        "language": "javascript",
+        "type": "Curator_Script"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:5>",
+      "notifyId": "<req:2>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    }
+  ],
+  "responses": [
+    {
+      "aiModelId": null,
+      "content": "{\"section\":\"Finance\",\"content\":\"Interest rates are expected to stabilize.\"}",
+      "existent": true,
+      "id": "<res:1>",
+      "projectId": null,
+      "requestId": "<req:3>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"section\":\"Tech\",\"content\":\"AI adoption will reach 80% across enterprises.\"}",
+      "existent": true,
+      "id": "<res:2>",
+      "projectId": null,
+      "requestId": "<req:4>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"section\":\"Environment\",\"content\":\"Green energy investments will double.\"}",
+      "existent": true,
+      "id": "<res:3>",
+      "projectId": null,
+      "requestId": "<req:5>"
+    },
+    {
+      "aiModelId": null,
+      "content": "[Joined Output]\n{\"section\":\"Finance\",\"content\":\"Interest rates are expected to stabilize.\"}\n\n---\n\n{\"section\":\"Tech\",\"content\":\"AI adoption will reach 80% across enterprises.\"}\n\n---\n\n{\"section\":\"Environment\",\"content\":\"Green energy investments will double.\"}",
+      "existent": true,
+      "id": "<res:4>",
+      "projectId": null,
+      "requestId": "<req:2>"
+    }
+  ]
+}

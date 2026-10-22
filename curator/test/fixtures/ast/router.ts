@@ -1,4 +1,4 @@
-import type { CuratorAstNode } from '../src/engine/CuratorAst.js';
+import type { CuratorAstNode } from '../../../src/engine/CuratorAst.js';
 
 export function run(): CuratorAstNode {
   return {
@@ -10,14 +10,8 @@ export function run(): CuratorAstNode {
       code: "'optionB'"
     },
     subAgents: {
-      optionA: {
-        type: 'Curator_Agent',
-        prompt: 'You are an AI. Say: "I took Option A!"'
-      },
-      optionB: {
-        type: 'Curator_Agent',
-        prompt: 'You are an AI. Say: "I took Option B!"'
-      }
+      optionA: { type: 'Curator_Script', language: 'javascript', code: "'took A'" },
+      optionB: { type: 'Curator_Script', language: 'javascript', code: "'took B'" }
     },
     defaultRoute: 'optionA'
   };

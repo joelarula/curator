@@ -1,0 +1,144 @@
+{
+  "requests": [
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "name": "Scheduling Test Agent",
+        "subAgents": [
+          {
+            "prompt": "Use the schedule_agent tool to schedule a task named \"my_test_task\" that runs \"example_workflow\" every 10 seconds. Return only the result string.",
+            "tools": [
+              "schedule_agent"
+            ],
+            "type": "Curator_Agent"
+          },
+          {
+            "prompt": "Now cancel the task you just created using cancel_scheduled_agent. Pass either the name or the ID you received. Return only the result string.",
+            "tools": [
+              "cancel_scheduled_agent"
+            ],
+            "type": "Curator_Agent"
+          }
+        ],
+        "type": "Curator_Sequential"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:1>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": "Curator_Workflow"
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "prompt": "Now cancel the task you just created using cancel_scheduled_agent. Pass either the name or the ID you received. Return only the result string.",
+        "tools": [
+          "cancel_scheduled_agent"
+        ],
+        "type": "Curator_Agent"
+      },
+      "context": {
+        "input": "{\"output\":\"Successfully scheduled my_test_task. ID: 7\"}",
+        "state": {
+          "output": "Successfully scheduled my_test_task. ID: 7"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:2>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "prompt": "Use the schedule_agent tool to schedule a task named \"my_test_task\" that runs \"example_workflow\" every 10 seconds. Return only the result string.",
+        "tools": [
+          "schedule_agent"
+        ],
+        "type": "Curator_Agent"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:3>",
+      "notifyId": "<req:2>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    }
+  ],
+  "responses": [
+    {
+      "aiModelId": null,
+      "content": "[Invoking schedule_agent]",
+      "existent": true,
+      "id": "<res:1>",
+      "projectId": null,
+      "requestId": "<req:3>"
+    },
+    {
+      "aiModelId": null,
+      "content": "[Tool Result: schedule_agent]\nSuccessfully scheduled 'my_test_task'. ID: 7",
+      "existent": true,
+      "id": "<res:2>",
+      "projectId": null,
+      "requestId": "<req:3>"
+    },
+    {
+      "aiModelId": null,
+      "content": "Successfully scheduled my_test_task. ID: 7",
+      "existent": true,
+      "id": "<res:3>",
+      "projectId": null,
+      "requestId": "<req:3>"
+    },
+    {
+      "aiModelId": null,
+      "content": "[Invoking cancel_scheduled_agent]",
+      "existent": true,
+      "id": "<res:4>",
+      "projectId": null,
+      "requestId": "<req:2>"
+    },
+    {
+      "aiModelId": null,
+      "content": "[Tool Result: cancel_scheduled_agent]\nSuccessfully cancelled scheduled agent ID: 7",
+      "existent": true,
+      "id": "<res:5>",
+      "projectId": null,
+      "requestId": "<req:2>"
+    },
+    {
+      "aiModelId": null,
+      "content": "Successfully cancelled scheduled agent ID: 7",
+      "existent": true,
+      "id": "<res:6>",
+      "projectId": null,
+      "requestId": "<req:2>"
+    }
+  ]
+}

@@ -37,6 +37,8 @@ export interface CuratorRequestProcessorOptions {
   approvalTtlMs?: number;
   /** Retention of completed read-only direct tool Requests. Workflow Requests are never pruned. */
   retention?: { readOnlyRequests?: 'keep' | 'prune'; readOnlyTtlMs?: number };
+  /** Clock (epoch ms) for scheduling, wait deadlines and approval expiry. Default Date.now; injectable for deterministic tests. */
+  now?: () => number;
 }
 
 export type CuratorRequestOriginKind = 'AST' | 'REPL' | 'CLI' | 'API' | 'MCP' | 'GRAPHQL';
@@ -131,9 +133,11 @@ export class CuratorRequestProcessor {
   private approvalTtlMs: number;
   private retention: { readOnlyRequests: 'keep' | 'prune'; readOnlyTtlMs: number };
   private lastPruneAt = 0;
+  private clock: () => number;
 
   constructor(prisma: any, options: CuratorRequestProcessorOptions = {}) {
     this.prisma = prisma;
+    this.clock = options.now ?? Date.now;
     this.onEvent = options.onEvent;
     this.astStorage = options.astStorage ?? 'reference';
     this.maxCallDepth = options.maxCallDepth ?? 16;
@@ -444,7 +448,7 @@ export class CuratorRequestProcessor {
   }
 
   private async pollScheduledAgents() {
-    const now = new Date();
+    const now = new Date(this.clock());
     const currentMinuteBucket = Math.floor(now.getTime() / 60000);
     if (this.lastScheduleMinuteBucket === currentMinuteBucket) {
       return; // Already evaluated schedules in this minute
@@ -632,7 +636,7 @@ export class CuratorRequestProcessor {
         where: {
           status: 'NEW',
           pendingDependencies: { lte: 0 },
-          scheduledAt: { lte: new Date() }
+          scheduledAt: { lte: new Date(this.clock()) }
         },
         orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
         take: availableSlots
@@ -677,7 +681,7 @@ export class CuratorRequestProcessor {
     const where: any = {
       status: 'NEW',
       pendingDependencies: { lte: 0 },
-      scheduledAt: { lte: new Date() }
+      scheduledAt: { lte: new Date(this.clock()) }
     };
     if (options?.conversationId !== undefined) {
       where.conversationId = options.conversationId;
@@ -966,7 +970,7 @@ export class CuratorRequestProcessor {
       if (isRateLimit && req && req.retryCount < MAX_RETRIES) {
         let delayMs = 5000 * Math.pow(2, req.retryCount);
         if (retryMatch) delayMs = parseFloat(retryMatch[1]) * 1000 + 1000;
-        const scheduledAt = new Date(Date.now() + delayMs);
+        const scheduledAt = new Date(this.clock() + delayMs);
         logger.info(`[CuratorRequestProcessor] Rate limit. Rescheduling request ${request.id} in ${Math.round(delayMs/1000)}s (Attempt ${req.retryCount + 1}/${MAX_RETRIES})`);
         await this.prisma.request.update({ where: { id: request.id }, data: { status: 'NEW', lockedBy: null, lockedAt: null, retryCount: req.retryCount + 1, scheduledAt } });
         return;
@@ -1156,6 +1160,13 @@ export class CuratorRequestProcessor {
   }
 
   private async handleWaitEvent(ast: any, req: any) {
+    if (req.context?.__humanInputReceived__) {
+      // Woken by dispatchEvent: the payload is already bound to the alias in context/state.
+      const received = ast.payloadAlias ? req.context[ast.payloadAlias] : req.context.input;
+      await this.saveResponse(req, typeof received === 'string' ? received : JSON.stringify(received ?? {}));
+      await this.completeRequest(req.id, 'COMPLETED');
+      return;
+    }
     logger.info(`[CuratorRequestProcessor] Request ${req.id} paused, waiting for event '${ast.eventName}'.`);
     const updatedContext = { ...(req.context || {}), waitEvent: ast.eventName, payloadAlias: ast.payloadAlias };
     await this.prisma.request.update({
@@ -1186,7 +1197,7 @@ export class CuratorRequestProcessor {
         day: 86_400_000,
         week: 604_800_000
       };
-      return new Date(Date.now() + amount * (msMap[unit] || 0));
+      return new Date(this.clock() + amount * (msMap[unit] || 0));
     }
     // Try ISO parse
     const d = new Date(raw);
@@ -2091,7 +2102,7 @@ export class CuratorRequestProcessor {
       orderBy: { updatedAt: 'asc' },
       take: 50
     });
-    const now = Date.now();
+    const now = this.clock();
     for (const req of parked) {
       const ctx = (typeof req.context === 'string' ? JSON.parse(req.context) : req.context) || {};
       const pending = ctx.pendingToolCall;
@@ -2199,7 +2210,7 @@ export class CuratorRequestProcessor {
       if (accessCheck.requiresConfirmation) {
         logger.info(`[CuratorRequestProcessor] Request ${req.id} pausing on WAITING_FOR_USER for tool '${ast.toolName}'.`);
         const ttlMs = ast.approvalTtlMs ?? (tool as any).approvalTtlMs ?? this.approvalTtlMs;
-        const expiresAt = ttlMs > 0 ? new Date(Date.now() + ttlMs).toISOString() : undefined;
+        const expiresAt = ttlMs > 0 ? new Date(this.clock() + ttlMs).toISOString() : undefined;
         await this.prisma.request.update({
           where: { id: req.id },
           data: {
@@ -2370,6 +2381,13 @@ export class CuratorRequestProcessor {
     }
 
     if (mode === 'pause') {
+      // Wake-up after the handler: the pause already happened on the first pass.
+      if (req.context?.interruptHandled) {
+        await this.saveResponse(req, JSON.stringify({ status: 'pause', handled: true }));
+        await this.completeRequest(req.id, 'COMPLETED');
+        return;
+      }
+
       // Suspend all NEW requests below threshold
       const paused = await this.prisma.request.updateMany({
         where: {
@@ -2394,8 +2412,12 @@ export class CuratorRequestProcessor {
             ast: ast.handler
           }
         });
-        await this.saveResponse(req, JSON.stringify({ status: 'pause', paused: paused.count }));
-        await this.completeRequest(req.id, 'WAITING');
+        // Park until the handler finishes; `interruptHandled` makes the wake-up complete instead of pausing again.
+        // No Response while parked: the poller treats a WAITING Request with a Response as answered.
+        await this.prisma.request.update({
+          where: { id: req.id },
+          data: { status: 'WAITING', pendingDependencies: 1, lockedBy: null, lockedAt: null, context: { ...(req.context || {}), interruptHandled: true } }
+        });
       } else {
         await this.saveResponse(req, JSON.stringify({ status: 'pause', paused: paused.count }));
         await this.completeRequest(req.id, 'COMPLETED');
@@ -2518,9 +2540,11 @@ export class CuratorRequestProcessor {
     if (includeContents === 'none') return [];
     
     const limit = (req.ast as any)?.history_limit ?? (req.context as any)?.historyLimit;
+    // Sequential steps are created last-to-first, so request ids do not follow execution order:
+    // every Response already written (except this request's own turns) is prior history.
     const pastResponses = await this.prisma.response.findMany({
-      where: { conversationId: req.conversationId, requestId: { lt: req.id } },
-      orderBy: { createdAt: limit && limit > 0 ? 'desc' : 'asc' },
+      where: { conversationId: req.conversationId, requestId: { not: req.id } },
+      orderBy: limit && limit > 0 ? [{ createdAt: 'desc' }, { id: 'desc' }] : [{ createdAt: 'asc' }, { id: 'asc' }],
       take: limit && limit > 0 ? limit : undefined,
       include: { request: true }
     });
@@ -2666,7 +2690,7 @@ export class CuratorRequestProcessor {
             if (accessCheck.requiresConfirmation) {
               logger.info(`[CuratorRequestProcessor] Request ${req.id} pausing on WAITING_FOR_USER for tool '${tc.name}'.`);
               const ttlMs = (tool as any).approvalTtlMs ?? this.approvalTtlMs;
-              const expiresAt = ttlMs > 0 ? new Date(Date.now() + ttlMs).toISOString() : undefined;
+              const expiresAt = ttlMs > 0 ? new Date(this.clock() + ttlMs).toISOString() : undefined;
               await this.prisma.request.update({
                 where: { id: req.id },
                 data: {

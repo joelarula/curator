@@ -1,0 +1,24 @@
+{
+  "type": "Curator_Sequential",
+  "name": "wait_emit",
+  "subAgents": [
+    {
+      "type": "Curator_SetState",
+      "state": {
+        "phase": 1
+      }
+    },
+    {
+      "type": "Curator_WaitEvent",
+      "eventName": "go",
+      "payloadAlias": "payload"
+    },
+    {
+      "type": "Curator_Tool",
+      "toolName": "echo",
+      "args": {
+        "text": "$state.payload.msg"
+      }
+    }
+  ]
+}

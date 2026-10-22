@@ -1,0 +1,167 @@
+{
+  "requests": [
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "name": "seq_set_state",
+        "subAgents": [
+          {
+            "state": {
+              "counter": 1
+            },
+            "type": "Curator_SetState"
+          },
+          {
+            "args": {
+              "text": "hello"
+            },
+            "as": "echoed",
+            "toolName": "echo",
+            "type": "Curator_Tool"
+          },
+          {
+            "state": {
+              "counter": 2
+            },
+            "type": "Curator_SetState"
+          }
+        ],
+        "type": "Curator_Sequential"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:1>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": "Curator_Workflow"
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "state": {
+          "counter": 2
+        },
+        "type": "Curator_SetState"
+      },
+      "context": {
+        "echo": "{\"echoed\":\"hello\"}",
+        "echoed": "{\"echoed\":\"hello\"}",
+        "input": "{\"counter\":1,\"status\":\"State updated\",\"state\":{\"counter\":1},\"echoed\":\"hello\"}",
+        "state": {
+          "counter": 1,
+          "echoed": "hello",
+          "state": {
+            "counter": 1
+          },
+          "status": "State updated"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:2>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "args": {
+          "text": "hello"
+        },
+        "as": "echoed",
+        "toolName": "echo",
+        "type": "Curator_Tool"
+      },
+      "context": {
+        "echo": "{\"echoed\":\"hello\"}",
+        "echoed": "{\"echoed\":\"hello\"}",
+        "input": "{\"counter\":1,\"status\":\"State updated\",\"state\":{\"counter\":1}}",
+        "state": {
+          "counter": 1,
+          "state": {
+            "counter": 1
+          },
+          "status": "State updated"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:3>",
+      "notifyId": "<req:2>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "state": {
+          "counter": 1
+        },
+        "type": "Curator_SetState"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:4>",
+      "notifyId": "<req:3>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    }
+  ],
+  "responses": [
+    {
+      "aiModelId": null,
+      "content": "{\"status\":\"State updated\",\"state\":{\"counter\":1}}",
+      "existent": true,
+      "id": "<res:1>",
+      "projectId": null,
+      "requestId": "<req:4>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"echoed\":\"hello\"}",
+      "existent": true,
+      "id": "<res:2>",
+      "projectId": null,
+      "requestId": "<req:3>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"status\":\"State updated\",\"state\":{\"counter\":2}}",
+      "existent": true,
+      "id": "<res:3>",
+      "projectId": null,
+      "requestId": "<req:2>"
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-import type { CuratorSequentialNode } from '../src/engine/CuratorAst.js';
+import type { CuratorSequentialNode } from '../../../src/engine/CuratorAst.js';
 
 export function run(): CuratorSequentialNode {
   return {

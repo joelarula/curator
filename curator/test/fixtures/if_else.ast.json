@@ -1,0 +1,30 @@
+{
+  "type": "Curator_Sequential",
+  "name": "if_else",
+  "subAgents": [
+    {
+      "type": "Curator_SetState",
+      "state": {
+        "score": 10
+      }
+    },
+    {
+      "type": "Curator_IfElse",
+      "condition": "$state.score > 5",
+      "thenBranch": {
+        "type": "Curator_Tool",
+        "toolName": "echo",
+        "args": {
+          "text": "high"
+        }
+      },
+      "elseBranch": {
+        "type": "Curator_Tool",
+        "toolName": "echo",
+        "args": {
+          "text": "low"
+        }
+      }
+    }
+  ]
+}

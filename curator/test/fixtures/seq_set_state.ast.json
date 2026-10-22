@@ -1,0 +1,26 @@
+{
+  "type": "Curator_Sequential",
+  "name": "seq_set_state",
+  "subAgents": [
+    {
+      "type": "Curator_SetState",
+      "state": {
+        "counter": 1
+      }
+    },
+    {
+      "type": "Curator_Tool",
+      "toolName": "echo",
+      "args": {
+        "text": "hello"
+      },
+      "as": "echoed"
+    },
+    {
+      "type": "Curator_SetState",
+      "state": {
+        "counter": 2
+      }
+    }
+  ]
+}

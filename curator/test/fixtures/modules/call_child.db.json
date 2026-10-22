@@ -1,0 +1,176 @@
+{
+  "requests": [
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": null,
+      "context": {
+        "astPath": ""
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:1>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": "Curator_Workflow"
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "args": {
+          "value": "$state.result"
+        },
+        "toolName": "record",
+        "type": "Curator_Tool"
+      },
+      "context": {
+        "input": "{\"doubled\":42,\"output\":\"42\",\"result\":42}",
+        "record": "{\"got\":42}",
+        "result": 42,
+        "state": {
+          "doubled": 42,
+          "output": "42",
+          "result": 42
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:2>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "args": {
+          "n": 21
+        },
+        "as": "result",
+        "ref": "#double",
+        "type": "Curator_Call"
+      },
+      "context": {
+        "astPath": "",
+        "input": "{\"doubled\":42,\"output\":\"Assigned doubled = 42\"}",
+        "result": 42,
+        "state": {
+          "doubled": 42,
+          "output": "Assigned doubled = 42",
+          "result": 42
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:3>",
+      "notifyId": "<req:2>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": null,
+      "context": {
+        "astPath": "subroutines.double.body",
+        "callDepth": 1,
+        "origin": "AST",
+        "params": {
+          "n": 21
+        },
+        "ref": "#double"
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:4>",
+      "notifyId": "<req:3>",
+      "parentId": "<req:3>",
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "expression": "$params.n * 2",
+        "key": "doubled",
+        "type": "Curator_Assign"
+      },
+      "context": {
+        "astPath": "subroutines.double.body",
+        "callDepth": 1,
+        "origin": "AST",
+        "params": {
+          "n": 21
+        },
+        "ref": "#double",
+        "state": {
+          "doubled": 42
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:5>",
+      "notifyId": "<req:3>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    }
+  ],
+  "responses": [
+    {
+      "aiModelId": null,
+      "content": "Assigned doubled = 42",
+      "existent": true,
+      "id": "<res:1>",
+      "projectId": null,
+      "requestId": "<req:5>"
+    },
+    {
+      "aiModelId": null,
+      "content": "42",
+      "existent": true,
+      "id": "<res:2>",
+      "projectId": null,
+      "requestId": "<req:3>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"got\":42}",
+      "existent": true,
+      "id": "<res:3>",
+      "projectId": null,
+      "requestId": "<req:2>"
+    }
+  ]
+}

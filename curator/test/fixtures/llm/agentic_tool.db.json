@@ -1,0 +1,56 @@
+{
+  "requests": [
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "agentName": "a",
+        "model": "fake-model",
+        "prompt": "hello",
+        "tools": [
+          "lookup"
+        ],
+        "type": "Curator_Agent"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:1>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": "Curator_Workflow"
+    }
+  ],
+  "responses": [
+    {
+      "aiModelId": null,
+      "content": "[Invoking lookup]",
+      "existent": true,
+      "id": "<res:1>",
+      "projectId": null,
+      "requestId": "<req:1>"
+    },
+    {
+      "aiModelId": null,
+      "content": "[Tool Result: lookup]\n{\"city\":\"Tartu\",\"temp\":21}",
+      "existent": true,
+      "id": "<res:2>",
+      "projectId": null,
+      "requestId": "<req:1>"
+    },
+    {
+      "aiModelId": null,
+      "content": "It is 21 in Tartu",
+      "existent": true,
+      "id": "<res:3>",
+      "projectId": null,
+      "requestId": "<req:1>"
+    }
+  ]
+}

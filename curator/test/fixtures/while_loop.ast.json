@@ -1,0 +1,34 @@
+{
+  "type": "Curator_Sequential",
+  "name": "while_loop",
+  "subAgents": [
+    {
+      "type": "Curator_SetState",
+      "state": {
+        "n": 0
+      }
+    },
+    {
+      "type": "Curator_While",
+      "condition": "$state.n < 3",
+      "body": {
+        "type": "Curator_Sequential",
+        "name": "body",
+        "subAgents": [
+          {
+            "type": "Curator_Tool",
+            "toolName": "echo",
+            "args": {
+              "text": "tick"
+            }
+          },
+          {
+            "type": "Curator_Assign",
+            "key": "n",
+            "expression": "$state.n + 1"
+          }
+        ]
+      }
+    }
+  ]
+}

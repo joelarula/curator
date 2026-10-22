@@ -1,10 +1,9 @@
-import type { CuratorParallelNode } from '../src/engine/CuratorAst.js';
+import type { CuratorParallelNode } from '../../../src/engine/CuratorAst.js';
 
 export function run(): CuratorParallelNode {
   return {
     type: 'Curator_Parallel',
     name: 'ParallelResearch',
-    prompt: 'Investigate the market trends for 2027.',
     subAgents: [
       {
         type: 'Curator_Script',

@@ -1,0 +1,219 @@
+{
+  "requests": [
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "name": "Interpolation and Schema Test",
+        "subAgents": [
+          {
+            "state": {
+              "limit": 42,
+              "userTarget": "Master Curator"
+            },
+            "type": "Curator_SetState"
+          },
+          {
+            "code": "(() => {\n          return JSON.stringify({ name: \"Testing Entity\" });\n        })()",
+            "language": "javascript",
+            "type": "Curator_Script"
+          },
+          {
+            "agentName": "interpolation_agent",
+            "input_schema": {
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "type": "object"
+            },
+            "instruction": "You are an {userTarget}. Please process the data and output valid JSON.",
+            "model": "gemini-2.5-flash",
+            "output_schema": {
+              "properties": {
+                "greeting": {
+                  "type": "string"
+                },
+                "limitUsed": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "greeting",
+                "limitUsed"
+              ],
+              "type": "object"
+            },
+            "prompt": "Return a greeting. The limit is {limit}. If this is missing: {missingVar?} then ignore it. Optional artifact: {artifact.missingDoc?}. Please respond based on the input schema data.",
+            "provider": "gemini",
+            "type": "Curator_Agent"
+          }
+        ],
+        "type": "Curator_Sequential"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:1>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": "Curator_Workflow"
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "agentName": "interpolation_agent",
+        "input_schema": {
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "instruction": "You are an {userTarget}. Please process the data and output valid JSON.",
+        "model": "gemini-2.5-flash",
+        "output_schema": {
+          "properties": {
+            "greeting": {
+              "type": "string"
+            },
+            "limitUsed": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "greeting",
+            "limitUsed"
+          ],
+          "type": "object"
+        },
+        "prompt": "Return a greeting. The limit is {limit}. If this is missing: {missingVar?} then ignore it. Optional artifact: {artifact.missingDoc?}. Please respond based on the input schema data.",
+        "provider": "gemini",
+        "type": "Curator_Agent"
+      },
+      "context": {
+        "input": "{\"userTarget\":\"Master Curator\",\"limit\":42,\"status\":\"State updated\",\"state\":{\"userTarget\":\"Master Curator\",\"limit\":42},\"name\":\"Testing Entity\"}",
+        "state": {
+          "limit": 42,
+          "name": "Testing Entity",
+          "state": {
+            "limit": 42,
+            "userTarget": "Master Curator"
+          },
+          "status": "State updated",
+          "userTarget": "Master Curator"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:2>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "code": "(() => {\n          return JSON.stringify({ name: \"Testing Entity\" });\n        })()",
+        "language": "javascript",
+        "type": "Curator_Script"
+      },
+      "context": {
+        "input": "{\"userTarget\":\"Master Curator\",\"limit\":42,\"status\":\"State updated\",\"state\":{\"userTarget\":\"Master Curator\",\"limit\":42}}",
+        "state": {
+          "limit": 42,
+          "state": {
+            "limit": 42,
+            "userTarget": "Master Curator"
+          },
+          "status": "State updated",
+          "userTarget": "Master Curator"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:3>",
+      "notifyId": "<req:2>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "state": {
+          "limit": 42,
+          "userTarget": "Master Curator"
+        },
+        "type": "Curator_SetState"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:4>",
+      "notifyId": "<req:3>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    }
+  ],
+  "responses": [
+    {
+      "aiModelId": null,
+      "content": "{\"status\":\"State updated\",\"state\":{\"userTarget\":\"Master Curator\",\"limit\":42}}",
+      "existent": true,
+      "id": "<res:1>",
+      "projectId": null,
+      "requestId": "<req:4>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"name\":\"Testing Entity\"}",
+      "existent": true,
+      "id": "<res:2>",
+      "projectId": null,
+      "requestId": "<req:3>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"greeting\":\"hello\",\"limitUsed\":42}",
+      "existent": true,
+      "id": "<res:3>",
+      "projectId": null,
+      "requestId": "<req:2>"
+    }
+  ]
+}

@@ -1,0 +1,208 @@
+{
+  "requests": [
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "name": "wait_emit",
+        "subAgents": [
+          {
+            "state": {
+              "phase": 1
+            },
+            "type": "Curator_SetState"
+          },
+          {
+            "eventName": "go",
+            "payloadAlias": "payload",
+            "type": "Curator_WaitEvent"
+          },
+          {
+            "args": {
+              "text": "$state.payload.msg"
+            },
+            "toolName": "echo",
+            "type": "Curator_Tool"
+          }
+        ],
+        "type": "Curator_Sequential"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:1>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": "Curator_Workflow"
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "args": {
+          "text": "$state.payload.msg"
+        },
+        "toolName": "echo",
+        "type": "Curator_Tool"
+      },
+      "context": {
+        "__humanInputReceived__": true,
+        "echo": "{\"echoed\":\"hi\"}",
+        "input": "{\"phase\":1,\"status\":\"State updated\",\"state\":{\"phase\":1},\"payload\":{\"msg\":\"hi\"},\"msg\":\"hi\"}",
+        "payload": {
+          "msg": "hi"
+        },
+        "state": {
+          "msg": "hi",
+          "payload": {
+            "msg": "hi"
+          },
+          "phase": 1,
+          "state": {
+            "phase": 1
+          },
+          "status": "State updated"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:2>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "eventName": "go",
+        "payloadAlias": "payload",
+        "type": "Curator_WaitEvent"
+      },
+      "context": {
+        "__humanInputReceived__": true,
+        "input": "{\"phase\":1,\"status\":\"State updated\",\"state\":{\"phase\":1}}",
+        "payload": {
+          "msg": "hi"
+        },
+        "state": {
+          "payload": {
+            "msg": "hi"
+          },
+          "phase": 1,
+          "state": {
+            "phase": 1
+          },
+          "status": "State updated"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:3>",
+      "notifyId": "<req:2>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "state": {
+          "phase": 1
+        },
+        "type": "Curator_SetState"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:4>",
+      "notifyId": "<req:3>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "eventName": "go",
+        "payload": {
+          "msg": "hi"
+        },
+        "type": "Curator_EmitEvent"
+      },
+      "context": {
+        "origin": "API"
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:5>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    }
+  ],
+  "responses": [
+    {
+      "aiModelId": null,
+      "content": "{\"status\":\"State updated\",\"state\":{\"phase\":1}}",
+      "existent": true,
+      "id": "<res:1>",
+      "projectId": null,
+      "requestId": "<req:4>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"type\":\"EVENT_EMITTED\",\"ok\":true,\"event\":{\"eventName\":\"go\",\"spawned\":[],\"woken\":[3]}}",
+      "existent": true,
+      "id": "<res:2>",
+      "projectId": null,
+      "requestId": "<req:5>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"msg\":\"hi\"}",
+      "existent": true,
+      "id": "<res:3>",
+      "projectId": null,
+      "requestId": "<req:3>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"echoed\":\"hi\"}",
+      "existent": true,
+      "id": "<res:4>",
+      "projectId": null,
+      "requestId": "<req:2>"
+    }
+  ]
+}

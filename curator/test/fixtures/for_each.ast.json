@@ -1,0 +1,27 @@
+{
+  "type": "Curator_Sequential",
+  "name": "for_each",
+  "subAgents": [
+    {
+      "type": "Curator_SetState",
+      "state": {
+        "items": [
+          "a",
+          "b",
+          "c"
+        ]
+      }
+    },
+    {
+      "type": "Curator_ForEach",
+      "collectionExpression": "$state.items",
+      "body": {
+        "type": "Curator_Tool",
+        "toolName": "echo",
+        "args": {
+          "text": "$context.item"
+        }
+      }
+    }
+  ]
+}

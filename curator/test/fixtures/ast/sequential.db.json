@@ -1,0 +1,151 @@
+{
+  "requests": [
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "name": "SequentialPipeline",
+        "subAgents": [
+          {
+            "code": "(() => {\n          console.log('📚 Researcher Agent gathering facts...');\n          return JSON.stringify({ facts: ['AI will be autonomous', 'Agents will collaborate'] });\n        })()",
+            "language": "javascript",
+            "type": "Curator_Script"
+          },
+          {
+            "code": "(() => {\n          console.log('✍️ Writer Agent drafting article based on context...');\n          // In a real agent, it would use context.input (the merged state from the previous node)\n          return JSON.stringify({ draft: 'The future of AI is collaborative autonomy.' });\n        })()",
+            "language": "javascript",
+            "type": "Curator_Script"
+          },
+          {
+            "code": "(() => {\n          console.log('🔍 Editor Agent polishing draft...');\n          return JSON.stringify({ final_article: 'The future of AI is collaborative autonomy. It will revolutionize workflows.' });\n        })()",
+            "language": "javascript",
+            "type": "Curator_Script"
+          }
+        ],
+        "type": "Curator_Sequential"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:1>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": "Curator_Workflow"
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "code": "(() => {\n          console.log('🔍 Editor Agent polishing draft...');\n          return JSON.stringify({ final_article: 'The future of AI is collaborative autonomy. It will revolutionize workflows.' });\n        })()",
+        "language": "javascript",
+        "type": "Curator_Script"
+      },
+      "context": {
+        "input": "{\"facts\":[\"AI will be autonomous\",\"Agents will collaborate\"],\"draft\":\"The future of AI is collaborative autonomy.\"}",
+        "state": {
+          "draft": "The future of AI is collaborative autonomy.",
+          "facts": [
+            "AI will be autonomous",
+            "Agents will collaborate"
+          ]
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:2>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "code": "(() => {\n          console.log('✍️ Writer Agent drafting article based on context...');\n          // In a real agent, it would use context.input (the merged state from the previous node)\n          return JSON.stringify({ draft: 'The future of AI is collaborative autonomy.' });\n        })()",
+        "language": "javascript",
+        "type": "Curator_Script"
+      },
+      "context": {
+        "input": "{\"facts\":[\"AI will be autonomous\",\"Agents will collaborate\"]}",
+        "state": {
+          "facts": [
+            "AI will be autonomous",
+            "Agents will collaborate"
+          ]
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:3>",
+      "notifyId": "<req:2>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "code": "(() => {\n          console.log('📚 Researcher Agent gathering facts...');\n          return JSON.stringify({ facts: ['AI will be autonomous', 'Agents will collaborate'] });\n        })()",
+        "language": "javascript",
+        "type": "Curator_Script"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:4>",
+      "notifyId": "<req:3>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    }
+  ],
+  "responses": [
+    {
+      "aiModelId": null,
+      "content": "{\"facts\":[\"AI will be autonomous\",\"Agents will collaborate\"]}",
+      "existent": true,
+      "id": "<res:1>",
+      "projectId": null,
+      "requestId": "<req:4>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"draft\":\"The future of AI is collaborative autonomy.\"}",
+      "existent": true,
+      "id": "<res:2>",
+      "projectId": null,
+      "requestId": "<req:3>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"final_article\":\"The future of AI is collaborative autonomy. It will revolutionize workflows.\"}",
+      "existent": true,
+      "id": "<res:3>",
+      "projectId": null,
+      "requestId": "<req:2>"
+    }
+  ]
+}

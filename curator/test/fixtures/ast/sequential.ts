@@ -1,10 +1,9 @@
-import type { CuratorSequentialNode } from '../src/engine/CuratorAst.js';
+import type { CuratorSequentialNode } from '../../../src/engine/CuratorAst.js';
 
 export function run(): CuratorSequentialNode {
   return {
     type: 'Curator_Sequential',
     name: 'SequentialPipeline',
-    prompt: 'Write an article about the future of AI agents.',
     subAgents: [
       {
         type: 'Curator_Script',
