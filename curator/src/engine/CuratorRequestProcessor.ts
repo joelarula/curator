@@ -1014,6 +1014,10 @@ export class CuratorRequestProcessor {
    *  - parked WAITING_FOR_EVENT / WAITING_FOR_USER Requests with a matching `waitEvent` are resumed.
    */
   public async dispatchEvent(eventName: string, payload: any, req: any, targetAgentId?: string, opts: DispatchEventOptions = {}): Promise<CuratorEventEmitResult> {
+    const eventSeq = await this.logEvent(req.conversationId, eventName, payload);
+    // The emitting flow must not replay its own events when it waits later.
+    if (eventSeq !== null && req.id != null) await this.advanceEventCursor(req.id, eventSeq);
+
     const subscriptions = this.prisma.eventSubscription
       ? await this.prisma.eventSubscription.findMany({
           where: {
@@ -1127,6 +1131,7 @@ export class CuratorRequestProcessor {
           data: { status: 'NEW', context: updatedContext }
         });
         woken.push(waitReq.id);
+        if (eventSeq !== null) await this.advanceEventCursor(waitReq.id, eventSeq);
       }
     }
 
@@ -1134,7 +1139,84 @@ export class CuratorRequestProcessor {
     return { eventName, spawned, woken };
   }
 
+  /** Appends to the conversation's event log; returns its sequence id (null if the DB has no EventLog). */
+  private async logEvent(conversationId: number, eventName: string, payload: any): Promise<number | null> {
+    if (!this.prisma.eventLog || conversationId == null) return null;
+    const row = await this.prisma.eventLog.create({
+      data: { conversationId, eventName, payload: payload === undefined ? null : payload },
+    });
+    return row.id;
+  }
+
+  private async latestEventSeq(conversationId: number): Promise<number> {
+    if (!this.prisma.eventLog) return 0;
+    const last = await this.prisma.eventLog.findFirst({ where: { conversationId }, orderBy: { id: 'desc' } });
+    return last?.id ?? 0;
+  }
+
+  /**
+   * Raises the cursor of `reqId` and of every request it notifies (its flow, forward along notifyId),
+   * stopping before a Join so parallel branches keep independent cursors.
+   */
+  private async advanceEventCursor(reqId: number, seq: number) {
+    let id: number | null = reqId;
+    for (let depth = 0; id != null && depth < 500; depth++) {
+      const r: any = await this.prisma.request.findUnique({ where: { id }, select: { ast: true, notifyId: true } });
+      if (!r || (r.ast as any)?.type === 'Curator_Join') return;
+      await this.prisma.request.updateMany({
+        where: { id, OR: [{ eventCursor: null }, { eventCursor: { lt: seq } }] },
+        data: { eventCursor: seq },
+      });
+      id = r.notifyId;
+    }
+  }
+
+  /**
+   * The flow's cursor: the request's own, else the nearest one it notifies. When the flow never waited, falls
+   * back to the last event logged before the flow's anchor (chain end / Join) was created, so events emitted
+   * before its first wait are still delivered.
+   */
+  private async resolveEventCursor(reqId: number, conversationId: number): Promise<number> {
+    let id: number | null = reqId;
+    let anchor: Date | null = null;
+    for (let depth = 0; id != null && depth < 500; depth++) {
+      const r: any = await this.prisma.request.findUnique({ where: { id }, select: { ast: true, notifyId: true, eventCursor: true, createdAt: true } });
+      if (!r) break;
+      anchor = r.createdAt;
+      if ((r.ast as any)?.type === 'Curator_Join') break;
+      if (r.eventCursor != null) return r.eventCursor;
+      id = r.notifyId;
+    }
+    if (!anchor) return this.latestEventSeq(conversationId);
+    const before = await this.prisma.eventLog.findFirst({
+      where: { conversationId, createdAt: { lt: anchor } },
+      orderBy: { id: 'desc' },
+    });
+    return before?.id ?? 0;
+  }
+
   private async handleWaitEvent(ast: any, req: any) {
+    if (this.prisma.eventLog && !req.context?.__humanInputReceived__) {
+      const cursor = await this.resolveEventCursor(req.id, req.conversationId);
+      const missed = await this.prisma.eventLog.findFirst({
+        where: { conversationId: req.conversationId, eventName: ast.eventName, id: { gt: cursor } },
+        orderBy: { id: 'asc' },
+      });
+      if (missed) {
+        // Emitted while this flow was between waits: deliver it as if it had woken us.
+        logger.info(`[CuratorRequestProcessor] Request ${req.id} consumed buffered event '${ast.eventName}' (#${missed.id}).`);
+        await this.advanceEventCursor(req.id, missed.id);
+        const value = missed.payload;
+        if (ast.payloadAlias) {
+          const conv = await this.prisma.conversation.findUnique({ where: { id: req.conversationId } });
+          await this.updateConversationState(req.conversationId, { ...this.getConversationState(conv), [ast.payloadAlias]: value });
+        }
+        await this.saveResponse(req, typeof value === 'string' ? value : JSON.stringify(value ?? {}));
+        await this.completeRequest(req.id, 'COMPLETED');
+        return;
+      }
+      await this.advanceEventCursor(req.id, cursor);
+    }
     if (req.context?.__humanInputReceived__) {
       // Woken by dispatchEvent: the payload is already bound to the alias in context/state.
       const received = ast.payloadAlias ? req.context[ast.payloadAlias] : req.context.input;

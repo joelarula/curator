@@ -263,7 +263,7 @@ export async function snapshotDb(env: TestEnv) {
           parentId: r.parentId == null ? null : reqIds.get(r.parentId) ?? '<req:?>',
           notifyId: r.notifyId == null ? null : reqIds.get(r.notifyId) ?? '<req:?>',
         },
-        ['createdAt', 'updatedAt', 'lockedAt', 'lockedBy', 'scheduledAt', 'userId', 'conversationId', 'scriptId', 'scriptVersion'],
+        ['createdAt', 'updatedAt', 'lockedAt', 'lockedBy', 'scheduledAt', 'userId', 'conversationId', 'scriptId', 'scriptVersion', 'eventCursor'],
       ),
     ),
     responses: responses.map((r: any, i: number) =>

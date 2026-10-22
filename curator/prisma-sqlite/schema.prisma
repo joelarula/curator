@@ -271,6 +271,8 @@ model Request {
   priority           Int           @default(0)
   notifyId           Int?
   pendingDependencies Int          @default(0)
+  /// Highest EventLog.id this flow has consumed or emitted; wait_event replays later events so none are lost.
+  eventCursor        Int?
   lockedBy           String?
   lockedAt           DateTime?
   deletedAt          DateTime?
@@ -370,6 +372,17 @@ model EventSubscription {
 
   @@unique([scriptId, entry, eventName, conversationId])
   @@index([eventName, isActive])
+}
+
+/// Append-only per-conversation log of every dispatched event (the mailbox behind lossless wait_event).
+model EventLog {
+  id             Int      @id @default(autoincrement())
+  conversationId Int
+  eventName      String
+  payload        Json?
+  createdAt      DateTime @default(now())
+
+  @@index([conversationId, eventName, id])
 }
 
 model Agent {
