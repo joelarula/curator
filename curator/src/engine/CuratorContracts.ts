@@ -128,6 +128,7 @@ export type CuratorResponseRecordType =
   | 'EVENT_EMITTED'
   | 'CHOICE_PROMPT'
   | 'CHOICE_RECEIVED'
+  | 'HUMAN_TIMEOUT'
   | 'SUBSCRIBED'
   | 'UNSUBSCRIBED'
   | 'MODEL_CHANGED';
@@ -168,6 +169,8 @@ export interface CuratorStructuredResponse {
   choiceId?: string;
   /** ISO time an approval wait expires (APPROVAL_REQUIRED) or expired (APPROVAL_EXPIRED). */
   expiresAt?: string;
+  /** ISO deadline a human prompt waited for (HUMAN_TIMEOUT). */
+  deadline?: string;
   /** Core model change (MODEL_CHANGED). */
   change?: CuratorModelChange;
   metadata?: JsonRecord;

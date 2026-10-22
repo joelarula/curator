@@ -56,7 +56,7 @@ const schema: Record<string, any> = {
     },
     {
       type: 'object',
-      properties: { ...baseProperties, type: { enum: ['Curator_Sequential', 'Curator_Parallel'] }, name: { type: 'string' }, prompt: { type: 'string' }, subAgents: { type: 'array', minItems: 1, items: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' } } },
+      properties: { ...baseProperties, type: { enum: ['Curator_Sequential', 'Curator_Parallel'] }, name: { type: 'string' }, prompt: { type: 'string' }, isolate: { type: 'boolean' }, subAgents: { type: 'array', minItems: 1, items: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' } } },
       required: ['type', 'subAgents'],
       additionalProperties: false,
     },

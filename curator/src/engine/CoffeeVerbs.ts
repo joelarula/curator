@@ -32,6 +32,9 @@ export const coffeeAstVerbs: Record<string, any> = {
     CuratorBuilder.seq(name, ...nodes),
   parallel: (name: string, ...nodes: CuratorAstNode[]) =>
     CuratorBuilder.parallel(name, ...nodes),
+  // Parallel whose branches each get a private state scope (named after the branch); see targetAgentId on emit_event.
+  isolated: (name: string, ...nodes: CuratorAstNode[]) =>
+    ({ ...CuratorBuilder.parallel(name, ...nodes), isolate: true }),
   if_else: (condition: string | ((ctx: any) => boolean), thenBranch: CuratorAstNode, elseBranch?: CuratorAstNode) =>
     CuratorBuilder.ifElse(condition, thenBranch, elseBranch),
   ifElse: (condition: string | ((ctx: any) => boolean), thenBranch: CuratorAstNode, elseBranch?: CuratorAstNode) =>

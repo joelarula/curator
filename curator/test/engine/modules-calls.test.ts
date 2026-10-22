@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createEnv, runAst, runScript, saveScript, snapshotDb, assertGolden } from '../helpers/harness.ts';
+import { createEnv, runAst, runScript, compileFixture, saveScript, snapshotDb, assertGolden } from '../helpers/harness.ts';
 
 const tool = (name: string, args: any = {}, as?: string) => ({ type: 'Curator_Tool', toolName: name, args, ...(as ? { as } : {}) });
 
@@ -92,6 +92,24 @@ test('module: recursion beyond maxCallDepth fails instead of looping', async () 
     await runScript(env, saved.scriptId, saved.version);
     const responses = await env.prisma.response.findMany({ where: { conversationId: env.conversationId } });
     assert.match(responses.map((r: any) => r.content).join('\n'), /maxCallDepth/);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+// The same module written in CoffeeScript: the compiled AST must equal the hand-written one, and run identically.
+test('module/coffee: define_module + sub + call compile to the hand-written AST', async () => {
+  assert.deepEqual(await compileFixture('module_greeter.coffee'), greeterModule());
+});
+
+test('module/coffee: the compiled module runs, child call returns 42', async () => {
+  const env = await createEnv('mod_coffee', canned);
+  try {
+    const saved = await saveScript(env, 'greeter_coffee', await compileFixture('module_greeter.coffee'));
+    const { requestId, result } = await runScript(env, saved.scriptId, saved.version);
+    assert.equal(result.done, true);
+    assert.equal((await env.prisma.request.findUnique({ where: { id: requestId } })).status, 'COMPLETED');
+    assert.deepEqual(env.calls.map((c) => c.args.value), [42]);
   } finally {
     await env.cleanup();
   }

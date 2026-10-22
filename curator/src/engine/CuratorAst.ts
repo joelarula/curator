@@ -128,6 +128,8 @@ export interface CuratorParallelNode extends CuratorBaseNode {
   type: 'Curator_Parallel';
   name?: string;
   prompt?: string;
+  /** Each branch runs in a private state scope named after the branch; events can be addressed to it via `targetAgentId`. */
+  isolate?: boolean;
   subAgents: CuratorAstNode[];
 }
 

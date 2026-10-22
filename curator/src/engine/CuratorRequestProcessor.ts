@@ -224,6 +224,40 @@ export class CuratorRequestProcessor {
     });
   }
 
+  /**
+   * Private scopes: a flow carrying `context.__scope` reads shared state plus its own bucket
+   * (`state.__scopes[scope]`) and writes only to that bucket. Other buckets are never exposed.
+   */
+  private stateView(raw: Record<string, any>, scope?: string | null): Record<string, any> {
+    const { __scopes, ...shared } = raw || {};
+    return scope != null ? { ...shared, ...((__scopes || {})[scope] || {}) } : shared;
+  }
+
+  private async writeState(conversationId: any, scope: string | null | undefined, updates: Record<string, any>) {
+    const conv = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
+    const raw: Record<string, any> = { ...this.getConversationState(conv) };
+    if (scope != null) {
+      const scopes = { ...(raw.__scopes || {}) };
+      scopes[scope] = { ...(scopes[scope] || {}), ...updates };
+      raw.__scopes = scopes;
+    } else {
+      Object.assign(raw, updates);
+    }
+    return this.updateConversationState(conversationId, raw);
+  }
+
+  private parseContext(ctx: any): any {
+    if (typeof ctx === 'string') { try { return JSON.parse(ctx); } catch { return {}; } }
+    return ctx || {};
+  }
+
+  /** Identity used to address events: the private scope, else the request's agent. */
+  private identityOf(req: any): string | null {
+    const scope = this.parseContext(req.context).__scope;
+    if (scope != null) return String(scope);
+    return req.agentId != null ? String(req.agentId) : null;
+  }
+
   public isStopped: boolean = false;
 
   public async start(intervalMs: number = 3000) {
@@ -543,6 +577,7 @@ export class CuratorRequestProcessor {
 
       // 0b. Expire approval waits past their deadline; prune old read-only direct tool Requests (if enabled)
       await this.expireApprovalWaits();
+      await this.expireHumanWaits();
       await this.pruneReadOnlyRequests();
 
       // 1. Wake up requests that were WAITING_FOR_USER and just received a response
@@ -648,6 +683,7 @@ export class CuratorRequestProcessor {
    * Can be filtered to a specific conversation (e.g. specific table) or step all pending tasks.
    */
   public async step(options?: { conversationId?: number; take?: number }): Promise<number> {
+    await this.expireHumanWaits();
     const availableSlots = options?.take ?? this.getAvailableConcurrencySlots();
     if (availableSlots <= 0) return 0;
 
@@ -695,6 +731,7 @@ export class CuratorRequestProcessor {
     const convId = options?.conversationId;
 
     while (steps < maxSteps) {
+      await this.expireHumanWaits();
       // 1. Check if currently parked at an asynchronous wait gate
       const waitingReq = await this.prisma.request.findFirst({
         where: {
@@ -998,7 +1035,7 @@ export class CuratorRequestProcessor {
     
     // Evaluate dynamic targetAgentId
     let targetAgentId = node.targetAgentId;
-    if (typeof targetAgentId === 'string') {
+    if (typeof targetAgentId === 'string' && this.isDynamicExpr(targetAgentId)) {
       targetAgentId = await this.evaluateExpressionAsync(targetAgentId, req);
     }
 
@@ -1014,7 +1051,8 @@ export class CuratorRequestProcessor {
    *  - parked WAITING_FOR_EVENT / WAITING_FOR_USER Requests with a matching `waitEvent` are resumed.
    */
   public async dispatchEvent(eventName: string, payload: any, req: any, targetAgentId?: string, opts: DispatchEventOptions = {}): Promise<CuratorEventEmitResult> {
-    const eventSeq = await this.logEvent(req.conversationId, eventName, payload);
+    const target = targetAgentId != null && targetAgentId !== '' ? String(targetAgentId) : null;
+    const eventSeq = await this.logEvent(req.conversationId, eventName, payload, target);
     // The emitting flow must not replay its own events when it waits later.
     if (eventSeq !== null && req.id != null) await this.advanceEventCursor(req.id, eventSeq);
 
@@ -1034,7 +1072,7 @@ export class CuratorRequestProcessor {
 
     const spawned: number[] = [];
     for (const sub of subscriptions) {
-      if (targetAgentId && sub.agentId !== targetAgentId) continue;
+      if (target && String(sub.agentId) !== target) continue;
       if (!sub.script) continue;
       const alias = sub.payloadAs || 'event';
 
@@ -1080,7 +1118,8 @@ export class CuratorRequestProcessor {
           agentId: sub.agentId ?? undefined,
           status: 'NEW',
           ast: astData,
-          context: { params: { [alias]: payload }, input: payload, eventName, origin: 'AST', astPath }
+          // An addressed event spawns a private handler: it cannot read or write other flows' state.
+          context: { params: { [alias]: payload }, input: payload, eventName, origin: 'AST', astPath, ...(target ? { __scope: target } : {}) }
         }
       });
       spawned.push(child.id);
@@ -1099,6 +1138,7 @@ export class CuratorRequestProcessor {
       if (opts.targetRequestId !== undefined && waitReq.id !== opts.targetRequestId) continue;
       const ctx = waitReq.context as any;
       const matches = ctx?.waitEvent === eventName || (opts.matchWait?.(ctx?.waitEvent, eventName, payload) ?? false);
+      if (matches && target && this.identityOf(waitReq) !== target) continue;
       if (matches) {
         logger.info(`[CuratorRequestProcessor] Waking up request ${waitReq.id} waiting for event ${eventName}`);
         const value = opts.waitValue ? opts.waitValue(payload) : payload;
@@ -1117,9 +1157,7 @@ export class CuratorRequestProcessor {
            updatedContext[aliasKey] = value;
            updatedContext.state = { ...(updatedContext.state || {}), ...newState };
 
-           const conv = await this.prisma.conversation.findUnique({ where: { id: waitReq.conversationId } });
-           const currentConvState = this.getConversationState(conv);
-           await this.updateConversationState(waitReq.conversationId, { ...currentConvState, ...newState });
+           await this.writeState(waitReq.conversationId, ctx?.__scope, newState);
         }
         if (opts.contextPatch) {
           Object.assign(updatedContext, opts.contextPatch);
@@ -1140,10 +1178,10 @@ export class CuratorRequestProcessor {
   }
 
   /** Appends to the conversation's event log; returns its sequence id (null if the DB has no EventLog). */
-  private async logEvent(conversationId: number, eventName: string, payload: any): Promise<number | null> {
+  private async logEvent(conversationId: number, eventName: string, payload: any, target: string | null = null): Promise<number | null> {
     if (!this.prisma.eventLog || conversationId == null) return null;
     const row = await this.prisma.eventLog.create({
-      data: { conversationId, eventName, payload: payload === undefined ? null : payload },
+      data: { conversationId, eventName, payload: payload === undefined ? null : payload, target },
     });
     return row.id;
   }
@@ -1198,8 +1236,12 @@ export class CuratorRequestProcessor {
   private async handleWaitEvent(ast: any, req: any) {
     if (this.prisma.eventLog && !req.context?.__humanInputReceived__) {
       const cursor = await this.resolveEventCursor(req.id, req.conversationId);
+      const identity = this.identityOf(req);
       const missed = await this.prisma.eventLog.findFirst({
-        where: { conversationId: req.conversationId, eventName: ast.eventName, id: { gt: cursor } },
+        where: {
+          conversationId: req.conversationId, eventName: ast.eventName, id: { gt: cursor },
+          OR: identity ? [{ target: null }, { target: identity }] : [{ target: null }],
+        },
         orderBy: { id: 'asc' },
       });
       if (missed) {
@@ -1208,8 +1250,7 @@ export class CuratorRequestProcessor {
         await this.advanceEventCursor(req.id, missed.id);
         const value = missed.payload;
         if (ast.payloadAlias) {
-          const conv = await this.prisma.conversation.findUnique({ where: { id: req.conversationId } });
-          await this.updateConversationState(req.conversationId, { ...this.getConversationState(conv), [ast.payloadAlias]: value });
+          await this.writeState(req.conversationId, this.parseContext(req.context).__scope, { [ast.payloadAlias]: value });
         }
         await this.saveResponse(req, typeof value === 'string' ? value : JSON.stringify(value ?? {}));
         await this.completeRequest(req.id, 'COMPLETED');
@@ -1297,6 +1338,7 @@ export class CuratorRequestProcessor {
     const subAgents = ast.subAgents;
     if (!subAgents || subAgents.length === 0) { await this.completeRequest(req.id, 'COMPLETED'); return; }
 
+    const parentScope = this.parseContext(req.context).__scope;
     const joinReq = await this.createValidatedRequest({
       data: {
         userId: req.userId,
@@ -1307,13 +1349,18 @@ export class CuratorRequestProcessor {
         status: 'NEW',
         pendingDependencies: subAgents.length,
         notifyId: req.notifyId,
-        ast: { type: 'Curator_Join', name: `${ast.name || 'parallel'}_join` }
+        ast: { type: 'Curator_Join', name: `${ast.name || 'parallel'}_join` },
+        ...(parentScope != null ? { context: { __joinScope: parentScope } } : {})
       }
     });
 
-    for (const sub of subAgents) {
+    for (const [i, sub] of subAgents.entries()) {
       let nodeAst = sub as any;
       if (ast.prompt && !nodeAst.prompt) nodeAst.prompt = ast.prompt;
+      // Isolated branches get a private scope named after the branch (unique within this parallel).
+      const branchContext = ast.isolate
+        ? { ...this.parseContext(req.context), __scope: String(nodeAst.name ?? `branch${i}`) }
+        : req.context;
       await this.createValidatedRequest({
         data: {
           userId: req.userId,
@@ -1325,7 +1372,7 @@ export class CuratorRequestProcessor {
           pendingDependencies: 0,
           notifyId: joinReq.id,
           ast: nodeAst,
-          context: req.context,
+          context: branchContext,
           priority: nodeAst.priority ?? 0,
           scheduledAt: this.resolveScheduledAt(nodeAst) ?? null
         }
@@ -1619,6 +1666,9 @@ export class CuratorRequestProcessor {
     }
 
     // Blocking: suspend request awaiting human response or event
+    if (ast.timeoutSeconds > 0) {
+      updatedContext.waitDeadline = new Date(this.clock() + ast.timeoutSeconds * 1000).toISOString();
+    }
     await this.prisma.request.update({
       where: { id: req.id },
       data: { status: 'WAITING_FOR_USER', context: updatedContext }
@@ -2192,6 +2242,39 @@ export class CuratorRequestProcessor {
   }
 
   /**
+   * Human prompts with `timeoutSeconds` park with `context.waitDeadline`. Past it, the prompt completes with a
+   * HUMAN_TIMEOUT Response (nothing is bound to `as`), so the script can re-ask (loop), nudge or give up.
+   */
+  private async expireHumanWaits() {
+    const parked = await this.prisma.request.findMany({
+      where: { status: 'WAITING_FOR_USER' },
+      orderBy: { updatedAt: 'asc' },
+      take: 50
+    });
+    const now = this.clock();
+    for (const req of parked) {
+      const ctx = this.parseContext(req.context);
+      if (!ctx.waitDeadline || ctx.pendingToolCall || Date.parse(ctx.waitDeadline) > now) continue;
+
+      const claimed = await this.prisma.request.updateMany({
+        where: { id: req.id, status: 'WAITING_FOR_USER' },
+        data: { status: 'WAITING', lockedBy: this.workerId, lockedAt: new Date() }
+      });
+      if (claimed.count === 0) continue;
+
+      logger.info(`[CuratorRequestProcessor] Human prompt on request ${req.id} timed out.`);
+      const nextCtx: any = { ...ctx };
+      delete nextCtx.waitEvent;
+      delete nextCtx.waitDeadline;
+      await this.prisma.request.update({ where: { id: req.id }, data: { context: nextCtx } });
+      req.context = nextCtx;
+      const record: CuratorStructuredResponse = { type: 'HUMAN_TIMEOUT', ok: false, deadline: ctx.waitDeadline, reason: ctx.choicePrompt };
+      await this.saveResponse(req, JSON.stringify(record));
+      await this.completeRequest(req.id, 'COMPLETED');
+    }
+  }
+
+  /**
    * Retention cleanup (policy `readOnlyRequests: 'prune'`): deletes COMPLETED direct (root, non-workflow)
    * tool Requests of read-only tools older than `readOnlyTtlMs`, with their Responses.
    * Workflow Requests, failures and anything with children are never pruned. Runs at most every 10 minutes.
@@ -2395,12 +2478,7 @@ export class CuratorRequestProcessor {
   private async handleSetState(ast: any, req: any) {
     logger.info(`[CuratorRequestProcessor] Setting state for request ${req.id}`);
     if (ast.state && typeof ast.state === 'object') {
-      const conversation = await this.prisma.conversation.findUnique({
-        where: { id: req.conversationId }
-      });
-      const currentState = this.getConversationState(conversation);
-      const newState = { ...currentState, ...ast.state };
-      await this.updateConversationState(req.conversationId, newState);
+      await this.writeState(req.conversationId, this.parseContext(req.context).__scope, ast.state);
       await this.saveResponse(req, JSON.stringify({ status: 'State updated', state: ast.state }));
     } else {
       await this.saveResponse(req, JSON.stringify({ status: 'No state provided' }));
@@ -2898,7 +2976,7 @@ export class CuratorRequestProcessor {
   }
 
   private static readonly STRUCTURED_RECORD_TYPES = new Set([
-    'TOOL_BLOCKED', 'APPROVAL_REQUIRED', 'APPROVAL_EXPIRED', 'EVENT_EMITTED', 'CHOICE_PROMPT', 'CHOICE_RECEIVED',
+    'TOOL_BLOCKED', 'APPROVAL_REQUIRED', 'APPROVAL_EXPIRED', 'HUMAN_TIMEOUT', 'EVENT_EMITTED', 'CHOICE_PROMPT', 'CHOICE_RECEIVED',
     'SUBSCRIBED', 'UNSUBSCRIBED', 'MODEL_CHANGED'
   ]);
 
@@ -2964,8 +3042,12 @@ export class CuratorRequestProcessor {
             }
           }
 
-          const mergedState = { ...currentConvState, ...newUpdates };
-          await this.updateConversationState(targetReq.conversationId, mergedState);
+          const sourceScope = this.parseContext(req.context).__scope;
+          const targetIsJoin = (targetReq.ast as any)?.type === 'Curator_Join';
+          await this.writeState(targetReq.conversationId, sourceScope, newUpdates);
+          const afterConv = await this.prisma.conversation.findUnique({ where: { id: targetReq.conversationId } });
+          // A private flow's output stays in its scope; its Join sees only shared state.
+          const mergedState = this.stateView(this.getConversationState(afterConv), targetIsJoin ? null : sourceScope);
 
           // Carry forward named tool output keys from source request context
           // (e.g. `discovery`, `episode`) so downstream nodes can reference them.
@@ -2979,13 +3061,18 @@ export class CuratorRequestProcessor {
           }
           const skipKeys = new Set(['forEachIndex', 'forEachCollection', 'ifElseEvaluated',
             'spawnedChild', 'routeDecided', 'pendingToolCall', 'waitEvent', 'payloadAlias', 'astPath',
-            '__humanInputReceived__',
+            '__humanInputReceived__', '__joinScope',
             'loopIteration', 'loopRunning', 'loopCollection', 'iteration', 'index']);
           // A parked Curator_Call caller is isolated from its callee: the result flows back only via `as`.
-          if (!targetContext.callPending) {
+          if (!targetContext.callPending && !(targetIsJoin && sourceScope != null)) {
             for (const [k, v] of Object.entries(sourceContext)) {
               if (!skipKeys.has(k)) targetContext[k] = v;
             }
+          }
+          // A scope follows its own chain only; the continuation after a Join gets the scope of the parallel's parent.
+          if (targetIsJoin) {
+            if (targetContext.__joinScope != null) targetContext.__scope = targetContext.__joinScope;
+            else delete targetContext.__scope;
           }
           targetContext.input = JSON.stringify(mergedState);
           targetContext.state = mergedState;
@@ -3013,9 +3100,13 @@ export class CuratorRequestProcessor {
       try { reqContext = JSON.parse(reqContext); } catch (_) {}
     }
     req.context = reqContext;
-    const convState = (typeof req.context.state === 'object' && req.context.state !== null)
-      ? req.context.state
-      : this.getConversationState(conv);
+    const scope = req.context.__scope;
+    const convState = this.stateView(
+      scope == null && typeof req.context.state === 'object' && req.context.state !== null
+        ? req.context.state
+        : this.getConversationState(conv),
+      scope
+    );
     req.context.state = convState;
 
     // Strip {{...}} mustache wrappers — the VM just needs the raw JS expression
@@ -3066,10 +3157,10 @@ export class CuratorRequestProcessor {
     const updateObj: Record<string, any> = {};
     updateObj[ast.key] = evaluatedValue;
     
+    const scope = this.parseContext(req.context).__scope;
+    await this.writeState(req.conversationId, scope, updateObj);
     const conv = await this.prisma.conversation.findUnique({ where: { id: req.conversationId } });
-    const currentConvState = this.getConversationState(conv);
-    const newState = { ...currentConvState, ...updateObj };
-    await this.updateConversationState(req.conversationId, newState);
+    const newState = this.stateView(this.getConversationState(conv), scope);
     
     // Also update req.context.state for subsequent operations in this loop
     const newContext = { ...(req.context || {}), state: newState };

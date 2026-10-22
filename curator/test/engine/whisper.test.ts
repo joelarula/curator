@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createEnv, runAst, compileFixture } from '../helpers/harness.ts';
+import { createEnv, runAst, compileFixture, saveScript } from '../helpers/harness.ts';
 
 // stepUntil returns as soon as any request is parked, so drain with step() while other agents wait.
 async function drain(env: any) {
@@ -142,3 +142,50 @@ test('whisper ring with human: human gives the secret, it travels a -> b -> c an
     await env.cleanup();
   }
 });
+
+// Isolated branches: every agent uses the same alias (`heard`) and the same event name (`ring`), yet state is
+// private per branch and addressed events never reach a branch they were not sent to (the spy).
+test('whisper private: same alias in every agent does not collide, addressed events skip the spy', async () => {
+  const env = await createEnv('whisper_private', { heard: () => 'ok' });
+  try {
+    const { requestId, result } = await runAst(env, await compileFixture('whisper_private.coffee'));
+    assert.equal(result.waiting, true);
+
+    await env.processor.emitEventRequest({
+      eventName: 'start',
+      payload: 'tulip',
+      targetAgentId: 'a',
+      conversationId: env.conversationId,
+      userId: env.userId,
+      origin: 'API',
+    });
+    await drain(env);
+
+    assert.deepEqual(
+      env.calls.map((c: any) => [c.args.agent, c.args.from, c.args.text]),
+      [
+        ['b', 'a', 'tulip'],
+        ['c', 'b', 'tulip'],
+        ['a', 'c', 'tulip'],
+      ],
+    );
+    assert.ok(!env.calls.some((c: any) => c.args.agent === 'spy'), 'the spy heard nothing');
+
+    const conv = await env.prisma.conversation.findFirst({ where: { id: env.conversationId } });
+    const state = conv.metadata ?? conv.state;
+    assert.equal(state.heard, undefined, 'no alias leaked into shared state');
+    assert.deepEqual(Object.keys(state.__scopes).sort(), ['a', 'b', 'c']);
+    assert.equal(state.__scopes.b.heard.from, 'a');
+    assert.equal(state.__scopes.c.heard.from, 'b');
+    assert.equal(state.__scopes.a.heard.from, 'c');
+
+    const spy = await env.prisma.request.findMany({ where: { conversationId: env.conversationId, status: 'WAITING_FOR_EVENT' } });
+    assert.equal(spy.length, 1, 'only the spy is still parked');
+    const root = await env.prisma.request.findUnique({ where: { id: requestId } });
+    assert.notEqual(root.status, 'FAILED');
+  } finally {
+    await env.cleanup();
+  }
+});
+
+// Spawn: an addressed event spawns the subscription handler only for the addressed agent, in a private scope.
