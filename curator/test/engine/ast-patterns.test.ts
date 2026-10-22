@@ -70,3 +70,214 @@ test('ast/human_input: parks for input, resumes with the supplied value', async 
     await env.cleanup();
   }
 });
+
+test('ast/choice: offers alternatives and resumes with the one selected', async () => {
+  const env = await createEnv('ast_choice', { echo: (a: any) => ({ echoed: a.text }) });
+  try {
+    const { requestId, result } = await runAst(env, {
+      type: 'Curator_Sequential',
+      name: 'Choice Test',
+      subAgents: [
+        {
+          type: 'Curator_HumanInput',
+          prompt: 'Choose an option:',
+          inputType: 'choices',
+          choices: ['a', 'b', 'c'],
+          as: 'selection',
+        },
+        {
+          type: 'Curator_Tool',
+          toolName: 'echo',
+          args: { text: '$state.selection' },
+        },
+      ],
+    });
+
+    assert.equal(result.waiting, true);
+    assert.equal(result.waitEvent, 'curator:choice');
+
+    const waitingRequest = await env.prisma.request.findFirst({
+      where: { conversationId: env.conversationId, status: 'WAITING_FOR_USER' },
+    });
+    assert.deepEqual(waitingRequest.context.activeChoices, [
+      { id: 'a', label: 'a', value: 'a' },
+      { id: 'b', label: 'b', value: 'b' },
+      { id: 'c', label: 'c', value: 'c' },
+    ]);
+
+    await env.processor.emitEventRequest({
+      eventName: 'curator:choice',
+      payload: 'b',
+      conversationId: env.conversationId,
+      userId: env.userId,
+      origin: 'API',
+    });
+    const resumed = await env.processor.stepUntil({ conversationId: env.conversationId });
+
+    assert.equal(resumed.done, true);
+    assert.deepEqual(env.calls.map((call) => call.args.text), ['b']);
+    const root = await env.prisma.request.findUnique({ where: { id: requestId } });
+    assert.equal(root.status, 'COMPLETED');
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('ast/choices: collects three sequential answers and asks the LLM to summarize them', async () => {
+  const env = await createEnv('ast_sequential_choices');
+  try {
+    const llm = env.useLlm(['Summary: a, b, c']);
+    const choices = ['a', 'b', 'c'];
+    const questions = [
+      { prompt: 'Choose the first option:', as: 'firstAnswer' },
+      { prompt: 'Choose the second option:', as: 'secondAnswer' },
+      { prompt: 'Choose the third option:', as: 'thirdAnswer' },
+    ];
+    const { requestId, result } = await runAst(env, {
+      type: 'Curator_Sequential',
+      name: 'Three Sequential Choices',
+      subAgents: [
+        ...questions.map(({ prompt, as }) => ({
+          type: 'Curator_HumanInput',
+          prompt,
+          inputType: 'choices',
+          choices,
+          as,
+        })),
+        {
+          type: 'Curator_Agent',
+          agentName: 'choice-summarizer',
+          model: 'fake-model',
+          prompt: 'Summarize these answers: {firstAnswer}, {secondAnswer}, {thirdAnswer}',
+        },
+      ],
+    });
+
+    let stepResult = result;
+    assert.equal(stepResult.waiting, true);
+    for (const [index, question] of questions.entries()) {
+      const waitingRequest = await env.prisma.request.findFirst({
+        where: { conversationId: env.conversationId, status: 'WAITING_FOR_USER' },
+      });
+      assert.ok(waitingRequest, `question ${index + 1} should be waiting for an answer`);
+      assert.equal(waitingRequest.context.choicePrompt, question.prompt);
+      assert.deepEqual(
+        waitingRequest.context.activeChoices,
+        choices.map((choice) => ({ id: choice, label: choice, value: choice })),
+      );
+
+      await env.processor.emitEventRequest({
+        eventName: 'curator:choice',
+        payload: choices[index],
+        conversationId: env.conversationId,
+        userId: env.userId,
+        origin: 'API',
+      });
+      stepResult = await env.processor.stepUntil({ conversationId: env.conversationId });
+      assert.equal(stepResult.waiting, index < questions.length - 1);
+    }
+
+    assert.equal(stepResult.done, true);
+    assert.equal(llm.requests.length, 1);
+    assert.deepEqual(
+      llm.requests[0].messages.map((message) => message.content),
+      ['a', 'b', 'c', 'Summarize these answers: a, b, c'],
+    );
+    const root = await env.prisma.request.findUnique({ where: { id: requestId } });
+    assert.equal(root.status, 'COMPLETED');
+    const responses = await env.prisma.response.findMany({
+      where: { conversationId: env.conversationId },
+      orderBy: { id: 'asc' },
+    });
+    assert.equal(responses.at(-1).content, 'Summary: a, b, c');
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('ast/choices: joins three parallel choice questions before asking the LLM to summarize', async () => {
+  const env = await createEnv('ast_parallel_choices');
+  try {
+    const llm = env.useLlm(['Summary: a, b, c']);
+    const choices = ['a', 'b', 'c'];
+    const questions = [
+      { prompt: 'Choose the first option:', as: 'firstAnswer' },
+      { prompt: 'Choose the second option:', as: 'secondAnswer' },
+      { prompt: 'Choose the third option:', as: 'thirdAnswer' },
+    ];
+    const { requestId, result } = await runAst(env, {
+      type: 'Curator_Sequential',
+      name: 'Parallel Choice Questions',
+      subAgents: [
+        {
+          type: 'Curator_Parallel',
+          name: 'Choice Question Fan-out',
+          subAgents: questions.map(({ prompt, as }) => ({
+            type: 'Curator_HumanInput',
+            prompt,
+            inputType: 'choices',
+            choices,
+            as,
+          })),
+        },
+        {
+          type: 'Curator_Agent',
+          agentName: 'choice-summarizer',
+          model: 'fake-model',
+          prompt: 'Summarize these answers: {firstAnswer}, {secondAnswer}, {thirdAnswer}',
+        },
+      ],
+    });
+
+    assert.equal(result.waiting, true);
+    const waitingRequests = await env.prisma.request.findMany({
+      where: { conversationId: env.conversationId, status: 'WAITING_FOR_USER' },
+    });
+    assert.equal(waitingRequests.length, questions.length);
+    for (const question of questions) {
+      const waitingRequest = waitingRequests.find(
+        (request: any) => request.context.choicePrompt === question.prompt,
+      );
+      assert.ok(waitingRequest, `${question.prompt} should be waiting for an answer`);
+      assert.deepEqual(
+        waitingRequest.context.activeChoices,
+        choices.map((choice) => ({ id: choice, label: choice, value: choice })),
+      );
+    }
+
+    let resumed = result;
+    for (const [index, question] of questions.entries()) {
+      const waitingRequest = waitingRequests.find(
+        (request: any) => request.context.choicePrompt === question.prompt,
+      );
+      const emitted = await env.processor.emitEventRequest({
+        eventName: 'curator:choice',
+        payload: choices[index],
+        conversationId: env.conversationId,
+        userId: env.userId,
+        origin: 'API',
+        targetRequestId: waitingRequest.id,
+      });
+      assert.deepEqual(emitted.woken, [waitingRequest.id]);
+
+      resumed = await env.processor.stepUntil({ conversationId: env.conversationId });
+      assert.equal(resumed.waiting, index < questions.length - 1);
+    }
+
+    assert.equal(resumed.done, true);
+    assert.equal(llm.requests.length, 1);
+    assert.deepEqual(
+      llm.requests[0].messages.map((message) => message.content),
+      ['a', 'b', 'c', 'Summarize these answers: a, b, c'],
+    );
+    const root = await env.prisma.request.findUnique({ where: { id: requestId } });
+    assert.equal(root.status, 'COMPLETED');
+    const responses = await env.prisma.response.findMany({
+      where: { conversationId: env.conversationId },
+      orderBy: { id: 'asc' },
+    });
+    assert.equal(responses.at(-1).content, 'Summary: a, b, c');
+  } finally {
+    await env.cleanup();
+  }
+});

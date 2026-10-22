@@ -15,7 +15,8 @@ import type {
   ActionType,
 } from '../types.ts';
 import { evaluateBestHand } from './pokerEvaluator.ts';
-import { curatorEngine, LlmFactory, GeminiLlmProvider } from '../curator.ts';
+import { curatorEngine, LlmFactory } from '../curator.ts';
+import { GeminiLlmProvider } from '@curator/plugin-llm-gemini';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

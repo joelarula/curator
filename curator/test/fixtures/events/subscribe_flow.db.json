@@ -1,0 +1,276 @@
+{
+  "requests": [
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "name": "sub_flow",
+        "subAgents": [
+          {
+            "as": "evt",
+            "eventName": "ping",
+            "handler": "on_ping",
+            "type": "Curator_Subscribe",
+            "when": "evt.n > 1"
+          },
+          {
+            "eventName": "ping",
+            "payload": {
+              "n": 1
+            },
+            "type": "Curator_EmitEvent"
+          },
+          {
+            "eventName": "ping",
+            "payload": {
+              "n": 2
+            },
+            "type": "Curator_EmitEvent"
+          },
+          {
+            "eventName": "ping",
+            "handler": "on_ping",
+            "type": "Curator_Unsubscribe"
+          },
+          {
+            "eventName": "ping",
+            "payload": {
+              "n": 3
+            },
+            "type": "Curator_EmitEvent"
+          }
+        ],
+        "type": "Curator_Sequential"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:1>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": "Curator_Workflow"
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "eventName": "ping",
+        "payload": {
+          "n": 3
+        },
+        "type": "Curator_EmitEvent"
+      },
+      "context": {
+        "input": "{}",
+        "state": {}
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:2>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "eventName": "ping",
+        "handler": "on_ping",
+        "type": "Curator_Unsubscribe"
+      },
+      "context": {
+        "input": "{}",
+        "state": {}
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:3>",
+      "notifyId": "<req:2>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "eventName": "ping",
+        "payload": {
+          "n": 2
+        },
+        "type": "Curator_EmitEvent"
+      },
+      "context": {
+        "input": "{}",
+        "state": {}
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:4>",
+      "notifyId": "<req:3>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "eventName": "ping",
+        "payload": {
+          "n": 1
+        },
+        "type": "Curator_EmitEvent"
+      },
+      "context": {
+        "input": "{}",
+        "state": {}
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:5>",
+      "notifyId": "<req:4>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "as": "evt",
+        "eventName": "ping",
+        "handler": "on_ping",
+        "type": "Curator_Subscribe",
+        "when": "evt.n > 1"
+      },
+      "context": null,
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:6>",
+      "notifyId": "<req:5>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": null,
+      "context": {
+        "astPath": "",
+        "eventName": "ping",
+        "input": {
+          "conversationId": 1,
+          "n": 2,
+          "tableId": "1"
+        },
+        "origin": "AST",
+        "params": {
+          "evt": {
+            "conversationId": 1,
+            "n": 2,
+            "tableId": "1"
+          }
+        },
+        "record": "{\"got\":2}",
+        "state": {}
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:7>",
+      "notifyId": null,
+      "parentId": "<req:4>",
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    }
+  ],
+  "responses": [
+    {
+      "aiModelId": null,
+      "content": "{\"type\":\"SUBSCRIBED\",\"ok\":true,\"metadata\":{\"subscriptionId\":1,\"eventName\":\"ping\",\"handler\":\"on_ping\"}}",
+      "existent": true,
+      "id": "<res:1>",
+      "projectId": null,
+      "requestId": "<req:6>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"type\":\"EVENT_EMITTED\",\"ok\":true,\"event\":{\"eventName\":\"ping\",\"spawned\":[],\"woken\":[]}}",
+      "existent": true,
+      "id": "<res:2>",
+      "projectId": null,
+      "requestId": "<req:5>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"type\":\"EVENT_EMITTED\",\"ok\":true,\"event\":{\"eventName\":\"ping\",\"spawned\":[7],\"woken\":[]}}",
+      "existent": true,
+      "id": "<res:3>",
+      "projectId": null,
+      "requestId": "<req:4>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"type\":\"UNSUBSCRIBED\",\"ok\":true,\"metadata\":{\"eventName\":\"ping\",\"handler\":\"on_ping\",\"count\":1}}",
+      "existent": true,
+      "id": "<res:4>",
+      "projectId": null,
+      "requestId": "<req:3>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"got\":2}",
+      "existent": true,
+      "id": "<res:5>",
+      "projectId": null,
+      "requestId": "<req:7>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"type\":\"EVENT_EMITTED\",\"ok\":true,\"event\":{\"eventName\":\"ping\",\"spawned\":[],\"woken\":[]}}",
+      "existent": true,
+      "id": "<res:6>",
+      "projectId": null,
+      "requestId": "<req:2>"
+    }
+  ]
+}

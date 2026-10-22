@@ -4,6 +4,7 @@ import type {
   CuratorAssignNode,
   CuratorIfElseNode,
   CuratorWhileNode,
+  CuratorLoopNode,
   CuratorForEachNode,
   CuratorAgentNode,
   CuratorEmitEventNode,
@@ -49,6 +50,29 @@ export class CuratorCoreBuilder {
   static whileLoop(condition: string | ((ctx: any) => boolean), body: CuratorAstNode): CuratorWhileNode {
     const condStr = typeof condition === 'function' ? `(${condition.toString()})(context)` : condition;
     return { type: 'Curator_While', condition: condStr, body };
+  }
+
+  /**
+   * Repeat `body` until `until` is truthy or `maxIterations` is reached.
+   */
+  static repeat(body: CuratorAstNode, options: { until?: string | ((ctx: any) => boolean); while?: string | ((ctx: any) => boolean); over?: string | ((ctx: any) => any[]); as?: string; maxIterations?: number; name?: string; prompt?: string } = {}): CuratorLoopNode {
+    const expr = (v: unknown) => (typeof v === 'function' ? `(${v.toString()})(context)` : (v as string | undefined));
+    const { until, while: whileCond, over, ...rest } = options;
+    return {
+      type: 'Curator_Loop',
+      agent: body,
+      ...rest,
+      ...(until ? { until: expr(until) } : {}),
+      ...(whileCond ? { while: expr(whileCond) } : {}),
+      ...(over ? { over: expr(over) } : {}),
+    };
+  }
+
+  /**
+   * Scheduler: run `body` on a cron/interval `schedule` ("every 10 minutes", "0 14 * * 1-5", "at 14:00").
+   */
+  static every(schedule: string, body: CuratorAstNode, options: { until?: string; while?: string; over?: string; as?: string; maxIterations?: number; immediate?: boolean; name?: string } = {}): CuratorLoopNode {
+    return { type: 'Curator_Loop', agent: body, schedule, ...options };
   }
 
   /**

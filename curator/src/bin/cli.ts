@@ -57,6 +57,21 @@ program
     curatorEngine.registerPlugin(corePlugin);
     curatorEngine.registerPlugin(semanticShapesPlugin);
 
+    // Optional capability plugins; skipped when the package is not installed.
+    const optionalPlugins: Array<[string, string]> = [
+      ['@curator/plugin-llm-gemini', 'geminiPlugin'],
+      ['@curator/plugin-feeds', 'feedsPlugin'],
+    ];
+    for (const [pkg, factory] of optionalPlugins) {
+      try {
+        const mod: any = await import(pkg);
+        curatorEngine.registerPlugin(mod[factory]());
+      } catch (err: any) {
+        if (err?.code !== 'ERR_MODULE_NOT_FOUND' && err?.code !== 'MODULE_NOT_FOUND') throw err;
+        logger.info(`[CLI] Optional plugin ${pkg} not installed; skipping.`);
+      }
+    }
+
     // 1. Provision / connect database
     const prisma = await provisionSqliteDb(options.db, options.reset);
 
@@ -252,17 +267,12 @@ program
     const processor = new CuratorRequestProcessor(prisma);
     await processor.start(1000);
     
-    // 2. Start Agent Scheduler
-    const { ScheduledAgentScheduler, setGlobalScheduler } = await import('../engine/ScheduledAgentScheduler.js');
-    const scheduler = new ScheduledAgentScheduler(prisma);
-    setGlobalScheduler(scheduler);
-    await scheduler.start();
+    // Agent schedules are supervised by the processor (Curator_Loop requests).
 
     // Keep process alive
     process.on('SIGINT', async () => {
       logger.info(`\n[CLI] Shutting down workers...`);
       processor.stop();
-      await scheduler.stop();
       await prisma.$disconnect();
       process.exit(0);
     });

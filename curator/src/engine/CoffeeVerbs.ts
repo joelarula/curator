@@ -40,6 +40,8 @@ export const coffeeAstVerbs: Record<string, any> = {
     CuratorBuilder.whileLoop(condition, body),
   whileLoop: (condition: string | ((ctx: any) => boolean), body: CuratorAstNode) =>
     CuratorBuilder.whileLoop(condition, body),
+  repeat: (body: CuratorAstNode, options?: any) => CuratorBuilder.repeat(body, options),
+  every: (schedule: string, body: CuratorAstNode, options?: any) => CuratorBuilder.every(schedule, body, options),
   for_each: (collectionExpression: string | ((ctx: any) => any[]), body: CuratorAstNode, iteratorName?: string) =>
     CuratorBuilder.forEach(collectionExpression, body, iteratorName),
   forEach: (collectionExpression: string | ((ctx: any) => any[]), body: CuratorAstNode, iteratorName?: string) =>

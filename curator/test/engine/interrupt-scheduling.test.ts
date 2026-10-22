@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createEnv, runAst, snapshotDb, assertGolden, FIXED_NOW } from '../helpers/harness.ts';
+import { createEnv, saveScript, runAst, snapshotDb, assertGolden, FIXED_NOW } from '../helpers/harness.ts';
 
 const tool = (name: string, extra: any = {}) => ({ type: 'Curator_Tool', toolName: name, args: {}, ...extra });
 
@@ -150,7 +150,9 @@ test('scheduledAt: ISO timestamps are honoured', async () => {
   }
 });
 
-test('scheduled Agent row: due schedule enqueues its script once per minute bucket', async () => {
+const wrapTool = (t: any) => ({ execute: (args: any, ctx: any) => t.runAsync({ args, toolContext: ctx }) });
+
+test('scheduled Agent row: the supervisor starts one scheduler loop, which then fires on schedule', async () => {
   let now = FIXED_NOW;
   const env = await createEnv('sched_agent', canned, { now: () => now });
   try {
@@ -160,28 +162,132 @@ test('scheduled Agent row: due schedule enqueues its script once per minute buck
     await env.prisma.agentRole.create({ data: { agentId: agent.id, roleId: 'admin' } });
 
     await (env.processor as any).pollScheduledAgents();
-    await (env.processor as any).pollScheduledAgents(); // same minute: no duplicate
+    await (env.processor as any).pollScheduledAgents(); // same minute: nothing new
     await env.processor.stepUntil({ conversationId: env.conversationId });
-    assert.equal(env.calls.length, 1);
+    assert.equal(env.calls.length, 0, 'first iteration waits for its slot');
+    const loops = (await env.prisma.request.findMany({ where: { agentId: agent.id } })).filter((r: any) => r.ast?.type === 'Curator_Loop');
+    assert.equal(loops.length, 1);
+    assert.deepEqual(loops[0].ast, { type: 'Curator_Loop', name: 'agent:cron_agent', schedule: 'every 1 minute', agent: tool('after') });
 
     now += 60_000;
-    await (env.processor as any).pollScheduledAgents();
+    await (env.processor as any).pollScheduledAgents(); // loop is live: no duplicate loop
+    await env.processor.stepUntil({ conversationId: env.conversationId });
+    assert.equal(env.calls.length, 1);
+    now += 60_000;
     await env.processor.stepUntil({ conversationId: env.conversationId });
     assert.equal(env.calls.length, 2);
-    assert.equal(await env.prisma.request.count({ where: { conversationId: env.conversationId } }), 2);
+    assert.equal((await env.prisma.request.findMany({ where: { agentId: agent.id } })).filter((r: any) => r.ast?.type === 'Curator_Loop').length, 1);
   } finally {
     await env.cleanup();
   }
 });
 
-test('scheduled Agent row: disabled agents are skipped', async () => {
-  const env = await createEnv('sched_disabled', canned);
+test('scheduled Agent row: disabled agents are skipped and their live loop is cancelled', async () => {
+  const now = FIXED_NOW;
+  const env = await createEnv('sched_disabled', canned, { now: () => now });
   try {
     const script = await env.prisma.script.create({ data: { name: 'cron_off', ast: tool('after') } });
-    await env.prisma.agent.create({ data: { name: 'off', scriptId: script.id, schedule: 'every 1 minute', userId: env.userId, enabled: false } });
+    const off = await env.prisma.agent.create({ data: { name: 'off', scriptId: script.id, schedule: 'every 1 minute', userId: env.userId, enabled: false } });
+    await (env.processor as any).pollScheduledAgents();
+    assert.equal(await env.prisma.request.count({ where: { agentId: off.id } }), 0);
+
+    const on = await env.prisma.agent.create({ data: { name: 'on', scriptId: script.id, schedule: 'every 1 minute', userId: env.userId } });
+    await env.prisma.agentRole.create({ data: { agentId: on.id, roleId: 'admin' } });
+    (env.processor as any).lastScheduleMinuteBucket = null;
     await (env.processor as any).pollScheduledAgents();
     await env.processor.stepUntil({ conversationId: env.conversationId });
+    assert.equal((await env.prisma.request.findMany({ where: { agentId: on.id } })).filter((r: any) => r.status === 'NEW').length, 1);
+
+    await env.prisma.agent.update({ where: { id: on.id }, data: { enabled: false } });
+    (env.processor as any).lastScheduleMinuteBucket = null;
+    await (env.processor as any).pollScheduledAgents();
+    const rows = await env.prisma.request.findMany({ where: { agentId: on.id } });
+    assert.ok(rows.every((r: any) => r.status === 'CANCELLED'), JSON.stringify(rows.map((r: any) => r.status)));
     assert.equal(env.calls.length, 0);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('scheduled Agent row: changing the schedule restarts the loop; a dead loop is recreated', async () => {
+  const now = FIXED_NOW;
+  const env = await createEnv('sched_restart', canned, { now: () => now });
+  try {
+    const script = await env.prisma.script.create({ data: { name: 'cron_re', ast: tool('after') } });
+    const agent = await env.prisma.agent.create({ data: { name: 're', scriptId: script.id, schedule: 'every 1 minute', userId: env.userId } });
+    const poll = async () => { (env.processor as any).lastScheduleMinuteBucket = null; await (env.processor as any).pollScheduledAgents(); };
+    const live = async () => (await env.prisma.request.findMany({ where: { agentId: agent.id, parentId: null } })).filter((r: any) => r.status === 'NEW' || r.status === 'WAITING');
+
+    await poll();
+    await poll();
+    assert.equal((await live()).length, 1);
+
+    await env.prisma.agent.update({ where: { id: agent.id }, data: { schedule: 'every 5 minutes' } });
+    await poll();
+    const [only] = await live();
+    assert.equal(only.ast.schedule, 'every 5 minutes');
+    assert.equal((await live()).length, 1);
+
+    await env.prisma.request.update({ where: { id: only.id }, data: { status: 'FAILED' } });
+    await poll();
+    assert.equal((await live()).length, 1);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('schedule_agent / cancel_scheduled_agent tools: recurring job becomes an Agent loop, cancel stops it', async () => {
+  const now = FIXED_NOW;
+  const env = await createEnv('sched_tools', { after: () => 'ok' }, { now: () => now });
+  try {
+    const schedule_agent = wrapTool((await import('../../src/tools/schedule_agent.ts')).schedule_agent);
+    const cancel_scheduled_agent = wrapTool((await import('../../src/tools/cancel_scheduled_agent.ts')).cancel_scheduled_agent);
+    const ctx: any = { prisma: env.prisma, userId: env.userId, conversationId: env.conversationId };
+    await saveScript(env, 'example_workflow', tool('after'));
+
+    assert.match(await schedule_agent.execute({ name: 'n', workflowName: 'nope', schedule: 'every 1 minute' }, ctx), /not found/);
+    assert.match(await schedule_agent.execute({ name: 'n', workflowName: 'example_workflow', schedule: 'whenever' }, ctx), /not a valid/);
+    assert.match(await schedule_agent.execute({ name: 'n', workflowName: 'example_workflow' }, ctx), /Must provide/);
+
+    const out = await schedule_agent.execute({ name: 'nightly', workflowName: 'example_workflow', schedule: 'every 1 minute', workflowParams: { a: 1 } }, ctx);
+    assert.match(out, /recurring/);
+    const agent = await env.prisma.agent.findUnique({ where: { name: 'nightly' }, include: { script: true, roles: true } });
+    assert.equal(agent.enabled, true);
+    assert.deepEqual(agent.script.ast, { type: 'Curator_Call', ref: 'example_workflow', args: { a: 1 } });
+    assert.deepEqual(agent.roles.map((r: any) => r.roleId), ['admin']);
+
+    await (env.processor as any).pollScheduledAgents();
+    const loop = await env.prisma.request.findFirst({ where: { agentId: agent.id, parentId: null } });
+    assert.equal(loop.ast.type, 'Curator_Loop');
+    assert.equal(loop.ast.schedule, 'every 1 minute');
+
+    const cancelled = await cancel_scheduled_agent.execute({ name: 'nightly' }, ctx);
+    assert.match(cancelled, /Successfully cancelled/);
+    assert.equal((await env.prisma.agent.findUnique({ where: { id: agent.id } })).enabled, false);
+    assert.ok((await env.prisma.request.findMany({ where: { agentId: agent.id } })).every((r: any) => r.status === 'CANCELLED'));
+    assert.match(await cancel_scheduled_agent.execute({ name: 'ghost' }, ctx), /Could not find/);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('schedule_agent tool: a one-shot runAt becomes a single delayed request', async () => {
+  let now = FIXED_NOW;
+  const env = await createEnv('sched_once', { after: () => 'ok' }, { now: () => now });
+  try {
+    const schedule_agent = wrapTool((await import('../../src/tools/schedule_agent.ts')).schedule_agent);
+    await saveScript(env, 'example_workflow', tool('after'));
+    const runAt = new Date(FIXED_NOW + 90_000).toISOString();
+    const out = await schedule_agent.execute({ name: 'once', workflowName: 'example_workflow', runAt }, { prisma: env.prisma, userId: env.userId, conversationId: env.conversationId } as any);
+    assert.match(out, /once at/);
+    assert.equal(await env.prisma.agent.count(), 0);
+
+    await env.processor.stepUntil({ conversationId: env.conversationId });
+    assert.equal(env.calls.length, 0, 'not due');
+    now += 90_000;
+    const { done } = await env.processor.stepUntil({ conversationId: env.conversationId });
+    assert.equal(done, true);
+    assert.equal(env.calls.length, 1);
   } finally {
     await env.cleanup();
   }

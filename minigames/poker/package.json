@@ -8,6 +8,7 @@
   "dependencies": {
     "@curator/agent-server": "file:../../curator",
     "@curator/host": "file:../../packages/host",
+    "@curator/plugin-llm-gemini": "file:../../packages/plugin-llm-gemini",
     "coffeescript": "^2.7.0",
     "commander": "^14.0.2",
     "graphql": "^16.14.2",

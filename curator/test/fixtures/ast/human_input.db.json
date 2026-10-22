@@ -52,7 +52,6 @@
         "type": "Curator_Tool"
       },
       "context": {
-        "__humanInputReceived__": true,
         "activeChoices": [],
         "as": "code",
         "choiceAs": "code",

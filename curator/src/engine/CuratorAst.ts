@@ -159,9 +159,26 @@ export interface CuratorGraphNode extends CuratorBaseNode {
 export interface CuratorLoopNode extends CuratorBaseNode {
   type: 'Curator_Loop';
   name?: string;
+  /** Default prompt for the body when it has none. */
   prompt?: string;
+  /** Iteration cap. Default: unbounded with `schedule`, otherwise AST_LIMITS.maxLoopIterations. */
   maxIterations?: number;
+  /** Loop body, run once per iteration with `$context.iteration` (1-based). */
   agent: CuratorAstNode;
+  /** Stop expression evaluated after each iteration (truthy = stop). */
+  until?: string;
+  /** Continue condition evaluated before each iteration (falsy = stop). */
+  while?: string;
+  /** Collection expression to iterate; the item is bound to `as` (default 'item') and `index` in the body's context. */
+  over?: string;
+  as?: string;
+  /**
+   * Scheduler subtype: cron ("0 14 * * 1-5") or interval ("every 10 minutes", "at 14:00").
+   * Each iteration is queued for the next due time instead of running back-to-back.
+   */
+  schedule?: string;
+  /** With `schedule`: run the first iteration now instead of at the next due time. */
+  immediate?: boolean;
 }
 
 export interface CuratorToolNode extends CuratorBaseNode {

@@ -80,7 +80,7 @@ const schema: Record<string, any> = {
     },
     {
       type: 'object',
-      properties: { ...baseProperties, type: { const: 'Curator_Loop' }, name: { type: 'string' }, prompt: { type: 'string' }, maxIterations: { type: 'integer', minimum: 1, maximum: AST_LIMITS.maxLoopIterations }, agent: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' } },
+      properties: { ...baseProperties, type: { const: 'Curator_Loop' }, name: { type: 'string' }, prompt: { type: 'string' }, maxIterations: { type: 'integer', minimum: 1, maximum: AST_LIMITS.maxLoopIterations },       agent: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' }, until: { type: 'string', minLength: 1 }, while: { type: 'string', minLength: 1 }, over: { type: 'string', minLength: 1 }, as: { type: 'string', minLength: 1 }, schedule: { type: 'string', minLength: 1 }, immediate: { type: 'boolean' } },
       required: ['type', 'agent'],
       additionalProperties: false,
     },

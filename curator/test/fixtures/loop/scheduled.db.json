@@ -1,0 +1,126 @@
+{
+  "requests": [
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "agent": {
+          "args": {
+            "n": "$context.iteration"
+          },
+          "toolName": "tick",
+          "type": "Curator_Tool"
+        },
+        "maxIterations": 2,
+        "schedule": "every 5 minutes",
+        "type": "Curator_Loop"
+      },
+      "context": {
+        "input": "{\"output\":\"2\"}",
+        "loopIteration": 2,
+        "loopRunning": true,
+        "state": {
+          "output": "2"
+        },
+        "tick": "2"
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:1>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": "Curator_Workflow"
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "args": {
+          "n": "$context.iteration"
+        },
+        "toolName": "tick",
+        "type": "Curator_Tool"
+      },
+      "context": {
+        "iteration": 1,
+        "state": {},
+        "tick": "1"
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:2>",
+      "notifyId": "<req:1>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    },
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "args": {
+          "n": "$context.iteration"
+        },
+        "toolName": "tick",
+        "type": "Curator_Tool"
+      },
+      "context": {
+        "input": "{\"output\":\"1\"}",
+        "iteration": 2,
+        "state": {
+          "output": "1"
+        },
+        "tick": "2"
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:3>",
+      "notifyId": "<req:1>",
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    }
+  ],
+  "responses": [
+    {
+      "aiModelId": null,
+      "content": "1",
+      "existent": true,
+      "id": "<res:1>",
+      "projectId": null,
+      "requestId": "<req:2>"
+    },
+    {
+      "aiModelId": null,
+      "content": "2",
+      "existent": true,
+      "id": "<res:2>",
+      "projectId": null,
+      "requestId": "<req:3>"
+    },
+    {
+      "aiModelId": null,
+      "content": "Loop finished after 2 iteration(s) (maxIterations).",
+      "existent": true,
+      "id": "<res:3>",
+      "projectId": null,
+      "requestId": "<req:1>"
+    }
+  ]
+}

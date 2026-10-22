@@ -1,0 +1,31 @@
+{
+  "type": "Curator_Sequential",
+  "name": "loops",
+  "subAgents": [
+    {
+      "type": "Curator_Loop",
+      "agent": {
+        "type": "Curator_Tool",
+        "toolName": "echo",
+        "args": {
+          "text": "tick"
+        }
+      },
+      "maxIterations": 3,
+      "until": "$context.iteration >= 2"
+    },
+    {
+      "type": "Curator_Loop",
+      "agent": {
+        "type": "Curator_Tool",
+        "toolName": "echo",
+        "args": {
+          "text": "poll"
+        }
+      },
+      "schedule": "every 5 minutes",
+      "maxIterations": 2,
+      "immediate": true
+    }
+  ]
+}

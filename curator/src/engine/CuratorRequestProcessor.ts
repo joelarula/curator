@@ -6,9 +6,11 @@ import { curatorContext } from './CuratorContext.js';
 
 import type { CuratorAstNode, CuratorAgentNode, CuratorSequentialNode, CuratorParallelNode, CuratorJoinNode, CuratorToolNode, CuratorScriptNode, CuratorRouteNode, CuratorGraphNode } from './CuratorAst.js';
 import { logger } from '../utils/logger.js';
-import { validateCuratorAst, parseCuratorRef } from './CuratorAstValidation.js';
+import { validateCuratorAst, parseCuratorRef, AST_LIMITS } from './CuratorAstValidation.js';
+import { superviseAgentLoops, isValidSchedule } from './AgentScheduleSupervisor.js';
+export { isValidSchedule };
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { CuratorCallNode, CuratorSubscribeNode, CuratorUnsubscribeNode, CuratorParamSpec } from './CuratorAst.js';
+import type { CuratorCallNode, CuratorSubscribeNode, CuratorUnsubscribeNode, CuratorParamSpec, CuratorLoopNode } from './CuratorAst.js';
 import type { CuratorEventEmitResult, CuratorStructuredResponse } from './CuratorContracts.js';
 import { resolveRef, resolveRequestNode, getScriptVersionAst, getEntry, entryAstPath, expandInlineCalls, saveAdhocScript } from './ScriptRegistry.js';
 import { coffeeAstVerbs } from './CoffeeVerbs.js';
@@ -76,6 +78,8 @@ export interface RunToolRequestResult {
 export interface DispatchEventOptions {
   /** Additional wait matching beyond `waitEvent === eventName` (e.g. domain event families). */
   matchWait?: (waitEvent: string | undefined, eventName: string, payload: any) => boolean;
+  /** Restrict delivery to one waiting Request in the current conversation. */
+  targetRequestId?: number;
   /** Value bound to the resumed Request's alias. Default: the payload. */
   waitValue?: (payload: any) => any;
   /** Keys merged into resumed Requests' context (and context.state when present), e.g. sessionId. */
@@ -456,39 +460,8 @@ export class CuratorRequestProcessor {
     this.lastScheduleMinuteBucket = currentMinuteBucket;
 
     try {
-      const enabledAgents = await this.prisma.agent.findMany({
-        where: { enabled: true },
-        include: { script: true }
-      });
-
-      for (const agent of enabledAgents) {
-        if (!agent.schedule || !agent.script?.ast) continue;
-
-        // Check if lastPolledAt was in the same minute
-        if (agent.lastPolledAt && Math.floor(new Date(agent.lastPolledAt).getTime() / 60000) === currentMinuteBucket) {
-          continue;
-        }
-
-        if (!isScheduleDue(agent.schedule, now)) {
-          continue;
-        }
-
-        // Avoid queuing duplicate if a request for this agent is already in flight
-        const activeRequest = await this.prisma.request.findFirst({
-          where: {
-            agentId: agent.id,
-            status: { in: ['NEW', 'WAITING'] }
-          }
-        });
-        if (activeRequest) continue;
-
-        // Update lastPolledAt
-        await this.prisma.agent.update({
-          where: { id: agent.id },
-          data: { lastPolledAt: now }
-        });
-
-        // Ensure conversation exists
+      // Scheduling is a Curator_Loop; this supervisor only keeps one live loop per enabled, scheduled Agent.
+      const result = await superviseAgentLoops(this.prisma, async (agent, loopAst) => {
         let conversation = await this.prisma.conversation.findFirst({
           where: { userId: agent.userId, projectId: agent.projectId }
         });
@@ -507,13 +480,13 @@ export class CuratorRequestProcessor {
             agentId: agent.id,
             status: 'NEW',
             pendingDependencies: 0,
-            ast: agent.script.ast,
-            scheduledAt: now
+            ast: loopAst
           }
         });
-
-        logger.info(`[CuratorRequestProcessor] Scheduled agent '${agent.name}' triggered on schedule '${agent.schedule}' (Request #${newReq.id})`);
-        this.emit('log', { message: `[Curator] Scheduled agent '${agent.name}' triggered on schedule '${agent.schedule}' (Request #${newReq.id})` });
+        logger.info(`[CuratorRequestProcessor] Scheduler loop for agent '${agent.name}' started on '${agent.schedule}' (Request #${newReq.id})`);
+        this.emit('log', { message: `[Curator] Scheduler loop for agent '${agent.name}' started on '${agent.schedule}' (Request #${newReq.id})` });
+      });
+      if (result.started.length || result.restarted.length || result.cancelled.length) {
         this.emit('database_change', { tables: ['requests', 'agents'] });
       }
     } catch (err: any) {
@@ -927,7 +900,7 @@ export class CuratorRequestProcessor {
           return;
         }
 
-        const nodeTypes = ['Curator_Agent', 'Curator_Sequential', 'Curator_Parallel', 'Curator_Join', 'Curator_Tool', 'Curator_Script', 'Curator_Route', 'Curator_HumanInput', 'Curator_Graph', 'Curator_AgentRef', 'Curator_SetState', 'Curator_Interrupt', 'Curator_EmitEvent', 'Curator_WaitEvent', 'Curator_Assign', 'Curator_IfElse', 'Curator_While', 'Curator_ForEach', 'Curator_Call', 'Curator_Subscribe', 'Curator_Unsubscribe'];
+        const nodeTypes = ['Curator_Agent', 'Curator_Sequential', 'Curator_Parallel', 'Curator_Join', 'Curator_Tool', 'Curator_Script', 'Curator_Route', 'Curator_HumanInput', 'Curator_Graph', 'Curator_AgentRef', 'Curator_SetState', 'Curator_Interrupt', 'Curator_EmitEvent', 'Curator_WaitEvent', 'Curator_Assign', 'Curator_IfElse', 'Curator_While', 'Curator_Loop', 'Curator_ForEach', 'Curator_Call', 'Curator_Subscribe', 'Curator_Unsubscribe'];
         if (nodeTypes.includes(ast.type)) {
           switch (ast.type) {
             case 'Curator_Agent': return await this.executeAgent(ast as CuratorAgentNode, req);
@@ -947,6 +920,7 @@ export class CuratorRequestProcessor {
             case 'Curator_Assign': return await this.handleAssign(ast as any, req);
             case 'Curator_IfElse': return await this.handleIfElse(ast as any, req);
             case 'Curator_While': return await this.handleWhile(ast as any, req);
+            case 'Curator_Loop': return await this.handleLoop(ast as CuratorLoopNode, req);
             case 'Curator_ForEach': return await this.handleForEach(ast as any, req);
             case 'Curator_Call': return await this.handleCall(ast as CuratorCallNode, req);
             case 'Curator_Subscribe': return await this.handleSubscribe(ast as CuratorSubscribeNode, req);
@@ -1118,6 +1092,7 @@ export class CuratorRequestProcessor {
 
     const woken: number[] = [];
     for (const waitReq of waitingRequests) {
+      if (opts.targetRequestId !== undefined && waitReq.id !== opts.targetRequestId) continue;
       const ctx = waitReq.context as any;
       const matches = ctx?.waitEvent === eventName || (opts.matchWait?.(ctx?.waitEvent, eventName, payload) ?? false);
       if (matches) {
@@ -1910,7 +1885,7 @@ export class CuratorRequestProcessor {
       }
       const output = vm.runInContext(codeToExecute, context);
       
-      const nodeTypes = ['Curator_Agent', 'Curator_Sequential', 'Curator_Parallel', 'Curator_Join', 'Curator_Tool', 'Curator_Script', 'Curator_Route', 'Curator_HumanInput', 'Curator_Graph', 'Curator_AgentRef', 'Curator_SetState', 'Curator_EmitEvent', 'Curator_WaitEvent', 'Curator_Interrupt', 'Curator_Assign', 'Curator_IfElse', 'Curator_While', 'Curator_ForEach'];
+      const nodeTypes = ['Curator_Agent', 'Curator_Sequential', 'Curator_Parallel', 'Curator_Join', 'Curator_Tool', 'Curator_Script', 'Curator_Route', 'Curator_HumanInput', 'Curator_Graph', 'Curator_AgentRef', 'Curator_SetState', 'Curator_EmitEvent', 'Curator_WaitEvent', 'Curator_Interrupt', 'Curator_Assign',       'Curator_IfElse', 'Curator_While', 'Curator_Loop', 'Curator_ForEach'];
       if (output && typeof output === 'object' && output.type && nodeTypes.includes(output.type)) {
         logger.info(`[CuratorRequestProcessor] Script generated a valid AST node of type ${output.type}. Spawning as child...`);
         // Spawn the dynamic AST
@@ -2921,7 +2896,9 @@ export class CuratorRequestProcessor {
             try { sourceContext = JSON.parse(sourceContext); } catch (_) {}
           }
           const skipKeys = new Set(['forEachIndex', 'forEachCollection', 'ifElseEvaluated',
-            'spawnedChild', 'routeDecided', 'pendingToolCall', 'waitEvent', 'payloadAlias', 'astPath']);
+            'spawnedChild', 'routeDecided', 'pendingToolCall', 'waitEvent', 'payloadAlias', 'astPath',
+            '__humanInputReceived__',
+            'loopIteration', 'loopRunning', 'loopCollection', 'iteration', 'index']);
           // A parked Curator_Call caller is isolated from its callee: the result flows back only via `as`.
           if (!targetContext.callPending) {
             for (const [k, v] of Object.entries(sourceContext)) {
@@ -3102,6 +3079,75 @@ export class CuratorRequestProcessor {
     }
   }
 
+  /**
+   * Curator_Loop: runs `agent` once per iteration (`$context.iteration`, 1-based).
+   * Stop conditions: `while` (checked before each iteration), `over` (iterate a collection, item bound to `as`),
+   * `until` (checked after each iteration) and `maxIterations`.
+   * With `schedule` it is the scheduler subtype: each iteration is queued for the next due time
+   * (the loop then runs until cancelled unless bounded).
+   */
+  private async handleLoop(ast: CuratorLoopNode, req: any) {
+    const ctx = req.context || {};
+    const running = !!ctx.loopRunning;
+    const completed: number = running ? (ctx.loopIteration ?? 0) : 0;
+
+    if (ast.schedule && !isValidSchedule(ast.schedule)) {
+      return this.failRequest(req, `Loop schedule '${ast.schedule}' is not a valid cron or interval expression`);
+    }
+
+    const conv = await this.prisma.conversation.findUnique({ where: { id: req.conversationId } });
+    req.context = { ...ctx, state: this.getConversationState(conv), iteration: completed };
+
+    let collection: any[] | undefined = ctx.loopCollection;
+    if (ast.over && !running) {
+      collection = await this.evaluateExpressionAsync(ast.over, req);
+      if (!Array.isArray(collection)) return this.failRequest(req, `Loop 'over' expression did not evaluate to an array`);
+    }
+
+    const limit = ast.maxIterations ?? (ast.schedule ? Infinity : AST_LIMITS.maxLoopIterations);
+    let stop: string | null = null;
+    if (running && completed >= limit) stop = 'maxIterations';
+    else if (running && ast.until && await this.evaluateExpressionAsync(ast.until, req)) stop = 'until';
+    else if (collection && completed >= collection.length) stop = 'over';
+    else if (ast.while && !(await this.evaluateExpressionAsync(ast.while, req))) stop = 'while';
+    if (stop) {
+      await this.saveResponse(req, `Loop finished after ${completed} iteration(s) (${stop}).`);
+      await this.completeRequest(req.id, 'COMPLETED');
+      return;
+    }
+
+    const iteration = completed + 1;
+    const { loopIteration, loopRunning, loopCollection, ...inherited } = ctx;
+    const itemContext = collection ? { [ast.as || 'item']: collection[completed], index: completed } : {};
+    const body: any = ast.prompt && !(ast.agent as any).prompt ? { ...ast.agent, prompt: ast.prompt } : ast.agent;
+    const runNow = !ast.schedule || (ast.immediate && iteration === 1);
+    await this.createValidatedRequest({
+      data: {
+        ast: body,
+        context: { ...inherited, ...itemContext, iteration },
+        projectId: req.projectId,
+        agentId: req.agentId,
+        scriptId: req.scriptId,
+        conversationId: req.conversationId,
+        userId: req.userId || 1,
+        status: 'NEW',
+        pendingDependencies: 0,
+        notifyId: req.id,
+        scheduledAt: runNow ? null : computeNextRunDate(ast.schedule!, new Date(this.clock()))
+      }
+    });
+    await this.prisma.request.update({
+      where: { id: req.id },
+      data: {
+        status: 'WAITING',
+        lockedBy: null,
+        lockedAt: null,
+        pendingDependencies: 1,
+        context: { ...ctx, loopIteration: iteration, loopRunning: true, ...(collection ? { loopCollection: collection } : {}) }
+      }
+    });
+  }
+
   private async handleForEach(ast: any, req: any) {
     logger.info(`[CuratorRequestProcessor] Handling ForEach node for ${req.id}`);
     
@@ -3253,8 +3299,7 @@ export function isScheduleDue(schedule: string, date: Date = new Date()): boolea
   return false;
 }
 
-/**
- * Calculates the next upcoming Date matching the schedule (cron or interval) starting from fromDate.
+/** Calculates the next upcoming Date matching the schedule (cron or interval) starting from fromDate.
  */
 export function computeNextRunDate(schedule: string, fromDate: Date = new Date()): Date {
   if (!schedule || typeof schedule !== 'string') {
@@ -3277,5 +3322,3 @@ export function computeNextRunDate(schedule: string, fromDate: Date = new Date()
 
   return new Date(fromDate.getTime() + 3600000);
 }
-
-

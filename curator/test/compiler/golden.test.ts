@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { compileFixture, assertGolden } from '../helpers/harness.ts';
 import { validateCuratorAst } from '../../src/engine/CuratorAstValidation.js';
 
-for (const name of ['seq_set_state', 'if_else', 'for_each', 'while_loop', 'wait_emit', 'tool_error']) {
+for (const name of ['seq_set_state', 'if_else', 'for_each', 'while_loop', 'loop', 'wait_emit', 'tool_error']) {
   test(`${name} compiles to the golden AST`, async () => {
     assertGolden(`${name}.ast.json`, await compileFixture(`${name}.coffee`));
   });

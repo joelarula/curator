@@ -1,0 +1,73 @@
+{
+  "requests": [
+    {
+      "agentId": null,
+      "aiModelId": null,
+      "ast": {
+        "agentName": "helper",
+        "type": "Curator_AgentRef"
+      },
+      "context": {
+        "input": "{\"got\":\"from-agent\"}",
+        "state": {
+          "got": "from-agent"
+        }
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:1>",
+      "notifyId": null,
+      "parentId": null,
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": "Curator_Workflow"
+    },
+    {
+      "agentId": "agent-helper",
+      "aiModelId": null,
+      "ast": null,
+      "context": {
+        "astPath": "",
+        "callDepth": 1,
+        "origin": "AST",
+        "params": {},
+        "record": "{\"got\":\"from-agent\"}",
+        "ref": "agent_script"
+      },
+      "deletedAt": null,
+      "executionScheduled": "<ts>",
+      "existent": true,
+      "id": "<req:2>",
+      "notifyId": "<req:1>",
+      "parentId": "<req:1>",
+      "pendingDependencies": 0,
+      "priority": 0,
+      "projectId": null,
+      "retryCount": 0,
+      "status": "COMPLETED",
+      "toolName": null
+    }
+  ],
+  "responses": [
+    {
+      "aiModelId": null,
+      "content": "{\"got\":\"from-agent\"}",
+      "existent": true,
+      "id": "<res:1>",
+      "projectId": null,
+      "requestId": "<req:2>"
+    },
+    {
+      "aiModelId": null,
+      "content": "{\"got\":\"from-agent\"}",
+      "existent": true,
+      "id": "<res:2>",
+      "projectId": null,
+      "requestId": "<req:1>"
+    }
+  ]
+}
