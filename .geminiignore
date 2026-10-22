@@ -32,7 +32,20 @@ generated/
 **/src/generated/
 .next/
 .nuxt/
+out/
+**/out/
+.turbo/
+.cache/
+vendor/
+**/vendor/
+.venv/
+**/.venv/
+__pycache__/
 coverage/
+**/coverage/
+**/fixtures/**/*.json
+*.min.js
+*.bundle.js
 
 # Databases, Storage & WAL Journals
 data/
