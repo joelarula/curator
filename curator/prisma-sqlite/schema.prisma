@@ -381,6 +381,7 @@ model EventLog {
   eventName      String
   payload        Json?
   target         String?
+  source         Int?
   createdAt      DateTime @default(now())
 
   @@index([conversationId, eventName, id])

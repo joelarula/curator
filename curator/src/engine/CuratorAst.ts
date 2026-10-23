@@ -64,6 +64,14 @@ export interface CuratorAgentNode extends CuratorBaseNode {
   instruction?: string;
   prompt?: string;
   include_contents?: 'default' | 'none';
+  /**
+   * 'conversation' builds this agent's prompt from the shared conversation as it sees it (own turns = assistant,
+   * other agents and humans = labelled user turns, whispers/tool output only for their audience).
+   * Default keeps the global history.
+   */
+  history_from?: 'default' | 'conversation';
+  /** With history_from 'conversation': bus event names whose payload.text is part of the conversation. */
+  history_events?: string[];
   tools?: (string | CuratorInlineTool)[];
   /** 'gemini' (default) | 'local' (OpenAI-compatible endpoint, e.g. llama.cpp) */
   provider?: 'gemini' | 'local';
@@ -89,6 +97,10 @@ export interface CuratorWaitEventNode extends CuratorBaseNode {
   type: 'Curator_WaitEvent';
   eventName: string;
   payloadAlias?: string;
+  /** Give up after this long; completes with a WAIT_TIMEOUT Response and binds nothing to the alias. */
+  timeoutSeconds?: number;
+  /** A flow's first wait also receives events logged before the flow was created (late joiner catches up). */
+  replay?: boolean;
 }
 
 export interface CuratorAssignNode extends CuratorBaseNode {

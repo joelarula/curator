@@ -18,6 +18,8 @@ export * from './storage/index.js';
 // LLM Provider Layer (Ports & Adapters)
 export * from './engine/llm/ILlmProvider.js';
 export * from './engine/llm/LlmFactory.js';
+export * from './engine/llm/ConversationContext.js';
+export * from './engine/llm/ConversationFold.js';
 export * from './engine/llm/AnthropicLlmProvider.js';
 export * from './engine/llm/OpenAiCompatibleLlmProvider.js';
 

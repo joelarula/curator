@@ -47,7 +47,27 @@ Parallel children have no defined order: assert on sets, not sequences, when ord
 
 The generated SQLite client (`src/generated/prisma-sqlite`) is git-ignored; run `npx prisma generate` if tests fail with unknown Prisma arguments.
 
-## MCP
+## Conversation models
 
+Coffee fixtures in `test/fixtures/` exercise the Coffee → AST compile path as well as the engine:
+
+| Test | Fixtures | Covers |
+|---|---|---|
+| `engine/dialogue.test.ts` | `dialogue`, `interview`, `panel` | human↔agent Q&A, agent asks human, many agents answering in parallel |
+| `engine/whisper.test.ts` | `whisper_ring*`, `whisper_bus`, `whisper_private` | ring, listeners, generic bus, human-started ring, private scopes (`isolated`), addressed events, spawn |
+| `engine/waiter.test.ts` | `waiter`, `waiter_retry` | prompt for a name, `timeoutSeconds` re-prompt/retry (mutable clock) |
+| `engine/broadcast.test.ts` | `broadcast` | event heard by all agents; addressed event reaches one |
+| `engine/wait-timeout.test.ts` | `wait_timeout` | `wait_event` timeout vs. event arriving first |
+| `engine/late-joiner.test.ts` | `late_joiner` | `replay: true` catches a late listener up on older events; default does not |
+| `engine/conversation-context.test.ts` | (none) | `ConversationContextBuilder`: row-by-row fold of entries (any speech mode) into one participant's LLM prompt; own turns = assistant, others labelled user; whispers/tool output visible only to their audience; custom modes via renderers; built from Request/Response/EventLog rows |
+| `engine/conversation-fold.test.ts` | (none) | `foldConversation` / `buildContext`: custom reducer sees every row in order and decides what to push; incremental builds process only new rows and keep the earlier messages frozen; stable `prefixHash` for caching; snapshot invalidated by a changed system prompt, viewer or version |
+
+Gemini side: `packages/plugin-llm-gemini/test/conversation-mapping.test.mjs` (offline) pins how builder output maps to Gemini `contents`; `conversation.test.mjs` is the live multi-turn API check (needs `GOOGLE_API_KEY`).
+| `engine/trilogue.test.ts` | `trilogue`, `trilogue_free` | three symmetric agents, free conversation: speaker names the next one, or listeners compete for the floor via an atomic `claim` tool (one winner per turn); ends at a turn limit |
+| `engine/modules-calls.test.ts` | `module_greeter` | module/`Curator_Call`, hand-written AST vs. Coffee |
+
+Timeout tests use a mutable clock starting at `Date.UTC(2100, 0, 1)` (rows are scheduled `<=` the harness clock); expired human/event waits are completed on the next `step`/`stepUntil`. When several agents wait in parallel, `stepUntil` returns at the first parked request, so loop `step({ take: 10 })` until idle instead of `stepUntil`.
+
+## MCP
 `startFakeMcpServer({ tool: { handler } })` (harness) runs an in-process MCP server over `InMemoryTransport`; pass its `transport` to `createMcpPlugin` and add the plugin tools to `env.processor.engine.tools` (see `engine/mcp.test.ts`). No subprocess or network.
 

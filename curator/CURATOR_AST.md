@@ -86,6 +86,9 @@ Executes multiple AST nodes concurrently.
 2. It then iterates through all `subAgents`, inserting them as new Requests with `pendingDependencies: 0` and their `notifyId` pointing to the `Join` request.
 3. Because all sub-agents have `0` dependencies, the database polling loop will pick them all up and execute them in parallel across available workers.
 
+### Private scopes (`isolate`)
+Set `"isolate": true` (Coffee: `isolated "name", ...branches`) to give each branch a private state scope named after the branch. Inside a branch, `set_state` / `assign` writes and `$state` reads go to that scope (layered over shared state), so sibling branches cannot read each other's data. The `Curator_Join` and anything after it only see shared state. Isolation is opt-in; without it all branches share conversation state.
+
 ---
 
 ## 4. `Curator_Join`
@@ -224,6 +227,18 @@ This node acts as a bridge to your frontend UI. When evaluated, the request is m
 * `'text'` (default): Requests a text string from the user.
 * `'choices'`: Shows the user a list of options (must provide the `choices` string array).
 * `'file'`: Requests a file upload.
+
+### Timeouts
+Set `timeoutSeconds` (Coffee: `prompt(text, 'text', undefined, { as, timeoutSeconds })`) to bound the wait. If no answer arrives by the deadline, the request completes with a `HUMAN_TIMEOUT` Response and nothing is bound to `as`, so a script can loop and re-prompt by checking `$state.<as>`.
+
+---
+
+## 9b. Events: `Curator_EmitEvent` and `Curator_WaitEvent`
+
+* `emit_event name, payload, targetAgentId` records the event in the conversation's `EventLog` and wakes matching waiters/subscriptions. Omit `targetAgentId` to broadcast to every listener; pass an agent id to address only that agent (a plain string like `"b"` is taken literally; `$...` / `{{...}}` is evaluated).
+* `wait_event name, alias, { timeoutSeconds }` parks the request until a matching event arrives and binds the payload to `alias`.
+* **Lossless:** each request has an `eventCursor`. A wait first consumes the earliest logged event after its cursor (and addressed to it or to everyone), so an event emitted before the waiter parked is not lost. A flow's first wait only sees events logged before its anchor (chain end or Join) was created; by default late joiners do not replay older events. Set `replay: true` (`wait_event "news", "item", { replay: true }`) to make a flow's first wait start from the beginning of the conversation's log, then consume the backlog in order; later waits continue from the cursor.
+* **Timeout:** with `timeoutSeconds`, a wait with no event by the deadline completes with a `WAIT_TIMEOUT` Response, nothing is bound to `alias`, and the flow continues so it can branch on the empty alias. An event arriving first wins and no timeout is recorded.
 
 ---
 

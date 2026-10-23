@@ -95,8 +95,8 @@ export class CuratorCoreBuilder {
   /**
    * Wait synchronously for a Pub/Sub event to be emitted.
    */
-  static waitEvent(eventName: string, payloadAlias?: string): CuratorWaitEventNode {
-    return { type: 'Curator_WaitEvent', eventName, payloadAlias };
+  static waitEvent(eventName: string, payloadAlias?: string, options: { timeoutSeconds?: number; replay?: boolean } = {}): CuratorWaitEventNode {
+    return { type: 'Curator_WaitEvent', eventName, payloadAlias, ...(options?.timeoutSeconds ? { timeoutSeconds: options.timeoutSeconds } : {}), ...(options?.replay ? { replay: true } : {}) };
   }
 
   /**

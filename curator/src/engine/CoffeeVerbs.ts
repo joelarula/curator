@@ -55,10 +55,10 @@ export const coffeeAstVerbs: Record<string, any> = {
     CuratorBuilder.emitEvent(eventName, payload, targetAgentId),
   emitEvent: (eventName: string, payload?: any, targetAgentId?: any) =>
     CuratorBuilder.emitEvent(eventName, payload, targetAgentId),
-  wait_event: (eventName: string, payloadAlias?: string) =>
-    CuratorBuilder.waitEvent(eventName, payloadAlias),
-  waitEvent: (eventName: string, payloadAlias?: string) =>
-    CuratorBuilder.waitEvent(eventName, payloadAlias),
+  wait_event: (eventName: string, payloadAlias?: string, options?: { timeoutSeconds?: number; replay?: boolean }) =>
+    CuratorBuilder.waitEvent(eventName, payloadAlias, options),
+  waitEvent: (eventName: string, payloadAlias?: string, options?: { timeoutSeconds?: number; replay?: boolean }) =>
+    CuratorBuilder.waitEvent(eventName, payloadAlias, options),
   publish: (eventName: string, payload?: any, targetAgentId?: any) =>
     CuratorBuilder.emitEvent(eventName, payload, targetAgentId),
   subscribe: (eventName: string, handler: string, options?: any) =>

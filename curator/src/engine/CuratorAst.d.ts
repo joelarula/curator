@@ -35,6 +35,8 @@ export interface CuratorAgentNode extends CuratorBaseNode {
     instruction?: string;
     prompt?: string;
     include_contents?: 'default' | 'none';
+    history_from?: 'default' | 'conversation';
+    history_events?: string[];
     tools?: (string | CuratorInlineTool)[];
     /** 'gemini' (default) | 'local' (OpenAI-compatible endpoint, e.g. llama.cpp) */
     provider?: 'gemini' | 'local';
@@ -57,6 +59,8 @@ export interface CuratorWaitEventNode extends CuratorBaseNode {
     type: 'Curator_WaitEvent';
     eventName: string;
     payloadAlias?: string;
+    timeoutSeconds?: number;
+    replay?: boolean;
 }
 export interface CuratorAssignNode extends CuratorBaseNode {
     type: 'Curator_Assign';
@@ -90,6 +94,7 @@ export interface CuratorParallelNode extends CuratorBaseNode {
     type: 'Curator_Parallel';
     name?: string;
     prompt?: string;
+    isolate?: boolean;
     subAgents: CuratorAstNode[];
 }
 export interface CuratorJoinNode extends CuratorBaseNode {

@@ -17,6 +17,7 @@ import { coffeeAstVerbs } from './CoffeeVerbs.js';
 import type { Prisma } from '@prisma/client';
 import { LlmFactory } from './llm/LlmFactory.js';
 import type { LlmMessage, LlmToolDefinition, LlmRequest } from './llm/ILlmProvider.js';
+import { buildContext } from './llm/ConversationFold.js';
 import { AgentRoleService } from '../services/AgentRoleService.js';
 import { ApprovalService } from '../services/ApprovalService.js';
 // Audit trail = Request/Response rows (see AuditService for the derived read view).
@@ -1052,9 +1053,7 @@ export class CuratorRequestProcessor {
    */
   public async dispatchEvent(eventName: string, payload: any, req: any, targetAgentId?: string, opts: DispatchEventOptions = {}): Promise<CuratorEventEmitResult> {
     const target = targetAgentId != null && targetAgentId !== '' ? String(targetAgentId) : null;
-    const eventSeq = await this.logEvent(req.conversationId, eventName, payload, target);
-    // The emitting flow must not replay its own events when it waits later.
-    if (eventSeq !== null && req.id != null) await this.advanceEventCursor(req.id, eventSeq);
+    const eventSeq = await this.logEvent(req.conversationId, eventName, payload, target, req.id ?? null);
 
     const subscriptions = this.prisma.eventSubscription
       ? await this.prisma.eventSubscription.findMany({
@@ -1178,12 +1177,25 @@ export class CuratorRequestProcessor {
   }
 
   /** Appends to the conversation's event log; returns its sequence id (null if the DB has no EventLog). */
-  private async logEvent(conversationId: number, eventName: string, payload: any, target: string | null = null): Promise<number | null> {
+  private async logEvent(conversationId: number, eventName: string, payload: any, target: string | null = null, source: number | null = null): Promise<number | null> {
     if (!this.prisma.eventLog || conversationId == null) return null;
     const row = await this.prisma.eventLog.create({
-      data: { conversationId, eventName, payload: payload === undefined ? null : payload, target },
+      data: { conversationId, eventName, payload: payload === undefined ? null : payload, target, source },
     });
     return row.id;
+  }
+
+  /** Request ids of a flow: the request and everything it notifies, stopping before a Join. */
+  private async flowChain(reqId: number | null | undefined): Promise<Set<number>> {
+    const ids = new Set<number>();
+    let id = reqId ?? null;
+    for (let depth = 0; id != null && depth < 500; depth++) {
+      const r: any = await this.prisma.request.findUnique({ where: { id }, select: { ast: true, notifyId: true } });
+      if (!r || (r.ast as any)?.type === 'Curator_Join') break;
+      ids.add(id);
+      id = r.notifyId;
+    }
+    return ids;
   }
 
   private async latestEventSeq(conversationId: number): Promise<number> {
@@ -1214,7 +1226,7 @@ export class CuratorRequestProcessor {
    * back to the last event logged before the flow's anchor (chain end / Join) was created, so events emitted
    * before its first wait are still delivered.
    */
-  private async resolveEventCursor(reqId: number, conversationId: number): Promise<number> {
+  private async resolveEventCursor(reqId: number, conversationId: number, replay = false): Promise<number> {
     let id: number | null = reqId;
     let anchor: Date | null = null;
     for (let depth = 0; id != null && depth < 500; depth++) {
@@ -1225,6 +1237,7 @@ export class CuratorRequestProcessor {
       if (r.eventCursor != null) return r.eventCursor;
       id = r.notifyId;
     }
+    if (replay) return 0;
     if (!anchor) return this.latestEventSeq(conversationId);
     const before = await this.prisma.eventLog.findFirst({
       where: { conversationId, createdAt: { lt: anchor } },
@@ -1235,15 +1248,26 @@ export class CuratorRequestProcessor {
 
   private async handleWaitEvent(ast: any, req: any) {
     if (this.prisma.eventLog && !req.context?.__humanInputReceived__) {
-      const cursor = await this.resolveEventCursor(req.id, req.conversationId);
+      const cursor = await this.resolveEventCursor(req.id, req.conversationId, !!ast.replay);
       const identity = this.identityOf(req);
-      const missed = await this.prisma.eventLog.findFirst({
+      const myFlow = await this.flowChain(req.id);
+      // The emitting flow never hears its own events, but events other flows logged meanwhile are kept.
+      const candidates = await this.prisma.eventLog.findMany({
         where: {
           conversationId: req.conversationId, eventName: ast.eventName, id: { gt: cursor },
           OR: identity ? [{ target: null }, { target: identity }] : [{ target: null }],
         },
         orderBy: { id: 'asc' },
       });
+      let missed: any = null;
+      for (const c of candidates) {
+        if (c.source != null) {
+          const theirs = c.source === req.id ? myFlow : await this.flowChain(c.source);
+          if ([...theirs].some((id) => myFlow.has(id))) continue;
+        }
+        missed = c;
+        break;
+      }
       if (missed) {
         // Emitted while this flow was between waits: deliver it as if it had woken us.
         logger.info(`[CuratorRequestProcessor] Request ${req.id} consumed buffered event '${ast.eventName}' (#${missed.id}).`);
@@ -1266,7 +1290,9 @@ export class CuratorRequestProcessor {
       return;
     }
     logger.info(`[CuratorRequestProcessor] Request ${req.id} paused, waiting for event '${ast.eventName}'.`);
-    const updatedContext = { ...(req.context || {}), waitEvent: ast.eventName, payloadAlias: ast.payloadAlias };
+    const updatedContext: any = { ...(req.context || {}), waitEvent: ast.eventName, payloadAlias: ast.payloadAlias };
+    delete updatedContext.waitDeadline;
+    if (ast.timeoutSeconds > 0) updatedContext.waitDeadline = new Date(this.clock() + ast.timeoutSeconds * 1000).toISOString();
     await this.prisma.request.update({
       where: { id: req.id },
       data: { status: 'WAITING_FOR_EVENT', context: updatedContext }
@@ -1666,8 +1692,9 @@ export class CuratorRequestProcessor {
     }
 
     // Blocking: suspend request awaiting human response or event
+    delete (updatedContext as any).waitDeadline;
     if (ast.timeoutSeconds > 0) {
-      updatedContext.waitDeadline = new Date(this.clock() + ast.timeoutSeconds * 1000).toISOString();
+      (updatedContext as any).waitDeadline = new Date(this.clock() + ast.timeoutSeconds * 1000).toISOString();
     }
     await this.prisma.request.update({
       where: { id: req.id },
@@ -2247,7 +2274,7 @@ export class CuratorRequestProcessor {
    */
   private async expireHumanWaits() {
     const parked = await this.prisma.request.findMany({
-      where: { status: 'WAITING_FOR_USER' },
+      where: { status: { in: ['WAITING_FOR_USER', 'WAITING_FOR_EVENT'] } },
       orderBy: { updatedAt: 'asc' },
       take: 50
     });
@@ -2257,18 +2284,20 @@ export class CuratorRequestProcessor {
       if (!ctx.waitDeadline || ctx.pendingToolCall || Date.parse(ctx.waitDeadline) > now) continue;
 
       const claimed = await this.prisma.request.updateMany({
-        where: { id: req.id, status: 'WAITING_FOR_USER' },
+        where: { id: req.id, status: req.status },
         data: { status: 'WAITING', lockedBy: this.workerId, lockedAt: new Date() }
       });
       if (claimed.count === 0) continue;
 
+      const isEventWait = req.status === 'WAITING_FOR_EVENT';
       logger.info(`[CuratorRequestProcessor] Human prompt on request ${req.id} timed out.`);
       const nextCtx: any = { ...ctx };
       delete nextCtx.waitEvent;
       delete nextCtx.waitDeadline;
+      delete nextCtx.payloadAlias;
       await this.prisma.request.update({ where: { id: req.id }, data: { context: nextCtx } });
       req.context = nextCtx;
-      const record: CuratorStructuredResponse = { type: 'HUMAN_TIMEOUT', ok: false, deadline: ctx.waitDeadline, reason: ctx.choicePrompt };
+      const record: CuratorStructuredResponse = { type: isEventWait ? 'WAIT_TIMEOUT' : 'HUMAN_TIMEOUT', ok: false, deadline: ctx.waitDeadline, reason: isEventWait ? ctx.waitEvent : ctx.choicePrompt };
       await this.saveResponse(req, JSON.stringify(record));
       await this.completeRequest(req.id, 'COMPLETED');
     }
@@ -2769,7 +2798,18 @@ export class CuratorRequestProcessor {
     }
 
     // Load Granular Message History from database
-    const history = await this.loadConversationHistory(req, ast.include_contents);
+    let history: readonly LlmMessage[];
+    if (ast.history_from === 'conversation' && ast.include_contents !== 'none') {
+      const viewer = String(ast.agentName ?? req.agentId ?? 'agent');
+      const built = await buildContext(this.prisma, req.conversationId, viewer, {
+        eventNames: ast.history_events ?? [],
+        excludeRequestId: req.id,
+      });
+      const limit = (ast as any).history_limit;
+      history = limit > 0 ? built.messages.slice(-limit) : built.messages;
+    } else {
+      history = await this.loadConversationHistory(req, ast.include_contents);
+    }
     const messages: LlmMessage[] = [...history];
     messages.push({ role: 'user', content: prompt });
 
@@ -2976,7 +3016,7 @@ export class CuratorRequestProcessor {
   }
 
   private static readonly STRUCTURED_RECORD_TYPES = new Set([
-    'TOOL_BLOCKED', 'APPROVAL_REQUIRED', 'APPROVAL_EXPIRED', 'HUMAN_TIMEOUT', 'EVENT_EMITTED', 'CHOICE_PROMPT', 'CHOICE_RECEIVED',
+    'TOOL_BLOCKED', 'APPROVAL_REQUIRED', 'APPROVAL_EXPIRED', 'HUMAN_TIMEOUT', 'WAIT_TIMEOUT', 'EVENT_EMITTED', 'CHOICE_PROMPT', 'CHOICE_RECEIVED',
     'SUBSCRIBED', 'UNSUBSCRIBED', 'MODEL_CHANGED'
   ]);
 
@@ -3061,7 +3101,7 @@ export class CuratorRequestProcessor {
           }
           const skipKeys = new Set(['forEachIndex', 'forEachCollection', 'ifElseEvaluated',
             'spawnedChild', 'routeDecided', 'pendingToolCall', 'waitEvent', 'payloadAlias', 'astPath',
-            '__humanInputReceived__', '__joinScope',
+            '__humanInputReceived__', '__joinScope', 'waitDeadline',
             'loopIteration', 'loopRunning', 'loopCollection', 'iteration', 'index']);
           // A parked Curator_Call caller is isolated from its callee: the result flows back only via `as`.
           if (!targetContext.callPending && !(targetIsJoin && sourceScope != null)) {

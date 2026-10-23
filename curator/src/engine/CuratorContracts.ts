@@ -129,6 +129,7 @@ export type CuratorResponseRecordType =
   | 'CHOICE_PROMPT'
   | 'CHOICE_RECEIVED'
   | 'HUMAN_TIMEOUT'
+  | 'WAIT_TIMEOUT'
   | 'SUBSCRIBED'
   | 'UNSUBSCRIBED'
   | 'MODEL_CHANGED';

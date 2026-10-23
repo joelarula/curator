@@ -24,7 +24,10 @@ export declare class CuratorBuilder {
     /**
      * Wait synchronously for a Pub/Sub event to be emitted.
      */
-    static waitEvent(eventName: string, payloadAlias?: string): CuratorWaitEventNode;
+    static waitEvent(eventName: string, payloadAlias?: string, options?: {
+        timeoutSeconds?: number;
+        replay?: boolean;
+    }): CuratorWaitEventNode;
     /**
      * Runs the provided nodes sequentially.
      */

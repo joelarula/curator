@@ -9,6 +9,7 @@ export declare const coffeeAstVerbs: {
     assign: (key: string, expression: string | ((ctx: any) => any)) => import("./CuratorAst.js").CuratorAssignNode;
     seq: (name: string, ...nodes: CuratorAstNode[]) => import("./CuratorAst.js").CuratorSequentialNode;
     parallel: (name: string, ...nodes: CuratorAstNode[]) => import("./CuratorAst.js").CuratorParallelNode;
+    isolated: (name: string, ...nodes: CuratorAstNode[]) => import("./CuratorAst.js").CuratorParallelNode;
     if_else: (condition: string | ((ctx: any) => boolean), thenBranch: CuratorAstNode, elseBranch?: CuratorAstNode) => import("./CuratorAst.js").CuratorIfElseNode;
     ifElse: (condition: string | ((ctx: any) => boolean), thenBranch: CuratorAstNode, elseBranch?: CuratorAstNode) => import("./CuratorAst.js").CuratorIfElseNode;
     while_loop: (condition: string | ((ctx: any) => boolean), body: CuratorAstNode) => import("./CuratorAst.js").CuratorWhileNode;
@@ -17,8 +18,14 @@ export declare const coffeeAstVerbs: {
     forEach: (collectionExpression: string | ((ctx: any) => any[]), body: CuratorAstNode, iteratorName?: string) => import("./CuratorAst.js").CuratorForEachNode;
     emit_event: (eventName: string, payload?: any, targetAgentId?: any) => import("./CuratorAst.js").CuratorEmitEventNode;
     emitEvent: (eventName: string, payload?: any, targetAgentId?: any) => import("./CuratorAst.js").CuratorEmitEventNode;
-    wait_event: (eventName: string, payloadAlias?: string) => import("./CuratorAst.js").CuratorWaitEventNode;
-    waitEvent: (eventName: string, payloadAlias?: string) => import("./CuratorAst.js").CuratorWaitEventNode;
+    wait_event: (eventName: string, payloadAlias?: string, options?: {
+        timeoutSeconds?: number;
+        replay?: boolean;
+    }) => import("./CuratorAst.js").CuratorWaitEventNode;
+    waitEvent: (eventName: string, payloadAlias?: string, options?: {
+        timeoutSeconds?: number;
+        replay?: boolean;
+    }) => import("./CuratorAst.js").CuratorWaitEventNode;
     script: (code: string | ((ctx: any) => any), language?: "javascript" | "coffeescript") => import("./CuratorAst.js").CuratorScriptNode;
     agent: (options: any) => import("./CuratorAst.js").CuratorAgentNode;
     secret: (key: string) => string;
