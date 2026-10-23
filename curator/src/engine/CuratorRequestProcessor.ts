@@ -10,7 +10,7 @@ import { validateCuratorAst, parseCuratorRef, AST_LIMITS } from './CuratorAstVal
 import { superviseAgentLoops, isValidSchedule } from './AgentScheduleSupervisor.js';
 export { isValidSchedule };
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { CuratorCallNode, CuratorSubscribeNode, CuratorUnsubscribeNode, CuratorParamSpec, CuratorLoopNode } from './CuratorAst.js';
+import type { CuratorCallNode, CuratorSubscribeNode, CuratorUnsubscribeNode, CuratorParamSpec, CuratorLoopNode, CuratorInlineTool } from './CuratorAst.js';
 import type { CuratorEventEmitResult, CuratorStructuredResponse } from './CuratorContracts.js';
 import { resolveRef, resolveRequestNode, getScriptVersionAst, getEntry, entryAstPath, expandInlineCalls, saveAdhocScript } from './ScriptRegistry.js';
 import { coffeeAstVerbs } from './CoffeeVerbs.js';
@@ -2762,7 +2762,6 @@ export class CuratorRequestProcessor {
 
     let prompt = await this.interpolateTemplate(ast.prompt, req) || 'Hello';
     let instruction = await this.interpolateTemplate(ast.instruction, req);
-    const hasTools = ast.tools && ast.tools.length > 0;
 
     if (ast.output_schema) {
       const schemaStr = JSON.stringify(ast.output_schema, null, 2);
@@ -2774,12 +2773,24 @@ export class CuratorRequestProcessor {
     const provider = LlmFactory.getProvider(ast.provider, ast.baseUrl);
     const model = ast.model;
 
+    // `tools` is either a fixed list or an expression (e.g. "$state.options") re-evaluated on every agent turn,
+    // so the set of choices offered to the model can change with the conversation state.
+    let offeredTools: (string | CuratorInlineTool)[] = [];
+    if (this.isDynamicExpr(ast.tools)) {
+      const resolved = await this.evaluateExpressionAsync(ast.tools, req);
+      if (resolved != null && !Array.isArray(resolved)) throw new Error(`Agent '${ast.agentName}': tools expression must evaluate to an array`);
+      offeredTools = resolved ?? [];
+    } else if (Array.isArray(ast.tools)) {
+      offeredTools = ast.tools;
+    }
+    const hasTools = offeredTools.length > 0;
+
     logger.info(`[CuratorRequestProcessor] Executing Agent '${ast.agentName}' for request ${req.id} using provider '${provider.providerName}' [mode: ${hasTools ? 'agentic' : 'direct'}]`);
 
     // Build tool definitions if tools specified
     const toolDefs: LlmToolDefinition[] = [];
     if (hasTools) {
-      for (const toolOrName of ast.tools!) {
+      for (const toolOrName of offeredTools) {
         const tool = typeof toolOrName === 'string' ? this.engine.tools.get(toolOrName) : null;
         if (tool) {
           toolDefs.push({
@@ -2854,7 +2865,8 @@ export class CuratorRequestProcessor {
       let pausedForUser = false;
 
       for (const tc of response.toolCalls) {
-        const tool = this.engine.tools.get(tc.name);
+        // Only tools offered to this agent may run, even if others are registered in the engine.
+        const tool = toolDefs.some((d) => d.name === tc.name) ? this.engine.tools.get(tc.name) : undefined;
         let toolOutput = '';
         let isError = false;
 
@@ -2941,7 +2953,7 @@ export class CuratorRequestProcessor {
           }
         } else {
           // Inline tool check
-          const inlineDef = (ast.tools as any[]).find((t: any) => typeof t !== 'string' && t.name === tc.name);
+          const inlineDef = offeredTools.find((t: any) => typeof t !== 'string' && t.name === tc.name) as any;
           if (inlineDef) {
             let hydratedSecrets = new Map<string, string>();
             let executionArgs = tc.args;

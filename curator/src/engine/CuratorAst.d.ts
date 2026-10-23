@@ -37,7 +37,7 @@ export interface CuratorAgentNode extends CuratorBaseNode {
     include_contents?: 'default' | 'none';
     history_from?: 'default' | 'conversation';
     history_events?: string[];
-    tools?: (string | CuratorInlineTool)[];
+    tools?: (string | CuratorInlineTool)[] | string;
     /** 'gemini' (default) | 'local' (OpenAI-compatible endpoint, e.g. llama.cpp) */
     provider?: 'gemini' | 'local';
     /** Base URL for local provider, e.g. 'http://localhost:8080' */

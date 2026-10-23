@@ -29,6 +29,9 @@ The workhorse of the AST. It represents an autonomous LLM execution.
 * **Direct Mode:** If `tools` is omitted or empty, the processor simply calls the LLM with your prompt and instructions, awaits the output, and saves it to a `Response`.
 * **Agentic Mode:** If `tools` are provided, the processor enters an iterative ReAct-style loop (up to 10 iterations). The LLM can choose to invoke tools, and the processor executes the actual tool logic, feeds the results back to the LLM, and repeats until the LLM returns a final string.
 * **Providers:** Supports `gemini` (using `@google/genai`) or `local` (using OpenAI-compatible endpoints like `llama.cpp` via `baseUrl`).
+* **Only offered tools run:** a tool call for a tool that was not offered to this agent is answered with a "not found" error, even if the tool is registered in the engine.
+* **Dynamic choices:** `tools` may be an expression instead of a list, e.g. `"tools": "$state.options"` or `"$context.item.options"`. It is evaluated in the flow's context on every agent turn and must yield an array of tool names (or inline tools); any other value fails the agent. An empty array means direct mode.
+* **Conversation history:** `history_from: "conversation"` builds the prompt from the shared conversation as this agent sees it (own turns as `assistant`, others as labelled `user` turns, whispers and tool output only for their audience); `history_events` lists bus events with `payload.text` to include. See `CONVERSATION_CONTEXT.md`.
 
 ---
 

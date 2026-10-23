@@ -49,7 +49,7 @@ const schema: Record<string, any> = {
   oneOf: [
     {
       type: 'object',
-      properties: { ...baseProperties, type: { const: 'Curator_Agent' }, agentName: { type: 'string', minLength: 1 }, model: { type: 'string', minLength: 1 }, instruction: { type: 'string' }, prompt: { type: 'string' }, include_contents: { type: 'string', enum: ['default', 'none'] }, history_from: { type: 'string', enum: ['default', 'conversation'] }, history_events: { type: 'array', items: { type: 'string', minLength: 1 } }, tools: { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'object' }] } }, provider: { type: 'string', enum: ['gemini', 'local'] }, baseUrl: { type: 'string', minLength: 1 }, input_schema: { type: 'object' }, output_schema: { type: 'object' } },
+      properties: { ...baseProperties, type: { const: 'Curator_Agent' }, agentName: { type: 'string', minLength: 1 }, model: { type: 'string', minLength: 1 }, instruction: { type: 'string' }, prompt: { type: 'string' }, include_contents: { type: 'string', enum: ['default', 'none'] }, history_from: { type: 'string', enum: ['default', 'conversation'] }, history_events: { type: 'array', items: { type: 'string', minLength: 1 } }, tools: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'object' }] } }] }, provider: { type: 'string', enum: ['gemini', 'local'] }, baseUrl: { type: 'string', minLength: 1 }, input_schema: { type: 'object' }, output_schema: { type: 'object' } },
       required: ['type'],
       anyOf: [{ required: ['agentName'] }, { required: ['prompt'] }],
       additionalProperties: false,

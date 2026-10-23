@@ -61,6 +61,9 @@ Coffee fixtures in `test/fixtures/` exercise the Coffee → AST compile path as 
 | `engine/late-joiner.test.ts` | `late_joiner` | `replay: true` catches a late listener up on older events; default does not |
 | `engine/conversation-context.test.ts` | (none) | `ConversationContextBuilder`: row-by-row fold of entries (any speech mode) into one participant's LLM prompt; own turns = assistant, others labelled user; whispers/tool output visible only to their audience; custom modes via renderers; built from Request/Response/EventLog rows |
 | `engine/conversation-fold.test.ts` | (none) | `foldConversation` / `buildContext`: custom reducer sees every row in order and decides what to push; incremental builds process only new rows and keep the earlier messages frozen; stable `prefixHash` for caching; snapshot invalidated by a changed system prompt, viewer or version |
+| `engine/tool-access.test.ts` | `tool_guarded.coffee`, `choose_action.coffee` | Role and project based tool access with non-admin users: no roles, `ToolRole`, `requiredRole` + inheritance, project-scoped `UserRole`, `ProjectRole` restriction, admin bypass, and denial inside an LLM tool loop |
+| `engine/llm-choice.test.ts`, `llm-choice-dynamic.test.ts` | `choose_*.coffee` | Tool choices offered to an LLM, static and dynamic (`tools` expression); only offered tools run |
+| `engine/script-header.test.ts` | `poker_lobby.coffee` | CoffeeScript front matter header styles |
 
 Gemini side: `packages/plugin-llm-gemini/test/conversation-mapping.test.mjs` (offline) pins how builder output maps to Gemini `contents`; `conversation.test.mjs` is the live multi-turn API check (needs `GOOGLE_API_KEY`).
 | `engine/trilogue.test.ts` | `trilogue`, `trilogue_free` | three symmetric agents, free conversation: speaker names the next one, or listeners compete for the floor via an atomic `claim` tool (one winner per turn); ends at a turn limit |

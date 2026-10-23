@@ -72,7 +72,8 @@ export interface CuratorAgentNode extends CuratorBaseNode {
   history_from?: 'default' | 'conversation';
   /** With history_from 'conversation': bus event names whose payload.text is part of the conversation. */
   history_events?: string[];
-  tools?: (string | CuratorInlineTool)[];
+  /** Fixed list, or an expression such as "$state.options" evaluated on every turn (dynamic set of choices). */
+  tools?: (string | CuratorInlineTool)[] | string;
   /** 'gemini' (default) | 'local' (OpenAI-compatible endpoint, e.g. llama.cpp) */
   provider?: 'gemini' | 'local';
   /** Base URL for local provider, e.g. 'http://localhost:8080' */
