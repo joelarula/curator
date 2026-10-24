@@ -1,15 +1,8 @@
 import {
   CuratorBuilder,
-  defineModule,
-  defineSubroutine,
-  onEvent,
-  type TypedSubroutine,
+  createContextProxy,
+  type TypedPathProxy,
   type CuratorToolNode,
-  type CuratorSequentialNode,
-  type CuratorModuleNode,
-  type CuratorCallNode,
-  type CuratorSubroutine,
-  type CuratorParamSpec,
 } from '../curator.ts';
 import type { PokerWorkflowContext, PokerWorkflowState, PokerWorkflowParams } from '../models/pokerContext.ts';
 import { PokerEvent, type PokerEventType } from '../models/pokerEvents.ts';
@@ -45,55 +38,9 @@ export {
   type PokerSessionReasonType,
   PokerActionType,
   type PokerActionTypeValue,
+  createContextProxy,
+  type TypedPathProxy,
 };
-
-/**
- * Recursive TypeScript proxy type that reflects the properties of model T
- * while resolving each property access to its runtime AST expression path string.
- */
-export type TypedPathProxy<T> = (T extends (...args: any[]) => any
-  ? (...args: Parameters<T>) => ReturnType<T>
-  : T extends Array<infer U>
-  ? { [index: number]: TypedPathProxy<U>; length: TypedPathProxy<number> } & {
-      [K in keyof T]: TypedPathProxy<T[K]>;
-    }
-  : T extends object
-  ? {
-      [K in keyof T]-?: TypedPathProxy<NonNullable<T[K]>>;
-    }
-  : {}) & {
-  (): string;
-  toString(): string;
-  valueOf(): string;
-  toJSON(): string;
-  [key: string]: any;
-};
-
-/**
- * Creates a typed recursive proxy that resolves property paths to AST expressions.
- * e.g. ctx.gameState.currentStreet => "$context.gameState.currentStreet"
- */
-export function createContextProxy<T = any>(root = '$context'): TypedPathProxy<T> {
-  const targetObj = {
-    toJSON: () => root,
-    toString: () => root,
-    valueOf: () => root,
-  };
-  const handler: ProxyHandler<any> = {
-    get(_target, prop: string | symbol) {
-      if (typeof prop === 'symbol') return undefined;
-      const strProp = String(prop);
-      if (strProp === 'toString' || strProp === 'valueOf' || strProp === 'toJSON') {
-        return () => root;
-      }
-      return createContextProxy(`${root}.${strProp}`);
-    },
-    apply() {
-      return root;
-    },
-  };
-  return new Proxy(targetObj, handler) as any;
-}
 
 export const ctx: TypedPathProxy<PokerWorkflowContext> = createContextProxy<PokerWorkflowContext>('$context');
 export const gameState: TypedPathProxy<PokerGameState> = createContextProxy<PokerGameState>('$context.gameState');
@@ -188,13 +135,6 @@ export const pokerComposables = {
   human_speech: (args: Record<string, any>): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.HUMAN_SPEECH, args),
 
-  // Generic typed tool invocation
-  tool: (
-    toolName: PokerToolType | string,
-    args?: Record<string, any>,
-    as?: string
-  ): CuratorToolNode => CuratorBuilder.tool(toolName, args, as),
-
   // Typed Poker Domain Constants
   events: PokerEvent,
   modules: PokerModule,
@@ -203,89 +143,7 @@ export const pokerComposables = {
   tools: PokerTool,
   reasons: PokerSessionReason,
   actionTypes: PokerActionType,
-
-  // Literals-free AST Sequencer & Flow Builders
-  seq: (nameOrFirstNode?: string | any, ...rest: any[]): CuratorSequentialNode => {
-    if (typeof nameOrFirstNode === 'string') {
-      return CuratorBuilder.seq(nameOrFirstNode, ...rest);
-    }
-    const allNodes = nameOrFirstNode !== undefined ? [nameOrFirstNode, ...rest] : rest;
-    const rawList = allNodes.length === 1 && Array.isArray(allNodes[0]) ? allNodes[0] : allNodes.flat();
-    const unwrapped = rawList.map((n: any) =>
-      n && typeof n === 'object' && typeof n.build === 'function' ? n.build() : n
-    );
-    return { type: 'Curator_Sequential', subAgents: unwrapped };
-  },
-
-  defineModule: (
-    name: PokerModuleType | string,
-    setupOrOptions: any,
-    maybeSetup?: any
-  ): CuratorModuleNode => (CuratorBuilder.defineModule as any)(name, setupOrOptions, maybeSetup),
-
-  defineSubroutine,
-
-  sub: (
-    params: Record<string, CuratorParamSpec> | undefined,
-    body: any,
-    returns?: string
-  ): CuratorSubroutine => CuratorBuilder.sub(params, body, returns),
-
-  call: (
-    ref: PokerSubroutineType | TypedSubroutine | string,
-    args?: Record<string, any>,
-    options?: { as?: string; mode?: 'child' | 'inline' }
-  ): CuratorCallNode => CuratorBuilder.call(ref, args, options),
-
-  ifElse: (condition: any, thenBranch: any, elseBranch?: any) =>
-    CuratorBuilder.ifElse(condition, thenBranch, elseBranch),
-
-  whileLoop: (condition: any, body: any) =>
-    CuratorBuilder.whileLoop(condition, body),
-
-  setState: (state: Record<string, any>) =>
-    CuratorBuilder.setState(state),
-
-  choice: (
-    prompt: string,
-    choices?: any,
-    options?: { as?: TypedPathProxy<any> | keyof PokerWorkflowContext | (string & {}); [key: string]: any }
-  ) =>
-    CuratorBuilder.choice(
-      prompt,
-      choices,
-      options ? { ...options, as: toVarName(options.as) } : undefined
-    ),
-
-  // Typed Poker Event Composables
-  emitEvent: (event: PokerEventType, payload?: Record<string, any>) =>
-    CuratorBuilder.emitEvent(event, payload),
-  waitEvent: (
-    event: PokerEventType,
-    asVariable?: TypedPathProxy<any> | keyof PokerWorkflowContext | (string & {}),
-    options?: { timeoutSeconds?: number; replay?: boolean }
-  ) => CuratorBuilder.waitEvent(event, toVarName(asVariable), options),
-  subscribe: (
-    event: PokerEventType,
-    target: TypedSubroutine | PokerSubroutineType | string,
-    options?: { as?: TypedPathProxy<any> | string; when?: string; scope?: 'conversation' | 'project' }
-  ) => CuratorBuilder.subscribe(
-    event,
-    target,
-    options ? { ...options, as: toVarName(options.as) } : undefined
-  ),
-  onEvent: (
-    event: PokerEventType,
-    handler: TypedSubroutine | PokerSubroutineType | string,
-    options?: { as?: TypedPathProxy<any> | string; when?: string; scope?: 'conversation' | 'project' }
-  ) => onEvent(
-    event,
-    handler,
-    options ? { ...options, as: toVarName(options.as) } : undefined
-  ),
 };
-
-export { defineModule, defineSubroutine, onEvent, type TypedSubroutine };
 
 /**
  * Domain composable returning typed proxies and models for poker workflows.
@@ -307,14 +165,5 @@ export function usePokerContext() {
   };
 }
 
-/**
- * Extracts a bare variable name from a TypedPathProxy or string.
- * e.g. ctx.resumeCmd -> "resumeCmd", params.speechEvt -> "speechEvt"
- */
-export function toVarName(target: unknown): string | undefined {
-  if (target === undefined || target === null) return undefined;
-  const str = String(target);
-  return str.replace(/^\$(context|state|params)\./, '');
-}
 
 

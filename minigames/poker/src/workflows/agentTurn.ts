@@ -5,8 +5,11 @@
  * description: Autonomous Player Agent Turn Module using seated agent instruction & prompt
  * ---
  */
-
-import type { CuratorModuleNode } from '../curator.ts';
+import {
+  defineModule,
+  seq,
+  type CuratorModuleNode,
+} from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
 
 const {
@@ -15,8 +18,6 @@ const {
   apply_player_action,
   modules,
   steps,
-  defineModule,
-  seq,
 } = pokerComposables;
 
 export function buildAgentTurnModule(): CuratorModuleNode {

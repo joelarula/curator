@@ -5,8 +5,13 @@
  * description: Ambient Reaction & Table Talk Event Module with Pub/Sub Subscriptions
  * ---
  */
-
-import type { CuratorModuleNode } from '../curator.ts';
+import {
+  defineModule,
+  defineSubroutine,
+  onEvent,
+  emitEvent,
+  type CuratorModuleNode,
+} from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
 
 /**
@@ -25,10 +30,6 @@ const {
   events,
   modules,
   subroutines,
-  defineModule,
-  defineSubroutine,
-  onEvent,
-  emitEvent,
 } = pokerComposables;
 
 /**

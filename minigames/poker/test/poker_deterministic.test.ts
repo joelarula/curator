@@ -398,8 +398,8 @@ test('Poker TypeScript Context Models: Path proxies, type guards, and semantic s
     PokerSpeechAct,
     PokerLobbyAction,
     PokerActionType,
-    toVarName,
   } = await import('../src/index.ts');
+  const { toVarName } = await import('../src/curator.ts');
 
   // 1. Verify typed path proxy expression stringification
   assert.equal(String(ctx.gameState.currentStreet), '$context.gameState.currentStreet');

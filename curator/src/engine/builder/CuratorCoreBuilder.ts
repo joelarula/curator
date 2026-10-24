@@ -23,8 +23,9 @@ import {
   type CuratorSubscribeNode,
   type CuratorUnsubscribeNode,
 } from '../CuratorAst.js';
+import { toVarName, type TypedPathProxy, createContextProxy } from './CuratorProxy.js';
 
-export { CuratorNodeType };
+export { CuratorNodeType, toVarName, createContextProxy, type TypedPathProxy };
 
 export interface ActiveModuleScope {
   name: string;
@@ -50,9 +51,10 @@ export class CuratorCoreBuilder {
    * Evaluates an expression and assigns it to a key in `context.state`.
    * e.g. .assign('state.turn', (ctx) => ctx.state.turn + 1)
    */
-  static assign(key: string, expression: string | ((ctx: any) => any)): CuratorAssignNode {
+  static assign(key: string | TypedPathProxy<any> | any, expression: string | ((ctx: any) => any)): CuratorAssignNode {
+    const cleanKey = toVarName(key) || String(key);
     const exprStr = typeof expression === 'function' ? `(${expression.toString()})(context)` : expression;
-    return { type: CuratorNodeType.Assign, key, expression: exprStr };
+    return { type: CuratorNodeType.Assign, key: cleanKey, expression: exprStr };
   }
 
   /**
@@ -141,8 +143,19 @@ export class CuratorCoreBuilder {
   /**
    * Wait synchronously for a Pub/Sub event to be emitted.
    */
-  static waitEvent(eventName: string, payloadAlias?: string, options: { timeoutSeconds?: number; replay?: boolean } = {}): CuratorWaitEventNode {
-    return { type: CuratorNodeType.WaitEvent, eventName, payloadAlias, ...(options?.timeoutSeconds ? { timeoutSeconds: options.timeoutSeconds } : {}), ...(options?.replay ? { replay: true } : {}) };
+  static waitEvent(
+    eventName: string,
+    payloadAlias?: string | TypedPathProxy<any> | any,
+    options: { timeoutSeconds?: number; replay?: boolean } = {}
+  ): CuratorWaitEventNode {
+    const cleanAlias = toVarName(payloadAlias);
+    return {
+      type: CuratorNodeType.WaitEvent,
+      eventName,
+      ...(cleanAlias ? { payloadAlias: cleanAlias } : {}),
+      ...(options?.timeoutSeconds ? { timeoutSeconds: options.timeoutSeconds } : {}),
+      ...(options?.replay ? { replay: true } : {}),
+    };
   }
 
   /**
@@ -269,22 +282,38 @@ export class CuratorCoreBuilder {
   static call(
     ref: string | TypedSubroutine,
     args?: Record<string, any>,
-    options: { as?: string; mode?: 'child' | 'inline' } = {}
+    options: { as?: string | TypedPathProxy<any> | any; mode?: 'child' | 'inline' } = {}
   ): CuratorCallNode {
     const rawRef = typeof ref === 'function' && 'ref' in ref ? (ref as TypedSubroutine).ref : String(ref);
     const targetRef = rawRef.startsWith('#') ? '#' + rawRef.replace(/^#+/, '') : rawRef;
-    return { type: CuratorNodeType.Call, ref: targetRef, ...(args ? { args } : {}), ...options };
+    const { as, ...restOptions } = options;
+    const cleanAs = toVarName(as);
+    return {
+      type: CuratorNodeType.Call,
+      ref: targetRef,
+      ...(args ? { args } : {}),
+      ...restOptions,
+      ...(cleanAs ? { as: cleanAs } : {}),
+    };
   }
 
   /** Declares that `handler` runs whenever `eventName` is emitted. Accepts named ref string or TypedSubroutine reference. */
   static subscribe(
     eventName: string,
     handler: string | TypedSubroutine,
-    options: { as?: string; when?: string; scope?: 'conversation' | 'project' } = {}
+    options: { as?: string | TypedPathProxy<any> | any; when?: string; scope?: 'conversation' | 'project' } = {}
   ): CuratorSubscribeNode {
     const rawHandler = typeof handler === 'function' && 'ref' in handler ? (handler as TypedSubroutine).ref : String(handler);
     const targetHandler = rawHandler.startsWith('#') ? '#' + rawHandler.replace(/^#+/, '') : rawHandler;
-    return { type: CuratorNodeType.Subscribe, eventName, handler: targetHandler, ...options };
+    const { as, ...restOptions } = options;
+    const cleanAs = toVarName(as);
+    return {
+      type: CuratorNodeType.Subscribe,
+      eventName,
+      handler: targetHandler,
+      ...restOptions,
+      ...(cleanAs ? { as: cleanAs } : {}),
+    };
   }
 
   /** Removes dynamic subscriptions for `eventName` (optionally only for `handler`). */
@@ -337,14 +366,17 @@ export class CuratorCoreBuilder {
     prompt: string,
     inputType: 'text' | 'choices' | 'file' = 'text',
     choices?: (string | CuratorChoiceItem)[] | string,
-    options?: { targetUserId?: number; as?: string; blocking?: boolean; timeoutSeconds?: number; name?: string }
+    options?: { targetUserId?: number; as?: string | TypedPathProxy<any> | any; blocking?: boolean; timeoutSeconds?: number; name?: string }
   ): CuratorHumanInputNode {
+    const { as, ...rest } = options || {};
+    const cleanAs = toVarName(as);
     return {
       type: CuratorNodeType.HumanInput,
       prompt,
       inputType,
       choices,
-      ...options,
+      ...rest,
+      ...(cleanAs ? { as: cleanAs } : {}),
     };
   }
 
@@ -355,7 +387,7 @@ export class CuratorCoreBuilder {
   static choice(
     prompt: string,
     choices: (string | CuratorChoiceItem)[] | string,
-    options?: { targetUserId?: number; as?: string; blocking?: boolean; timeoutSeconds?: number; name?: string }
+    options?: { targetUserId?: number; as?: string | TypedPathProxy<any> | any; blocking?: boolean; timeoutSeconds?: number; name?: string }
   ): CuratorHumanInputNode {
     return CuratorCoreBuilder.humanInput(prompt, 'choices', choices, {
       blocking: true,
@@ -382,15 +414,16 @@ export class CuratorCoreBuilder {
   /**
    * Execute a registered tool.
    */
-  static tool(toolName: string, args?: Record<string, any>, as?: string): CuratorToolNode {
+  static tool(toolName: string, args?: Record<string, any>, as?: string | TypedPathProxy<any> | any): CuratorToolNode {
     const evaluatedArgs: Record<string, any> = {};
     if (args) {
       for (const [k, v] of Object.entries(args)) {
         evaluatedArgs[k] = typeof v === 'function' ? `(${v.toString()})(context)` : v;
       }
     }
+    const cleanAs = toVarName(as);
     const node: CuratorToolNode = { type: CuratorNodeType.Tool, toolName, args: evaluatedArgs };
-    if (as) node.as = as;
+    if (cleanAs) node.as = cleanAs;
     return node;
   }
 
@@ -411,7 +444,7 @@ export class CuratorCoreBuilder {
 export function onEvent(
   eventName: string,
   handler: string | TypedSubroutine,
-  options: { as?: string; when?: string; scope?: 'conversation' | 'project' } = {}
+  options: { as?: string | TypedPathProxy<any> | any; when?: string; scope?: 'conversation' | 'project' } = {}
 ): CuratorSubscribeNode {
   const node = CuratorCoreBuilder.subscribe(eventName, handler, options);
   if (activeModuleScope) {
@@ -545,5 +578,27 @@ export function defineSubroutine<TParams = any>(
  * e.g. defineModule('my_module', () => { ... })
  */
 export const defineModule = CuratorCoreBuilder.defineModule;
+
+// Core standalone workflow verbs for direct import
+export const seq = CuratorCoreBuilder.seq;
+export const choice = CuratorCoreBuilder.choice;
+export const humanInput = CuratorCoreBuilder.humanInput;
+export const ifElse = CuratorCoreBuilder.ifElse;
+export const whileLoop = CuratorCoreBuilder.whileLoop;
+export const repeat = CuratorCoreBuilder.repeat;
+export const every = CuratorCoreBuilder.every;
+export const forEach = CuratorCoreBuilder.forEach;
+export const emitEvent = CuratorCoreBuilder.emitEvent;
+export const waitEvent = CuratorCoreBuilder.waitEvent;
+export const setState = CuratorCoreBuilder.setState;
+export const callSubroutine = CuratorCoreBuilder.call;
+export const sub = CuratorCoreBuilder.sub;
+export const subscribe = CuratorCoreBuilder.subscribe;
+export const unsubscribe = CuratorCoreBuilder.unsubscribe;
+export const tool = CuratorCoreBuilder.tool;
+export const script = CuratorCoreBuilder.script;
+export const agent = CuratorCoreBuilder.agent;
+export const secret = CuratorCoreBuilder.secret;
+export const assign = CuratorCoreBuilder.assign;
 
 

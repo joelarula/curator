@@ -5,8 +5,18 @@
  * description: Curator Texas Hold'em Autonomous Event-Driven 5-Phase Game Loop Module
  * ---
  */
-
-import type { CuratorModuleNode } from '../curator.ts';
+import {
+  defineModule,
+  defineSubroutine,
+  seq,
+  choice,
+  ifElse,
+  whileLoop,
+  setState,
+  emitEvent,
+  waitEvent,
+  type CuratorModuleNode,
+} from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
 
 const {
@@ -36,16 +46,7 @@ const {
   events,
   modules,
   steps,
-  defineModule,
-  defineSubroutine,
-  seq,
-  choice,
-  ifElse,
-  whileLoop,
-  setState,
   reasons,
-  emitEvent,
-  waitEvent,
 } = pokerComposables;
 
 /**

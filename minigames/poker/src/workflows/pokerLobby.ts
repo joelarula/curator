@@ -5,8 +5,16 @@
  * description: Texas Hold'em Lounge Concierge & Table Selection Module
  * ---
  */
-
-import type { CuratorModuleNode } from '../curator.ts';
+import {
+  defineModule,
+  choice,
+  ifElse,
+  whileLoop,
+  setState,
+  emitEvent,
+  waitEvent,
+  type CuratorModuleNode,
+} from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
 
 /**
@@ -28,14 +36,7 @@ const {
   join_lobby,
   events,
   modules,
-  defineModule,
-  choice,
-  ifElse,
-  whileLoop,
-  setState,
   reasons,
-  emitEvent,
-  waitEvent,
 } = pokerComposables;
 
 /**

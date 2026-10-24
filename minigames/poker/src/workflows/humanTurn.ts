@@ -5,8 +5,17 @@
  * description: Human Player Turn Module with Subroutines for Choices, Pause, and Action Dispatch
  * ---
  */
-
-import type { CuratorModuleNode } from '../curator.ts';
+import {
+  defineModule,
+  defineSubroutine,
+  choice,
+  ifElse,
+  whileLoop,
+  setState,
+  emitEvent,
+  waitEvent,
+  type CuratorModuleNode,
+} from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
 
 const {
@@ -17,15 +26,7 @@ const {
   events,
   modules,
   subroutines,
-  defineModule,
-  defineSubroutine,
-  choice,
-  ifElse,
-  whileLoop,
-  setState,
   reasons,
-  emitEvent,
-  waitEvent,
 } = pokerComposables;
 
 /**

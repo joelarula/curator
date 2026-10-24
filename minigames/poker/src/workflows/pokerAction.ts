@@ -5,8 +5,12 @@
  * description: Texas Hold'em Action Processing Module with Pot Commitment & Event Emission
  * ---
  */
-
-import type { CuratorModuleNode } from '../curator.ts';
+import {
+  defineModule,
+  seq,
+  emitEvent,
+  type CuratorModuleNode,
+} from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
 
 const {
@@ -17,9 +21,6 @@ const {
   events,
   modules,
   steps,
-  defineModule,
-  seq,
-  emitEvent,
 } = pokerComposables;
 
 export function buildPokerActionModule(): CuratorModuleNode {
