@@ -29,7 +29,11 @@ export class CuratorEngine {
     console.log(`[CuratorEngine] Registering plugin: ${plugin.name}`);
 
     if (plugin.tools) {
-      Object.entries(plugin.tools).forEach(([k, v]) => {
+      const toolEntries = Array.isArray(plugin.tools)
+        ? plugin.tools.map((t) => [t.name, t] as [string, any])
+        : Object.entries(plugin.tools);
+
+      toolEntries.forEach(([k, v]) => {
         this.tools.set(k, v);
         this.toolPlugins.set(k, plugin.name);
       });

@@ -14,7 +14,14 @@ import {
   PokerStep,
   type PokerStepType,
 } from '../models/pokerSteps.ts';
-import { PokerTool, type PokerToolType } from '../models/pokerTools.ts';
+import {
+  PokerTool,
+  type PokerToolType,
+  PokerToolAlias,
+  type PokerToolAliasType,
+  PokerToolUsage,
+  type PokerToolUsageType,
+} from '../models/pokerTools.ts';
 import {
   PokerSessionReason,
   type PokerSessionReasonType,
@@ -22,6 +29,24 @@ import {
   type PokerActionTypeValue,
 } from '../models/pokerConstants.ts';
 export * from '../models/pokerRoles.ts';
+export * from '../models/pokerToolParams.ts';
+import type {
+  PokerInitLobbyParams,
+  PokerJoinLobbyParams,
+  PokerLeaveLobbyParams,
+  PokerStartHandParams,
+  PokerAiDecisionParams,
+  PokerApplyActionParams,
+  PokerDealStreetParams,
+  PokerFastForwardParams,
+  PokerDistributePotsParams,
+  PokerRotateDealerParams,
+  PokerHumanSpeechParams,
+  PokerCheckGameOverParams,
+  PokerGetStandingsParams,
+  PokerGetChoicesParams,
+  PokerListTablesParams,
+} from '../models/pokerToolParams.ts';
 import type { PokerGameState } from '../types.ts';
 
 export {
@@ -35,6 +60,10 @@ export {
   type PokerStepType,
   PokerTool,
   type PokerToolType,
+  PokerToolAlias,
+  type PokerToolAliasType,
+  PokerToolUsage,
+  type PokerToolUsageType,
   PokerSessionReason,
   type PokerSessionReasonType,
   PokerActionType,
@@ -80,43 +109,49 @@ export const pokerComposables = {
   params,
   ...pokerPredicates,
 
-  // Tool composables with automated state injection and type-safe tool names
-  start_poker_hand: (args: Record<string, any> = {}): CuratorToolNode =>
+  // Tool composables with automated state injection and type-safe tool parameter models
+  start_poker_hand: (args: Partial<PokerStartHandParams> = {}): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.START_HAND, { state: String(gameState), ...args }),
 
-  deal_next_street: (args: Record<string, any> = {}): CuratorToolNode =>
+  deal_next_street: (args: Partial<PokerDealStreetParams> = {}): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.DEAL_STREET, { state: String(gameState), ...args }),
 
-  settle_showdown: (args: Record<string, any> = {}): CuratorToolNode =>
+  settle_showdown: (args: Partial<PokerDistributePotsParams> = {}): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.DISTRIBUTE_POTS, { state: String(gameState), ...args }),
 
-  apply_player_action: (action?: any, args: Record<string, any> = {}): CuratorToolNode =>
+  fast_forward_board: (args: Partial<PokerFastForwardParams> = {}): CuratorToolNode =>
+    CuratorBuilder.tool(PokerTool.FAST_FORWARD, { state: String(gameState), ...args }),
+
+  apply_player_action: (action?: any, args: Partial<PokerApplyActionParams> = {}): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.APPLY_ACTION, {
       state: String(gameState),
       action: String(action ?? `${ctx.humanAction} || ${ctx.poker_ai_decision.action} || ${ctx.action}`),
       ...args,
     }),
 
-  get_legal_choices: (args: Record<string, any> = {}): CuratorToolNode =>
+  get_legal_choices: (args: Partial<PokerGetChoicesParams> = {}): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.GET_CHOICES, {
       state: String(gameState),
       playerIdx: String(gameState.activePlayerIdx),
       ...args,
     }),
 
-  check_game_over: (args: Record<string, any> = {}): CuratorToolNode =>
+  get_standings: (args: Partial<PokerGetStandingsParams> = {}): CuratorToolNode =>
+    CuratorBuilder.tool(PokerTool.GET_STANDINGS, { state: String(gameState), ...args }),
+
+  check_game_over: (args: Partial<PokerCheckGameOverParams> = {}): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.CHECK_GAME_OVER, { state: String(gameState), ...args }),
 
-  rotate_dealer: (args: Record<string, any> = {}): CuratorToolNode =>
+  rotate_dealer: (args: Partial<PokerRotateDealerParams> = {}): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.ROTATE_DEALER, { state: String(gameState), ...args }),
 
-  ai_decision: (args: Record<string, any> = {}): CuratorToolNode =>
+  ai_decision: (args: Partial<PokerAiDecisionParams> = {}): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.AI_DECISION, {
       state: String(gameState),
       ...args,
     }),
 
-  boot_table: (args: Record<string, any> = {}): CuratorToolNode =>
+  boot_table: (args: Partial<PokerInitLobbyParams> = {}): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.INIT_LOBBY, {
       tableId: `${ctx.tableId} || 'poker:high_roller_lounge'`,
       startingChips: `${ctx.startingChips} || 1000`,
@@ -127,13 +162,16 @@ export const pokerComposables = {
       ...args,
     }),
 
-  list_tables: (): CuratorToolNode =>
+  list_tables: (_args: Partial<PokerListTablesParams> = {}): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.LIST_TABLES),
 
-  join_lobby: (player: any = ctx.joinRequest): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.JOIN_LOBBY, { player: String(player) }),
+  join_lobby: (player: any = ctx.joinRequest, args: Partial<PokerJoinLobbyParams> = {}): CuratorToolNode =>
+    CuratorBuilder.tool(PokerTool.JOIN_LOBBY, { player: String(player), ...args }),
 
-  human_speech: (args: Record<string, any>): CuratorToolNode =>
+  leave_lobby: (id: string, args: Partial<PokerLeaveLobbyParams> = { id }): CuratorToolNode =>
+    CuratorBuilder.tool(PokerTool.LEAVE_LOBBY, { id: String(id), ...args }),
+
+  human_speech: (args: PokerHumanSpeechParams): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.HUMAN_SPEECH, args),
 
   // Typed Poker Domain Constants

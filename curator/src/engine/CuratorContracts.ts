@@ -102,7 +102,7 @@ export interface CuratorPluginDefinition {
   name: string;
   version?: string;
   description?: string;
-  tools?: Record<string, CuratorTool>;
+  tools?: Record<string, CuratorTool> | CuratorTool[];
   models?: SemanticNodeShape[];
   scripts?: Record<string, CuratorScriptInput> | CuratorScriptInput[];
   agents?: Record<string, CuratorAgentDefinition | CuratorAstNode>;

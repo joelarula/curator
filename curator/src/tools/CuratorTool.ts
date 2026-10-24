@@ -15,7 +15,17 @@ export interface CuratorToolContext {
   [key: string]: unknown;
 }
 
-export type CuratorToolAccessLevel = 'read_only' | 'safe_read' | 'safe_write' | 'elevated' | 'destructive' | 'admin';
+export const CuratorAccessLevel = {
+  READ_ONLY: 'read_only',
+  SAFE_READ: 'safe_read',
+  SAFE_WRITE: 'safe_write',
+  ELEVATED: 'elevated',
+  DESTRUCTIVE: 'destructive',
+  ADMIN: 'admin',
+} as const;
+
+export type CuratorToolAccessLevel = (typeof CuratorAccessLevel)[keyof typeof CuratorAccessLevel];
+export type CuratorAccessLevel = CuratorToolAccessLevel;
 
 export interface McpToolExposure {
   /** Expose this tool on the MCP server. Default: false */

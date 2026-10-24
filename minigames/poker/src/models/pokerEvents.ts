@@ -9,6 +9,9 @@ export const PokerEvent = {
   AWAITING_PLAYERS: 'poker:awaiting_players',
   PLAYER_JOINED: 'poker:player_joined',
   TABLE_READY: 'poker:table_ready',
+  TABLE_SELECTED: 'poker:table_selected',
+  HUMAN_ACTION: 'poker:human_action',
+  LOBBY_CHOICE: 'poker:lobby_choice',
 
   // Hand & Street Lifecycle
   NEW_ROUND: 'poker:new_round',
