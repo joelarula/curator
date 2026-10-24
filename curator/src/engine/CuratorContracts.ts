@@ -56,6 +56,13 @@ export interface CuratorScriptDefinition {
 
 export type CuratorScriptInput = CuratorScriptDefinition | string;
 
+export const CuratorSystemRole = {
+  ADMIN: 'system:admin',
+  AGENT_ADMIN: 'agent:admin',
+  AGENT_READER: 'agent:reader',
+} as const;
+export type CuratorSystemRole = (typeof CuratorSystemRole)[keyof typeof CuratorSystemRole];
+
 export interface CuratorRoleDefinition {
   /** Unique role identifier, e.g. 'poker:dealer', 'poker:player', 'poker:spectator' */
   name: string;

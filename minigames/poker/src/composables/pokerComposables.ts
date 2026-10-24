@@ -21,6 +21,7 @@ import {
   PokerActionType,
   type PokerActionTypeValue,
 } from '../models/pokerConstants.ts';
+export * from '../models/pokerRoles.ts';
 import type { PokerGameState } from '../types.ts';
 
 export {

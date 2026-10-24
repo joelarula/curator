@@ -127,17 +127,9 @@ import {
   agentTurnAst,
   pokerActionAst,
   ambientReactionAst,
+  POKER_WORKFLOW_ASTS,
 } from '../workflows/index.ts';
-export { resetPokerDatabaseLight, type ResetLightResult };
-
-export const POKER_WORKFLOW_ASTS: Record<string, any> = {
-  poker_workflow: pokerWorkflowAst,
-  poker_lobby: pokerLobbyAst,
-  human_turn: humanTurnAst,
-  agent_turn: agentTurnAst,
-  poker_action: pokerActionAst,
-  ambient_reaction: ambientReactionAst,
-};
+export { resetPokerDatabaseLight, type ResetLightResult, POKER_WORKFLOW_ASTS };
 
 export async function getScriptAST(prisma: any, scriptName: string): Promise<any> {
   if (POKER_WORKFLOW_ASTS[scriptName]) {

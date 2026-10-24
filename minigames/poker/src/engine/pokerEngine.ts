@@ -20,9 +20,11 @@ import { GeminiLlmProvider } from '@curator/plugin-llm-gemini';
 
 import { getPokerRules, sanitizeAction, tableRules } from './pokerRules.ts';
 import { buildAgentPrompt, formatAgentPrompt, formatConversationHistory } from './agentPrompt.ts';
+import { DEFAULT_TABLE_PLAYERS } from './agentProfiles.ts';
 
 export { getPokerRules, sanitizeAction, tableRules };
 export { buildAgentPrompt, formatAgentPrompt, formatConversationHistory };
+export * from './agentProfiles.ts';
 
 // Re-export formatAgentPromptCoffeeScript as an alias for backwards compatibility
 export const formatAgentPromptCoffeeScript = formatAgentPrompt;
@@ -255,72 +257,22 @@ export function initPokerLobby(args?: any): { gameState: PokerGameState } {
       };
     });
   } else {
-    players = [
-      {
-        id: 'hero',
-        name: args?.playerName || 'You',
-        isHuman: true,
-        instruction: 'You are the human player (Hero) at the high-roller poker table.',
-        persona: 'human',
-        wallet: startingChips,
-        buyIn: startingChips,
-        chips: startingChips,
-        streetBet: 0,
-        totalHandBet: 0,
-        holeCards: [],
-        folded: false,
-        allIn: false,
-        seatIdx: 0,
-      },
-      {
-        id: 'viper',
-        name: 'Viper (Shark)',
-        isHuman: false,
-        instruction: "You are Viper, a ruthless and mathematically calculating poker shark at a high-stakes Texas Hold'em table. Your tone is cool, precise, psychological, and dismissive of emotional play. You never reveal your exact hole cards. When speaking, you comment on pot odds, variance, and the foolishness of loose play.",
-        persona: 'shark',
-        wallet: startingChips,
-        buyIn: startingChips,
-        chips: startingChips,
-        streetBet: 0,
-        totalHandBet: 0,
-        holeCards: [],
-        folded: false,
-        allIn: false,
-        seatIdx: 1,
-      },
-      {
-        id: 'maddog',
-        name: 'MadDog (Maniac)',
-        isHuman: false,
-        instruction: 'You are MadDog, a wild and loud poker maniac. You play loose, love bluffing, and shove chips into the middle for maximum adrenaline. Your tone is boisterous, confrontational, taunting, and energetic. Trash-talk, dare people to call, and embrace chaos.',
-        persona: 'maniac',
-        wallet: startingChips,
-        buyIn: startingChips,
-        chips: startingChips,
-        streetBet: 0,
-        totalHandBet: 0,
-        holeCards: [],
-        folded: false,
-        allIn: false,
-        seatIdx: 2,
-      },
-      {
-        id: 'barnaby',
-        name: 'Barnaby (Station)',
-        isHuman: false,
-        instruction: 'You are Barnaby, an affable, folksy, and warm calling station. You love chatting at the table, hate folding, and always wonder what the next card will bring. Your tone is grandfatherly, cheerful, gentle, and humorous.',
-        persona: 'station',
-        wallet: startingChips,
-        buyIn: startingChips,
-        chips: startingChips,
-        streetBet: 0,
-        totalHandBet: 0,
-        holeCards: [],
-        folded: false,
-        allIn: false,
-        seatIdx: 3,
-      },
-    ];
+    players = DEFAULT_TABLE_PLAYERS.map((profile, idx) => ({
+      id: profile.id,
+      name: profile.id === 'hero' ? (args?.playerName || 'You') : profile.name,
+      isHuman: profile.isHuman ?? false,
+      instruction: profile.instruction,
+      persona: profile.persona,
+      wallet: startingChips,
+      buyIn: startingChips,
+      chips: startingChips,
+      streetBet: 0,
+      totalHandBet: 0,
+      holeCards: [],
+      folded: false,
+      allIn: false,
+      seatIdx: idx,
+    }));
   }
 
   const startingWallets: Record<string, number> = {};

@@ -1,13 +1,11 @@
-import { defineTool, type CuratorPlugin, type CuratorScriptDefinition } from '../curator.ts';
-import { PokerModule, PokerTool } from '../composables/pokerComposables.ts';
 import {
-  pokerWorkflowAst,
-  pokerLobbyAst,
-  humanTurnAst,
-  agentTurnAst,
-  pokerActionAst,
-  ambientReactionAst,
-} from '../workflows/index.ts';
+  defineTool,
+  type CuratorPlugin,
+  type CuratorScriptDefinition,
+  CuratorSystemRole,
+} from '../curator.ts';
+import { PokerModule, PokerTool, PokerRole } from '../composables/pokerComposables.ts';
+import { POKER_WORKFLOW_ASTS } from '../workflows/index.ts';
 import type { PokerGameState, PlayerAction } from '../types.ts';
 import {
   initPokerLobby,
@@ -25,51 +23,40 @@ import {
   getPokerStandings,
   getLegalChoices,
 } from '../engine/pokerEngine.ts';
+import { POKER_AGENT_PROFILES } from '../engine/agentProfiles.ts';
+
+const SCRIPT_DESCRIPTIONS: Record<string, string> = {
+  [PokerModule.WORKFLOW]: 'Texas Holdem master game loop and table manager AST workflow',
+  [PokerModule.LOBBY]: 'Texas Holdem lounge concierge and table seating AST workflow',
+  [PokerModule.HUMAN_TURN]: 'Human player turn handler AST workflow',
+  [PokerModule.AGENT_TURN]: 'AI Agent turn handler AST workflow',
+  [PokerModule.ACTION]: 'Player action event distributor AST workflow',
+  [PokerModule.AMBIENT_REACTION]: 'Table spectator chatter and ambient reaction AST workflow',
+};
 
 /**
  * Pre-compiled typed TypeScript workflow AST definitions for Texas Hold'em.
+ * Synced automatically with canonical POKER_WORKFLOW_ASTS.
  */
-export const pokerScripts: Record<string, CuratorScriptDefinition> = {
-  [PokerModule.WORKFLOW]: {
-    name: PokerModule.WORKFLOW,
-    description: 'Texas Holdem master game loop and table manager AST workflow',
-    ast: pokerWorkflowAst,
-    run: async () => {},
-  },
-  [PokerModule.LOBBY]: {
-    name: PokerModule.LOBBY,
-    description: 'Texas Holdem lounge concierge and table seating AST workflow',
-    ast: pokerLobbyAst,
-    run: async () => {},
-  },
-  [PokerModule.HUMAN_TURN]: {
-    name: PokerModule.HUMAN_TURN,
-    description: 'Human player turn handler AST workflow',
-    ast: humanTurnAst,
-    run: async () => {},
-  },
-  [PokerModule.AGENT_TURN]: {
-    name: PokerModule.AGENT_TURN,
-    description: 'AI Agent turn handler AST workflow',
-    ast: agentTurnAst,
-    run: async () => {},
-  },
-  [PokerModule.ACTION]: {
-    name: PokerModule.ACTION,
-    description: 'Player action event distributor AST workflow',
-    ast: pokerActionAst,
-    run: async () => {},
-  },
-  [PokerModule.AMBIENT_REACTION]: {
-    name: PokerModule.AMBIENT_REACTION,
-    description: 'Table spectator chatter and ambient reaction AST workflow',
-    ast: ambientReactionAst,
-    run: async () => {},
-  },
-};
+export const pokerScripts: Record<string, CuratorScriptDefinition> = Object.fromEntries(
+  Object.entries(POKER_WORKFLOW_ASTS).map(([name, ast]) => [
+    name,
+    {
+      name,
+      description: SCRIPT_DESCRIPTIONS[name] || `Texas Holdem AST workflow for ${name}`,
+      ast,
+      run: async () => {},
+    },
+  ])
+);
 
-// Re-export domain logic for consumer backwards-compatibility
-export * from '../engine/pokerEngine.ts';
+// ----------------------------------------------------------------------------
+// Helpers
+// ----------------------------------------------------------------------------
+
+function extractGameState(args: any, ctx: any): PokerGameState {
+  return (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
+}
 
 // ----------------------------------------------------------------------------
 // Curator Tool Registrations
@@ -78,7 +65,7 @@ export * from '../engine/pokerEngine.ts';
 export const pokerInitLobbyTool = defineTool({
   name: PokerTool.INIT_LOBBY,
   description: 'Initializes Texas Holdem lobby frame. Can accept dynamic initial players or start as an open table.',
-  requiredRole: 'poker:dealer',
+  requiredRole: PokerRole.DEALER,
   accessLevel: 'safe_write',
   parameters: {
     type: 'object',
@@ -119,7 +106,7 @@ export const pokerJoinLobbyTool = defineTool({
   name: PokerTool.JOIN_LOBBY,
   description: 'Dynamically seats an actor at the poker table with their wallet / buy-in.',
   usage: '<actorId> <name> [chips] [seatIdx]',
-  requiredRole: 'poker:player',
+  requiredRole: PokerRole.PLAYER,
   accessLevel: 'safe_write',
   parameters: {
     type: 'object',
@@ -140,7 +127,7 @@ export const pokerJoinLobbyTool = defineTool({
     },
   },
   execute: async (args: any, ctx: any) => {
-    const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
+    const rawState = extractGameState(args, ctx);
     const pData = args?.player || args;
     return joinPokerLobby(rawState, pData);
   },
@@ -150,7 +137,7 @@ export const pokerLeaveLobbyTool = defineTool({
   name: PokerTool.LEAVE_LOBBY,
   description: 'Removes or cashes out an actor from the poker table.',
   usage: '<actorId>',
-  requiredRole: 'poker:player',
+  requiredRole: PokerRole.PLAYER,
   accessLevel: 'safe_write',
   parameters: {
     type: 'object',
@@ -161,7 +148,7 @@ export const pokerLeaveLobbyTool = defineTool({
     required: ['id'],
   },
   execute: async (args: any, ctx: any) => {
-    const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
+    const rawState = extractGameState(args, ctx);
     const id = args.id as string;
     return leavePokerLobby(rawState, id);
   },
@@ -170,7 +157,7 @@ export const pokerLeaveLobbyTool = defineTool({
 export const pokerStartHandTool = defineTool({
   name: PokerTool.START_HAND,
   description: 'Starts a new hand: shuffles deck, posts blinds, deals hole cards.',
-  requiredRole: 'poker:dealer',
+  requiredRole: PokerRole.DEALER,
   accessLevel: 'safe_write',
   parameters: {
     type: 'object',
@@ -179,7 +166,7 @@ export const pokerStartHandTool = defineTool({
     },
   },
   execute: async (args: any, ctx: any) => {
-    const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
+    const rawState = extractGameState(args, ctx);
     return startPokerHand(rawState);
   },
 });
@@ -187,7 +174,7 @@ export const pokerStartHandTool = defineTool({
 export const pokerAiDecisionTool = defineTool({
   name: PokerTool.AI_DECISION,
   description: 'Calculates AI player action and ambient remark via Curator Agentic Engine.',
-  requiredRole: 'poker:player',
+  requiredRole: PokerRole.PLAYER,
   accessLevel: 'safe_read',
   parameters: {
     type: 'object',
@@ -197,7 +184,7 @@ export const pokerAiDecisionTool = defineTool({
     },
   },
   execute: async (args: any, ctx: any) => {
-    const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
+    const rawState = extractGameState(args, ctx);
     const idx = args?.playerIdx ?? rawState.activePlayerIdx;
     const player = rawState.players[idx];
 
@@ -211,7 +198,7 @@ export const pokerApplyActionTool = defineTool({
   description: 'Applies player action (FOLD, CHECK, CALL, RAISE <amount>, ALL_IN) to table state.',
   usage: '<actionType> [amount]',
   aliases: ['act'],
-  requiredRole: 'poker:player',
+  requiredRole: PokerRole.PLAYER,
   accessLevel: 'safe_write',
   parameters: {
     type: 'object',
@@ -221,7 +208,7 @@ export const pokerApplyActionTool = defineTool({
     },
   },
   execute: async (args: any, ctx: any) => {
-    const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
+    const rawState = extractGameState(args, ctx);
     const action = (args?.action || ctx?.context?.lastAction || { type: 'CHECK' }) as PlayerAction;
     return applyPokerAction(rawState, action);
   },
@@ -230,7 +217,7 @@ export const pokerApplyActionTool = defineTool({
 export const pokerDealStreetTool = defineTool({
   name: PokerTool.DEAL_STREET,
   description: 'Deals next street community cards (FLOP, TURN, RIVER) and resets street wagering.',
-  requiredRole: 'poker:dealer',
+  requiredRole: PokerRole.DEALER,
   accessLevel: 'safe_write',
   parameters: {
     type: 'object',
@@ -239,7 +226,7 @@ export const pokerDealStreetTool = defineTool({
     },
   },
   execute: async (args: any, ctx: any) => {
-    const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
+    const rawState = extractGameState(args, ctx);
     return dealPokerStreet(rawState);
   },
 });
@@ -247,7 +234,7 @@ export const pokerDealStreetTool = defineTool({
 export const pokerFastForwardBoardTool = defineTool({
   name: PokerTool.FAST_FORWARD,
   description: 'Deals all remaining board cards when players are all-in.',
-  requiredRole: 'poker:dealer',
+  requiredRole: PokerRole.DEALER,
   accessLevel: 'safe_write',
   parameters: {
     type: 'object',
@@ -256,7 +243,7 @@ export const pokerFastForwardBoardTool = defineTool({
     },
   },
   execute: async (args: any, ctx: any) => {
-    const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
+    const rawState = extractGameState(args, ctx);
     return fastForwardPokerBoard(rawState);
   },
 });
@@ -264,7 +251,7 @@ export const pokerFastForwardBoardTool = defineTool({
 export const pokerDistributePotsTool = defineTool({
   name: PokerTool.DISTRIBUTE_POTS,
   description: 'Adjudicates showdown hands, allocates main and side pots, and settles chip counts.',
-  requiredRole: 'poker:dealer',
+  requiredRole: PokerRole.DEALER,
   accessLevel: 'safe_write',
   parameters: {
     type: 'object',
@@ -273,7 +260,7 @@ export const pokerDistributePotsTool = defineTool({
     },
   },
   execute: async (args: any, ctx: any) => {
-    const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
+    const rawState = extractGameState(args, ctx);
     return distributePokerPots(rawState);
   },
 });
@@ -281,7 +268,7 @@ export const pokerDistributePotsTool = defineTool({
 export const pokerRotateDealerTool = defineTool({
   name: PokerTool.ROTATE_DEALER,
   description: 'Rotates dealer button to next active seat.',
-  requiredRole: 'poker:dealer',
+  requiredRole: PokerRole.DEALER,
   accessLevel: 'safe_write',
   parameters: {
     type: 'object',
@@ -290,7 +277,7 @@ export const pokerRotateDealerTool = defineTool({
     },
   },
   execute: async (args: any, ctx: any) => {
-    const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
+    const rawState = extractGameState(args, ctx);
     return rotatePokerDealer(rawState);
   },
 });
@@ -300,7 +287,7 @@ export const pokerHumanSpeechTool = defineTool({
   description: 'Applies human table talk, banter, or private whisper to the table and triggers AI persona reactions.',
   usage: '<speak|whisper|message> [actor] <text>',
   aliases: ['speech'],
-  requiredRole: 'poker:player',
+  requiredRole: PokerRole.PLAYER,
   accessLevel: 'safe_read',
   parameters: {
     type: 'object',
@@ -315,7 +302,7 @@ export const pokerHumanSpeechTool = defineTool({
     required: ['speechAct', 'text'],
   },
   execute: async (args: any, ctx: any) => {
-    const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
+    const rawState = extractGameState(args, ctx);
     return processHumanSpeech(rawState, args, ctx);
   },
 });
@@ -323,7 +310,7 @@ export const pokerHumanSpeechTool = defineTool({
 export const pokerCheckGameOverTool = defineTool({
   name: PokerTool.CHECK_GAME_OVER,
   description: 'Checks if table is down to 1 solvent player or reached max hands, compiling final standings.',
-  requiredRole: 'poker:dealer',
+  requiredRole: PokerRole.DEALER,
   accessLevel: 'safe_write',
   parameters: {
     type: 'object',
@@ -332,7 +319,7 @@ export const pokerCheckGameOverTool = defineTool({
     },
   },
   execute: async (args: any, ctx: any) => {
-    const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
+    const rawState = extractGameState(args, ctx);
     return checkPokerGameOver(rawState);
   },
 });
@@ -341,7 +328,7 @@ export const pokerGetStandingsTool = defineTool({
   name: PokerTool.GET_STANDINGS,
   description: 'Returns the current session standings and chip profit/loss report.',
   aliases: ['standings_tool'],
-  requiredRole: 'poker:spectator',
+  requiredRole: PokerRole.SPECTATOR,
   accessLevel: 'safe_read',
   parameters: {
     type: 'object',
@@ -350,7 +337,7 @@ export const pokerGetStandingsTool = defineTool({
     },
   },
   execute: async (args: any, ctx: any) => {
-    const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
+    const rawState = extractGameState(args, ctx);
     if (!rawState || !rawState.players) {
       return { standings: [], message: 'No active table game state found. Table may be in lobby or paused.' };
     }
@@ -362,7 +349,7 @@ export const pokerGetChoicesTool = defineTool({
   name: PokerTool.GET_CHOICES,
   description: 'Calculates the dynamically allowed legal choices and actions for a player based on table rules',
   usage: '[playerIdx]',
-  requiredRole: 'poker:spectator',
+  requiredRole: PokerRole.SPECTATOR,
   accessLevel: 'safe_read',
   parameters: {
     type: 'object',
@@ -373,7 +360,7 @@ export const pokerGetChoicesTool = defineTool({
     required: ['state'],
   },
   execute: async (args: any, ctx: any) => {
-    const rawState = (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
+    const rawState = extractGameState(args, ctx);
     if (!rawState) {
       return { choices: [], message: 'No active table game state found. Table may be in lobby or paused.' };
     }
@@ -381,15 +368,11 @@ export const pokerGetChoicesTool = defineTool({
   },
 });
 
-// ----------------------------------------------------------------------------
-// Curator Poker Plugin Definition
-// ----------------------------------------------------------------------------
-
 export const pokerListTablesTool = defineTool({
   name: PokerTool.LIST_TABLES,
   description: 'Lists all available poker tables in the project.',
   aliases: ['list_tables'],
-  requiredRole: 'poker:spectator',
+  requiredRole: PokerRole.SPECTATOR,
   accessLevel: 'safe_read',
   parameters: {
     type: 'object',
@@ -418,139 +401,91 @@ export const pokerListTablesTool = defineTool({
   },
 });
 
+// ----------------------------------------------------------------------------
+// Curator Poker Plugin Definition
+// ----------------------------------------------------------------------------
+
 export const pokerPlugin: CuratorPlugin = {
   name: 'minigame:poker',
   version: '2.0.0',
   description: 'Curator Texas Holdem Engine with Autonomous Agent Flow, Side Pots, and Dual-Track Ambient Dialogue',
   roles: {
-    'poker:admin': {
-      name: 'poker:admin',
+    [PokerRole.ADMIN]: {
+      name: PokerRole.ADMIN,
       description: 'Poker Lounge Administrator with unrestricted table controls and configuration privileges',
-      subRoles: ['poker:dealer'],
+      subRoles: [PokerRole.DEALER],
     },
-    'poker:dealer': {
-      name: 'poker:dealer',
+    [PokerRole.DEALER]: {
+      name: PokerRole.DEALER,
       description: 'Table Dealer responsible for deck management, dealing cards, and pot settlements',
-      subRoles: ['poker:player'],
+      subRoles: [PokerRole.PLAYER],
       tools: [
-        'poker_init_lobby',
-        'poker_start_hand',
-        'poker_deal_street',
-        'poker_fast_forward_board',
-        'poker_distribute_pots',
-        'poker_rotate_dealer',
-        'poker_check_game_over',
+        PokerTool.INIT_LOBBY,
+        PokerTool.START_HAND,
+        PokerTool.DEAL_STREET,
+        PokerTool.FAST_FORWARD,
+        PokerTool.DISTRIBUTE_POTS,
+        PokerTool.ROTATE_DEALER,
+        PokerTool.CHECK_GAME_OVER,
       ],
     },
-    'poker:player': {
-      name: 'poker:player',
+    [PokerRole.PLAYER]: {
+      name: PokerRole.PLAYER,
       description: 'Active seated player eligible to wager chips and engage in table banter',
-      subRoles: ['poker:spectator'],
+      subRoles: [PokerRole.SPECTATOR],
       tools: [
-        'poker_join_lobby',
-        'poker_leave_lobby',
-        'poker_apply_action',
-        'poker_ai_decision',
-        'poker_human_speech',
+        PokerTool.JOIN_LOBBY,
+        PokerTool.LEAVE_LOBBY,
+        PokerTool.APPLY_ACTION,
+        PokerTool.AI_DECISION,
+        PokerTool.HUMAN_SPEECH,
       ],
     },
-    'poker:spectator': {
-      name: 'poker:spectator',
+    [PokerRole.SPECTATOR]: {
+      name: PokerRole.SPECTATOR,
       description: 'Spectator observing table action, discovery, and leaderboard standings',
       tools: [
-        'poker_list_tables',
-        'poker_get_choices',
-        'poker_get_standings',
+        PokerTool.LIST_TABLES,
+        PokerTool.GET_CHOICES,
+        PokerTool.GET_STANDINGS,
       ],
     },
   },
-  defaultUserRoles: ['poker:player', 'poker:spectator'],
-  systemRoles: ['system:admin', 'poker:admin', 'poker:dealer', 'poker:player', 'poker:spectator'],
+  defaultUserRoles: [PokerRole.PLAYER, PokerRole.SPECTATOR],
+  systemRoles: [
+    CuratorSystemRole.ADMIN,
+    PokerRole.ADMIN,
+    PokerRole.DEALER,
+    PokerRole.PLAYER,
+    PokerRole.SPECTATOR,
+  ],
   tools: {
-    poker_init_lobby: pokerInitLobbyTool,
-    poker_join_lobby: pokerJoinLobbyTool,
-    poker_leave_lobby: pokerLeaveLobbyTool,
-    poker_list_tables: pokerListTablesTool,
-    poker_start_hand: pokerStartHandTool,
-    poker_ai_decision: pokerAiDecisionTool,
-    poker_apply_action: pokerApplyActionTool,
-    poker_deal_street: pokerDealStreetTool,
-    poker_fast_forward_board: pokerFastForwardBoardTool,
-    poker_distribute_pots: pokerDistributePotsTool,
-    poker_rotate_dealer: pokerRotateDealerTool,
-    poker_human_speech: pokerHumanSpeechTool,
-    poker_check_game_over: pokerCheckGameOverTool,
-    poker_get_standings: pokerGetStandingsTool,
-    poker_get_choices: pokerGetChoicesTool,
+    [PokerTool.INIT_LOBBY]: pokerInitLobbyTool,
+    [PokerTool.JOIN_LOBBY]: pokerJoinLobbyTool,
+    [PokerTool.LEAVE_LOBBY]: pokerLeaveLobbyTool,
+    [PokerTool.LIST_TABLES]: pokerListTablesTool,
+    [PokerTool.START_HAND]: pokerStartHandTool,
+    [PokerTool.AI_DECISION]: pokerAiDecisionTool,
+    [PokerTool.APPLY_ACTION]: pokerApplyActionTool,
+    [PokerTool.DEAL_STREET]: pokerDealStreetTool,
+    [PokerTool.FAST_FORWARD]: pokerFastForwardBoardTool,
+    [PokerTool.DISTRIBUTE_POTS]: pokerDistributePotsTool,
+    [PokerTool.ROTATE_DEALER]: pokerRotateDealerTool,
+    [PokerTool.HUMAN_SPEECH]: pokerHumanSpeechTool,
+    [PokerTool.CHECK_GAME_OVER]: pokerCheckGameOverTool,
+    [PokerTool.GET_STANDINGS]: pokerGetStandingsTool,
+    [PokerTool.GET_CHOICES]: pokerGetChoicesTool,
   },
   scripts: pokerScripts,
-  agents: {
-    hero: {
-      id: 'hero',
-      name: 'You (Hero)',
-      scriptName: 'human_turn',
-      ast: humanTurnAst,
-      schedule: 'manual',
-      enabled: true,
-      instruction: 'You are the human player (Hero) at the high-roller poker table.',
-      persona: 'human',
-      isHuman: true,
-      roles: ['poker:player', 'poker:spectator'],
-    },
-    lobby: {
-      id: 'lobby',
-      name: 'Lobby (Concierge)',
-      scriptName: 'poker_lobby',
-      ast: pokerLobbyAst,
-      schedule: 'manual',
-      enabled: true,
-      instruction: "You are the Texas Hold'em Lounge Concierge. You welcome players to the poker lounge, explain available tables and game formats, assist with table seating, buy-ins, and direct players to active games.",
-      persona: 'concierge',
-      roles: ['poker:admin', 'poker:spectator'],
-    },
-    dealer: {
-      id: 'dealer',
-      name: 'Dealer (House)',
-      scriptName: 'poker_workflow',
-      ast: pokerWorkflowAst,
-      schedule: 'manual',
-      enabled: true,
-      instruction: "You are the professional Texas Hold'em table dealer. You run the table, deal community cards, announce pot amounts and street actions, and answer table inquiries politely and authoritatively.",
-      persona: 'dealer',
-      roles: ['poker:dealer', 'poker:spectator'],
-    },
-    viper: {
-      id: 'viper',
-      name: 'Viper (Shark)',
-      scriptName: 'agent_turn',
-      ast: agentTurnAst,
-      schedule: 'manual',
-      enabled: true,
-      instruction: "You are Viper, a ruthless and mathematically calculating poker shark at a high-stakes Texas Hold'em table. Your tone is cool, precise, psychological, and dismissive of emotional play. You never reveal your exact hole cards. When speaking, you comment on pot odds, variance, and the foolishness of loose play.",
-      persona: 'shark',
-      roles: ['poker:player', 'poker:spectator', 'agent:reader'],
-    },
-    maddog: {
-      id: 'maddog',
-      name: 'MadDog (Maniac)',
-      scriptName: 'agent_turn',
-      ast: agentTurnAst,
-      schedule: 'manual',
-      enabled: true,
-      instruction: 'You are MadDog, a wild and loud poker maniac. You play loose, love bluffing, and shove chips into the middle for maximum adrenaline. Your tone is boisterous, confrontational, taunting, and energetic. Trash-talk, dare people to call, and embrace chaos.',
-      persona: 'maniac',
-      roles: ['poker:player', 'poker:spectator', 'agent:reader'],
-    },
-    barnaby: {
-      id: 'barnaby',
-      name: 'Barnaby (Station)',
-      scriptName: 'agent_turn',
-      ast: agentTurnAst,
-      schedule: 'manual',
-      enabled: true,
-      instruction: 'You are Barnaby, an affable, folksy, and warm calling station. You love chatting at the table, hate folding, and always wonder what the next card will bring. Your tone is grandfatherly, cheerful, gentle, and humorous.',
-      persona: 'station',
-      roles: ['poker:player', 'poker:spectator', 'agent:reader'],
-    },
-  } as any,
+  agents: Object.fromEntries(
+    Object.entries(POKER_AGENT_PROFILES).map(([key, profile]) => [
+      key,
+      {
+        ...profile,
+        ...(profile.scriptName && POKER_WORKFLOW_ASTS[profile.scriptName]
+          ? { ast: POKER_WORKFLOW_ASTS[profile.scriptName] }
+          : {}),
+      },
+    ])
+  ) as any,
 };
