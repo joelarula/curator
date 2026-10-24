@@ -1,27 +1,30 @@
-import type {
-  CuratorAstNode,
-  CuratorSequentialNode,
-  CuratorAssignNode,
-  CuratorIfElseNode,
-  CuratorWhileNode,
-  CuratorLoopNode,
-  CuratorForEachNode,
-  CuratorAgentNode,
-  CuratorEmitEventNode,
-  CuratorSetStateNode,
-  CuratorHumanInputNode,
-  CuratorChoiceItem,
-  CuratorParallelNode,
-  CuratorScriptNode,
-  CuratorWaitEventNode,
-  CuratorToolNode,
-  CuratorModuleNode,
-  CuratorSubroutine,
-  CuratorParamSpec,
-  CuratorCallNode,
-  CuratorSubscribeNode,
-  CuratorUnsubscribeNode,
+import {
+  CuratorNodeType,
+  type CuratorAstNode,
+  type CuratorSequentialNode,
+  type CuratorAssignNode,
+  type CuratorIfElseNode,
+  type CuratorWhileNode,
+  type CuratorLoopNode,
+  type CuratorForEachNode,
+  type CuratorAgentNode,
+  type CuratorEmitEventNode,
+  type CuratorSetStateNode,
+  type CuratorHumanInputNode,
+  type CuratorChoiceItem,
+  type CuratorParallelNode,
+  type CuratorScriptNode,
+  type CuratorWaitEventNode,
+  type CuratorToolNode,
+  type CuratorModuleNode,
+  type CuratorSubroutine,
+  type CuratorParamSpec,
+  type CuratorCallNode,
+  type CuratorSubscribeNode,
+  type CuratorUnsubscribeNode,
 } from '../CuratorAst.js';
+
+export { CuratorNodeType };
 
 export interface ActiveModuleScope {
   name: string;
@@ -41,13 +44,15 @@ export function getActiveModuleScope(): ActiveModuleScope | null {
  * Core AST Node Factory for primitive computational and workflow verbs.
  */
 export class CuratorCoreBuilder {
+  static readonly NodeType = CuratorNodeType;
+
   /**
    * Evaluates an expression and assigns it to a key in `context.state`.
    * e.g. .assign('state.turn', (ctx) => ctx.state.turn + 1)
    */
   static assign(key: string, expression: string | ((ctx: any) => any)): CuratorAssignNode {
     const exprStr = typeof expression === 'function' ? `(${expression.toString()})(context)` : expression;
-    return { type: 'Curator_Assign', key, expression: exprStr };
+    return { type: CuratorNodeType.Assign, key, expression: exprStr };
   }
 
   /**
@@ -68,7 +73,7 @@ export class CuratorCoreBuilder {
       return typeof b.build === 'function' ? b.build() : b;
     };
     return {
-      type: 'Curator_IfElse',
+      type: CuratorNodeType.IfElse,
       condition: condStr,
       thenBranch: resolveBranch(thenBranch)!,
       elseBranch: resolveBranch(elseBranch),
@@ -90,7 +95,7 @@ export class CuratorCoreBuilder {
       }
       return typeof b.build === 'function' ? b.build() : b;
     };
-    return { type: 'Curator_While', condition: condStr, body: resolveBody(body) };
+    return { type: CuratorNodeType.While, condition: condStr, body: resolveBody(body) };
   }
 
   /**
@@ -100,7 +105,7 @@ export class CuratorCoreBuilder {
     const expr = (v: unknown) => (typeof v === 'function' ? `(${v.toString()})(context)` : (v as string | undefined));
     const { until, while: whileCond, over, ...rest } = options;
     return {
-      type: 'Curator_Loop',
+      type: CuratorNodeType.Loop,
       agent: body,
       ...rest,
       ...(until ? { until: expr(until) } : {}),
@@ -113,7 +118,7 @@ export class CuratorCoreBuilder {
    * Scheduler: run `body` on a cron/interval `schedule` ("every 10 minutes", "0 14 * * 1-5", "at 14:00").
    */
   static every(schedule: string, body: CuratorAstNode, options: { until?: string; while?: string; over?: string; as?: string; maxIterations?: number; immediate?: boolean; name?: string } = {}): CuratorLoopNode {
-    return { type: 'Curator_Loop', agent: body, schedule, ...options };
+    return { type: CuratorNodeType.Loop, agent: body, schedule, ...options };
   }
 
   /**
@@ -121,7 +126,7 @@ export class CuratorCoreBuilder {
    */
   static forEach(collectionExpression: string | ((ctx: any) => any[]), body: CuratorAstNode, iteratorName?: string): CuratorForEachNode {
     const exprStr = typeof collectionExpression === 'function' ? `(${collectionExpression.toString()})(context)` : collectionExpression;
-    return { type: 'Curator_ForEach', collectionExpression: exprStr, body, iteratorName };
+    return { type: CuratorNodeType.ForEach, collectionExpression: exprStr, body, iteratorName };
   }
 
   /**
@@ -130,14 +135,14 @@ export class CuratorCoreBuilder {
   static emitEvent(eventName: string, payload?: any | ((ctx: any) => any), targetAgentId?: number | string | ((ctx: any) => number | string)): CuratorEmitEventNode {
     const payloadVal = typeof payload === 'function' ? `(${payload.toString()})(context)` : payload;
     const targetAgentIdVal = typeof targetAgentId === 'function' ? `(${targetAgentId.toString()})(context)` : targetAgentId;
-    return { type: 'Curator_EmitEvent', eventName, payload: payloadVal, targetAgentId: targetAgentIdVal };
+    return { type: CuratorNodeType.EmitEvent, eventName, payload: payloadVal, targetAgentId: targetAgentIdVal };
   }
 
   /**
    * Wait synchronously for a Pub/Sub event to be emitted.
    */
   static waitEvent(eventName: string, payloadAlias?: string, options: { timeoutSeconds?: number; replay?: boolean } = {}): CuratorWaitEventNode {
-    return { type: 'Curator_WaitEvent', eventName, payloadAlias, ...(options?.timeoutSeconds ? { timeoutSeconds: options.timeoutSeconds } : {}), ...(options?.replay ? { replay: true } : {}) };
+    return { type: CuratorNodeType.WaitEvent, eventName, payloadAlias, ...(options?.timeoutSeconds ? { timeoutSeconds: options.timeoutSeconds } : {}), ...(options?.replay ? { replay: true } : {}) };
   }
 
   /**
@@ -205,7 +210,7 @@ export class CuratorCoreBuilder {
       }
 
       return {
-        type: 'Curator_Module',
+        type: CuratorNodeType.Module,
         name,
         ...(scope.description ? { description: scope.description } : {}),
         ...(scope.params ? { params: scope.params } : {}),
@@ -233,7 +238,7 @@ export class CuratorCoreBuilder {
       }
     }
     return {
-      type: 'Curator_Module',
+      type: CuratorNodeType.Module,
       name,
       ...restOptions,
       main,
@@ -268,7 +273,7 @@ export class CuratorCoreBuilder {
   ): CuratorCallNode {
     const rawRef = typeof ref === 'function' && 'ref' in ref ? (ref as TypedSubroutine).ref : String(ref);
     const targetRef = rawRef.startsWith('#') ? '#' + rawRef.replace(/^#+/, '') : rawRef;
-    return { type: 'Curator_Call', ref: targetRef, ...(args ? { args } : {}), ...options };
+    return { type: CuratorNodeType.Call, ref: targetRef, ...(args ? { args } : {}), ...options };
   }
 
   /** Declares that `handler` runs whenever `eventName` is emitted. Accepts named ref string or TypedSubroutine reference. */
@@ -279,13 +284,13 @@ export class CuratorCoreBuilder {
   ): CuratorSubscribeNode {
     const rawHandler = typeof handler === 'function' && 'ref' in handler ? (handler as TypedSubroutine).ref : String(handler);
     const targetHandler = rawHandler.startsWith('#') ? '#' + rawHandler.replace(/^#+/, '') : rawHandler;
-    return { type: 'Curator_Subscribe', eventName, handler: targetHandler, ...options };
+    return { type: CuratorNodeType.Subscribe, eventName, handler: targetHandler, ...options };
   }
 
   /** Removes dynamic subscriptions for `eventName` (optionally only for `handler`). */
   static unsubscribe(eventName: string, handler?: string | TypedSubroutine): CuratorUnsubscribeNode {
     const targetHandler = typeof handler === 'function' && 'ref' in handler ? (handler as TypedSubroutine).ref : handler ? String(handler) : undefined;
-    return { type: 'Curator_Unsubscribe', eventName, ...(targetHandler ? { handler: targetHandler } : {}) };
+    return { type: CuratorNodeType.Unsubscribe, eventName, ...(targetHandler ? { handler: targetHandler } : {}) };
   }
 
   /**
@@ -306,7 +311,7 @@ export class CuratorCoreBuilder {
     }
     const rawList = allNodes.length === 1 && Array.isArray(allNodes[0]) ? allNodes[0] : allNodes.flat();
     const unwrapped = rawList.map(n => (n && typeof n === 'object' && typeof n.build === 'function' ? n.build() : n));
-    return { type: 'Curator_Sequential', ...(name ? { name } : {}), subAgents: unwrapped };
+    return { type: CuratorNodeType.Sequential, ...(name ? { name } : {}), subAgents: unwrapped };
   }
 
   /**
@@ -315,14 +320,14 @@ export class CuratorCoreBuilder {
   static parallel(name: string, ...nodes: (CuratorAstNode | { build: () => CuratorAstNode } | any)[]): CuratorParallelNode {
     const rawList = nodes.length === 1 && Array.isArray(nodes[0]) ? nodes[0] : nodes.flat();
     const unwrapped = rawList.map(n => (n && typeof n === 'object' && typeof n.build === 'function' ? n.build() : n));
-    return { type: 'Curator_Parallel', name, subAgents: unwrapped };
+    return { type: CuratorNodeType.Parallel, name, subAgents: unwrapped };
   }
 
   /**
    * Merge state with the provided record.
    */
   static setState(state: Record<string, any>): CuratorSetStateNode {
-    return { type: 'Curator_SetState', state };
+    return { type: CuratorNodeType.SetState, state };
   }
 
   /**
@@ -335,7 +340,7 @@ export class CuratorCoreBuilder {
     options?: { targetUserId?: number; as?: string; blocking?: boolean; timeoutSeconds?: number; name?: string }
   ): CuratorHumanInputNode {
     return {
-      type: 'Curator_HumanInput',
+      type: CuratorNodeType.HumanInput,
       prompt,
       inputType,
       choices,
@@ -362,7 +367,7 @@ export class CuratorCoreBuilder {
    * Call an LLM agent with tools.
    */
   static agent(options: Omit<CuratorAgentNode, 'type'>): CuratorAgentNode {
-    return { type: 'Curator_Agent', ...options };
+    return { type: CuratorNodeType.Agent, ...options };
   }
 
   /**
@@ -371,7 +376,7 @@ export class CuratorCoreBuilder {
    */
   static script(code: string | ((ctx: any) => any), language: 'javascript' | 'coffeescript' = 'javascript'): CuratorScriptNode {
     const codeStr = typeof code === 'function' ? `(${code.toString()})(context)` : code;
-    return { type: 'Curator_Script', language, code: codeStr };
+    return { type: CuratorNodeType.Script, language, code: codeStr };
   }
 
   /**
@@ -384,7 +389,7 @@ export class CuratorCoreBuilder {
         evaluatedArgs[k] = typeof v === 'function' ? `(${v.toString()})(context)` : v;
       }
     }
-    const node: CuratorToolNode = { type: 'Curator_Tool', toolName, args: evaluatedArgs };
+    const node: CuratorToolNode = { type: CuratorNodeType.Tool, toolName, args: evaluatedArgs };
     if (as) node.as = as;
     return node;
   }
@@ -497,7 +502,7 @@ export function defineSubroutine<TParams = any>(
     const unwrapped = flat.map((n: any) =>
       n && typeof n === 'object' && typeof n.build === 'function' ? n.build() : n
     );
-    resolvedBody = { type: 'Curator_Sequential', subAgents: unwrapped };
+    resolvedBody = { type: CuratorNodeType.Sequential, subAgents: unwrapped };
   } else if (resolvedBody && typeof resolvedBody.build === 'function') {
     resolvedBody = resolvedBody.build();
   }

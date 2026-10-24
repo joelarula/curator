@@ -1,5 +1,5 @@
 import AjvModule, { type ErrorObject } from 'ajv';
-import type { CuratorAstNode } from './CuratorAst.js';
+import { CuratorNodeType, type CuratorAstNode } from './CuratorAst.js';
 
 const Ajv = (AjvModule as any).default || AjvModule;
 
@@ -40,7 +40,13 @@ export function parseCuratorRef(ref: string): CuratorRef | null {
 }
 
 /** Node types that cannot appear in an inline-expanded subroutine body. */
-const INLINE_FORBIDDEN = new Set(['Curator_WaitEvent', 'Curator_HumanInput', 'Curator_Subscribe', 'Curator_Unsubscribe', 'Curator_Interrupt']);
+const INLINE_FORBIDDEN = new Set([
+  CuratorNodeType.WaitEvent,
+  CuratorNodeType.HumanInput,
+  CuratorNodeType.Subscribe,
+  CuratorNodeType.Unsubscribe,
+  CuratorNodeType.Interrupt,
+]);
 
 const schema: Record<string, any> = {
   $id: 'https://curator.local/schemas/curator-ast-v1.json',

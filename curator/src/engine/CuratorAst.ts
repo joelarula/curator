@@ -22,6 +22,38 @@ export interface CuratorBaseNode {
   priority?: number;
 }
 
+/**
+ * Universal catalog of Curator AST node types.
+ * Provides typesafe references for builder methods, validators, and AST processors.
+ */
+export const CuratorNodeType = {
+  Agent: 'Curator_Agent',
+  Sequential: 'Curator_Sequential',
+  Parallel: 'Curator_Parallel',
+  Join: 'Curator_Join',
+  Route: 'Curator_Route',
+  Loop: 'Curator_Loop',
+  Tool: 'Curator_Tool',
+  Script: 'Curator_Script',
+  Graph: 'Curator_Graph',
+  HumanInput: 'Curator_HumanInput',
+  AgentRef: 'Curator_AgentRef',
+  SetState: 'Curator_SetState',
+  EmitEvent: 'Curator_EmitEvent',
+  Interrupt: 'Curator_Interrupt',
+  Assign: 'Curator_Assign',
+  IfElse: 'Curator_IfElse',
+  While: 'Curator_While',
+  ForEach: 'Curator_ForEach',
+  WaitEvent: 'Curator_WaitEvent',
+  Module: 'Curator_Module',
+  Call: 'Curator_Call',
+  Subscribe: 'Curator_Subscribe',
+  Unsubscribe: 'Curator_Unsubscribe',
+} as const;
+
+export type CuratorNodeType = typeof CuratorNodeType[keyof typeof CuratorNodeType];
+
 export type CuratorAstNode = 
   | CuratorAgentNode 
   | CuratorSequentialNode 
@@ -58,7 +90,7 @@ export interface CuratorInlineTool {
 }
 
 export interface CuratorAgentNode extends CuratorBaseNode {
-  type: 'Curator_Agent';
+  type: typeof CuratorNodeType.Agent;
   agentName?: string;
   model?: string;
   instruction?: string;
@@ -83,19 +115,19 @@ export interface CuratorAgentNode extends CuratorBaseNode {
 }
 
 export interface CuratorSetStateNode extends CuratorBaseNode {
-  type: 'Curator_SetState';
+  type: typeof CuratorNodeType.SetState;
   state: Record<string, any>;
 }
 
 export interface CuratorEmitEventNode extends CuratorBaseNode {
-  type: 'Curator_EmitEvent';
+  type: typeof CuratorNodeType.EmitEvent;
   eventName: string;
   targetAgentId?: number | string;
   payload?: any;
 }
 
 export interface CuratorWaitEventNode extends CuratorBaseNode {
-  type: 'Curator_WaitEvent';
+  type: typeof CuratorNodeType.WaitEvent;
   eventName: string;
   payloadAlias?: string;
   /** Give up after this long; completes with a WAIT_TIMEOUT Response and binds nothing to the alias. */
@@ -105,40 +137,40 @@ export interface CuratorWaitEventNode extends CuratorBaseNode {
 }
 
 export interface CuratorAssignNode extends CuratorBaseNode {
-  type: 'Curator_Assign';
+  type: typeof CuratorNodeType.Assign;
   key: string;
   expression: string;
 }
 
 export interface CuratorIfElseNode extends CuratorBaseNode {
-  type: 'Curator_IfElse';
+  type: typeof CuratorNodeType.IfElse;
   condition: string;
   thenBranch: CuratorAstNode;
   elseBranch?: CuratorAstNode;
 }
 
 export interface CuratorWhileNode extends CuratorBaseNode {
-  type: 'Curator_While';
+  type: typeof CuratorNodeType.While;
   condition: string;
   body: CuratorAstNode;
 }
 
 export interface CuratorForEachNode extends CuratorBaseNode {
-  type: 'Curator_ForEach';
+  type: typeof CuratorNodeType.ForEach;
   collectionExpression: string;
   iteratorName?: string; // defaults to "item"
   body: CuratorAstNode;
 }
 
 export interface CuratorSequentialNode extends CuratorBaseNode {
-  type: 'Curator_Sequential';
+  type: typeof CuratorNodeType.Sequential;
   name?: string;
   prompt?: string;
   subAgents: CuratorAstNode[];
 }
 
 export interface CuratorParallelNode extends CuratorBaseNode {
-  type: 'Curator_Parallel';
+  type: typeof CuratorNodeType.Parallel;
   name?: string;
   prompt?: string;
   /** Each branch runs in a private state scope named after the branch; events can be addressed to it via `targetAgentId`. */
@@ -147,14 +179,14 @@ export interface CuratorParallelNode extends CuratorBaseNode {
 }
 
 export interface CuratorJoinNode extends CuratorBaseNode {
-  type: 'Curator_Join';
+  type: typeof CuratorNodeType.Join;
   name?: string;
   joinLogic?: string; // "concat", "array", etc.
   nextNode?: CuratorAstNode;
 }
 
 export interface CuratorRouteNode extends CuratorBaseNode {
-  type: 'Curator_Route';
+  type: typeof CuratorNodeType.Route;
   name?: string;
   router: CuratorAstNode;
   subAgents: Record<string, CuratorAstNode>;
@@ -162,7 +194,7 @@ export interface CuratorRouteNode extends CuratorBaseNode {
 }
 
 export interface CuratorGraphNode extends CuratorBaseNode {
-  type: 'Curator_Graph';
+  type: typeof CuratorNodeType.Graph;
   name?: string;
   startNode: string;
   nodes: Record<string, CuratorAstNode>;
@@ -172,7 +204,7 @@ export interface CuratorGraphNode extends CuratorBaseNode {
 }
 
 export interface CuratorLoopNode extends CuratorBaseNode {
-  type: 'Curator_Loop';
+  type: typeof CuratorNodeType.Loop;
   name?: string;
   /** Default prompt for the body when it has none. */
   prompt?: string;
@@ -197,7 +229,7 @@ export interface CuratorLoopNode extends CuratorBaseNode {
 }
 
 export interface CuratorToolNode extends CuratorBaseNode {
-  type: 'Curator_Tool';
+  type: typeof CuratorNodeType.Tool;
   toolName: string;
   args?: Record<string, any>;
   /** Optional context key to store tool output under in request context */
@@ -216,7 +248,7 @@ export interface CuratorToolNode extends CuratorBaseNode {
 }
 
 export interface CuratorScriptNode extends CuratorBaseNode {
-  type: 'Curator_Script';
+  type: typeof CuratorNodeType.Script;
   language: 'javascript' | 'coffeescript';
   code: string;
 }
@@ -237,7 +269,7 @@ export interface CuratorChoiceItem {
 }
 
 export interface CuratorHumanInputNode extends CuratorBaseNode {
-  type: 'Curator_HumanInput';
+  type: typeof CuratorNodeType.HumanInput;
   name?: string;
   prompt: string;
   inputType?: 'text' | 'choices' | 'file';
@@ -258,7 +290,7 @@ export interface CuratorHumanInputNode extends CuratorBaseNode {
 }
 
 export interface CuratorAgentRefNode extends CuratorBaseNode {
-  type: 'Curator_AgentRef';
+  type: typeof CuratorNodeType.AgentRef;
   agentName: string;
 }
 
@@ -280,7 +312,7 @@ export interface CuratorAgentRefNode extends CuratorBaseNode {
  *   }
  */
 export interface CuratorInterruptNode extends CuratorBaseNode {
-  type: 'Curator_Interrupt';
+  type: typeof CuratorNodeType.Interrupt;
   /** Priority level for this interrupt — must be > 0 to have effect. */
   priority: number;
   /**
@@ -328,7 +360,7 @@ export interface CuratorSubroutine {
  * A plain (non-module) root is equivalent to a module with only `main`.
  */
 export interface CuratorModuleNode extends CuratorBaseNode {
-  type: 'Curator_Module';
+  type: typeof CuratorNodeType.Module;
   /** Should equal the owning Script.name. */
   name: string;
   description?: string;
@@ -347,7 +379,7 @@ export interface CuratorModuleNode extends CuratorBaseNode {
  * - 'inline': expanded into the caller at compile time; local refs only, no waits / input / subscribe.
  */
 export interface CuratorCallNode extends CuratorBaseNode {
-  type: 'Curator_Call';
+  type: typeof CuratorNodeType.Call;
   ref: string;
   args?: Record<string, any>;
   /** Caller context key receiving the result. */
@@ -360,7 +392,7 @@ export interface CuratorCallNode extends CuratorBaseNode {
  * Static when listed in Module.subscriptions; dynamic (conversation-scoped) when executed inside a flow.
  */
 export interface CuratorSubscribeNode extends CuratorBaseNode {
-  type: 'Curator_Subscribe';
+  type: typeof CuratorNodeType.Subscribe;
   eventName: string;
   /** Named ref only ('script', 'script#sub', '#sub'); inline AST is not allowed. */
   handler: string;
@@ -372,7 +404,7 @@ export interface CuratorSubscribeNode extends CuratorBaseNode {
 }
 
 export interface CuratorUnsubscribeNode extends CuratorBaseNode {
-  type: 'Curator_Unsubscribe';
+  type: typeof CuratorNodeType.Unsubscribe;
   eventName: string;
   /** If omitted, removes all dynamic subscriptions for eventName in this conversation. */
   handler?: string;
