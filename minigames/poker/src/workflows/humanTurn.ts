@@ -6,7 +6,7 @@
  * ---
  */
 
-import { CuratorBuilder, type CuratorModuleNode } from '../curator.ts';
+import type { CuratorModuleNode } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
 
 const {
@@ -19,64 +19,112 @@ const {
   is_human_action_exit,
   is_resume_cmd,
   is_exit_cmd,
+  events,
+  modules,
+  subroutines,
+  steps,
+  defineModule,
+  seq,
+  sub,
+  call,
+  choice,
+  ifElse,
+  whileLoop,
+  setState,
+  reasons,
+  defineSubroutine,
+  emitEvent,
+  waitEvent,
 } = pokerComposables;
 
-export function buildHumanTurnModule(): CuratorModuleNode {
-  return CuratorBuilder.defineModule('human_turn', {
-    description: 'Interactive human turn gate with choices, pause/resume, and action application',
-    main: CuratorBuilder.seq('poker:human_turn', [
-      get_legal_choices(),
-      CuratorBuilder.choice('Your turn:', String(ctx.poker_get_choices.choices), { as: 'humanAction' }),
-
-      CuratorBuilder.ifElse(
-        is_human_action_pause,
-        CuratorBuilder.call('#handle_pause'),
-        CuratorBuilder.ifElse(
-          is_human_action_exit,
-          CuratorBuilder.seq('poker:handle_exit', [
-            CuratorBuilder.setState({ sessionEnded: true }),
-            CuratorBuilder.emitEvent('poker:session_exited', { reason: 'user_exit' }),
+/**
+ * First-class typed subroutine for pausing the table session.
+ */
+export const handlePause = defineSubroutine('handle_pause', {
+  body: seq(steps.HANDLE_PAUSE, [
+    setState({ isPaused: true }),
+    emitEvent(events.TABLE_PAUSED, {
+      tableId: String(gameState.tableId),
+    }),
+    whileLoop(
+      is_table_paused,
+      seq(steps.WAIT_RESUME, [
+        waitEvent(events.RESUME_ACTION, ctx.resumeCmd),
+        ifElse(
+          is_resume_cmd,
+          seq(steps.UNPAUSE, [
+            setState({ isPaused: false }),
+            emitEvent(events.TABLE_RESUMED, {
+              tableId: String(gameState.tableId),
+            }),
           ]),
-          CuratorBuilder.seq('poker:apply_action', [
-            apply_player_action(ctx.humanAction),
-          ]),
-        ),
-      ),
-    ]),
-    subroutines: {
-      handle_pause: CuratorBuilder.sub(
-        {},
-        CuratorBuilder.seq('poker:handle_pause', [
-          CuratorBuilder.setState({ isPaused: true }),
-          CuratorBuilder.emitEvent('poker:table_paused', {
-            tableId: String(gameState.tableId),
-          }),
-          CuratorBuilder.whileLoop(
-            is_table_paused,
-            CuratorBuilder.seq('poker:wait_resume', [
-              CuratorBuilder.waitEvent('poker:resume_action', 'resumeCmd'),
-              CuratorBuilder.ifElse(
-                is_resume_cmd,
-                CuratorBuilder.seq('poker:unpause', [
-                  CuratorBuilder.setState({ isPaused: false }),
-                  CuratorBuilder.emitEvent('poker:table_resumed', {
-                    tableId: String(gameState.tableId),
-                  }),
-                ]),
-                CuratorBuilder.ifElse(
-                  is_exit_cmd,
-                  CuratorBuilder.seq('poker:pause_exit', [
-                    CuratorBuilder.setState({ sessionEnded: true, isPaused: false }),
-                    CuratorBuilder.emitEvent('poker:session_exited', { reason: 'user_exit' }),
-                  ]),
-                ),
-              ),
+          ifElse(
+            is_exit_cmd,
+            seq(steps.PAUSE_EXIT, [
+              setState({ sessionEnded: true, isPaused: false }),
+              emitEvent(events.SESSION_EXITED, { reason: reasons.USER_EXIT }),
             ]),
           ),
-        ]),
+        ),
+      ]),
+    ),
+  ]),
+});
+
+export function buildHumanTurnModule(): CuratorModuleNode {
+  return defineModule(modules.HUMAN_TURN, () => {
+    // 1. Auto-registering subroutine
+    const handlePause = defineSubroutine(subroutines.HANDLE_PAUSE, () => [
+      setState({ isPaused: true }),
+      emitEvent(events.TABLE_PAUSED, {
+        tableId: String(gameState.tableId),
+      }),
+      whileLoop(
+        is_table_paused,
+        [
+          waitEvent(events.RESUME_ACTION, ctx.resumeCmd),
+          ifElse(
+            is_resume_cmd,
+            [
+              setState({ isPaused: false }),
+              emitEvent(events.TABLE_RESUMED, {
+                tableId: String(gameState.tableId),
+              }),
+            ],
+            ifElse(
+              is_exit_cmd,
+              [
+                setState({ sessionEnded: true, isPaused: false }),
+                emitEvent(events.SESSION_EXITED, { reason: reasons.USER_EXIT }),
+              ],
+            ),
+          ),
+        ],
       ),
-    },
+    ]);
+
+    // 2. Main workflow sequence returned directly
+    return [
+      get_legal_choices(),
+      choice('Your turn:', String(ctx.poker_get_choices.choices), { as: ctx.humanAction }),
+
+      ifElse(
+        is_human_action_pause,
+        handlePause(),
+        ifElse(
+          is_human_action_exit,
+          [
+            setState({ sessionEnded: true }),
+            emitEvent(events.SESSION_EXITED, { reason: reasons.USER_EXIT }),
+          ],
+          [
+            apply_player_action(ctx.humanAction),
+          ],
+        ),
+      ),
+    ];
   });
 }
 
 export const humanTurnAst = buildHumanTurnModule();
+

@@ -1,6 +1,59 @@
-import type { CuratorToolNode } from '../curator.ts';
+import {
+  CuratorBuilder,
+  defineModule,
+  defineSubroutine,
+  onEvent,
+  type TypedSubroutine,
+  type CuratorToolNode,
+  type CuratorSequentialNode,
+  type CuratorModuleNode,
+  type CuratorCallNode,
+  type CuratorSubroutine,
+  type CuratorParamSpec,
+} from '../curator.ts';
 import type { PokerWorkflowContext, PokerWorkflowState, PokerWorkflowParams } from '../models/pokerContext.ts';
+import { PokerEvent, type PokerEventType } from '../models/pokerEvents.ts';
+import {
+  PokerModule,
+  type PokerModuleType,
+  PokerSubroutine,
+  type PokerSubroutineType,
+  PokerStep,
+  type PokerStepType,
+} from '../models/pokerSteps.ts';
+import { PokerTool, type PokerToolType } from '../models/pokerTools.ts';
+import {
+  PokerSessionReason,
+  type PokerSessionReasonType,
+  PokerSpeechAct,
+  type PokerSpeechActType,
+  PokerLobbyAction,
+  type PokerLobbyActionType,
+  PokerActionType,
+  type PokerActionTypeValue,
+} from '../models/pokerConstants.ts';
 import type { PokerGameState } from '../types.ts';
+
+export {
+  PokerEvent,
+  type PokerEventType,
+  PokerModule,
+  type PokerModuleType,
+  PokerSubroutine,
+  type PokerSubroutineType,
+  PokerStep,
+  type PokerStepType,
+  PokerTool,
+  type PokerToolType,
+  PokerSessionReason,
+  type PokerSessionReasonType,
+  PokerSpeechAct,
+  type PokerSpeechActType,
+  PokerLobbyAction,
+  type PokerLobbyActionType,
+  PokerActionType,
+  type PokerActionTypeValue,
+};
 
 /**
  * Recursive TypeScript proxy type that reflects the properties of model T
@@ -70,12 +123,12 @@ export const pokerPredicates = {
   table_needs_players: `not ${ctx.gameState} or ${ctx.gameState.players.length} < 2`,
   is_session_active: `not ${ctx.sessionEnded}`,
   is_session_unpaused: `not ${ctx.sessionEnded} and not ${ctx.isPaused}`,
-  is_human_action_pause: `${ctx.humanAction.type} == 'PAUSE'`,
-  is_human_action_exit: `${ctx.humanAction.type} == 'EXIT'`,
-  is_resume_cmd: `${ctx.resumeCmd.type} == 'RESUME' or ${ctx.resumeCmd} == 'RESUME'`,
-  is_exit_cmd: `${ctx.resumeCmd.type} == 'EXIT' or ${ctx.resumeCmd} == 'EXIT'`,
-  is_lobby_exit: `${ctx.lobbyChoice.id} == 'exit' or ${ctx.lobbyChoice} == 'exit'`,
-  is_lobby_resume: `${ctx.lobbyChoice.id} == 'resume' or ${ctx.lobbyChoice} == 'resume'`,
+  is_human_action_pause: `${ctx.humanAction.type} == '${PokerActionType.PAUSE}'`,
+  is_human_action_exit: `${ctx.humanAction.type} == '${PokerActionType.EXIT}'`,
+  is_resume_cmd: `${ctx.resumeCmd.type} == '${PokerActionType.RESUME}' or ${ctx.resumeCmd} == '${PokerActionType.RESUME}'`,
+  is_exit_cmd: `${ctx.resumeCmd.type} == '${PokerActionType.EXIT}' or ${ctx.resumeCmd} == '${PokerActionType.EXIT}'`,
+  is_lobby_exit: `${ctx.lobbyChoice.id} == '${PokerLobbyAction.EXIT}' or ${ctx.lobbyChoice} == '${PokerLobbyAction.EXIT}'`,
+  is_lobby_resume: `${ctx.lobbyChoice.id} == '${PokerLobbyAction.RESUME}' or ${ctx.lobbyChoice} == '${PokerLobbyAction.RESUME}'`,
 };
 
 /**
@@ -89,70 +142,44 @@ export const pokerComposables = {
   params,
   ...pokerPredicates,
 
-  // Tool composables with automated state injection
-  start_poker_hand: (args: Record<string, any> = {}): CuratorToolNode => ({
-    type: 'Curator_Tool',
-    toolName: 'poker_start_hand',
-    args: { state: String(gameState), ...args },
-  }),
+  // Tool composables with automated state injection and type-safe tool names
+  start_poker_hand: (args: Record<string, any> = {}): CuratorToolNode =>
+    CuratorBuilder.tool(PokerTool.START_HAND, { state: String(gameState), ...args }),
 
-  deal_next_street: (args: Record<string, any> = {}): CuratorToolNode => ({
-    type: 'Curator_Tool',
-    toolName: 'poker_deal_street',
-    args: { state: String(gameState), ...args },
-  }),
+  deal_next_street: (args: Record<string, any> = {}): CuratorToolNode =>
+    CuratorBuilder.tool(PokerTool.DEAL_STREET, { state: String(gameState), ...args }),
 
-  settle_showdown: (args: Record<string, any> = {}): CuratorToolNode => ({
-    type: 'Curator_Tool',
-    toolName: 'poker_distribute_pots',
-    args: { state: String(gameState), ...args },
-  }),
+  settle_showdown: (args: Record<string, any> = {}): CuratorToolNode =>
+    CuratorBuilder.tool(PokerTool.DISTRIBUTE_POTS, { state: String(gameState), ...args }),
 
-  apply_player_action: (action?: any, args: Record<string, any> = {}): CuratorToolNode => ({
-    type: 'Curator_Tool',
-    toolName: 'poker_apply_action',
-    args: {
+  apply_player_action: (action?: any, args: Record<string, any> = {}): CuratorToolNode =>
+    CuratorBuilder.tool(PokerTool.APPLY_ACTION, {
       state: String(gameState),
       action: String(action ?? `${ctx.humanAction} || ${ctx.poker_ai_decision.action} || ${ctx.action}`),
       ...args,
-    },
-  }),
+    }),
 
-  get_legal_choices: (args: Record<string, any> = {}): CuratorToolNode => ({
-    type: 'Curator_Tool',
-    toolName: 'poker_get_choices',
-    args: {
+  get_legal_choices: (args: Record<string, any> = {}): CuratorToolNode =>
+    CuratorBuilder.tool(PokerTool.GET_CHOICES, {
       state: String(gameState),
       playerIdx: String(gameState.activePlayerIdx),
       ...args,
-    },
-  }),
+    }),
 
-  check_game_over: (args: Record<string, any> = {}): CuratorToolNode => ({
-    type: 'Curator_Tool',
-    toolName: 'poker_check_game_over',
-    args: { state: String(gameState), ...args },
-  }),
+  check_game_over: (args: Record<string, any> = {}): CuratorToolNode =>
+    CuratorBuilder.tool(PokerTool.CHECK_GAME_OVER, { state: String(gameState), ...args }),
 
-  rotate_dealer: (args: Record<string, any> = {}): CuratorToolNode => ({
-    type: 'Curator_Tool',
-    toolName: 'poker_rotate_dealer',
-    args: { state: String(gameState), ...args },
-  }),
+  rotate_dealer: (args: Record<string, any> = {}): CuratorToolNode =>
+    CuratorBuilder.tool(PokerTool.ROTATE_DEALER, { state: String(gameState), ...args }),
 
-  ai_decision: (args: Record<string, any> = {}): CuratorToolNode => ({
-    type: 'Curator_Tool',
-    toolName: 'poker_ai_decision',
-    args: {
+  ai_decision: (args: Record<string, any> = {}): CuratorToolNode =>
+    CuratorBuilder.tool(PokerTool.AI_DECISION, {
       state: String(gameState),
       ...args,
-    },
-  }),
+    }),
 
-  boot_table: (args: Record<string, any> = {}): CuratorToolNode => ({
-    type: 'Curator_Tool',
-    toolName: 'poker_init_lobby',
-    args: {
+  boot_table: (args: Record<string, any> = {}): CuratorToolNode =>
+    CuratorBuilder.tool(PokerTool.INIT_LOBBY, {
       tableId: `${ctx.tableId} || 'poker:high_roller_lounge'`,
       startingChips: `${ctx.startingChips} || 1000`,
       sbAmount: `${ctx.sbAmount} || 10`,
@@ -160,23 +187,148 @@ export const pokerComposables = {
       maxSeats: `${ctx.maxSeats} || 6`,
       players: String(ctx.players),
       ...args,
-    },
-  }),
+    }),
 
-  list_tables: (): CuratorToolNode => ({
-    type: 'Curator_Tool',
-    toolName: 'poker_list_tables',
-  }),
+  list_tables: (): CuratorToolNode =>
+    CuratorBuilder.tool(PokerTool.LIST_TABLES),
 
-  join_lobby: (player: any = ctx.joinRequest): CuratorToolNode => ({
-    type: 'Curator_Tool',
-    toolName: 'poker_join_lobby',
-    args: { player: String(player) },
-  }),
+  join_lobby: (player: any = ctx.joinRequest): CuratorToolNode =>
+    CuratorBuilder.tool(PokerTool.JOIN_LOBBY, { player: String(player) }),
 
-  human_speech: (args: Record<string, any>): CuratorToolNode => ({
-    type: 'Curator_Tool',
-    toolName: 'poker_human_speech',
-    args,
-  }),
+  human_speech: (args: Record<string, any>): CuratorToolNode =>
+    CuratorBuilder.tool(PokerTool.HUMAN_SPEECH, args),
+
+  // Generic typed tool invocation
+  tool: (
+    toolName: PokerToolType | string,
+    args?: Record<string, any>,
+    as?: string
+  ): CuratorToolNode => CuratorBuilder.tool(toolName, args, as),
+
+  // Typed Poker Domain Constants
+  events: PokerEvent,
+  modules: PokerModule,
+  subroutines: PokerSubroutine,
+  steps: PokerStep,
+  tools: PokerTool,
+  reasons: PokerSessionReason,
+  speechActs: PokerSpeechAct,
+  lobbyActions: PokerLobbyAction,
+  actionTypes: PokerActionType,
+
+  // Literals-free AST Sequencer & Flow Builders
+  seq: (nameOrFirstNode?: string | any, ...rest: any[]): CuratorSequentialNode => {
+    if (typeof nameOrFirstNode === 'string') {
+      return CuratorBuilder.seq(nameOrFirstNode, ...rest);
+    }
+    const allNodes = nameOrFirstNode !== undefined ? [nameOrFirstNode, ...rest] : rest;
+    const rawList = allNodes.length === 1 && Array.isArray(allNodes[0]) ? allNodes[0] : allNodes.flat();
+    const unwrapped = rawList.map((n: any) =>
+      n && typeof n === 'object' && typeof n.build === 'function' ? n.build() : n
+    );
+    return { type: 'Curator_Sequential', subAgents: unwrapped };
+  },
+
+  defineModule: (
+    name: PokerModuleType | string,
+    setupOrOptions: any,
+    maybeSetup?: any
+  ): CuratorModuleNode => (CuratorBuilder.defineModule as any)(name, setupOrOptions, maybeSetup),
+
+  defineSubroutine,
+
+  sub: (
+    params: Record<string, CuratorParamSpec> | undefined,
+    body: any,
+    returns?: string
+  ): CuratorSubroutine => CuratorBuilder.sub(params, body, returns),
+
+  call: (
+    ref: PokerSubroutineType | TypedSubroutine | string,
+    args?: Record<string, any>,
+    options?: { as?: string; mode?: 'child' | 'inline' }
+  ): CuratorCallNode => CuratorBuilder.call(ref, args, options),
+
+  ifElse: (condition: any, thenBranch: any, elseBranch?: any) =>
+    CuratorBuilder.ifElse(condition, thenBranch, elseBranch),
+
+  whileLoop: (condition: any, body: any) =>
+    CuratorBuilder.whileLoop(condition, body),
+
+  setState: (state: Record<string, any>) =>
+    CuratorBuilder.setState(state),
+
+  choice: (
+    prompt: string,
+    choices?: any,
+    options?: { as?: TypedPathProxy<any> | keyof PokerWorkflowContext | (string & {}); [key: string]: any }
+  ) =>
+    CuratorBuilder.choice(
+      prompt,
+      choices,
+      options ? { ...options, as: toVarName(options.as) } : undefined
+    ),
+
+  // Typed Poker Event Composables
+  emitEvent: (event: PokerEventType, payload?: Record<string, any>) =>
+    CuratorBuilder.emitEvent(event, payload),
+  waitEvent: (
+    event: PokerEventType,
+    asVariable?: TypedPathProxy<any> | keyof PokerWorkflowContext | (string & {}),
+    options?: { timeoutSeconds?: number; replay?: boolean }
+  ) => CuratorBuilder.waitEvent(event, toVarName(asVariable), options),
+  subscribe: (
+    event: PokerEventType,
+    target: TypedSubroutine | PokerSubroutineType | string,
+    options?: { as?: TypedPathProxy<any> | string; when?: string; scope?: 'conversation' | 'project' }
+  ) => CuratorBuilder.subscribe(
+    event,
+    target,
+    options ? { ...options, as: toVarName(options.as) } : undefined
+  ),
+  onEvent: (
+    event: PokerEventType,
+    handler: TypedSubroutine | PokerSubroutineType | string,
+    options?: { as?: TypedPathProxy<any> | string; when?: string; scope?: 'conversation' | 'project' }
+  ) => onEvent(
+    event,
+    handler,
+    options ? { ...options, as: toVarName(options.as) } : undefined
+  ),
 };
+
+export { defineModule, defineSubroutine, onEvent, type TypedSubroutine };
+
+/**
+ * Domain composable returning typed proxies and models for poker workflows.
+ */
+export function usePokerContext() {
+  return {
+    ctx,
+    gameState,
+    state,
+    params,
+    events: PokerEvent,
+    tools: PokerTool,
+    steps: PokerStep,
+    modules: PokerModule,
+    subroutines: PokerSubroutine,
+    reasons: PokerSessionReason,
+    speechActs: PokerSpeechAct,
+    lobbyActions: PokerLobbyAction,
+    actions: PokerActionType,
+    predicates: pokerPredicates,
+  };
+}
+
+/**
+ * Extracts a bare variable name from a TypedPathProxy or string.
+ * e.g. ctx.resumeCmd -> "resumeCmd", params.speechEvt -> "speechEvt"
+ */
+export function toVarName(target: unknown): string | undefined {
+  if (target === undefined || target === null) return undefined;
+  const str = String(target);
+  return str.replace(/^\$(context|state|params)\./, '');
+}
+
+

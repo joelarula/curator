@@ -6,11 +6,7 @@
  * ---
  */
 
-import {
-  CuratorBuilder,
-  type CuratorModuleNode,
-  type CuratorSequentialNode,
-} from '../curator.ts';
+import type { CuratorModuleNode } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
 
 const {
@@ -37,32 +33,82 @@ const {
   get_legal_choices,
   boot_table,
   join_lobby,
+  events,
+  modules,
+  steps,
+  defineModule,
+  defineSubroutine,
+  seq,
+  choice,
+  ifElse,
+  whileLoop,
+  setState,
+  reasons,
+  emitEvent,
+  waitEvent,
 } = pokerComposables;
+
+/**
+ * Subroutine for autonomous AI decision calculation and action dispatch.
+ */
+export const aiAgentFlow = defineSubroutine('ai_agent_flow', {
+  defaultMode: 'inline',
+  body: seq(steps.AI_AGENT_FLOW, [
+    ai_decision(),
+    apply_player_action(),
+  ]),
+});
+
+/**
+ * Subroutine for dealing the next street community cards.
+ */
+export const dealNextStreetSub = defineSubroutine('deal_next_street', {
+  defaultMode: 'inline',
+  body: seq(steps.DEAL_NEXT_STREET, [
+    deal_next_street(),
+    emitEvent(events.PHASE_STREET, {
+      street: String(gameState.currentStreet),
+    }),
+  ]),
+});
+
+/**
+ * Subroutine for showdown adjudication and pot allocation.
+ */
+export const settleShowdownSub = defineSubroutine('settle_showdown', {
+  defaultMode: 'inline',
+  body: seq(steps.PHASE_SETTLE_STEP, [
+    settle_showdown(),
+    emitEvent(events.PHASE_SETTLE, {
+      winnerSummary: String(ctx.winnerSummary),
+    }),
+  ]),
+});
 
 /**
  * Pure TypeScript representation of Texas Hold'em 5-Phase Autonomous Game Loop.
  * Compile-time verified with full type safety and minimal literal strings.
  */
 export function buildPokerWorkflowModule(): CuratorModuleNode {
-  return CuratorBuilder.defineModule('poker_workflow', {
+  return defineModule(modules.WORKFLOW, {
     description: 'Curator Texas Hold\'em autonomous event-driven 5-phase game loop engine',
-    main: CuratorBuilder.seq('poker:dynamic_engine', [
+    main: seq(steps.DYNAMIC_ENGINE, [
       // 1. Initialize open table lobby if not present
-      CuratorBuilder.ifElse(
+      ifElse(
         table_has_no_state,
-        CuratorBuilder.seq('poker:boot_table', [
+        seq(steps.BOOT_TABLE, [
           boot_table(),
-          CuratorBuilder.emitEvent('poker:lobby_ready', {
+          emitEvent(events.LOBBY_READY, {
             tableId: String(gameState.tableId),
           }),
-          CuratorBuilder.whileLoop(
+          whileLoop(
             table_needs_players,
-            CuratorBuilder.seq('poker:wait_for_players', [
-              CuratorBuilder.emitEvent('poker:awaiting_players', {
+            seq(steps.WAIT_FOR_PLAYERS, [
+              emitEvent(events.AWAITING_PLAYERS, {
                 tableId: String(gameState.tableId),
                 seatedCount: String(gameState.players.length),
               }),
-              CuratorBuilder.waitEvent('poker:player_joined', 'joinRequest'),
+              waitEvent(events.PLAYER_JOINED, ctx.joinRequest),
               join_lobby(ctx.joinRequest),
             ]),
           ),
@@ -70,50 +116,50 @@ export function buildPokerWorkflowModule(): CuratorModuleNode {
       ),
 
       // 2. Main Game Session Loop
-      CuratorBuilder.whileLoop(
+      whileLoop(
         is_game_active,
-        CuratorBuilder.seq('poker:single_hand', [
+        seq(steps.SINGLE_HAND, [
           // Phase 1: Start Hand
           start_poker_hand(),
-          CuratorBuilder.emitEvent('poker:new_round', {
+          emitEvent(events.NEW_ROUND, {
             handNumber: String(gameState.handNumber),
           }),
-          CuratorBuilder.emitEvent('poker:phase_deal', {
+          emitEvent(events.PHASE_DEAL, {
             street: String(gameState.currentStreet),
           }),
 
           // Phase 2: Street Wagering Loop
-          CuratorBuilder.whileLoop(
+          whileLoop(
             is_hand_active,
-            CuratorBuilder.seq('poker:street_loop', [
-              CuratorBuilder.whileLoop(
+            seq(steps.STREET_LOOP, [
+              whileLoop(
                 is_street_active,
-                CuratorBuilder.seq('poker:turn_step', [
-                  CuratorBuilder.ifElse(
+                seq(steps.TURN_STEP, [
+                  ifElse(
                     active_player_is_human,
-                    CuratorBuilder.seq('poker:human_agent_flow', [
+                    seq(steps.HUMAN_AGENT_FLOW, [
                       get_legal_choices(),
-                      CuratorBuilder.choice(
+                      choice(
                         'Your turn:',
                         String(ctx.poker_get_choices.choices),
-                        { as: 'humanAction' },
+                        { as: ctx.humanAction },
                       ),
-                      CuratorBuilder.ifElse(
+                      ifElse(
                         is_human_action_pause,
-                        CuratorBuilder.seq('poker:handle_pause', [
-                          CuratorBuilder.setState({ isPaused: true }),
-                          CuratorBuilder.emitEvent('poker:table_paused', {
+                        seq(steps.HANDLE_PAUSE, [
+                          setState({ isPaused: true }),
+                          emitEvent(events.TABLE_PAUSED, {
                             tableId: String(gameState.tableId),
                           }),
-                          CuratorBuilder.whileLoop(
+                          whileLoop(
                             is_table_paused,
-                            CuratorBuilder.seq('poker:wait_resume', [
-                              CuratorBuilder.waitEvent('poker:resume_action', 'resumeCmd'),
-                              CuratorBuilder.ifElse(
+                            seq(steps.WAIT_RESUME, [
+                              waitEvent(events.RESUME_ACTION, ctx.resumeCmd),
+                              ifElse(
                                 is_resume_cmd,
-                                CuratorBuilder.seq('poker:unpause', [
-                                  CuratorBuilder.setState({ isPaused: false }),
-                                  CuratorBuilder.emitEvent('poker:table_resumed', {
+                                seq(steps.UNPAUSE, [
+                                  setState({ isPaused: false }),
+                                  emitEvent(events.TABLE_RESUMED, {
                                     tableId: String(gameState.tableId),
                                   }),
                                 ]),
@@ -121,39 +167,39 @@ export function buildPokerWorkflowModule(): CuratorModuleNode {
                             ]),
                           ),
                         ]),
-                        CuratorBuilder.ifElse(
+                        ifElse(
                           is_human_action_exit,
-                          CuratorBuilder.seq('poker:handle_exit', [
-                            CuratorBuilder.setState({ sessionEnded: true }),
-                            CuratorBuilder.emitEvent('poker:session_exited', {
-                              reason: 'user_exit',
+                          seq(steps.HANDLE_EXIT, [
+                            setState({ sessionEnded: true }),
+                            emitEvent(events.SESSION_EXITED, {
+                              reason: reasons.USER_EXIT,
                             }),
                           ]),
-                          CuratorBuilder.seq('poker:apply_action', [
+                          seq(steps.APPLY_ACTION, [
                             apply_player_action(ctx.humanAction),
                           ]),
                         ),
                       ),
                     ]),
-                    CuratorBuilder.call('#ai_agent_flow', {}, { mode: 'inline' }),
+                    aiAgentFlow(),
                   ),
-                  CuratorBuilder.ifElse(
+                  ifElse(
                     is_session_unpaused,
-                    CuratorBuilder.emitEvent('poker:action_taken', {
+                    emitEvent(events.ACTION_TAKEN, {
                       player: `${gameState.players}[${gameState.activePlayerIdx}].name`,
                     }),
                   ),
                 ]),
               ),
-              CuratorBuilder.ifElse(
+              ifElse(
                 `${gameState} and not ${gameState.handOver}`,
-                CuratorBuilder.call('#deal_next_street', {}, { mode: 'inline' }),
+                dealNextStreetSub(),
               ),
             ]),
           ),
 
           // Phase 3: Settle Showdown
-          CuratorBuilder.call('#settle_showdown', {}, { mode: 'inline' }),
+          settleShowdownSub(),
 
           // Phase 4: Standings & Button Rotation
           check_game_over(),
@@ -162,38 +208,13 @@ export function buildPokerWorkflowModule(): CuratorModuleNode {
       ),
 
       // 3. Final Game Over Session Summary
-      CuratorBuilder.emitEvent('poker:game_over', {
+      emitEvent(events.GAME_OVER, {
         standings: `${ctx.standings} || ${ctx.poker_check_game_over.standings}`,
       }),
     ]),
-    subroutines: {
-      ai_agent_flow: CuratorBuilder.sub(
-        {},
-        CuratorBuilder.seq('poker:ai_agent_flow', [
-          ai_decision(),
-          apply_player_action(),
-        ]),
-      ),
-      deal_next_street: CuratorBuilder.sub(
-        {},
-        CuratorBuilder.seq('poker:deal_next_street', [
-          deal_next_street(),
-          CuratorBuilder.emitEvent('poker:phase_street', {
-            street: String(gameState.currentStreet),
-          }),
-        ]),
-      ),
-      settle_showdown: CuratorBuilder.sub(
-        {},
-        CuratorBuilder.seq('poker:phase_settle_step', [
-          settle_showdown(),
-          CuratorBuilder.emitEvent('poker:phase_settle', {
-            winnerSummary: String(ctx.winnerSummary),
-          }),
-        ]),
-      ),
-    },
+    subroutines: [aiAgentFlow, dealNextStreetSub, settleShowdownSub],
   });
 }
 
 export const pokerWorkflowAst = buildPokerWorkflowModule();
+

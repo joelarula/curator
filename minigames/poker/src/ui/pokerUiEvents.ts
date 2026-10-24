@@ -4,6 +4,7 @@ import {
   formatCard,
 } from './tableRenderer.ts';
 import type { PokerGameState } from '../types.ts';
+import { PokerEvent, PokerSessionReason, PokerSpeechAct } from '../models/index.ts';
 
 export function renderPokerEvent(
   event: { type: string; payload: any },
@@ -11,7 +12,7 @@ export function renderPokerEvent(
 ): void {
   const { type, payload } = event;
   switch (type) {
-    case 'poker:lobby_ready': {
+    case PokerEvent.LOBBY_READY: {
       const rawTid = payload?.tableId;
       const tid = (rawTid && typeof rawTid === 'string' && !rawTid.startsWith('$'))
         ? rawTid
@@ -20,19 +21,19 @@ export function renderPokerEvent(
       break;
     }
 
-    case 'poker:new_round':
+    case PokerEvent.NEW_ROUND:
       console.log(`\n\x1b[1m\x1b[36m--- Hand #${payload?.handNumber} Starting ---\x1b[0m`);
       break;
 
-    case 'poker:awaiting_human_action': {
+    case PokerEvent.AWAITING_HUMAN_ACTION: {
       if (currentGameState) {
         console.log('\n' + renderTable(currentGameState, false));
       }
       break;
     }
 
-    case 'poker:phase_deal':
-    case 'poker:phase_street': {
+    case PokerEvent.PHASE_DEAL:
+    case PokerEvent.PHASE_STREET: {
       const street = payload?.street || 'FLOP';
       const boardStr = currentGameState?.board?.map((c) => formatCard(c)).join(' ') || '';
       const potStr = currentGameState ? ` (Pot: $${currentGameState.pot})` : '';
@@ -40,7 +41,7 @@ export function renderPokerEvent(
       break;
     }
 
-    case 'poker:action_taken': {
+    case PokerEvent.ACTION_TAKEN: {
       const pName = payload?.player || 'Player';
       const act = payload?.action?.type || payload?.action || 'ACT';
       const amt = payload?.action?.amount ? ` $${payload.action.amount}` : '';
@@ -48,9 +49,9 @@ export function renderPokerEvent(
       break;
     }
 
-    case 'poker:speech_response': {
+    case PokerEvent.SPEECH_RESPONSE: {
       const spk = payload?.speaker || 'Player';
-      const act = payload?.speechAct || 'TABLE_TALK';
+      const act = payload?.speechAct || PokerSpeechAct.TABLE_TALK;
       const to = payload?.targetId ? ` -> @${payload.targetId}` : '';
       console.log(`\x1b[35m[${act}] ${spk}${to}: "${payload?.text}"\x1b[0m`);
       if (payload?.aiReply) {
@@ -60,27 +61,27 @@ export function renderPokerEvent(
       break;
     }
 
-    case 'poker:phase_settle':
-    case 'poker:showdown':
+    case PokerEvent.PHASE_SETTLE:
+    case PokerEvent.SHOWDOWN:
       console.log(`\n\x1b[1m\x1b[32m✔ [SHOWDOWN] ${payload?.winnerSummary || 'Hand completed.'}\x1b[0m`);
       if (currentGameState) {
         console.log(renderTable(currentGameState, true));
       }
       break;
 
-    case 'poker:table_paused':
+    case PokerEvent.TABLE_PAUSED:
       console.log(`\n\x1b[33m⏸ [PAUSED] Table session paused. Type /resume to continue or /exit to quit.\x1b[0m`);
       break;
 
-    case 'poker:table_resumed':
+    case PokerEvent.TABLE_RESUMED:
       console.log(`\n\x1b[32m▶ [RESUMED] Table session resumed! Stepping to next action...\x1b[0m`);
       break;
 
-    case 'poker:session_exited':
-      console.log(`\n\x1b[33m✔ [SESSION ENDED] ${payload?.reason === 'user_exit' ? 'Exited table session.' : (payload?.reason || 'Session closed.')}\x1b[0m\n`);
+    case PokerEvent.SESSION_EXITED:
+      console.log(`\n\x1b[33m✔ [SESSION ENDED] ${payload?.reason === PokerSessionReason.USER_EXIT ? 'Exited table session.' : (payload?.reason || 'Session closed.')}\x1b[0m\n`);
       break;
 
-    case 'poker:actors_list': {
+    case PokerEvent.ACTORS_LIST: {
       const actors: any[] = payload?.actors || [];
       console.log('\n\x1b[1m\x1b[36m=== Active Conversation Actors ===\x1b[0m');
       for (const a of actors) {
@@ -94,7 +95,7 @@ export function renderPokerEvent(
       break;
     }
 
-    case 'poker:game_over':
+    case PokerEvent.GAME_OVER:
       console.log(`\n\x1b[1m\x1b[32m✔ [GAME OVER] Conquered the table!\x1b[0m\n`);
       if (payload?.standings) {
         console.log(renderStandings(payload.standings));

@@ -6,26 +6,37 @@
  * ---
  */
 
-import { CuratorBuilder, type CuratorModuleNode } from '../curator.ts';
+import type { CuratorModuleNode } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
 
-const { ctx, gameState, params, apply_player_action } = pokerComposables;
+const {
+  ctx,
+  gameState,
+  params,
+  apply_player_action,
+  events,
+  modules,
+  steps,
+  defineModule,
+  seq,
+  emitEvent,
+} = pokerComposables;
 
 export function buildPokerActionModule(): CuratorModuleNode {
-  return CuratorBuilder.defineModule('poker_action', {
+  return defineModule(modules.ACTION, {
     description: 'Applies player actions, commits wagers to pots, and emits state updates',
     params: {
       action: { type: 'object', description: 'PlayerAction to apply' },
     },
-    main: CuratorBuilder.seq('poker:apply_action_step', [
-      apply_player_action(`${params.action} || ${ctx.action}`),
-      CuratorBuilder.emitEvent('poker:action_applied', {
-        player: `${gameState.players}[${gameState.activePlayerIdx}].name`,
-        action: `${params.action} || ${ctx.action}`,
-        pot: gameState.pot,
-      }),
-    ]),
-  });
+  }, () => [
+    apply_player_action(`${params.action} || ${ctx.action}`),
+    emitEvent(events.ACTION_APPLIED, {
+      player: `${gameState.players}[${gameState.activePlayerIdx}].name`,
+      action: `${params.action} || ${ctx.action}`,
+      pot: gameState.pot,
+    }),
+  ]);
 }
 
 export const pokerActionAst = buildPokerActionModule();
+

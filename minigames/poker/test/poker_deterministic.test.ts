@@ -389,9 +389,16 @@ test('Poker TypeScript Context Models: Path proxies, type guards, and semantic s
     pokerPlugin,
     pokerScripts,
     getScriptAST,
-    PokerTableShape,
-    PokerPlayerShape,
-    PokerHandShape,
+    PokerEvent,
+    PokerTool,
+    PokerStep,
+    PokerModule,
+    PokerSubroutine,
+    PokerSessionReason,
+    PokerSpeechAct,
+    PokerLobbyAction,
+    PokerActionType,
+    toVarName,
   } = await import('../src/index.ts');
 
   // 1. Verify typed path proxy expression stringification
@@ -415,12 +422,22 @@ test('Poker TypeScript Context Models: Path proxies, type guards, and semantic s
   assert.equal(isPlayerAction({ type: 'INVALID' as any }), false);
   assert.equal(isPokerGameState(cannedMockTable), true);
 
-  // 3. Verify semantic node shapes on plugin
-  assert.ok(Array.isArray(pokerPlugin.models));
-  assert.equal(pokerPlugin.models.length, 3);
-  assert.ok(pokerPlugin.models.some((m) => m.uri === PokerTableShape.uri));
-  assert.ok(pokerPlugin.models.some((m) => m.uri === PokerPlayerShape.uri));
-  assert.ok(pokerPlugin.models.some((m) => m.uri === PokerHandShape.uri));
+  // 3. Verify typed domain constants and variable name unwrapper
+  assert.equal(PokerEvent.LOBBY_READY, 'poker:lobby_ready');
+  assert.equal(PokerEvent.ACTION_TAKEN, 'poker:action_taken');
+  assert.equal(PokerEvent.SESSION_EXITED, 'poker:session_exited');
+  assert.equal(PokerTool.APPLY_ACTION, 'poker_apply_action');
+  assert.equal(PokerTool.INIT_LOBBY, 'poker_init_lobby');
+  assert.equal(PokerModule.WORKFLOW, 'poker_workflow');
+  assert.equal(PokerStep.HANDLE_PAUSE, 'poker:handle_pause');
+  assert.equal(PokerSessionReason.USER_EXIT, 'user_exit');
+  assert.equal(PokerSpeechAct.TABLE_TALK, 'TABLE_TALK');
+  assert.equal(PokerLobbyAction.NEW, 'new');
+  assert.equal(PokerActionType.PAUSE, 'PAUSE');
+  assert.equal(toVarName(ctx.resumeCmd), 'resumeCmd');
+  assert.equal(toVarName(ctx.humanAction), 'humanAction');
+  assert.equal(toVarName(params.speechEvt), 'speechEvt');
+  assert.equal(toVarName('customVar'), 'customVar');
 
   // 4. Verify typed workflow AST scripts registration on plugin
   assert.ok(pokerPlugin.scripts);

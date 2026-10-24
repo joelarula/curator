@@ -6,58 +6,74 @@
  * ---
  */
 
-import { CuratorBuilder, type CuratorModuleNode } from '../curator.ts';
+import type { CuratorModuleNode } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
 
-const { ctx, params, human_speech } = pokerComposables;
+const {
+  ctx,
+  params,
+  human_speech,
+  events,
+  modules,
+  subroutines,
+  steps,
+  speechActs,
+  defineModule,
+  defineSubroutine,
+  seq,
+  onEvent,
+  subscribe,
+  emitEvent,
+} = pokerComposables;
+
+/**
+ * First-class typed handler for table speech events.
+ */
+export const onSpeechEvent = defineSubroutine(subroutines.ON_SPEECH_EVENT, () => [
+  human_speech({
+    speechAct: `${params.speechEvt.speechAct} || '${speechActs.TABLE_TALK}'`,
+    targetId: params.speechEvt.targetId,
+    text: `${params.speechEvt.text} || ''`,
+    speakerName: `${params.speechEvt.speakerName} || 'Observer'`,
+  }),
+  emitEvent(events.AMBIENT_SPOKEN, {
+    speaker: params.speechEvt.speakerName,
+    speechAct: params.speechEvt.speechAct,
+    text: params.speechEvt.text,
+  }),
+], { params: { speechEvt: { type: 'object' } } });
+
+/**
+ * First-class typed handler for player action events.
+ */
+export const onActionTaken = defineSubroutine(subroutines.ON_ACTION_TAKEN, () => [
+  emitEvent(events.AMBIENT_EVALUATED, {
+    player: params.actionEvt.player,
+    action: params.actionEvt.action,
+  }),
+], { params: { actionEvt: { type: 'object' } } });
 
 export function buildAmbientReactionModule(): CuratorModuleNode {
-  return CuratorBuilder.defineModule('ambient_reaction', {
-    description: 'Pub/Sub ambient discourse reactor for player actions, showdowns, and table talk',
-    subscriptions: [
-      CuratorBuilder.subscribe('poker:speech', '#on_speech_event', { as: 'speechEvt' }),
-      CuratorBuilder.subscribe('poker:action_taken', '#on_action_taken', { as: 'actionEvt' }),
-    ],
-    main: CuratorBuilder.seq('poker:ambient_reaction', [
+  return defineModule(modules.AMBIENT_REACTION, () => {
+    // 1. Auto-register event listeners to module subscriptions
+    onEvent(events.SPEECH, onSpeechEvent, { as: params.speechEvt });
+    onEvent(events.ACTION_TAKEN, onActionTaken, { as: params.actionEvt });
+
+    // 2. Return main sequence directly
+    return [
       human_speech({
-        speechAct: `${ctx.eventSpeechAct} || 'TABLE_TALK'`,
+        speechAct: `${ctx.eventSpeechAct} || '${speechActs.TABLE_TALK}'`,
         targetId: ctx.eventTargetId,
         text: `${ctx.eventText} || ''`,
       }),
-      CuratorBuilder.emitEvent('poker:ambient_spoken', {
+      emitEvent(events.AMBIENT_SPOKEN, {
         speaker: ctx.speakerName,
         speechAct: ctx.speechAct,
         text: ctx.text,
       }),
-    ]),
-    subroutines: {
-      on_speech_event: CuratorBuilder.sub(
-        { speechEvt: { type: 'object' } },
-        CuratorBuilder.seq('poker:handle_speech_event', [
-          human_speech({
-            speechAct: `${params.speechEvt.speechAct} || 'TABLE_TALK'`,
-            targetId: params.speechEvt.targetId,
-            text: `${params.speechEvt.text} || ''`,
-            speakerName: `${params.speechEvt.speakerName} || 'Observer'`,
-          }),
-          CuratorBuilder.emitEvent('poker:ambient_spoken', {
-            speaker: params.speechEvt.speakerName,
-            speechAct: params.speechEvt.speechAct,
-            text: params.speechEvt.text,
-          }),
-        ]),
-      ),
-      on_action_taken: CuratorBuilder.sub(
-        { actionEvt: { type: 'object' } },
-        CuratorBuilder.seq('poker:handle_action_event', [
-          CuratorBuilder.emitEvent('poker:ambient_evaluated', {
-            player: params.actionEvt.player,
-            action: params.actionEvt.action,
-          }),
-        ]),
-      ),
-    },
+    ];
   });
 }
 
 export const ambientReactionAst = buildAmbientReactionModule();
+

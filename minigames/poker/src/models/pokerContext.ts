@@ -102,6 +102,8 @@ export interface PokerWorkflowContext {
   // Choices and agent decisions
   choices?: PokerLegalChoice[];
   decision?: PokerTurnDecision;
+  lobbyChoice?: { id: string; label?: string } | string;
+  selectedTable?: { id: string; tableId?: string } | string;
 
   // Tool execution results cached in context under toolName
   poker_init_lobby?: { gameState: PokerGameState };

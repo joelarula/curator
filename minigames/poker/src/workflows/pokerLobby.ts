@@ -6,7 +6,7 @@
  * ---
  */
 
-import { CuratorBuilder, type CuratorModuleNode } from '../curator.ts';
+import type { CuratorModuleNode } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
 
 const {
@@ -19,77 +19,89 @@ const {
   is_lobby_resume,
   is_session_active,
   table_needs_players,
+  events,
+  modules,
+  steps,
+  defineModule,
+  seq,
+  choice,
+  ifElse,
+  whileLoop,
+  setState,
+  reasons,
+  lobbyActions,
+  emitEvent,
+  waitEvent,
 } = pokerComposables;
 
 export function buildPokerLobbyModule(): CuratorModuleNode {
-  return CuratorBuilder.defineModule('poker_lobby', {
+  return defineModule(modules.LOBBY, {
     description: "Texas Hold'em Lounge Concierge for table selection and dynamic player seating",
-    main: CuratorBuilder.seq('poker:lobby_manager', [
-      // 1. Interactive Lobby Selection Gate (New Game, Resume Game, Exit)
-      CuratorBuilder.ifElse(
-        `not ${ctx.tableId} and not ${ctx.bypassLobby}`,
-        CuratorBuilder.seq('poker:lobby_gate', [
-          CuratorBuilder.choice(
-            'Lobby Options:',
+  }, () => [
+    // 1. Interactive Lobby Selection Gate (New Game, Resume Game, Exit)
+    ifElse(
+      `not ${ctx.tableId} and not ${ctx.bypassLobby}`,
+      [
+        choice(
+          'Lobby Options:',
+          [
+            { id: lobbyActions.NEW, label: 'New Game - Start fresh table', aliases: ['n'], value: { id: lobbyActions.NEW } },
+            { id: lobbyActions.RESUME, label: 'Resume Game - Select from active/paused tables', aliases: ['r', 'continue'], value: { id: lobbyActions.RESUME } },
+            { id: lobbyActions.EXIT, label: 'Exit - Quit session', aliases: ['q', 'exit', 'quit'], value: { id: lobbyActions.EXIT } },
+          ],
+          { as: ctx.lobbyChoice },
+        ),
+        ifElse(
+          is_lobby_exit,
+          [
+            setState({ sessionEnded: true }),
+            emitEvent(events.SESSION_EXITED, { reason: reasons.USER_EXIT }),
+          ],
+          ifElse(
+            is_lobby_resume,
             [
-              { id: 'new', label: 'New Game - Start fresh table', aliases: ['n'], value: { id: 'new' } },
-              { id: 'resume', label: 'Resume Game - Select from active/paused tables', aliases: ['r', 'continue'], value: { id: 'resume' } },
-              { id: 'exit', label: 'Exit - Quit session', aliases: ['q', 'exit', 'quit'], value: { id: 'exit' } },
-            ],
-            { as: 'lobbyChoice' },
-          ),
-          CuratorBuilder.ifElse(
-            is_lobby_exit,
-            CuratorBuilder.seq('poker:exit_lobby', [
-              CuratorBuilder.setState({ sessionEnded: true }),
-              CuratorBuilder.emitEvent('poker:session_exited', { reason: 'user_exit' }),
-            ]),
-            CuratorBuilder.ifElse(
-              is_lobby_resume,
-              CuratorBuilder.seq('poker:resume_table_flow', [
-                list_tables(),
-                CuratorBuilder.choice('Select Table:', String(ctx.poker_list_tables.choices), { as: 'selectedTable' }),
-                CuratorBuilder.setState({
-                  tableId: `${ctx.selectedTable.id} || ${ctx.selectedTable.tableId} || ${ctx.selectedTable}`,
-                }),
-              ]),
-              CuratorBuilder.seq('poker:new_table_flow', [
-                CuratorBuilder.setState({
-                  tableId: `${ctx.tableId} || 'poker:high_roller_lounge'`,
-                }),
-              ]),
-            ),
-          ),
-        ]),
-      ),
-
-      // 2. If session not exited, initialize table and seat players
-      CuratorBuilder.ifElse(
-        is_session_active,
-        CuratorBuilder.seq('poker:boot_table', [
-          boot_table(),
-          CuratorBuilder.emitEvent('poker:lobby_ready', {
-            tableId: String(gameState.tableId),
-          }),
-          CuratorBuilder.whileLoop(
-            table_needs_players,
-            CuratorBuilder.seq('poker:wait_for_players', [
-              CuratorBuilder.emitEvent('poker:awaiting_players', {
-                tableId: String(gameState.tableId),
-                seatedCount: String(gameState.players.length),
+              list_tables(),
+              choice('Select Table:', String(ctx.poker_list_tables.choices), { as: ctx.selectedTable }),
+              setState({
+                tableId: `${ctx.selectedTable.id} || ${ctx.selectedTable.tableId} || ${ctx.selectedTable}`,
               }),
-              CuratorBuilder.waitEvent('poker:player_joined', 'joinRequest'),
-              join_lobby(ctx.joinRequest),
-            ]),
+            ],
+            [
+              setState({
+                tableId: `${ctx.tableId} || 'poker:high_roller_lounge'`,
+              }),
+            ],
           ),
-          CuratorBuilder.emitEvent('poker:table_ready', {
-            tableId: String(gameState.tableId),
-            playerCount: String(gameState.players.length),
-          }),
-        ]),
-      ),
-    ]),
-  });
+        ),
+      ],
+    ),
+
+    // 2. If session not exited, initialize table and seat players
+    ifElse(
+      is_session_active,
+      [
+        boot_table(),
+        emitEvent(events.LOBBY_READY, {
+          tableId: String(gameState.tableId),
+        }),
+        whileLoop(
+          table_needs_players,
+          [
+            emitEvent(events.AWAITING_PLAYERS, {
+              tableId: String(gameState.tableId),
+              seatedCount: String(gameState.players.length),
+            }),
+            waitEvent(events.PLAYER_JOINED, ctx.joinRequest),
+            join_lobby(ctx.joinRequest),
+          ],
+        ),
+        emitEvent(events.TABLE_READY, {
+          tableId: String(gameState.tableId),
+          playerCount: String(gameState.players.length),
+        }),
+      ],
+    ),
+  ]);
 }
 
 export const pokerLobbyAst = buildPokerLobbyModule();
