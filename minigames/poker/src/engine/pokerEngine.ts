@@ -21,6 +21,7 @@ import { GeminiLlmProvider } from '@curator/plugin-llm-gemini';
 import { getPokerRules, sanitizeAction, tableRules } from './pokerRules.ts';
 import { buildAgentPrompt, formatAgentPrompt, formatConversationHistory } from './agentPrompt.ts';
 import { DEFAULT_TABLE_PLAYERS } from './agentProfiles.ts';
+import { PokerActionType, PokerStreet } from '../models/pokerConstants.ts';
 
 export { getPokerRules, sanitizeAction, tableRules };
 export { buildAgentPrompt, formatAgentPrompt, formatConversationHistory };
@@ -47,22 +48,7 @@ export function getLegalChoices(gameState: PokerGameState, playerIdx?: number): 
   if (!player) return [];
   const toCall = Math.max(0, (gameState.currentBet || 0) - (player.streetBet || 0));
   const rules = getPokerRules();
-  if (rules?.getLegalChoices) {
-    return rules.getLegalChoices(toCall, player.chips || 0, gameState.minRaise || 20, gameState.currentBet || 0);
-  }
-  const choices: PlayerChoice[] = [];
-  if (toCall === 0) {
-    choices.push({ id: 'check', label: 'Check', action: { type: 'CHECK' } });
-    if (player.chips >= 40) choices.push({ id: 'bet_40', label: 'Bet $40', action: { type: 'RAISE', amount: 40 } });
-    if (player.chips >= 100) choices.push({ id: 'bet_100', label: 'Bet $100', action: { type: 'RAISE', amount: 100 } });
-    choices.push({ id: 'all_in', label: `All-In ($${player.chips})`, action: { type: 'ALL_IN', amount: player.chips } });
-  } else {
-    choices.push({ id: 'call', label: `Call $${toCall}`, action: { type: 'CALL', amount: toCall } });
-    choices.push({ id: 'raise', label: `Raise to $${gameState.currentBet + 40}`, action: { type: 'RAISE', amount: toCall + 40 } });
-    choices.push({ id: 'all_in', label: `All-In ($${player.chips})`, action: { type: 'ALL_IN', amount: player.chips } });
-    choices.push({ id: 'fold', label: 'Fold', action: { type: 'FOLD' } });
-  }
-  return choices;
+  return rules.getLegalChoices(toCall, player.chips || 0, gameState.minRaise || 20, gameState.currentBet || 0);
 }
 
 export function createDeck(): Card[] {
@@ -196,20 +182,20 @@ export async function agenticDecidePokerAction(
 
   if (res?.action) {
     let actionType = res.action.toUpperCase() as ActionType;
-    if (canCheck && actionType === 'FOLD') actionType = 'CHECK';
-    if (!canCheck && actionType === 'CHECK') actionType = 'CALL';
+    if (canCheck && actionType === PokerActionType.FOLD) actionType = PokerActionType.CHECK;
+    if (!canCheck && actionType === PokerActionType.CHECK) actionType = PokerActionType.CALL;
 
     let amount = res.amount;
-    if (actionType === 'CALL') {
+    if (actionType === PokerActionType.CALL) {
       amount = Math.min(chips, toCall);
-    } else if (actionType === 'RAISE') {
+    } else if (actionType === PokerActionType.RAISE) {
       const minReq = toCall + minRaise;
       if (!amount || amount < minReq) amount = minReq;
       if (amount >= chips) {
-        actionType = 'ALL_IN';
+        actionType = PokerActionType.ALL_IN;
         amount = chips;
       }
-    } else if (actionType === 'ALL_IN') {
+    } else if (actionType === PokerActionType.ALL_IN) {
       amount = chips;
     }
 
@@ -219,7 +205,7 @@ export async function agenticDecidePokerAction(
     };
   }
 
-  return canCheck ? { type: 'CHECK' } : { type: 'FOLD' };
+  return canCheck ? { type: PokerActionType.CHECK } : { type: PokerActionType.FOLD };
 }
 
 export function initPokerLobby(args?: any): { gameState: PokerGameState } {
@@ -288,7 +274,7 @@ export function initPokerLobby(args?: any): { gameState: PokerGameState } {
     bbIdx: 2,
     sbAmount,
     bbAmount,
-    currentStreet: 'PREFLOP',
+    currentStreet: PokerStreet.PREFLOP,
     board: [],
     deck: [],
     pot: 0,
@@ -301,15 +287,6 @@ export function initPokerLobby(args?: any): { gameState: PokerGameState } {
     singleSurvivor: false,
     winnerIds: [],
     players,
-    recentRemarks: [
-      {
-        speakerId: 'dealer',
-        speakerName: 'Dealer',
-        speechAct: 'TABLE_TALK',
-        text: `Texas Hold'em table initialized (${players.length} players seated).`,
-        timestamp: Date.now(),
-      },
-    ],
     maxSeats,
     startingChips,
     startingWallets,
@@ -377,19 +354,10 @@ export function joinPokerLobby(rawState: PokerGameState, pData: any): { gameStat
     startingWallets[newPlayer.id] = newPlayer.wallet ?? newPlayer.chips;
   }
 
-  const joinRemark: AmbientRemark = {
-    speakerId: 'dealer',
-    speakerName: 'Dealer',
-    speechAct: 'TABLE_TALK',
-    text: `${name} joined the table at Seat #${seatIdx + 1} ($${chips} chips).`,
-    timestamp: Date.now(),
-  };
-
   const nextState: PokerGameState = {
     ...rawState,
     players: nextPlayers,
     startingWallets,
-    recentRemarks: [...(rawState.recentRemarks || []), joinRemark].slice(-8),
     lastActionSummary: `${name} joined the game.`,
   };
 
@@ -406,18 +374,9 @@ export function leavePokerLobby(rawState: PokerGameState, id: string): { gameSta
 
   const nextPlayers = rawState.players.filter((p) => p.id !== id);
 
-  const leaveRemark: AmbientRemark = {
-    speakerId: 'dealer',
-    speakerName: 'Dealer',
-    speechAct: 'TABLE_TALK',
-    text: `${leavingPlayer.name} cashed out $${leavingPlayer.chips} and left the table.`,
-    timestamp: Date.now(),
-  };
-
   const nextState: PokerGameState = {
     ...rawState,
     players: nextPlayers,
-    recentRemarks: [...(rawState.recentRemarks || []), leaveRemark].slice(-8),
     lastActionSummary: `${leavingPlayer.name} left the game.`,
   };
 
@@ -467,7 +426,7 @@ export function startPokerHand(rawState: PokerGameState): { gameState: PokerGame
     buttonIdx,
     sbIdx,
     bbIdx,
-    currentStreet: 'PREFLOP',
+    currentStreet: PokerStreet.PREFLOP,
     board: [],
     deck,
     pot,
@@ -480,15 +439,6 @@ export function startPokerHand(rawState: PokerGameState): { gameState: PokerGame
     singleSurvivor: false,
     winnerIds: [],
     players,
-    recentRemarks: [
-      {
-        speakerId: 'dealer',
-        speakerName: 'Dealer',
-        speechAct: 'TABLE_TALK',
-        text: `Hand #${handNumber} dealt. ${players[buttonIdx].name} holds the Dealer button. Blinds posted ($${sbPost}/$${bbPost}).`,
-        timestamp: Date.now(),
-      },
-    ],
     lastActionSummary: `Hand #${handNumber} started.`,
   };
 
@@ -506,12 +456,12 @@ export function applyPokerAction(rawState: PokerGameState, action: PlayerAction)
 
   const toCall = currentBet - player.streetBet;
 
-  if (action.type === 'FOLD') {
+  if (action.type === PokerActionType.FOLD) {
     player.folded = true;
     actionDesc = `${player.name} folds.`;
-  } else if (action.type === 'CHECK') {
+  } else if (action.type === PokerActionType.CHECK) {
     actionDesc = `${player.name} checks.`;
-  } else if (action.type === 'CALL') {
+  } else if (action.type === PokerActionType.CALL) {
     const callAmount = Math.min(player.chips, toCall);
     player.chips -= callAmount;
     player.streetBet += callAmount;
@@ -519,7 +469,7 @@ export function applyPokerAction(rawState: PokerGameState, action: PlayerAction)
     pot += callAmount;
     if (player.chips === 0) player.allIn = true;
     actionDesc = `${player.name} calls $${callAmount}.`;
-  } else if (action.type === 'RAISE') {
+  } else if (action.type === PokerActionType.RAISE) {
     const raiseAmt = action.amount || Math.min(player.chips, toCall + minRaise);
     const amountToDeduct = Math.min(player.chips, raiseAmt);
 
@@ -534,7 +484,7 @@ export function applyPokerAction(rawState: PokerGameState, action: PlayerAction)
     }
     if (player.chips === 0) player.allIn = true;
     actionDesc = `${player.name} raises to $${currentBet}.`;
-  } else if (action.type === 'ALL_IN') {
+  } else if (action.type === PokerActionType.ALL_IN) {
     const shoveAmt = player.chips;
     player.chips = 0;
     player.streetBet += shoveAmt;
@@ -548,8 +498,6 @@ export function applyPokerAction(rawState: PokerGameState, action: PlayerAction)
     }
     actionDesc = `${player.name} goes ALL-IN for $${shoveAmt}!`;
   }
-
-  const recentRemarks = rawState.recentRemarks ? [...rawState.recentRemarks] : [];
 
   const activeSurvivors = rawState.players.filter((p) => !p.folded);
   const handOver = activeSurvivors.length <= 1;
@@ -578,7 +526,6 @@ export function applyPokerAction(rawState: PokerGameState, action: PlayerAction)
     singleSurvivor,
     winnerIds: singleSurvivor ? [activeSurvivors[0].id] : [],
     players: rawState.players,
-    recentRemarks,
     lastActionSummary: actionDesc,
   };
 
@@ -590,26 +537,21 @@ export function dealPokerStreet(rawState: PokerGameState): { gameState: PokerGam
   const board = [...rawState.board];
 
   let nextStreet = rawState.currentStreet;
-  let streetName = '';
 
-  if (rawState.currentStreet === 'PREFLOP') {
-    nextStreet = 'FLOP';
+  if (rawState.currentStreet === PokerStreet.PREFLOP) {
+    nextStreet = PokerStreet.FLOP;
     deck.pop();
     board.push(deck.pop()!, deck.pop()!, deck.pop()!);
-    streetName = 'FLOP';
-  } else if (rawState.currentStreet === 'FLOP') {
-    nextStreet = 'TURN';
+  } else if (rawState.currentStreet === PokerStreet.FLOP) {
+    nextStreet = PokerStreet.TURN;
     deck.pop();
     board.push(deck.pop()!);
-    streetName = 'TURN';
-  } else if (rawState.currentStreet === 'TURN') {
-    nextStreet = 'RIVER';
+  } else if (rawState.currentStreet === PokerStreet.TURN) {
+    nextStreet = PokerStreet.RIVER;
     deck.pop();
     board.push(deck.pop()!);
-    streetName = 'RIVER';
-  } else if (rawState.currentStreet === 'RIVER') {
-    nextStreet = 'SHOWDOWN';
-    streetName = 'SHOWDOWN';
+  } else if (rawState.currentStreet === PokerStreet.RIVER) {
+    nextStreet = PokerStreet.SHOWDOWN;
   }
 
   const players = rawState.players.map((p) => ({ ...p, streetBet: 0 }));
@@ -621,15 +563,6 @@ export function dealPokerStreet(rawState: PokerGameState): { gameState: PokerGam
     loopCount++;
   }
 
-  const remarks = [...(rawState.recentRemarks || [])];
-  remarks.push({
-    speakerId: 'dealer',
-    speakerName: 'Dealer',
-    speechAct: 'TABLE_TALK',
-    text: `${streetName} dealt: [${board.map((c) => `${c.rank}${c.suit}`).join(' ')}]. Pot: $${rawState.pot}.`,
-    timestamp: Date.now(),
-  });
-
   const nextState: PokerGameState = {
     ...rawState,
     deck,
@@ -640,8 +573,7 @@ export function dealPokerStreet(rawState: PokerGameState): { gameState: PokerGam
     activePlayerIdx: nextIdx,
     streetComplete: false,
     players,
-    recentRemarks: remarks.slice(-8),
-    lastActionSummary: `Dealt ${streetName}.`,
+    lastActionSummary: `Dealt ${nextStreet}.`,
   };
 
   return { gameState: nextState };
@@ -660,7 +592,7 @@ export function fastForwardPokerBoard(rawState: PokerGameState): { gameState: Po
     ...rawState,
     deck,
     board,
-    currentStreet: 'SHOWDOWN',
+    currentStreet: PokerStreet.SHOWDOWN,
     streetComplete: true,
     lastActionSummary: 'All-in runout complete.',
   };
@@ -700,22 +632,12 @@ export function distributePokerPots(rawState: PokerGameState): { gameState: Poke
     winnerSummary = `${winnerNames} win${winners.length > 1 ? '' : 's'} $${rawState.pot}!`;
   }
 
-  const remarks = [...(rawState.recentRemarks || [])];
-  remarks.push({
-    speakerId: 'dealer',
-    speakerName: 'Dealer',
-    speechAct: 'TABLE_TALK',
-    text: `Showdown complete: ${winnerSummary}`,
-    timestamp: Date.now(),
-  });
-
   const nextState: PokerGameState = {
     ...rawState,
     pot: 0,
     handOver: true,
     winnerIds,
     players,
-    recentRemarks: remarks.slice(-8),
     lastActionSummary: winnerSummary,
   };
 
@@ -727,7 +649,7 @@ export function rotatePokerDealer(rawState: PokerGameState): { gameState: PokerG
   return { gameState: { ...rawState, buttonIdx: nextBtn } };
 }
 
-export async function processHumanSpeech(
+export function processHumanSpeech(
   rawState: PokerGameState,
   args: {
     speechAct?: string;
@@ -735,13 +657,11 @@ export async function processHumanSpeech(
     targetId?: string;
     speakerId?: string;
     speakerName?: string;
-  },
-  toolContext?: any
-): Promise<{ gameState: PokerGameState; remark: AmbientRemark; aiResponse?: AmbientRemark | null }> {
+  }
+): { gameState: PokerGameState; remark: AmbientRemark; aiResponse?: AmbientRemark | null } {
   const speechAct = (args.speechAct || 'TABLE_TALK') as SpeechAct;
   const text = String(args.text || '');
   const targetId = args.targetId ? String(args.targetId) : undefined;
-  const cleanTarget = targetId ? targetId.toLowerCase().replace(/^@/, '') : '';
 
   const speakerId = args.speakerId || 'hero';
   const speakerPlayer = rawState?.players?.find((p) => p.id === speakerId);
@@ -756,102 +676,7 @@ export async function processHumanSpeech(
     timestamp: Date.now(),
   };
 
-  const remarks = [...(rawState?.recentRemarks || [])];
-  remarks.push(remark);
-
-  let aiResponse: AmbientRemark | null = null;
-  let respondingAgent: any = null;
-
-  // 1. Check active seated players if table is running
-  if (cleanTarget && rawState?.players) {
-    respondingAgent = rawState.players.find(
-      (p) => (p.id.toLowerCase() === cleanTarget || p.name.toLowerCase().includes(cleanTarget)) && !p.isHuman
-    );
-  }
-
-  // 2. If not found in seated players (or in lounge, or targeting lobby/dealer), resolve from real DB Agent
-  if (!respondingAgent) {
-    const prisma = toolContext?.prisma || toolContext?.toolContext?.prisma;
-    const defaultTarget = rawState?.players ? 'viper' : 'lobby';
-    const targetAgentId = cleanTarget || (speechAct !== 'WHISPER' ? defaultTarget : undefined);
-
-    if (targetAgentId && prisma?.agent?.findFirst) {
-      try {
-        const dbAgent = await prisma.agent.findFirst({
-          where: { OR: [{ id: targetAgentId }, { name: targetAgentId }] },
-          include: { script: true },
-        });
-        if (dbAgent) {
-          const hostAgents = toolContext?.host?.engine?.agents || toolContext?.toolContext?.host?.engine?.agents;
-          const pluginDef = hostAgents?.get?.(dbAgent.id) || {};
-          respondingAgent = {
-            id: dbAgent.id,
-            name: dbAgent.name,
-            persona: pluginDef.persona || (dbAgent.id === 'lobby' ? 'concierge' : (dbAgent.id === 'dealer' ? 'dealer' : 'player')),
-            instruction: pluginDef.instruction || dbAgent.script?.body || '',
-            model: pluginDef.model,
-          };
-        }
-      } catch (_) {}
-    }
-  }
-
-  // 3. Fallback to active seated AI player if table talk and no target specified
-  if (!respondingAgent && rawState?.players && speechAct !== 'WHISPER') {
-    respondingAgent = rawState.players.find((p) => !p.isHuman && !p.folded);
-  }
-
-  // 4. Generate in-character response via LLM
-  if (respondingAgent) {
-    const isWhisperToAgent = speechAct === 'WHISPER';
-    let systemPrompt = '';
-    let userPrompt = '';
-
-    if (respondingAgent.id === 'lobby') {
-      systemPrompt = `You are ${respondingAgent.name}. ${respondingAgent.instruction || "You are the Texas Hold'em Lounge Concierge."} You are in the poker lounge assisting players.`;
-      userPrompt = `Discourse Event: ${speakerName} stated (${speechAct}): "${text}". Respond in character as the Lounge Concierge to assist the player in JSON: {"speech": "your reply", "speechAct": "TABLE_TALK", "innerMonologue": "reasoning"}`;
-    } else if (respondingAgent.id === 'dealer') {
-      const potInfo = rawState?.pot ? `Current Pot: $${rawState.pot}. ` : '';
-      const streetInfo = rawState?.currentStreet ? `Street: ${rawState.currentStreet}. ` : '';
-      systemPrompt = `You are ${respondingAgent.name}. ${respondingAgent.instruction || "You are the professional Texas Hold'em table dealer."} Maintain game integrity and decorum.`;
-      userPrompt = `Discourse Event: ${speakerName} stated (${speechAct}): "${text}". Table Status: ${potInfo}${streetInfo}Respond in character as the Dealer in JSON: {"speech": "your reply", "speechAct": "TABLE_TALK", "innerMonologue": "reasoning"}`;
-    } else if (rawState?.players && respondingAgent.holeCards) {
-      systemPrompt = buildAgentSystemPrompt(respondingAgent);
-      userPrompt = `Discourse Event: ${speakerName} stated (${speechAct}): "${text}". Respond in character as ${respondingAgent.name} in JSON: {"speech": "your reply", "speechAct": "${isWhisperToAgent ? 'WHISPER' : 'TABLE_TALK'}", "innerMonologue": "reasoning"}`;
-    } else {
-      systemPrompt = `You are ${respondingAgent.name}. Character disposition: ${respondingAgent.persona || 'player'}. ${respondingAgent.instruction || ''}`;
-      userPrompt = `Discourse Event: ${speakerName} stated (${speechAct}): "${text}". Respond in character as ${respondingAgent.name} in JSON: {"speech": "your reply", "speechAct": "${isWhisperToAgent ? 'WHISPER' : 'TABLE_TALK'}", "innerMonologue": "reasoning"}`;
-    }
-
-    try {
-      const res = await callCuratorLlm<{ speech?: string; speechAct?: SpeechAct; innerMonologue?: string }>(
-        systemPrompt,
-        userPrompt,
-        { model: respondingAgent.model }
-      );
-
-      if (res?.speech) {
-        aiResponse = {
-          speakerId: respondingAgent.id,
-          speakerName: respondingAgent.name,
-          speechAct: res.speechAct || (isWhisperToAgent ? 'WHISPER' : 'TABLE_TALK'),
-          recipientId: isWhisperToAgent ? speakerId : undefined,
-          text: res.speech,
-          timestamp: Date.now(),
-        };
-        remarks.push(aiResponse);
-      }
-    } catch (_) {}
-  }
-
-  const nextState: PokerGameState = rawState
-    ? {
-        ...rawState,
-        recentRemarks: remarks.slice(-8),
-      }
-    : (rawState as any);
-
-  return { gameState: nextState, remark, aiResponse };
+  return { gameState: rawState, remark, aiResponse: null };
 }
 
 export function checkPokerGameOver(rawState: PokerGameState): {
@@ -961,7 +786,7 @@ export async function playPokerHand(
   await handlers.onTurnLogged?.(`Hand #${state.handNumber} started. Button is Seat ${state.buttonIdx} (${state.players[state.buttonIdx].name}).`);
 
   // 2. Street Wagering Loop (PREFLOP -> FLOP -> TURN -> RIVER)
-  while (!state.handOver && state.currentStreet !== 'SHOWDOWN') {
+  while (!state.handOver && state.currentStreet !== PokerStreet.SHOWDOWN) {
     let streetDone = false;
     while (!streetDone && !state.handOver) {
       const activeIdx = state.activePlayerIdx;
@@ -971,7 +796,7 @@ export async function playPokerHand(
       if (activePlayer.isHuman) {
         const legalChoices = getLegalChoices(state, activeIdx);
         if (handlers.isAutoplay || !handlers.onHumanTurn) {
-          const passive = legalChoices.find((c) => c.action.type === 'CHECK' || c.action.type === 'CALL');
+          const passive = legalChoices.find((c) => c.action.type === PokerActionType.CHECK || c.action.type === PokerActionType.CALL);
           chosenAction = passive ? passive.action : legalChoices[0].action;
         } else {
           chosenAction = await handlers.onHumanTurn(state, legalChoices);

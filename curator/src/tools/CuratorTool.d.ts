@@ -48,7 +48,7 @@ export interface CuratorTool {
     };
 }
 /** Helper to build a CuratorTool from a plain function */
-export declare function defineTool(opts: {
+export declare function defineTool<TArgs = Record<string, unknown>>(opts: {
     name: string;
     description: string;
     parameters: CuratorJsonSchema;
@@ -57,6 +57,8 @@ export declare function defineTool(opts: {
     requiresHumanApproval?: boolean;
     requiresConfirmation?: boolean;
     mcp?: McpToolExposure;
-    execute: (args: Record<string, unknown>, ctx: CuratorToolContext) => Promise<CuratorToolOutput>;
+    usage?: string;
+    aliases?: string[];
+    execute: (args: TArgs, ctx: CuratorToolContext) => Promise<CuratorToolOutput>;
 }): CuratorTool;
 //# sourceMappingURL=CuratorTool.d.ts.map

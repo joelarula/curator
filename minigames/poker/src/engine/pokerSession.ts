@@ -1,6 +1,15 @@
 import type { CuratorHost } from '../curatorHost.ts';
 import { AgentRoleService } from '../curator.ts';
 import type { PlayerAction, PokerGameState } from '../types.ts';
+import {
+  PokerEvent,
+  PokerRole,
+  PokerActionType,
+  PokerStreet,
+  PokerTool,
+  PokerModule,
+  PokerLobbyAction,
+} from '../models/index.ts';
 
 export interface PokerSessionOptions {
   databasePath?: string;
@@ -137,19 +146,15 @@ export async function getScriptAST(prisma: any, scriptName: string): Promise<any
   }
   const script = await prisma?.script?.findUnique?.({ where: { name: scriptName } });
   if (script?.ast) return script.ast;
-  const fallback =
-    (await prisma?.script?.findUnique?.({ where: { name: 'poker_workflow' } })) ||
-    (await prisma?.script?.findUnique?.({ where: { name: 'poker_lobby' } }));
-  if (fallback?.ast) return fallback.ast;
-  return scriptName === 'poker_lobby' ? pokerLobbyAst : pokerWorkflowAst;
+  return scriptName === PokerModule.LOBBY ? pokerLobbyAst : pokerWorkflowAst;
 }
 
 export async function getTableWorkflowAST(prisma: any): Promise<any> {
-  return getScriptAST(prisma, 'poker_workflow');
+  return getScriptAST(prisma, PokerModule.WORKFLOW);
 }
 
 export async function getLobbyWorkflowAST(prisma: any): Promise<any> {
-  return getScriptAST(prisma, 'poker_lobby');
+  return getScriptAST(prisma, PokerModule.LOBBY);
 }
 
 /**
@@ -170,7 +175,7 @@ export async function enqueueTableASTRequest(
   } = {}
 ): Promise<any> {
   const bypassLobby = options.bypassLobby ?? (options.tableId !== undefined);
-  const targetScript = options.scriptName || (bypassLobby ? 'poker_workflow' : 'poker_lobby');
+  const targetScript = options.scriptName || (bypassLobby ? PokerModule.WORKFLOW : PokerModule.LOBBY);
   const ast = await getScriptAST(host.prisma, targetScript);
   return host.prisma.request.create({
     data: {
@@ -235,7 +240,8 @@ export async function ensureHumanActorInDatabase(
 
   // 2. Assign poker roles to the human user under the active poker project (e.g. 'poker-project-1')
   const targetProjectId = host.project?.id || 'poker-project-1';
-  for (const roleName of ['poker:player', 'poker:spectator']) {
+  const humanRoles = [PokerRole.PLAYER, PokerRole.SPECTATOR];
+  for (const roleName of humanRoles) {
     try {
       if (typeof host.assignUserProjectRole === 'function') {
         await host.assignUserProjectRole(user.id, roleName, targetProjectId);
@@ -272,7 +278,7 @@ export async function ensureHumanActorInDatabase(
           kind: 'user',
           isHuman: true,
           role: 'player',
-          roles: ['poker:player', 'poker:spectator'],
+          roles: humanRoles,
         });
         await prisma.conversation.update({
           where: { id: conversationId },
@@ -316,7 +322,7 @@ export async function getConversationActors(
     id: user?.id || 'hero',
     kind: 'user',
     name: user?.name || 'You (Hero)',
-    roles: ['poker:player', 'poker:spectator'],
+    roles: [PokerRole.PLAYER, PokerRole.SPECTATOR],
     isHuman: true,
     persona: 'human',
     status: 'ACTIVE',
@@ -359,7 +365,7 @@ export async function getConversationActors(
     const seated = seatedMap.get(agent.id.toLowerCase());
 
     const isLobby = agent.id === 'lobby';
-    const isDealer = roleNames.includes('poker:dealer') || agent.id === 'dealer';
+    const isDealer = roleNames.includes(PokerRole.DEALER) || agent.id === 'dealer';
 
     let status = 'LOUNGE';
     if (isLobby) status = 'LOBBY_CONCIERGE';
@@ -495,7 +501,7 @@ export async function createPokerGameSession(
     const ctx = (waitingReq.context as any) || {};
     const ast = waitingReq.ast as any;
     const isHumanTurn =
-      ctx.waitEvent === 'poker:human_action' ||
+      ctx.waitEvent === PokerEvent.HUMAN_ACTION ||
       ctx.waitEvent === 'curator:choice' ||
       ast?.type === 'Curator_HumanInput';
     if (!isHumanTurn) return null;
@@ -514,7 +520,7 @@ export async function createPokerGameSession(
       chips: activePlayer?.chips ?? 0,
       pot: gameState?.pot ?? 0,
       toCall: (gameState?.currentBet ?? 0) - (activePlayer?.streetBet ?? 0),
-      street: gameState?.currentStreet || 'PREFLOP',
+      street: gameState?.currentStreet || PokerStreet.PREFLOP,
       choices: Array.isArray(choicesInfo) ? choicesInfo : (choicesInfo.choices || []),
     };
   };
@@ -535,8 +541,8 @@ export async function createPokerGameSession(
       context: sessionId ? { sessionId } : undefined,
     };
 
-    if (eventName === 'poker:speech') {
-      if (!host.engine.tools.get('poker_human_speech')) return null;
+    if (eventName === PokerEvent.SPEECH) {
+      if (!host.engine.tools.get(PokerTool.HUMAN_SPEECH)) return null;
 
       const currentGameState = await getGameState(targetConvId);
       const speakerName = payload?.speakerName || 'You';
@@ -546,14 +552,14 @@ export async function createPokerGameSession(
       const targetId = payload?.targetId || payload?.args?.targetId;
 
       const run = await host.runTool(
-        'poker_human_speech',
+        PokerTool.HUMAN_SPEECH,
         { speechAct, text, targetId, speakerId, speakerName },
         { ...requestScope, runtimeArgs: { state: currentGameState }, runtimeContext: { state: currentGameState } }
       );
       if (run.status === 'WAITING_FOR_USER') return run.record;
       const result: any = run.result;
 
-      host.events.broadcast('poker:speech_response', {
+      host.events.broadcast(PokerEvent.SPEECH_RESPONSE, {
         speaker: speakerName,
         text,
         speechAct,
@@ -568,7 +574,7 @@ export async function createPokerGameSession(
       return result;
     }
 
-    if (eventName === 'curator:tool_call' || eventName === 'poker:tool_call') {
+    if (eventName === 'curator:tool_call' || eventName === PokerEvent.TOOL_CALL) {
       const toolName = payload?.tool || payload?.name;
       if (!host.engine.tools.get(toolName)) {
         console.warn(`[PokerSession] Tool "${toolName}" not found on engine.`);
@@ -602,31 +608,31 @@ export async function createPokerGameSession(
     let targetEvent = eventName;
     let targetPayload = payload;
 
-    if (eventName === 'poker:pause') {
-      targetEvent = 'poker:human_action';
-      targetPayload = { type: 'PAUSE' };
-    } else if (eventName === 'poker:resume') {
-      targetEvent = 'poker:resume_action';
-      targetPayload = { type: 'RESUME' };
+    if (eventName === PokerEvent.PAUSE) {
+      targetEvent = PokerEvent.HUMAN_ACTION;
+      targetPayload = { type: PokerActionType.PAUSE };
+    } else if (eventName === PokerEvent.RESUME) {
+      targetEvent = PokerEvent.RESUME_ACTION;
+      targetPayload = { type: PokerActionType.RESUME };
     } else if (eventName === 'curator:exit') {
       targetEvent = 'curator:choice';
-      targetPayload = { id: 'exit', type: 'EXIT' };
-    } else if (eventName === 'poker:get_actors') {
+      targetPayload = { id: PokerActionType.EXIT.toLowerCase(), type: PokerActionType.EXIT };
+    } else if (eventName === PokerEvent.GET_ACTORS) {
       const actors = await getConversationActors(host, targetConvId);
       return { actors };
-    } else if (eventName === 'poker:list_tables') {
+    } else if (eventName === PokerEvent.LIST_TABLES) {
       const tables = await listTables();
       const choices = tables.map((t: any, idx: number) => ({
         id: String(t.id || t.tableId || idx + 1),
         label: `Table #${t.tableId || t.id || idx + 1} (${t.title || 'Table'})`,
         aliases: [String(idx + 1), String(t.tableId || t.id || idx + 1)],
-        event: 'poker:table_selected',
+        event: PokerEvent.TABLE_SELECTED,
         payload: { id: String(t.tableId || t.id || idx + 1) },
         value: { id: String(t.tableId || t.id || idx + 1) },
       }));
-      host.events.broadcast('poker:request_table_selection', { tables, choices });
+      host.events.broadcast(PokerEvent.REQUEST_TABLE_SELECTION, { tables, choices });
       return tables;
-    } else if (eventName === 'poker:reset_light') {
+    } else if (eventName === PokerEvent.RESET_LIGHT) {
       const res = await resetPokerDatabaseLight(prisma, { quiet: false });
       const newConv = await ensureTableConversation(host, { maxSeats });
       await enqueueTableASTRequest(host, newConv.id, {
@@ -636,16 +642,16 @@ export async function createPokerGameSession(
         maxSeats,
         bypassLobby: false,
       });
-      host.events.broadcast('poker:lobby_prompt', {
+      host.events.broadcast(PokerEvent.LOBBY_PROMPT, {
         options: [
-          { id: 'new', label: 'New Game', description: 'Start fresh table' },
-          { id: 'resume', label: 'Resume Game', description: 'Select from active/paused tables' },
-          { id: 'exit', label: 'Exit', description: 'Quit session' },
+          { id: PokerLobbyAction.NEW, label: 'New Game', description: 'Start fresh table' },
+          { id: PokerLobbyAction.RESUME, label: 'Resume Game', description: 'Select from active/paused tables' },
+          { id: PokerLobbyAction.EXIT, label: 'Exit', description: 'Quit session' },
         ],
         choices: [
-          { id: 'new', label: 'New Game - Start fresh table', aliases: ['n'], event: 'poker:lobby_choice', payload: { id: 'new' }, value: { id: 'new' } },
-          { id: 'resume', label: 'Resume Game - Select from active/paused tables', aliases: ['r', 'continue'], event: 'poker:lobby_choice', payload: { id: 'resume' }, value: { id: 'resume' } },
-          { id: 'exit', label: 'Exit - Quit session', aliases: ['q', 'exit', 'quit'], event: 'poker:lobby_choice', payload: { id: 'exit' }, value: { id: 'exit' } },
+          { id: PokerLobbyAction.NEW, label: 'New Game - Start fresh table', aliases: ['n'], event: PokerEvent.LOBBY_CHOICE, payload: { id: PokerLobbyAction.NEW }, value: { id: PokerLobbyAction.NEW } },
+          { id: PokerLobbyAction.RESUME, label: 'Resume Game - Select from active/paused tables', aliases: ['r', 'continue'], event: PokerEvent.LOBBY_CHOICE, payload: { id: PokerLobbyAction.RESUME }, value: { id: PokerLobbyAction.RESUME } },
+          { id: PokerLobbyAction.EXIT, label: 'Exit - Quit session', aliases: ['q', 'exit', 'quit'], event: PokerEvent.LOBBY_CHOICE, payload: { id: PokerLobbyAction.EXIT }, value: { id: PokerLobbyAction.EXIT } },
         ],
       });
       return res;
@@ -653,7 +659,7 @@ export async function createPokerGameSession(
 
     // 3. Emit as a Request: the core matcher spawns subscriptions and resumes matching waits.
     //    Poker adds its event families on top of exact `waitEvent` matching.
-    const choiceFamily = new Set(['poker:human_action', 'poker:lobby_choice', 'poker:table_selected']);
+    const choiceFamily = new Set<string>([PokerEvent.HUMAN_ACTION, PokerEvent.LOBBY_CHOICE, PokerEvent.TABLE_SELECTED]);
     const emitted = await host.emitEvent(targetEvent, targetPayload, {
       conversationId: targetConvId,
       origin: 'REPL',
@@ -661,7 +667,7 @@ export async function createPokerGameSession(
       matchWait: (waitEvent, evt, p) =>
         evt === 'curator:choice' ||
         (waitEvent === 'curator:choice' && choiceFamily.has(evt)) ||
-        (waitEvent === 'poker:resume_action' && evt === 'poker:human_action' && (p?.type === 'RESUME' || p?.type === 'EXIT')),
+        (waitEvent === PokerEvent.RESUME_ACTION && evt === PokerEvent.HUMAN_ACTION && (p?.type === PokerActionType.RESUME || p?.type === PokerActionType.EXIT)),
       waitValue: (p) => (p?.choice !== undefined ? p.choice : p),
       contextPatch: sessionId ? { sessionId } : undefined,
     });
@@ -720,13 +726,34 @@ export async function createPokerGameSession(
       humanTurn: null,
     };
 
-    host.events.broadcast('poker:table_created', {
+    host.events.broadcast(PokerEvent.TABLE_CREATED, {
       tableId: info.tableId,
       conversationId: info.conversationId,
       title: info.title,
     });
 
     return info;
+  };
+
+  const resolveTableInfo = async (c: any): Promise<PokerTableInfo> => {
+    const gState = await getGameState(c.id);
+    const waiting = await getWaitingHumanTurn(c.id);
+    const meta = (c.metadata as any) || {};
+    const latestReq = await prisma.request.findFirst({
+      where: { conversationId: c.id },
+      orderBy: { updatedAt: 'desc' },
+    });
+    const isPaused = latestReq?.status === 'PAUSED' || (latestReq?.context as any)?.isPaused === true;
+    return {
+      tableId: String(c.id),
+      conversationId: c.id,
+      title: meta.tableName || c.title || `Table #${c.id}`,
+      createdAt: c.createdAt,
+      status: isPaused ? 'PAUSED' : (latestReq?.status || 'ACTIVE'),
+      gameState: gState,
+      waitingForHuman: waiting !== null,
+      humanTurn: waiting,
+    };
   };
 
   const listTables = async (): Promise<PokerTableInfo[]> => {
@@ -737,24 +764,7 @@ export async function createPokerGameSession(
 
     const list: PokerTableInfo[] = [];
     for (const c of convs) {
-      const gState = await getGameState(c.id);
-      const waiting = await getWaitingHumanTurn(c.id);
-      const meta = (c.metadata as any) || {};
-      const latestReq = await prisma.request.findFirst({
-        where: { conversationId: c.id },
-        orderBy: { updatedAt: 'desc' },
-      });
-      const isPaused = latestReq?.status === 'PAUSED' || (latestReq?.context as any)?.isPaused === true;
-      list.push({
-        tableId: String(c.id),
-        conversationId: c.id,
-        title: meta.tableName || c.title || `Table #${c.id}`,
-        createdAt: c.createdAt,
-        status: isPaused ? 'PAUSED' : (latestReq?.status || 'ACTIVE'),
-        gameState: gState,
-        waitingForHuman: waiting !== null,
-        humanTurn: waiting,
-      });
+      list.push(await resolveTableInfo(c));
     }
     return list;
   };
@@ -765,18 +775,7 @@ export async function createPokerGameSession(
       where: { id: targetConvId },
     });
     if (!c) return null;
-    const gState = await getGameState(c.id);
-    const waiting = await getWaitingHumanTurn(c.id);
-    const meta = (c.metadata as any) || {};
-    return {
-      tableId: String(c.id),
-      conversationId: c.id,
-      title: meta.tableName || c.title || `Table #${c.id}`,
-      createdAt: c.createdAt,
-      gameState: gState,
-      waitingForHuman: waiting !== null,
-      humanTurn: waiting,
-    };
+    return resolveTableInfo(c);
   };
 
   /**

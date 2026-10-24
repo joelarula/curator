@@ -22,10 +22,19 @@ export const PokerEvent = {
   GAME_OVER: 'poker:game_over',
 
   // Session Control
+  PAUSE: 'poker:pause',
+  RESUME: 'poker:resume',
   TABLE_PAUSED: 'poker:table_paused',
   RESUME_ACTION: 'poker:resume_action',
   TABLE_RESUMED: 'poker:table_resumed',
   SESSION_EXITED: 'poker:session_exited',
+  TABLE_CREATED: 'poker:table_created',
+  REQUEST_TABLE_SELECTION: 'poker:request_table_selection',
+  LOBBY_PROMPT: 'poker:lobby_prompt',
+  GET_ACTORS: 'poker:get_actors',
+  LIST_TABLES: 'poker:list_tables',
+  RESET_LIGHT: 'poker:reset_light',
+  TOOL_CALL: 'poker:tool_call',
 
   // Actions & Execution
   ACTION_APPLIED: 'poker:action_applied',

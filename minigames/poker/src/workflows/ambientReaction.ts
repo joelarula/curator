@@ -14,15 +14,6 @@ import {
 } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
 
-/**
- * Flow-specific speech act classifications for ambient discourse.
- */
-export const PokerSpeechAct = {
-  TABLE_TALK: 'TABLE_TALK',
-} as const;
-export type PokerSpeechActType = typeof PokerSpeechAct[keyof typeof PokerSpeechAct];
-export const speechActs = PokerSpeechAct;
-
 const {
   ctx,
   params,
@@ -37,7 +28,7 @@ const {
  */
 export const onSpeechEvent = defineSubroutine(subroutines.ON_SPEECH_EVENT, () => [
   human_speech({
-    speechAct: `${params.speechEvt.speechAct} || '${speechActs.TABLE_TALK}'`,
+    speechAct: `${params.speechEvt.speechAct} || 'TABLE_TALK'`,
     targetId: params.speechEvt.targetId,
     text: `${params.speechEvt.text} || ''`,
     speakerName: `${params.speechEvt.speakerName} || 'Observer'`,
@@ -68,7 +59,7 @@ export function buildAmbientReactionModule(): CuratorModuleNode {
     // 2. Return main sequence directly
     return [
       human_speech({
-        speechAct: `${ctx.eventSpeechAct} || '${speechActs.TABLE_TALK}'`,
+        speechAct: `${ctx.eventSpeechAct} || 'TABLE_TALK'`,
         targetId: ctx.eventTargetId,
         text: `${ctx.eventText} || ''`,
       }),

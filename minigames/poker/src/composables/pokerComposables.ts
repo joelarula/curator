@@ -27,6 +27,8 @@ import {
   type PokerSessionReasonType,
   PokerActionType,
   type PokerActionTypeValue,
+  PokerStreet,
+  type PokerStreetType,
 } from '../models/pokerConstants.ts';
 export * from '../models/pokerRoles.ts';
 export * from '../models/pokerToolParams.ts';
@@ -68,6 +70,8 @@ export {
   type PokerSessionReasonType,
   PokerActionType,
   type PokerActionTypeValue,
+  PokerStreet,
+  type PokerStreetType,
   createContextProxy,
   type TypedPathProxy,
 };

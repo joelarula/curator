@@ -24,3 +24,22 @@ export const PokerActionType = {
 } as const;
 
 export type PokerActionTypeValue = (typeof PokerActionType)[keyof typeof PokerActionType];
+
+export const PokerStreet = {
+  PREFLOP: 'PREFLOP',
+  FLOP: 'FLOP',
+  TURN: 'TURN',
+  RIVER: 'RIVER',
+  SHOWDOWN: 'SHOWDOWN',
+} as const;
+
+export type PokerStreetType = (typeof PokerStreet)[keyof typeof PokerStreet];
+
+export const PokerLobbyAction = {
+  NEW: 'new',
+  RESUME: 'resume',
+  EXIT: 'exit',
+} as const;
+
+export type PokerLobbyActionType = (typeof PokerLobbyAction)[keyof typeof PokerLobbyAction];
+

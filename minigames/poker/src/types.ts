@@ -122,7 +122,7 @@ export interface PokerGameState {
   singleSurvivor: boolean;
   winnerIds: string[];
   players: PlayerState[];
-  recentRemarks: AmbientRemark[];
+  recentRemarks?: AmbientRemark[];
   lastActionSummary?: string;
   maxSeats?: number;
   startingChips?: number;

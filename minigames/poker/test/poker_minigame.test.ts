@@ -403,8 +403,8 @@ test('Event-Driven Speech Acts: Human table talk, banter, and targeted whisper t
     toolContext: {},
   });
   state = talkRes.gameState;
-  assert(state.recentRemarks.some((r: any) => r.text === 'Good luck tonight everyone!'));
-  assert(talkRes.aiResponse !== null);
+  assert.equal(talkRes.remark.text, 'Good luck tonight everyone!');
+  assert.equal(talkRes.remark.speechAct, 'TABLE_TALK');
 
   // 2. Human Whisper to Viper (Shark)
   const whisperRes: any = await humanSpeechTool.runAsync({
@@ -412,11 +412,9 @@ test('Event-Driven Speech Acts: Human table talk, banter, and targeted whisper t
     toolContext: {},
   });
   state = whisperRes.gameState;
-  const whisperRemark = state.recentRemarks.find((r: any) => r.speechAct === 'WHISPER' && r.recipientId === 'viper');
-  assert(whisperRemark !== undefined);
-  assert.equal(whisperRemark.speakerId, 'hero');
-  assert(whisperRes.aiResponse !== null);
-  assert.equal(whisperRes.aiResponse.speakerId, 'viper');
+  assert.equal(whisperRes.remark.speechAct, 'WHISPER');
+  assert.equal(whisperRes.remark.speakerId, 'hero');
+  assert.equal(whisperRes.remark.recipientId, 'viper');
 });
 
 test('Asymmetric Subjective Narratives: Whispers are private to participants and hidden from third parties', async () => {
@@ -443,16 +441,11 @@ test('Asymmetric Subjective Narratives: Whispers are private to participants and
   });
   state = whisperRes.gameState;
 
-  // Check recent remarks in gameState
-  const whisperRemark = state.recentRemarks.find((r: any) => r.text === secretText);
-  assert(whisperRemark !== undefined);
-  assert.equal(whisperRemark.recipientId, 'viper');
-  assert.equal(whisperRemark.speechAct, 'WHISPER');
-
-  // Verify aiResponse was triggered
-  assert(whisperRes.aiResponse !== null);
-  assert.equal(whisperRes.aiResponse.speakerId, 'viper');
-  assert(whisperRes.aiResponse.text.length > 0);
+  // Verify remark recorded on result
+  assert.equal(whisperRes.remark.text, secretText);
+  assert.equal(whisperRes.remark.recipientId, 'viper');
+  assert.equal(whisperRes.remark.speechAct, 'WHISPER');
+  assert.equal(whisperRes.remark.speakerId, 'hero');
 });
 
 test('Curator Core: AgentInteractionContextManager builds subjective LLM working memory', async () => {

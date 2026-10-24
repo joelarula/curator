@@ -47,7 +47,7 @@ export function buildAgentPrompt(args: any): any {
   const street = gameState.currentStreet || 'PREFLOP';
 
   // 3. Form game conversation history from context
-  const remarks = ctx.recentRemarks || gameState.recentRemarks || [];
+  const remarks = ctx.recentRemarks || ctx.remarks || gameState?.recentRemarks || [];
   const conversationHistory = formatConversationHistory(remarks, player.id);
 
   // 4. Active opponents at the table

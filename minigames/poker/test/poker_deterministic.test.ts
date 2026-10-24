@@ -395,7 +395,6 @@ test('Poker TypeScript Context Models: Path proxies, type guards, and semantic s
     PokerModule,
     PokerSubroutine,
     PokerSessionReason,
-    PokerSpeechAct,
     PokerLobbyAction,
     PokerActionType,
   } = await import('../src/index.ts');
@@ -431,7 +430,6 @@ test('Poker TypeScript Context Models: Path proxies, type guards, and semantic s
   assert.equal(PokerModule.WORKFLOW, 'poker_workflow');
   assert.equal(PokerStep.HANDLE_PAUSE, 'poker:handle_pause');
   assert.equal(PokerSessionReason.USER_EXIT, 'user_exit');
-  assert.equal(PokerSpeechAct.TABLE_TALK, 'TABLE_TALK');
   assert.equal(PokerLobbyAction.NEW, 'new');
   assert.equal(PokerActionType.PAUSE, 'PAUSE');
   assert.equal(toVarName(ctx.resumeCmd), 'resumeCmd');

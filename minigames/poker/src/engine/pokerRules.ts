@@ -3,6 +3,13 @@
  * Pure TypeScript implementation replacing legacy poker_rules.coffee.
  */
 
+import {
+  PokerActionType,
+  PokerStreet,
+  type PokerActionTypeValue,
+} from '../models/pokerConstants.ts';
+import { PokerTool } from '../models/pokerTools.ts';
+
 export interface TableRulesDefinition {
   name: string;
   variant: string;
@@ -49,14 +56,20 @@ export const tableRules: TableRulesDefinition = {
     ranks: ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'],
   },
   streets: [
-    { id: 'PREFLOP', name: 'Pre-flop', cardsToDeal: 0, burn: 0 },
-    { id: 'FLOP', name: 'Flop', cardsToDeal: 3, burn: 1 },
-    { id: 'TURN', name: 'Turn', cardsToDeal: 1, burn: 1 },
-    { id: 'RIVER', name: 'River', cardsToDeal: 1, burn: 1 },
-    { id: 'SHOWDOWN', name: 'Showdown', cardsToDeal: 0, burn: 0 },
+    { id: PokerStreet.PREFLOP, name: 'Pre-flop', cardsToDeal: 0, burn: 0 },
+    { id: PokerStreet.FLOP, name: 'Flop', cardsToDeal: 3, burn: 1 },
+    { id: PokerStreet.TURN, name: 'Turn', cardsToDeal: 1, burn: 1 },
+    { id: PokerStreet.RIVER, name: 'River', cardsToDeal: 1, burn: 1 },
+    { id: PokerStreet.SHOWDOWN, name: 'Showdown', cardsToDeal: 0, burn: 0 },
   ],
   actions: {
-    allowed: ['CHECK', 'CALL', 'RAISE', 'ALL_IN', 'FOLD'],
+    allowed: [
+      PokerActionType.CHECK,
+      PokerActionType.CALL,
+      PokerActionType.RAISE,
+      PokerActionType.ALL_IN,
+      PokerActionType.FOLD,
+    ],
     forbidFoldOnZeroCall: true,
     minRaiseMultiplier: 1.0,
     autoAllInOnShortStack: true,
@@ -81,34 +94,55 @@ export function sanitizeAction(
   minRaise = 20,
 ): { type: string; amount?: number } {
   const canCheck = toCall === 0;
-  let actionType = (rawAction?.action || rawAction?.type || (canCheck ? 'CHECK' : 'FOLD')).toUpperCase();
+  let actionType = (rawAction?.action || rawAction?.type || (canCheck ? PokerActionType.CHECK : PokerActionType.FOLD)).toUpperCase();
 
-  if (canCheck && actionType === 'FOLD') {
-    actionType = 'CHECK';
+  if (canCheck && actionType === PokerActionType.FOLD) {
+    actionType = PokerActionType.CHECK;
   }
-  if (!canCheck && actionType === 'CHECK') {
-    actionType = 'CALL';
+  if (!canCheck && actionType === PokerActionType.CHECK) {
+    actionType = PokerActionType.CALL;
   }
 
   let amount = rawAction?.amount;
-  if (actionType === 'CALL') {
+  if (actionType === PokerActionType.CALL) {
     amount = Math.min(chips, toCall);
-  } else if (actionType === 'RAISE') {
+  } else if (actionType === PokerActionType.RAISE) {
     const minReq = toCall + minRaise;
     if (!amount || amount < minReq) {
       amount = minReq;
     }
     if (amount >= chips) {
-      actionType = 'ALL_IN';
+      actionType = PokerActionType.ALL_IN;
       amount = chips;
     }
-  } else if (actionType === 'ALL_IN') {
+  } else if (actionType === PokerActionType.ALL_IN) {
     amount = chips;
   }
 
   return {
     type: actionType,
     amount,
+  };
+}
+
+function createActionChoice(
+  id: string,
+  label: string,
+  type: PokerActionTypeValue,
+  amount?: number,
+  options: { aliases?: string[]; usage?: string; minAmount?: number; maxAmount?: number } = {}
+) {
+  const action = amount !== undefined ? { type, amount } : { type };
+  return {
+    id,
+    label,
+    aliases: options.aliases,
+    usage: options.usage,
+    minAmount: options.minAmount,
+    maxAmount: options.maxAmount,
+    tool: PokerTool.APPLY_ACTION,
+    args: { action },
+    action,
   };
 }
 
@@ -122,102 +156,44 @@ export function getLegalChoices(
   const canCheck = toCall === 0;
 
   if (canCheck) {
-    choices.push({
-      id: 'check',
-      label: 'Check',
-      aliases: ['k'],
-      tool: 'poker_apply_action',
-      args: { action: { type: 'CHECK' } },
-      action: { type: 'CHECK' },
-    });
-    if (chips >= minRaise * 2) {
-      choices.push({
-        id: 'bet_min',
-        label: `Bet $${minRaise * 2}`,
-        aliases: ['b', 'bet'],
-        usage: '<amount>',
-        tool: 'poker_apply_action',
-        args: { action: { type: 'RAISE', amount: minRaise * 2 } },
-        action: { type: 'RAISE', amount: minRaise * 2 },
-      });
-    }
-    if (chips >= minRaise * 5) {
-      choices.push({
-        id: 'bet_med',
-        label: `Bet $${minRaise * 5}`,
-        aliases: ['b', 'bet'],
-        usage: '<amount>',
-        tool: 'poker_apply_action',
-        args: { action: { type: 'RAISE', amount: minRaise * 5 } },
-        action: { type: 'RAISE', amount: minRaise * 5 },
-      });
-    }
-    if (chips > 0) {
-      choices.push({
-        id: 'all_in',
-        label: `All-In ($${chips})`,
-        aliases: ['allin', 'all-in', 'shove'],
-        tool: 'poker_apply_action',
-        args: { action: { type: 'ALL_IN', amount: chips } },
-        action: { type: 'ALL_IN', amount: chips },
-      });
+    choices.push(createActionChoice('check', 'Check', PokerActionType.CHECK, undefined, { aliases: ['k'] }));
+    if (chips >= minRaise) {
+      choices.push(
+        createActionChoice('bet', `Bet (min $${minRaise})`, PokerActionType.RAISE, minRaise, {
+          aliases: ['b', 'bet', 'r', 'raise'],
+          usage: '<amount>',
+          minAmount: minRaise,
+          maxAmount: chips,
+        })
+      );
     }
   } else {
     if (chips > toCall) {
-      choices.push({
-        id: 'call',
-        label: `Call $${toCall}`,
-        aliases: ['c'],
-        tool: 'poker_apply_action',
-        args: { action: { type: 'CALL', amount: toCall } },
-        action: { type: 'CALL', amount: toCall },
-      });
-      const raiseTotal = toCall + minRaise * 2;
-      if (chips >= raiseTotal) {
-        choices.push({
-          id: 'raise_min',
-          label: `Raise to $${currentBet + minRaise * 2}`,
-          aliases: ['r', 'raise'],
-          usage: '<amount>',
-          tool: 'poker_apply_action',
-          args: { action: { type: 'RAISE', amount: raiseTotal } },
-          action: { type: 'RAISE', amount: raiseTotal },
-        });
+      choices.push(createActionChoice('call', `Call $${toCall}`, PokerActionType.CALL, toCall, { aliases: ['c'] }));
+      const minRaiseTotal = toCall + minRaise;
+      if (chips >= minRaiseTotal) {
+        choices.push(
+          createActionChoice('raise', `Raise to $${currentBet + minRaise}+`, PokerActionType.RAISE, minRaiseTotal, {
+            aliases: ['r', 'raise'],
+            usage: '<amount>',
+            minAmount: minRaiseTotal,
+            maxAmount: chips,
+          })
+        );
       }
-      choices.push({
-        id: 'all_in',
-        label: `All-In ($${chips})`,
-        aliases: ['allin', 'all-in', 'shove'],
-        tool: 'poker_apply_action',
-        args: { action: { type: 'ALL_IN', amount: chips } },
-        action: { type: 'ALL_IN', amount: chips },
-      });
-      choices.push({
-        id: 'fold',
-        label: 'Fold',
-        aliases: ['f'],
-        tool: 'poker_apply_action',
-        args: { action: { type: 'FOLD' } },
-        action: { type: 'FOLD' },
-      });
-    } else {
-      choices.push({
-        id: 'all_in',
-        label: `All-In ($${chips})`,
-        aliases: ['allin', 'all-in', 'shove'],
-        tool: 'poker_apply_action',
-        args: { action: { type: 'ALL_IN', amount: chips } },
-        action: { type: 'ALL_IN', amount: chips },
-      });
-      choices.push({
-        id: 'fold',
-        label: 'Fold',
-        aliases: ['f'],
-        tool: 'poker_apply_action',
-        args: { action: { type: 'FOLD' } },
-        action: { type: 'FOLD' },
-      });
     }
+  }
+
+  if (chips > 0) {
+    choices.push(
+      createActionChoice('all_in', `All-In ($${chips})`, PokerActionType.ALL_IN, chips, {
+        aliases: ['allin', 'all-in', 'shove'],
+      })
+    );
+  }
+
+  if (!canCheck) {
+    choices.push(createActionChoice('fold', 'Fold', PokerActionType.FOLD, undefined, { aliases: ['f'] }));
   }
 
   return choices;

@@ -69,7 +69,7 @@ export interface CuratorTool {
 }
 
 /** Helper to build a CuratorTool from a plain function */
-export function defineTool(opts: {
+export function defineTool<TArgs = Record<string, unknown>>(opts: {
   name: string;
   description: string;
   parameters: CuratorJsonSchema;
@@ -80,7 +80,7 @@ export function defineTool(opts: {
   mcp?: McpToolExposure;
   usage?: string;
   aliases?: string[];
-  execute: (args: Record<string, unknown>, ctx: CuratorToolContext) => Promise<CuratorToolOutput>;
+  execute: (args: TArgs, ctx: CuratorToolContext) => Promise<CuratorToolOutput>;
 }): CuratorTool {
   const requiresApproval = opts.requiresHumanApproval ?? opts.requiresConfirmation ?? false;
   return {
@@ -95,7 +95,7 @@ export function defineTool(opts: {
     usage: opts.usage,
     aliases: opts.aliases,
     async runAsync({ args, toolContext }): Promise<CuratorToolOutput> {
-      return opts.execute(args, toolContext);
+      return opts.execute(args as TArgs, toolContext);
     },
     toGenAiDeclaration() {
       return {

@@ -17,15 +17,8 @@ import {
 } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
 
-/**
- * Flow-specific actions for poker lobby selection.
- */
-export const PokerLobbyAction = {
-  NEW: 'new',
-  RESUME: 'resume',
-  EXIT: 'exit',
-} as const;
-export type PokerLobbyActionType = typeof PokerLobbyAction[keyof typeof PokerLobbyAction];
+import { PokerLobbyAction, type PokerLobbyActionType } from '../models/index.ts';
+export { PokerLobbyAction, type PokerLobbyActionType };
 export const lobbyActions = PokerLobbyAction;
 
 const {

@@ -326,7 +326,7 @@ export const pokerHumanSpeechTool = defineTool<PokerHumanSpeechParams>({
   },
   execute: async (args: PokerHumanSpeechParams, ctx: any) => {
     const rawState = extractGameState(args, ctx);
-    return processHumanSpeech(rawState, args, ctx);
+    return processHumanSpeech(rawState, args);
   },
 });
 

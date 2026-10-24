@@ -38,6 +38,7 @@ export function useHumanTurn() {
   const is_human_action_exit = `${ctx.humanAction.type} == 'exit'`;
   const is_resume_cmd = `${ctx.resumeCmd.type} == 'resume' or ${ctx.resumeCmd} == 'resume'`;
   const is_exit_cmd = `${ctx.resumeCmd.type} == 'exit' or ${ctx.resumeCmd} == 'exit'`;
+  const can_check = `(${gameState.currentBet} - ${gameState.players}[${gameState.activePlayerIdx}].streetBet) == 0`;
 
   return {
     is_table_paused,
@@ -45,6 +46,7 @@ export function useHumanTurn() {
     is_human_action_exit,
     is_resume_cmd,
     is_exit_cmd,
+    can_check,
   };
 }
 
@@ -88,6 +90,7 @@ export function buildHumanTurnModule(): CuratorModuleNode {
   const {
     is_human_action_pause,
     is_human_action_exit,
+    can_check,
   } = useHumanTurn();
 
   return defineModule(modules.HUMAN_TURN, {
@@ -95,7 +98,11 @@ export function buildHumanTurnModule(): CuratorModuleNode {
     subroutines: [handlePause],
   }, () => [
     get_legal_choices(),
-    choice('Your turn:', String(ctx.poker_get_choices.choices), { as: ctx.humanAction }),
+    ifElse(
+      can_check,
+      choice('Your turn (Check or Bet):', String(ctx.poker_get_choices.choices), { as: ctx.humanAction }),
+      choice('Your turn (Call, Raise, or Fold):', String(ctx.poker_get_choices.choices), { as: ctx.humanAction }),
+    ),
 
     ifElse(
       is_human_action_pause,
