@@ -1,7 +1,13 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { defineTool, type CuratorPlugin } from '../curator.ts';
+import { defineTool, type CuratorPlugin, type CuratorScriptDefinition } from '../curator.ts';
+import '../composables/pokerComposables.ts';
+import {
+  pokerWorkflowAst,
+  pokerLobbyAst,
+  humanTurnAst,
+  agentTurnAst,
+  pokerActionAst,
+  ambientReactionAst,
+} from '../workflows/index.ts';
 import type { PokerGameState, PlayerAction } from '../types.ts';
 import {
   initPokerLobby,
@@ -20,23 +26,47 @@ import {
   getLegalChoices,
 } from '../engine/pokerEngine.ts';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 /**
- * Loads raw CoffeeScript file contents for all .coffee files in scripts/.
- * Curator Core parses headers/metadata and handles registration during plugin registration.
+ * Pre-compiled typed TypeScript workflow AST definitions for Texas Hold'em.
  */
-export function loadPokerScriptSources(): Record<string, string> {
-  const scriptsDir = path.resolve(__dirname, '../scripts');
-  const files = fs.readdirSync(scriptsDir).filter((f) => f.endsWith('.coffee'));
-  const sources: Record<string, string> = {};
-  for (const file of files) {
-    const id = path.basename(file, '.coffee');
-    sources[id] = fs.readFileSync(path.join(scriptsDir, file), 'utf-8');
-  }
-  return sources;
-}
+export const pokerScripts: Record<string, CuratorScriptDefinition> = {
+  poker_workflow: {
+    name: 'poker_workflow',
+    description: 'Texas Holdem master game loop and table manager AST workflow',
+    ast: pokerWorkflowAst,
+    run: async () => {},
+  },
+  poker_lobby: {
+    name: 'poker_lobby',
+    description: 'Texas Holdem lounge concierge and table seating AST workflow',
+    ast: pokerLobbyAst,
+    run: async () => {},
+  },
+  human_turn: {
+    name: 'human_turn',
+    description: 'Human player turn handler AST workflow',
+    ast: humanTurnAst,
+    run: async () => {},
+  },
+  agent_turn: {
+    name: 'agent_turn',
+    description: 'AI Agent turn handler AST workflow',
+    ast: agentTurnAst,
+    run: async () => {},
+  },
+  poker_action: {
+    name: 'poker_action',
+    description: 'Player action event distributor AST workflow',
+    ast: pokerActionAst,
+    run: async () => {},
+  },
+  ambient_reaction: {
+    name: 'ambient_reaction',
+    description: 'Table spectator chatter and ambient reaction AST workflow',
+    ast: ambientReactionAst,
+    run: async () => {},
+  },
+};
 
 // Re-export domain logic for consumer backwards-compatibility
 export * from '../engine/pokerEngine.ts';
@@ -453,12 +483,13 @@ export const pokerPlugin: CuratorPlugin = {
     poker_get_standings: pokerGetStandingsTool,
     poker_get_choices: pokerGetChoicesTool,
   },
-  scripts: loadPokerScriptSources(),
+  scripts: pokerScripts,
   agents: {
     hero: {
       id: 'hero',
       name: 'You (Hero)',
       scriptName: 'human_turn',
+      ast: humanTurnAst,
       schedule: 'manual',
       enabled: true,
       instruction: 'You are the human player (Hero) at the high-roller poker table.',
@@ -470,6 +501,7 @@ export const pokerPlugin: CuratorPlugin = {
       id: 'lobby',
       name: 'Lobby (Concierge)',
       scriptName: 'poker_lobby',
+      ast: pokerLobbyAst,
       schedule: 'manual',
       enabled: true,
       instruction: "You are the Texas Hold'em Lounge Concierge. You welcome players to the poker lounge, explain available tables and game formats, assist with table seating, buy-ins, and direct players to active games.",
@@ -480,6 +512,7 @@ export const pokerPlugin: CuratorPlugin = {
       id: 'dealer',
       name: 'Dealer (House)',
       scriptName: 'poker_workflow',
+      ast: pokerWorkflowAst,
       schedule: 'manual',
       enabled: true,
       instruction: "You are the professional Texas Hold'em table dealer. You run the table, deal community cards, announce pot amounts and street actions, and answer table inquiries politely and authoritatively.",
@@ -490,6 +523,7 @@ export const pokerPlugin: CuratorPlugin = {
       id: 'viper',
       name: 'Viper (Shark)',
       scriptName: 'agent_turn',
+      ast: agentTurnAst,
       schedule: 'manual',
       enabled: true,
       instruction: "You are Viper, a ruthless and mathematically calculating poker shark at a high-stakes Texas Hold'em table. Your tone is cool, precise, psychological, and dismissive of emotional play. You never reveal your exact hole cards. When speaking, you comment on pot odds, variance, and the foolishness of loose play.",
@@ -500,6 +534,7 @@ export const pokerPlugin: CuratorPlugin = {
       id: 'maddog',
       name: 'MadDog (Maniac)',
       scriptName: 'agent_turn',
+      ast: agentTurnAst,
       schedule: 'manual',
       enabled: true,
       instruction: 'You are MadDog, a wild and loud poker maniac. You play loose, love bluffing, and shove chips into the middle for maximum adrenaline. Your tone is boisterous, confrontational, taunting, and energetic. Trash-talk, dare people to call, and embrace chaos.',
@@ -510,6 +545,7 @@ export const pokerPlugin: CuratorPlugin = {
       id: 'barnaby',
       name: 'Barnaby (Station)',
       scriptName: 'agent_turn',
+      ast: agentTurnAst,
       schedule: 'manual',
       enabled: true,
       instruction: 'You are Barnaby, an affable, folksy, and warm calling station. You love chatting at the table, hate folding, and always wonder what the next card will bring. Your tone is grandfatherly, cheerful, gentle, and humorous.',

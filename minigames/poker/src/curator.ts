@@ -1,1 +1,1 @@
-export * from '../../../curator/dist/src/index.js';
+export * from '@curator/agent-server';

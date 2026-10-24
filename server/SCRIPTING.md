@@ -296,9 +296,25 @@ define_module 'poker_table',
 
 ## Structured Responses
 
-Besides tool output, the processor writes JSON records, e.g. `EVENT_EMITTED`, `APPROVAL_REQUIRED` (`{ tool, roles }`) and `TOOL_BLOCKED` (`{ tool, reason, roles }`). These are not merged into conversation state.
+Besides tool output, the processor writes JSON records, e.g. `EVENT_EMITTED`, `APPROVAL_REQUIRED` (`{ tool, roles, expiresAt }`), `APPROVAL_EXPIRED` (`{ tool, roles, expiredAt, onApprovalExpired }`), `TOOL_BLOCKED` (`{ tool, reason, roles }`), and `MODEL_CHANGED` (`{ ok: true, change: { entityType, entityId, action, changes } }`). These are not merged into conversation state.
 
-## Direct tool calls are Requests too
+## Approval Wait Expiry in AST Flows
 
-CLI, REPL and API tool calls never invoke tool functions directly. Hosts call `host.runTool(name, args, { origin })` (→ `CuratorRequestProcessor.runToolRequest`) and `host.emitEvent(name, payload, opts)` (→ `emitEventRequest`), so RBAC, approval and the Response trail apply exactly as in workflows. Actor and scope come from the host session, never from client payloads.
+Tool nodes can specify approval TTL and expiry behavior:
+- `approvalTtlMs`: Milliseconds before human approval times out (default 24h, 0 = never expires).
+- `onApprovalExpired`: `'fail'` (default) marks the Request `FAILED`. `'continue'` auto-completes the Request as `COMPLETED` and injects `{ ok: false, expired: true, type: 'APPROVAL_EXPIRED', tool: name }` into `$context.<as>` and `$context.<toolName>` so the AST flow can branch (e.g. `if_else "$context.<as>.expired"`).
+- Poll cycles automatically sweep expired `WAITING_FOR_USER` requests, recording `APPROVAL_EXPIRED` structured responses.
+
+## Core Model Change Audit Log
+
+Curator core models (Agents, Scripts, Roles, Tool Approvals) do not require a separate `AuditLog` table.
+- Changes are recorded via `AuditService.recordModelChange(prisma, { entityType, entityId, action, userId, projectId, changes, origin })`.
+- This creates a `COMPLETED` Request with context `{ origin: 'GRAPHQL', modelChange: ... }` and a `MODEL_CHANGED` structured Response.
+- The derived audit trail is queried through `AuditService.getLogs(prisma, options)`.
+
+## Direct tool calls and MCP are Requests too
+
+- CLI, REPL, and API tool calls never invoke tool functions directly. Hosts call `host.runTool(name, args, { origin })` (→ `CuratorRequestProcessor.runToolRequest`) and `host.emitEvent(name, payload, opts)` (→ `emitEventRequest`), so RBAC, approval, and the Response trail apply exactly as in workflows. Actor and scope come from the host session, never from client payloads.
+- **MCP Server** (`McpToolRegistry`): Always operates on durable storage and engine. Use `McpToolRegistry.fromHost(host)` (or `fromEngine(engine, executor)`). Tool invocations from external MCP clients execute as Requests with origin `MCP`. If approval is required, it returns `WAITING_FOR_USER` with the request ID, preventing unauthorized direct bypass.
+
 

@@ -71,7 +71,16 @@ export const coffeeAstVerbs: Record<string, any> = {
   define_module: (name: string, options: any) => CuratorBuilder.defineModule(name, options),
   defineModule: (name: string, options: any) => CuratorBuilder.defineModule(name, options),
   sub: (params: any, body: any, returns?: string) => CuratorBuilder.sub(params, body, returns),
-  call: (ref: string, args?: Record<string, any>, options?: any) => CuratorBuilder.call(ref, args, options),
+  call: (refOrOptions: any, args?: Record<string, any>, options?: any) => {
+    if (typeof refOrOptions === 'string') {
+      return CuratorBuilder.call(refOrOptions, args, options);
+    }
+    const vocabCall = vocabularyRegistry.get('call');
+    if (vocabCall) return vocabCall(refOrOptions);
+    return CuratorBuilder.call(refOrOptions, args, options);
+  },
+  call_sub: (ref: string, args?: Record<string, any>, options?: any) =>
+    CuratorBuilder.call(ref, args, options),
 
   // 6. Embedded scripts & agent calls
   script: (code: string | ((ctx: any) => any), language: 'javascript' | 'coffeescript' = 'coffeescript') =>
@@ -137,8 +146,8 @@ export async function compileCoffeeScriptToAST(
     console,
     input: initialContext.input ?? '',
     context: initialContext,
-    ...coffeeAstVerbs,
     ...vocabularyRegistry.getAll(),
+    ...coffeeAstVerbs,
     exports: {},
     module: { exports: {} },
   };
@@ -191,8 +200,8 @@ export async function evaluateCoffeeScript<T = any>(
   const sandbox: Record<string, any> = {
     console,
     context: initialContext,
-    ...coffeeAstVerbs,
     ...vocabularyRegistry.getAll(),
+    ...coffeeAstVerbs,
     exports: {},
     module: { exports: {} },
   };

@@ -39,7 +39,7 @@ async function main() {
         userId: user.id,
         projectId,
         origin: 'MCP',
-        context: session ? { mcpPeerId: session.peerId, mcpTrustTier: session.trustTier } : undefined,
+        ...(session ? { context: { mcpPeerId: session.peerId, mcpTrustTier: session.trustTier } } : {}),
       }),
     transport: 'stdio',
     registerBuiltinPlugins: true,

@@ -91,6 +91,12 @@ Prefer this change order for feature work:
 - Whenever dynamic scripts or sequential commands are submitted/run, they must compile using `compileToAST` (or `compileCoffeeScriptToAST`) into the structured AST JSON format before creating database request tasks.
 - The execution processor (`RequestProcessor` / `CuratorRequestProcessor`) polls for new requests and recursively executes the compiled nodes (`Sequence`, `ForEach`, `IfElse`, `Spawn`, `While`, `ToolTask`).
 
+#### Direct Invocations, MCP, and Derived Audit Trail:
+- **Direct Tools & MCP as Requests**: CLI, REPL, API, and MCP tool executions never invoke handlers directly. They are queued as lightweight `Request` records with appropriate `origin` (`'CLI' | 'REPL' | 'API' | 'MCP' | 'GRAPHQL'`) and yield `Response` records.
+- **Approval Wait Expiry**: Approval-required tool requests support `approvalTtlMs` and `onApprovalExpired: 'fail' | 'continue'`. Expired requests are processed in polling cycles with `APPROVAL_EXPIRED` structured responses.
+- **Model Change Audit Trail**: Core model mutations (Agents, Roles, Tool Approvals) are recorded via `AuditService.recordModelChange` into `Request` and `Response` tables (`type: 'MODEL_CHANGED'`), eliminating the need for a separate `AuditLog` table.
+
+
 #### AST Context & Session Execution Guarantees
 Curator Core automatically maintains context, turn state, and database response logs across workflow executions:
 

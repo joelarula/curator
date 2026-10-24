@@ -120,18 +120,36 @@ export async function ensureTableConversation(
 }
 
 import { resetPokerDatabaseLight, type ResetLightResult } from '../db/lightReset.ts';
+import {
+  pokerWorkflowAst,
+  pokerLobbyAst,
+  humanTurnAst,
+  agentTurnAst,
+  pokerActionAst,
+  ambientReactionAst,
+} from '../workflows/index.ts';
 export { resetPokerDatabaseLight, type ResetLightResult };
 
+export const POKER_WORKFLOW_ASTS: Record<string, any> = {
+  poker_workflow: pokerWorkflowAst,
+  poker_lobby: pokerLobbyAst,
+  human_turn: humanTurnAst,
+  agent_turn: agentTurnAst,
+  poker_action: pokerActionAst,
+  ambient_reaction: ambientReactionAst,
+};
+
 export async function getScriptAST(prisma: any, scriptName: string): Promise<any> {
-  const script = await prisma.script.findUnique({ where: { name: scriptName } });
+  if (POKER_WORKFLOW_ASTS[scriptName]) {
+    return POKER_WORKFLOW_ASTS[scriptName];
+  }
+  const script = await prisma?.script?.findUnique?.({ where: { name: scriptName } });
   if (script?.ast) return script.ast;
   const fallback =
-    (await prisma.script.findUnique({ where: { name: 'poker_workflow' } })) ||
-    (await prisma.script.findUnique({ where: { name: 'poker_lobby' } }));
-  if (!fallback?.ast) {
-    throw new Error(`Script "${scriptName}" (or fallback) not found or missing compiled AST in database`);
-  }
-  return fallback.ast;
+    (await prisma?.script?.findUnique?.({ where: { name: 'poker_workflow' } })) ||
+    (await prisma?.script?.findUnique?.({ where: { name: 'poker_lobby' } }));
+  if (fallback?.ast) return fallback.ast;
+  return scriptName === 'poker_lobby' ? pokerLobbyAst : pokerWorkflowAst;
 }
 
 export async function getTableWorkflowAST(prisma: any): Promise<any> {

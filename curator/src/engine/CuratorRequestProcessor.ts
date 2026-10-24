@@ -2137,43 +2137,45 @@ export class CuratorRequestProcessor {
     return permissions;
   }
 
+  private async checkToolRoleAccess(req: any, toolName: string, tool: any): Promise<{ allowed: boolean; reason?: string; roleNames?: string[] }> {
+    if (!this.prisma) return { allowed: true };
+    const accessLevel = (tool as any).accessLevel || 'safe_write';
+    const requiresConfirmation = (tool as any).requiresConfirmation || (tool as any).requiresHumanApproval || accessLevel === 'destructive' || accessLevel === 'elevated';
+    const effectiveAgentId = req.agentId || req.context?.agentId || req.context?.activeAgentId || req.context?.actorId;
+    const effectiveUserId = req.userId || req.context?.userId;
+    const effectiveProjectId = req.projectId || req.context?.projectId;
+    try {
+      return await AgentRoleService.validateActorToolAccess(
+        this.prisma,
+        {
+          agentId: effectiveAgentId ? String(effectiveAgentId) : undefined,
+          userId: effectiveUserId ? String(effectiveUserId) : undefined,
+          projectId: effectiveProjectId ? String(effectiveProjectId) : undefined,
+        },
+        toolName,
+        { name: toolName, requiredRole: (tool as any).requiredRole, accessLevel, requiresHumanApproval: requiresConfirmation }
+      );
+    } catch (roleErr) {
+      logger.warn('[CuratorRequestProcessor] AgentRoleService check failed:', roleErr);
+      return { allowed: true };
+    }
+  }
+
   private async checkToolAccess(req: any, toolName: string, tool: any): Promise<{ allowed: boolean; requiresConfirmation: boolean; reason?: string; approvalScope?: string; roles?: string[] }> {
     const accessLevel = (tool as any).accessLevel || 'safe_write';
     const requiresConfirmation = (tool as any).requiresConfirmation || (tool as any).requiresHumanApproval || accessLevel === 'destructive' || accessLevel === 'elevated';
 
     // 1. Actor Role Whitelisting (Agent or Human User)
-    const effectiveAgentId = req.agentId || req.context?.agentId || req.context?.activeAgentId || req.context?.actorId;
-    const effectiveUserId = req.userId || req.context?.userId;
-    const effectiveProjectId = req.projectId || req.context?.projectId;
-
     if (this.prisma) {
-      try {
-        const roleCheck = await AgentRoleService.validateActorToolAccess(
-          this.prisma,
-          {
-            agentId: effectiveAgentId ? String(effectiveAgentId) : undefined,
-            userId: effectiveUserId ? String(effectiveUserId) : undefined,
-            projectId: effectiveProjectId ? String(effectiveProjectId) : undefined,
-          },
-          toolName,
-          {
-            name: toolName,
-            requiredRole: (tool as any).requiredRole,
-            accessLevel,
-            requiresHumanApproval: requiresConfirmation
-          }
-        );
-        if (!roleCheck.allowed) {
-          // Recorded by the caller as a TOOL_BLOCKED Response.
-          return {
-            allowed: false,
-            requiresConfirmation: false,
-            reason: roleCheck.reason,
-            roles: roleCheck.roleNames
-          };
-        }
-      } catch (roleErr) {
-        logger.warn('[CuratorRequestProcessor] AgentRoleService check failed:', roleErr);
+      const roleCheck = await this.checkToolRoleAccess(req, toolName, tool);
+      if (!roleCheck.allowed) {
+        // Recorded by the caller as a TOOL_BLOCKED Response.
+        return {
+          allowed: false,
+          requiresConfirmation: false,
+          reason: roleCheck.reason,
+          roles: roleCheck.roleNames
+        };
       }
     }
 
@@ -2793,6 +2795,8 @@ export class CuratorRequestProcessor {
       for (const toolOrName of offeredTools) {
         const tool = typeof toolOrName === 'string' ? this.engine.tools.get(toolOrName) : null;
         if (tool) {
+          // Never offer a tool the actor may not run (role / project); the call-time check stays as the backstop.
+          if (!(await this.checkToolRoleAccess(req, tool.name, tool)).allowed) continue;
           toolDefs.push({
             name: tool.name,
             description: tool.description,

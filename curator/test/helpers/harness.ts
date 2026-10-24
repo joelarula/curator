@@ -36,8 +36,7 @@ export function makeFakeEngine(canned: Record<string, (args: any) => any>) {
         parameters: { type: 'object', properties: {}, additionalProperties: true },
         execute: async (args: any) => {
           calls.push({ tool: name, args });
-          const out = fn(args);
-          return typeof out === 'string' ? out : JSON.stringify(out);
+          return fn(args);
         },
       } as any),
     );
@@ -194,7 +193,7 @@ export async function compileFixture(file: string, ctx: Record<string, any> = {}
 }
 
 /** Submit an AST as a workflow Request and step it to completion/wait. */
-export async function runAst(env: TestEnv, ast: any) {
+export async function runAst(env: TestEnv, ast: any, data: Record<string, any> = {}) {
   const req = await env.prisma.request.create({
     data: {
       userId: env.userId,
@@ -202,6 +201,7 @@ export async function runAst(env: TestEnv, ast: any) {
       status: 'NEW',
       toolName: 'Curator_Workflow',
       ast,
+      ...data,
     },
   });
   const result = await env.processor.stepUntil({ conversationId: env.conversationId });

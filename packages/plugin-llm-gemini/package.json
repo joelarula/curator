@@ -8,7 +8,8 @@
   "scripts": {
     "build": "tsc",
     "test": "node --test \"test/**/*.test.mjs\"",
-    "test:trilogue": "node --test test/engine-trilogue.test.mjs"
+    "test:trilogue": "node --test test/engine-trilogue.test.mjs",
+    "test:choice": "node --test test/engine-choice.test.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.8.0"

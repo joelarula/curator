@@ -140,20 +140,80 @@ test('project: an admin works in any project', async () => {
   } finally { await env.cleanup(); }
 });
 
-test('agent: a denied tool call inside an LLM turn is reported back to the model and never runs', async () => {
+test('agent: a tool the user may not run is not offered to the model, and a forced call never runs', async () => {
   const { env, ran } = await setup('agent_denied');
   try {
     const u = await mkUser(env, 'limited');
     const llm = env.useLlm([{ toolCalls: [{ name: 'secret_action', args: { note: 'x' } }] }, 'ok, could not do it']);
     const ast = await compileFixture('choose_action.coffee');
     (ast as any).tools = ['secret_action'];
-    const r = await submit(env, ast, { userId: u.id });
+    await submit(env, ast, { userId: u.id });
     assert.equal(ran.length, 0);
+    assert.equal(llm.requests[0].tools, undefined);
     const toolMsg = llm.requests[1].messages.find((m: any) => m.role === 'tool') as any;
-    assert.match(String(toolMsg.content), /Access Denied/);
-    assert.notEqual(r.status, 'FAILED');
+    assert.match(String(toolMsg.content), /not found|denied/i);
   } finally { await env.cleanup(); }
 });
+
+test('agent: only the tools the user may run are offered', async () => {
+  const { env, toolId } = await setup('agent_filter');
+  try {
+    const tools = (env.processor as any).engine.tools as Map<string, any>;
+    tools.set('open_action', defineTool({ name: 'open_action', description: 'open', parameters: { type: 'object', properties: {} }, execute: async () => '{}' } as any));
+    await mkRole(env, 'operator');
+    await env.prisma.toolRole.create({ data: { toolId, roleId: 'operator' } });
+    const open = await env.prisma.tool.create({ data: { name: 'open_action' } });
+    await mkRole(env, 'basic');
+    await env.prisma.toolRole.create({ data: { toolId: open.id, roleId: 'basic' } });
+    const u = await mkUser(env, 'basicuser');
+    await env.prisma.userRole.create({ data: { userId: u.id, roleId: 'basic' } });
+    const llm = env.useLlm(['done']);
+    const ast: any = await compileFixture('choose_action.coffee');
+    ast.tools = ['secret_action', 'open_action'];
+    await submit(env, ast, { userId: u.id });
+    assert.deepEqual(llm.requests[0].tools?.map((t: any) => t.name), ['open_action']);
+  } finally { await env.cleanup(); }
+});
+
+async function submitAs(env: TestEnv, ast: any, who: { agentId: string; projectId?: string }) {
+  const req = await env.prisma.request.create({
+    data: { userId: env.userId, agentId: who.agentId, projectId: who.projectId, conversationId: env.conversationId, status: 'NEW', toolName: 'Curator_Workflow', ast },
+  });
+  await env.processor.stepUntil({ conversationId: env.conversationId });
+  return (await env.prisma.request.findUnique({ where: { id: req.id } })).status as string;
+}
+
+test('agent identity: the agent\'s own roles decide, not the requesting user\'s admin role', async () => {
+  const { env, ran, toolId } = await setup('agent_identity');
+  try {
+    await mkRole(env, 'operator'); await mkRole(env, 'reader');
+    await env.prisma.toolRole.create({ data: { toolId, roleId: 'operator' } });
+    const good = await env.prisma.agent.create({ data: { id: 'ag-good', name: 'good', userId: env.userId } });
+    const bad = await env.prisma.agent.create({ data: { id: 'ag-bad', name: 'bad', userId: env.userId } });
+    await env.prisma.agentRole.create({ data: { agentId: good.id, roleId: 'operator' } });
+    await env.prisma.agentRole.create({ data: { agentId: bad.id, roleId: 'reader' } });
+
+    assert.equal(await submitAs(env, await guarded(), { agentId: bad.id }), 'FAILED');
+    assert.equal(ran.length, 0);
+    assert.equal(await submitAs(env, await guarded(), { agentId: good.id }), 'COMPLETED');
+    assert.equal(ran.length, 1);
+  } finally { await env.cleanup(); }
+});
+
+test('agent identity: an agent bound to one project cannot act in another', async () => {
+  const { env, ran, toolId } = await setup('agent_project_bound');
+  try {
+    await mkProject(env, 'p1'); await mkProject(env, 'p2'); await mkRole(env, 'operator');
+    await env.prisma.toolRole.create({ data: { toolId, roleId: 'operator' } });
+    const a = await env.prisma.agent.create({ data: { id: 'ag-p1', name: 'p1agent', userId: env.userId, projectId: 'p1' } });
+    await env.prisma.agentRole.create({ data: { agentId: a.id, roleId: 'operator' } });
+
+    assert.equal(await submitAs(env, await guarded(), { agentId: a.id, projectId: 'p1' }), 'COMPLETED');
+    assert.equal(await submitAs(env, await guarded(), { agentId: a.id, projectId: 'p2' }), 'FAILED');
+    assert.equal(ran.length, 1);
+  } finally { await env.cleanup(); }
+});
+
 
 test('agent: an LLM turn runs the tool for a permitted project member and refuses the same user elsewhere', async () => {
   const { env, ran, toolId } = await setup('agent_project');

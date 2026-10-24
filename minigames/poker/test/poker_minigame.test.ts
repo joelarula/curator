@@ -16,13 +16,11 @@ import {
   curatorEngine,
   provisionSqliteDb,
   LlmFactory,
-  compileCoffeeScriptToAST,
 } from '@curator/agent-server';
+import { POKER_WORKFLOW_ASTS } from '../src/engine/pokerSession.ts';
 
-async function getPokerScriptAST(scriptId: string) {
-  const filePath = path.resolve(__dirname, `../src/scripts/${scriptId}.coffee`);
-  const code = fs.readFileSync(filePath, 'utf-8');
-  return compileCoffeeScriptToAST(code);
+function getPokerScriptAST(scriptId: string) {
+  return POKER_WORKFLOW_ASTS[scriptId];
 }
 import type { Card, PlayerState, PokerGameState } from '../src/types.ts';
 
@@ -255,18 +253,22 @@ test('Agent Discourse: Autonomous agents attach in-character dialogue and speech
   assert(['RAISE', 'CALL', 'CHECK', 'FOLD', 'ALL_IN'].includes(action.type));
 });
 
-test('Reactive CoffeeScript AST: Compiles dynamic poker state machine workflow', async () => {
+test('Reactive Poker Workflow AST: Validates dynamic poker state machine workflow', async () => {
   const ast: any = await getPokerScriptAST('poker_workflow');
-  assert.equal(ast.type, 'Curator_Sequential');
-  assert.equal(ast.name, 'poker:dynamic_engine');
-  assert(ast.subAgents.length >= 2);
+  assert.equal(ast.type, 'Curator_Module');
+  assert.equal(ast.name, 'poker_workflow');
+  assert.equal(ast.main.type, 'Curator_Sequential');
+  assert.equal(ast.main.name, 'poker:dynamic_engine');
+  assert(ast.subroutines);
+  assert(ast.subroutines.deal_next_street);
+  assert(ast.subroutines.settle_showdown);
 });
 
 test('End-to-End Poker Session in SQLite: Lobby init, Blinds, Street deals, Showdown, Button rotation', async () => {
   curatorEngine.registerPlugin(pokerPlugin);
 
   const testDbPath = process.env.CURATOR_DATABASE_PATH || path.join(process.env.TEMP || os.tmpdir(), 'curator_test_poker.db');
-  const prisma: any = await provisionSqliteDb('test-poker', false, { databasePath: testDbPath });
+  const prisma: any = await provisionSqliteDb('test-poker', true, { databasePath: testDbPath });
 
   const user = await prisma.user.upsert({
     where: { email: 'test_hero@tabletop.local' },
@@ -824,30 +826,38 @@ test('Dynamic Seating with Unknown Wallets: Roster seats with default buy-in and
   assert.equal(state.startingWallets['barnaby'], 1000);
 });
 
-test('Modular CoffeeScript Architecture: Compiles all decoupled workflows to Curator ASTs', async () => {
+test('Modular Workflow Architecture: Validates all decoupled workflows as Curator ASTs', async () => {
   const workflowAst: any = await getPokerScriptAST('poker_workflow');
-  assert.equal(workflowAst.type, 'Curator_Sequential');
-  assert.equal(workflowAst.name, 'poker:dynamic_engine');
+  assert.equal(workflowAst.type, 'Curator_Module');
+  assert.equal(workflowAst.name, 'poker_workflow');
+  assert.equal(workflowAst.main.type, 'Curator_Sequential');
+  assert(workflowAst.subroutines.deal_next_street);
 
   const lobbyAst: any = await getPokerScriptAST('poker_lobby');
-  assert.equal(lobbyAst.type, 'Curator_Sequential');
-  assert.equal(lobbyAst.name, 'poker:lobby_manager');
+  assert.equal(lobbyAst.type, 'Curator_Module');
+  assert.equal(lobbyAst.name, 'poker_lobby');
+  assert.equal(lobbyAst.main.type, 'Curator_Sequential');
 
   const humanAst: any = await getPokerScriptAST('human_turn');
-  assert.equal(humanAst.type, 'Curator_Sequential');
-  assert.equal(humanAst.name, 'poker:human_turn');
+  assert.equal(humanAst.type, 'Curator_Module');
+  assert.equal(humanAst.name, 'human_turn');
+  assert.equal(humanAst.main.type, 'Curator_Sequential');
 
   const agentAst: any = await getPokerScriptAST('agent_turn');
-  assert.equal(agentAst.type, 'Curator_Sequential');
-  assert.equal(agentAst.name, 'poker:agent_turn');
+  assert.equal(agentAst.type, 'Curator_Module');
+  assert.equal(agentAst.name, 'agent_turn');
+  assert.equal(agentAst.main.type, 'Curator_Sequential');
 
   const actionAst: any = await getPokerScriptAST('poker_action');
-  assert.equal(actionAst.type, 'Curator_Sequential');
-  assert.equal(actionAst.name, 'poker:apply_action_step');
+  assert.equal(actionAst.type, 'Curator_Module');
+  assert.equal(actionAst.name, 'poker_action');
+  assert.equal(actionAst.main.type, 'Curator_Sequential');
 
   const ambientAst: any = await getPokerScriptAST('ambient_reaction');
-  assert.equal(ambientAst.type, 'Curator_Sequential');
-  assert.equal(ambientAst.name, 'poker:ambient_reaction');
+  assert.equal(ambientAst.type, 'Curator_Module');
+  assert.equal(ambientAst.name, 'ambient_reaction');
+  assert.equal(ambientAst.main.type, 'Curator_Sequential');
+  assert.equal(ambientAst.subscriptions?.length, 2);
 
   // Verify all scripts are registered on pokerPlugin
   assert(pokerPlugin.scripts);

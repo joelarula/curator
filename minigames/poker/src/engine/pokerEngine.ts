@@ -18,51 +18,15 @@ import { evaluateBestHand } from './pokerEvaluator.ts';
 import { curatorEngine, LlmFactory } from '../curator.ts';
 import { GeminiLlmProvider } from '@curator/plugin-llm-gemini';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const SCRIPTS_DIR = path.resolve(__dirname, '../scripts');
-const require = createRequire(import.meta.url);
+import { getPokerRules, sanitizeAction, tableRules } from './pokerRules.ts';
+import { buildAgentPrompt, formatAgentPrompt, formatConversationHistory } from './agentPrompt.ts';
 
-let cachedCoffee: any = null;
-function getCoffee(): any {
-  if (cachedCoffee) return cachedCoffee;
-  try {
-    cachedCoffee = require('coffeescript');
-  } catch {
-    cachedCoffee = require('../../../../curator/node_modules/coffeescript');
-  }
-  return cachedCoffee;
-}
+export { getPokerRules, sanitizeAction, tableRules };
+export { buildAgentPrompt, formatAgentPrompt, formatConversationHistory };
 
-let cachedRules: any = null;
-export function getPokerRules(): any {
-  if (cachedRules) return cachedRules;
-  const filePath = path.join(SCRIPTS_DIR, 'poker_rules.coffee');
-  const code = fs.readFileSync(filePath, 'utf-8').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?|^#\s*---\r?\n[\s\S]*?\r?\n#\s*---\r?\n?/, '');
-  const js = getCoffee().compile(code, { bare: true, header: false });
-  const mod = { exports: {} as any };
-  const fn = new Function('module', 'exports', js);
-  fn(mod, mod.exports);
-  cachedRules = mod.exports?.default || mod.exports;
-  return cachedRules;
-}
+// Re-export formatAgentPromptCoffeeScript as an alias for backwards compatibility
+export const formatAgentPromptCoffeeScript = formatAgentPrompt;
 
-let cachedPromptBuilder: any = null;
-export function formatAgentPromptCoffeeScript(params: any): any {
-  if (!cachedPromptBuilder) {
-    const filePath = path.join(SCRIPTS_DIR, 'agent_prompt.coffee');
-    const code = fs.readFileSync(filePath, 'utf-8').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?|^#\s*---\r?\n[\s\S]*?\r?\n#\s*---\r?\n?/, '');
-    const js = getCoffee().compile(code, { bare: true, header: false });
-    const mod = { exports: {} as any };
-    const fn = new Function('module', 'exports', js);
-    fn(mod, mod.exports);
-    cachedPromptBuilder = mod.exports?.default || mod.exports;
-  }
-  const rules = getPokerRules();
-  const rulesDescription = rules?.getRulesDescription ? rules.getRulesDescription() : undefined;
-  const enriched = typeof params === 'object' && params !== null ? { rulesDescription, ...params } : params;
-  return cachedPromptBuilder(enriched);
-}
 
 export function getTableRules(): any {
   return getPokerRules()?.tableRules || {};

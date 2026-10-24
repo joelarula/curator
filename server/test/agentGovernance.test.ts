@@ -71,15 +71,17 @@ describe('Curator Core - AI Agent Governance & Least Privilege', () => {
         });
 
         it('should ALLOW tools matching assigned role (e.g. agent:reader)', async () => {
+            const agentData = {
+                id: 'agent-reader',
+                name: 'ReaderAgent',
+                roles: [
+                    { role: { name: 'agent:reader', permissions: [] } }
+                ]
+            };
             const mockPrisma: any = {
                 agent: {
-                    findUnique: vi.fn().mockResolvedValue({
-                        id: 'agent-reader',
-                        name: 'ReaderAgent',
-                        roles: [
-                            { role: { name: 'agent:reader', permissions: [] } }
-                        ]
-                    })
+                    findUnique: vi.fn().mockResolvedValue(agentData),
+                    findFirst: vi.fn().mockResolvedValue(agentData),
                 }
             };
 
@@ -103,15 +105,17 @@ describe('Curator Core - AI Agent Governance & Least Privilege', () => {
         });
 
         it('should ALLOW all tools if agent holds agent:admin role', async () => {
+            const agentData = {
+                id: 'agent-admin',
+                name: 'AdminAgent',
+                roles: [
+                    { role: { name: 'agent:admin', permissions: [] } }
+                ]
+            };
             const mockPrisma: any = {
                 agent: {
-                    findUnique: vi.fn().mockResolvedValue({
-                        id: 'agent-admin',
-                        name: 'AdminAgent',
-                        roles: [
-                            { role: { name: 'agent:admin', permissions: [] } }
-                        ]
-                    })
+                    findUnique: vi.fn().mockResolvedValue(agentData),
+                    findFirst: vi.fn().mockResolvedValue(agentData),
                 }
             };
 
@@ -125,15 +129,17 @@ describe('Curator Core - AI Agent Governance & Least Privilege', () => {
         });
 
         it('should ALLOW a specific tool if agent has direct tool role (e.g. tool:delete_resource)', async () => {
+            const agentData = {
+                id: 'agent-specific',
+                name: 'SpecialistAgent',
+                roles: [
+                    { role: { name: 'tool:delete_resource', permissions: [] } }
+                ]
+            };
             const mockPrisma: any = {
                 agent: {
-                    findUnique: vi.fn().mockResolvedValue({
-                        id: 'agent-specific',
-                        name: 'SpecialistAgent',
-                        roles: [
-                            { role: { name: 'tool:delete_resource', permissions: [] } }
-                        ]
-                    })
+                    findUnique: vi.fn().mockResolvedValue(agentData),
+                    findFirst: vi.fn().mockResolvedValue(agentData),
                 }
             };
 

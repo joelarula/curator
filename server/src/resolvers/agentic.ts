@@ -42,7 +42,7 @@ function recordChange(context: any, entityType: string, entityId: string, action
         userId: context.user.id,
         projectId: context.activeProjectId ?? null,
         agentId: agentId ?? null,
-        changes,
+        ...(changes !== undefined ? { changes } : {}),
         origin: 'GRAPHQL',
     });
 }

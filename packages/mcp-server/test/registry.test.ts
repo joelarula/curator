@@ -12,7 +12,7 @@ function stubExecutor(engine: any, opts: { status?: string } = {}) {
     const requestId = nextId++;
     if (opts.status) return { requestId, status: opts.status, result: null };
     const tool = engine.tools.get(toolName);
-    return { requestId, status: 'COMPLETED', result: await tool.execute(args) };
+    return { requestId, status: 'COMPLETED', result: await tool.runAsync({ args, toolContext: {} }) };
   };
   return Object.assign(execute, { calls });
 }
