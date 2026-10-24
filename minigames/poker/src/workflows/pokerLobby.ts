@@ -9,32 +9,55 @@
 import type { CuratorModuleNode } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
 
+/**
+ * Flow-specific actions for poker lobby selection.
+ */
+export const PokerLobbyAction = {
+  NEW: 'new',
+  RESUME: 'resume',
+  EXIT: 'exit',
+} as const;
+export type PokerLobbyActionType = typeof PokerLobbyAction[keyof typeof PokerLobbyAction];
+export const lobbyActions = PokerLobbyAction;
+
 const {
   ctx,
   gameState,
   boot_table,
   list_tables,
   join_lobby,
-  is_lobby_exit,
-  is_lobby_resume,
-  is_session_active,
-  table_needs_players,
   events,
   modules,
-  steps,
   defineModule,
-  seq,
   choice,
   ifElse,
   whileLoop,
   setState,
   reasons,
-  lobbyActions,
   emitEvent,
   waitEvent,
 } = pokerComposables;
 
+/**
+ * Flow-specific composable for lobby predicates and state gates.
+ */
+export function usePokerLobby() {
+  const is_lobby_exit = `${ctx.lobbyChoice.id} == '${lobbyActions.EXIT}' or ${ctx.lobbyChoice} == '${lobbyActions.EXIT}'`;
+  const is_lobby_resume = `${ctx.lobbyChoice.id} == '${lobbyActions.RESUME}' or ${ctx.lobbyChoice} == '${lobbyActions.RESUME}'`;
+  const is_session_active = `not ${ctx.sessionEnded}`;
+  const table_needs_players = `not ${ctx.gameState} or ${ctx.gameState.players.length} < 2`;
+
+  return {
+    is_lobby_exit,
+    is_lobby_resume,
+    is_session_active,
+    table_needs_players,
+  };
+}
+
 export function buildPokerLobbyModule(): CuratorModuleNode {
+  const { is_lobby_exit, is_lobby_resume, is_session_active, table_needs_players } = usePokerLobby();
+
   return defineModule(modules.LOBBY, {
     description: "Texas Hold'em Lounge Concierge for table selection and dynamic player seating",
   }, () => [

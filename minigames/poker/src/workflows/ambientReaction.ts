@@ -9,6 +9,15 @@
 import type { CuratorModuleNode } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
 
+/**
+ * Flow-specific speech act classifications for ambient discourse.
+ */
+export const PokerSpeechAct = {
+  TABLE_TALK: 'TABLE_TALK',
+} as const;
+export type PokerSpeechActType = typeof PokerSpeechAct[keyof typeof PokerSpeechAct];
+export const speechActs = PokerSpeechAct;
+
 const {
   ctx,
   params,
@@ -16,13 +25,9 @@ const {
   events,
   modules,
   subroutines,
-  steps,
-  speechActs,
   defineModule,
   defineSubroutine,
-  seq,
   onEvent,
-  subscribe,
   emitEvent,
 } = pokerComposables;
 

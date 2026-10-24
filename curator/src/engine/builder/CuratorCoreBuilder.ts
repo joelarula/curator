@@ -52,18 +52,45 @@ export class CuratorCoreBuilder {
 
   /**
    * If the condition expression evaluates to true, executes `thenBranch`, else optionally executes `elseBranch`.
+   * Automatically wraps arrays of steps into a sequential node.
    */
-  static ifElse(condition: string | ((ctx: any) => boolean), thenBranch: CuratorAstNode, elseBranch?: CuratorAstNode): CuratorIfElseNode {
+  static ifElse(
+    condition: string | ((ctx: any) => boolean),
+    thenBranch: CuratorAstNode | CuratorAstNode[] | any,
+    elseBranch?: CuratorAstNode | CuratorAstNode[] | any
+  ): CuratorIfElseNode {
     const condStr = typeof condition === 'function' ? `(${condition.toString()})(context)` : condition;
-    return { type: 'Curator_IfElse', condition: condStr, thenBranch, elseBranch };
+    const resolveBranch = (b: any): CuratorAstNode | undefined => {
+      if (!b) return undefined;
+      if (Array.isArray(b)) {
+        return CuratorCoreBuilder.seq(...b);
+      }
+      return typeof b.build === 'function' ? b.build() : b;
+    };
+    return {
+      type: 'Curator_IfElse',
+      condition: condStr,
+      thenBranch: resolveBranch(thenBranch)!,
+      elseBranch: resolveBranch(elseBranch),
+    };
   }
 
   /**
    * While the condition evaluates to true, loop over the `body`.
+   * Automatically wraps arrays of steps into a sequential node.
    */
-  static whileLoop(condition: string | ((ctx: any) => boolean), body: CuratorAstNode): CuratorWhileNode {
+  static whileLoop(
+    condition: string | ((ctx: any) => boolean),
+    body: CuratorAstNode | CuratorAstNode[] | any
+  ): CuratorWhileNode {
     const condStr = typeof condition === 'function' ? `(${condition.toString()})(context)` : condition;
-    return { type: 'Curator_While', condition: condStr, body };
+    const resolveBody = (b: any): CuratorAstNode => {
+      if (Array.isArray(b)) {
+        return CuratorCoreBuilder.seq(...b);
+      }
+      return typeof b.build === 'function' ? b.build() : b;
+    };
+    return { type: 'Curator_While', condition: condStr, body: resolveBody(body) };
   }
 
   /**
@@ -135,10 +162,24 @@ export class CuratorCoreBuilder {
       const setup = typeof setupOrOptions === 'function' ? setupOrOptions : maybeSetup!;
       const meta = typeof setupOrOptions === 'object' ? setupOrOptions : {};
 
+      let initialSubroutines: Record<string, CuratorSubroutine> = {};
+      if (Array.isArray(meta.subroutines)) {
+        for (const subItem of meta.subroutines) {
+          const subName = subItem.subroutineName || subItem.name;
+          initialSubroutines[subName] = subItem.definition;
+        }
+      } else if (meta.subroutines) {
+        for (const [key, val] of Object.entries(meta.subroutines)) {
+          initialSubroutines[key] = (val && typeof val === 'function' && 'definition' in val)
+            ? (val as TypedSubroutine).definition
+            : (val as CuratorSubroutine);
+        }
+      }
+
       const prevScope = activeModuleScope;
       const scope: ActiveModuleScope = {
         name,
-        subroutines: {},
+        subroutines: initialSubroutines,
         subscriptions: meta.subscriptions ? [...meta.subscriptions] : [],
         params: meta.params,
         description: meta.description,
@@ -225,7 +266,8 @@ export class CuratorCoreBuilder {
     args?: Record<string, any>,
     options: { as?: string; mode?: 'child' | 'inline' } = {}
   ): CuratorCallNode {
-    const targetRef = typeof ref === 'function' && 'ref' in ref ? (ref as TypedSubroutine).ref : String(ref);
+    const rawRef = typeof ref === 'function' && 'ref' in ref ? (ref as TypedSubroutine).ref : String(ref);
+    const targetRef = rawRef.startsWith('#') ? '#' + rawRef.replace(/^#+/, '') : rawRef;
     return { type: 'Curator_Call', ref: targetRef, ...(args ? { args } : {}), ...options };
   }
 
@@ -235,7 +277,8 @@ export class CuratorCoreBuilder {
     handler: string | TypedSubroutine,
     options: { as?: string; when?: string; scope?: 'conversation' | 'project' } = {}
   ): CuratorSubscribeNode {
-    const targetHandler = typeof handler === 'function' && 'ref' in handler ? (handler as TypedSubroutine).ref : String(handler);
+    const rawHandler = typeof handler === 'function' && 'ref' in handler ? (handler as TypedSubroutine).ref : String(handler);
+    const targetHandler = rawHandler.startsWith('#') ? '#' + rawHandler.replace(/^#+/, '') : rawHandler;
     return { type: 'Curator_Subscribe', eventName, handler: targetHandler, ...options };
   }
 
@@ -255,7 +298,7 @@ export class CuratorCoreBuilder {
   ): CuratorSequentialNode {
     let name: string | undefined;
     let allNodes: any[];
-    if (typeof nameOrFirstNode === 'string' && rest.length > 0 && !('type' in (nameOrFirstNode as any))) {
+    if (typeof nameOrFirstNode === 'string' && rest.length > 0) {
       name = nameOrFirstNode;
       allNodes = rest;
     } else {
@@ -368,6 +411,11 @@ export function onEvent(
   const node = CuratorCoreBuilder.subscribe(eventName, handler, options);
   if (activeModuleScope) {
     activeModuleScope.subscriptions.push(node);
+    if (typeof handler === 'function' && 'definition' in handler) {
+      const typed = handler as TypedSubroutine;
+      const subName = (typed.subroutineName || typed.name).replace(/^#+/, '');
+      activeModuleScope.subroutines[subName] = typed.definition;
+    }
   }
   return node;
 }
@@ -454,7 +502,8 @@ export function defineSubroutine<TParams = any>(
     resolvedBody = resolvedBody.build();
   }
 
-  const ref = `#${name}`;
+  const cleanName = name.replace(/^#+/, '');
+  const ref = `#${cleanName}`;
   const definition = CuratorCoreBuilder.sub(params, resolvedBody, returns);
   if (description) {
     definition.description = description;
@@ -462,7 +511,7 @@ export function defineSubroutine<TParams = any>(
 
   // Auto-register to active module scope if called inside defineModule setup()
   if (activeModuleScope) {
-    activeModuleScope.subroutines[name] = definition;
+    activeModuleScope.subroutines[cleanName] = definition;
   }
 
   const fn = function (
@@ -475,8 +524,8 @@ export function defineSubroutine<TParams = any>(
     });
   } as TypedSubroutine<TParams>;
 
-  Object.defineProperty(fn, 'name', { value: name, configurable: true });
-  fn.subroutineName = name;
+  Object.defineProperty(fn, 'name', { value: cleanName, configurable: true });
+  fn.subroutineName = cleanName;
   fn.ref = ref;
   fn.definition = definition;
   fn.inline = (args?: Record<string, any>, callOptions?: { as?: string }): CuratorCallNode => {

@@ -90,9 +90,13 @@ export const settleShowdownSub = defineSubroutine('settle_showdown', {
  * Compile-time verified with full type safety and minimal literal strings.
  */
 export function buildPokerWorkflowModule(): CuratorModuleNode {
-  return defineModule(modules.WORKFLOW, {
-    description: 'Curator Texas Hold\'em autonomous event-driven 5-phase game loop engine',
-    main: seq(steps.DYNAMIC_ENGINE, [
+  return defineModule(
+    modules.WORKFLOW,
+    {
+      description: "Curator Texas Hold'em autonomous event-driven 5-phase game loop engine",
+      subroutines: [aiAgentFlow, dealNextStreetSub, settleShowdownSub],
+    },
+    () => seq(steps.DYNAMIC_ENGINE, [
       // 1. Initialize open table lobby if not present
       ifElse(
         table_has_no_state,
@@ -212,8 +216,7 @@ export function buildPokerWorkflowModule(): CuratorModuleNode {
         standings: `${ctx.standings} || ${ctx.poker_check_game_over.standings}`,
       }),
     ]),
-    subroutines: [aiAgentFlow, dealNextStreetSub, settleShowdownSub],
-  });
+  );
 }
 
 export const pokerWorkflowAst = buildPokerWorkflowModule();

@@ -4,7 +4,8 @@ import {
   formatCard,
 } from './tableRenderer.ts';
 import type { PokerGameState } from '../types.ts';
-import { PokerEvent, PokerSessionReason, PokerSpeechAct } from '../models/index.ts';
+import { PokerEvent, PokerSessionReason } from '../models/index.ts';
+import { PokerSpeechAct } from '../workflows/ambientReaction.ts';
 
 export function renderPokerEvent(
   event: { type: string; payload: any },

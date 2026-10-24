@@ -12,23 +12,6 @@ export const PokerSessionReason = {
 
 export type PokerSessionReasonType = (typeof PokerSessionReason)[keyof typeof PokerSessionReason];
 
-export const PokerSpeechAct = {
-  TABLE_TALK: 'TABLE_TALK',
-  BANTER: 'BANTER',
-  WHISPER: 'WHISPER',
-  PROVOKE: 'PROVOKE',
-} as const;
-
-export type PokerSpeechActType = (typeof PokerSpeechAct)[keyof typeof PokerSpeechAct];
-
-export const PokerLobbyAction = {
-  NEW: 'new',
-  RESUME: 'resume',
-  EXIT: 'exit',
-} as const;
-
-export type PokerLobbyActionType = (typeof PokerLobbyAction)[keyof typeof PokerLobbyAction];
-
 export const PokerActionType = {
   FOLD: 'FOLD',
   CHECK: 'CHECK',

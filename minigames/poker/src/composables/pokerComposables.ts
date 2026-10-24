@@ -25,10 +25,6 @@ import { PokerTool, type PokerToolType } from '../models/pokerTools.ts';
 import {
   PokerSessionReason,
   type PokerSessionReasonType,
-  PokerSpeechAct,
-  type PokerSpeechActType,
-  PokerLobbyAction,
-  type PokerLobbyActionType,
   PokerActionType,
   type PokerActionTypeValue,
 } from '../models/pokerConstants.ts';
@@ -47,10 +43,6 @@ export {
   type PokerToolType,
   PokerSessionReason,
   type PokerSessionReasonType,
-  PokerSpeechAct,
-  type PokerSpeechActType,
-  PokerLobbyAction,
-  type PokerLobbyActionType,
   PokerActionType,
   type PokerActionTypeValue,
 };
@@ -127,8 +119,6 @@ export const pokerPredicates = {
   is_human_action_exit: `${ctx.humanAction.type} == '${PokerActionType.EXIT}'`,
   is_resume_cmd: `${ctx.resumeCmd.type} == '${PokerActionType.RESUME}' or ${ctx.resumeCmd} == '${PokerActionType.RESUME}'`,
   is_exit_cmd: `${ctx.resumeCmd.type} == '${PokerActionType.EXIT}' or ${ctx.resumeCmd} == '${PokerActionType.EXIT}'`,
-  is_lobby_exit: `${ctx.lobbyChoice.id} == '${PokerLobbyAction.EXIT}' or ${ctx.lobbyChoice} == '${PokerLobbyAction.EXIT}'`,
-  is_lobby_resume: `${ctx.lobbyChoice.id} == '${PokerLobbyAction.RESUME}' or ${ctx.lobbyChoice} == '${PokerLobbyAction.RESUME}'`,
 };
 
 /**
@@ -212,8 +202,6 @@ export const pokerComposables = {
   steps: PokerStep,
   tools: PokerTool,
   reasons: PokerSessionReason,
-  speechActs: PokerSpeechAct,
-  lobbyActions: PokerLobbyAction,
   actionTypes: PokerActionType,
 
   // Literals-free AST Sequencer & Flow Builders
@@ -314,8 +302,6 @@ export function usePokerContext() {
     modules: PokerModule,
     subroutines: PokerSubroutine,
     reasons: PokerSessionReason,
-    speechActs: PokerSpeechAct,
-    lobbyActions: PokerLobbyAction,
     actions: PokerActionType,
     predicates: pokerPredicates,
   };
