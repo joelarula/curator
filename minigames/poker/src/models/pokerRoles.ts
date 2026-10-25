@@ -1,13 +1,4 @@
 /**
- * Poker Domain Security Roles (RBAC).
- * Defines declarative roles for table administration, dealer actions, player wagering, and spectator viewing.
+ * Re-export PokerRole from unified contracts.
  */
-
-export const PokerRole = {
-  ADMIN: 'poker:admin',
-  DEALER: 'poker:dealer',
-  PLAYER: 'poker:player',
-  SPECTATOR: 'poker:spectator',
-} as const;
-
-export type PokerRole = (typeof PokerRole)[keyof typeof PokerRole];
+export { PokerRole } from './pokerContracts.ts';

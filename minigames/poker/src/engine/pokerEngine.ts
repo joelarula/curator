@@ -18,22 +18,33 @@ import { evaluateBestHand } from './pokerEvaluator.ts';
 import { curatorEngine, LlmFactory } from '../curator.ts';
 import { GeminiLlmProvider } from '@curator/plugin-llm-gemini';
 
-import { getPokerRules, sanitizeAction, tableRules } from './pokerRules.ts';
-import { buildAgentPrompt, formatAgentPrompt, formatConversationHistory } from './agentPrompt.ts';
+import {
+  getPokerRules,
+  sanitizeAction,
+  tableRules,
+  getLegalChoices as calculateLegalChoices,
+  type TableRulesDefinition,
+} from './pokerRules.ts';
+import {
+  buildAgentPrompt,
+  formatAgentPrompt,
+  formatConversationHistory,
+  getAgentInstruction,
+} from './agentPrompt.ts';
 import { DEFAULT_TABLE_PLAYERS } from './agentProfiles.ts';
 import { PokerActionType, PokerStreet } from '../models/pokerConstants.ts';
 import { PokerEvent } from '../models/pokerEvents.ts';
 
 export { getPokerRules, sanitizeAction, tableRules };
-export { buildAgentPrompt, formatAgentPrompt, formatConversationHistory };
+export { buildAgentPrompt, formatAgentPrompt, formatConversationHistory, getAgentInstruction };
 export * from './agentProfiles.ts';
 
-// Re-export formatAgentPromptCoffeeScript as an alias for backwards compatibility
-export const formatAgentPromptCoffeeScript = formatAgentPrompt;
+// Backward compatibility alias
+export const formatAgentPromptCoffeeScript = buildAgentPrompt;
 
 
-export function getTableRules(): any {
-  return getPokerRules()?.tableRules || {};
+export function getTableRules(): TableRulesDefinition {
+  return tableRules;
 }
 
 export interface PlayerChoice {
@@ -48,8 +59,7 @@ export function getLegalChoices(gameState: PokerGameState, playerIdx?: number): 
   const player = gameState.players[idx];
   if (!player) return [];
   const toCall = Math.max(0, (gameState.currentBet || 0) - (player.streetBet || 0));
-  const rules = getPokerRules();
-  return rules.getLegalChoices(toCall, player.chips || 0, gameState.minRaise || 20, gameState.currentBet || 0);
+  return calculateLegalChoices(toCall, player.chips || 0, gameState.minRaise || 20, gameState.currentBet || 0);
 }
 
 /**
@@ -120,18 +130,8 @@ export function formatCards(cards: Card[]): string {
   return cards.map((c) => `[${c.rank}${c.suit}]`).join(' ');
 }
 
-export function getAgentInstruction(agent: PlayerState): string {
-  if (agent.instruction && agent.instruction.trim().length > 0) {
-    return agent.instruction;
-  }
-  if (agent.persona && typeof agent.persona === 'string') {
-    return `You are ${agent.name}, an autonomous poker agent. Character disposition: ${agent.persona}.`;
-  }
-  return `You are ${agent.name}, an autonomous poker player aiming to maximize chips through strategic analysis and game theory.`;
-}
-
 export function buildAgentSystemPrompt(player: PlayerState): string {
-  return formatAgentPromptCoffeeScript(player);
+  return buildAgentPrompt(player);
 }
 
 export async function generateAgentLlmContent<T = any>(
@@ -179,7 +179,7 @@ export async function agenticDecidePokerAction(
   const chips = player.chips;
   const minRaise = gameState.minRaise || 20;
 
-  const { systemPrompt, userPrompt } = formatAgentPromptCoffeeScript({
+  const { systemPrompt, userPrompt } = buildAgentPrompt({
     player,
     gameState,
     handDesc: handEval.description,
@@ -195,41 +195,11 @@ export async function agenticDecidePokerAction(
     innerMonologue?: string;
   }>(systemPrompt, userPrompt, { model: player.model, provider: player.provider });
 
-  const rules = getPokerRules();
-  if (rules?.sanitizeAction) {
-    const sanitized = rules.sanitizeAction(res, toCall, chips, minRaise);
-    return {
-      type: sanitized.type as ActionType,
-      amount: sanitized.amount,
-    };
-  }
-
-  if (res?.action) {
-    let actionType = res.action.toUpperCase() as ActionType;
-    if (canCheck && actionType === PokerActionType.FOLD) actionType = PokerActionType.CHECK;
-    if (!canCheck && actionType === PokerActionType.CHECK) actionType = PokerActionType.CALL;
-
-    let amount = res.amount;
-    if (actionType === PokerActionType.CALL) {
-      amount = Math.min(chips, toCall);
-    } else if (actionType === PokerActionType.RAISE) {
-      const minReq = toCall + minRaise;
-      if (!amount || amount < minReq) amount = minReq;
-      if (amount >= chips) {
-        actionType = PokerActionType.ALL_IN;
-        amount = chips;
-      }
-    } else if (actionType === PokerActionType.ALL_IN) {
-      amount = chips;
-    }
-
-    return {
-      type: actionType,
-      amount,
-    };
-  }
-
-  return canCheck ? { type: PokerActionType.CHECK } : { type: PokerActionType.FOLD };
+  const sanitized = sanitizeAction(res, toCall, chips, minRaise);
+  return {
+    type: sanitized.type as ActionType,
+    amount: sanitized.amount,
+  };
 }
 
 export function initPokerLobby(args?: any): { gameState: PokerGameState } {
@@ -702,8 +672,6 @@ export function processTableSpeech(
 
   return { gameState: rawState, remark, aiResponse: null };
 }
-
-export const processHumanSpeech = processTableSpeech;
 
 export function checkPokerGameOver(rawState: PokerGameState): {
   gameOver: boolean;

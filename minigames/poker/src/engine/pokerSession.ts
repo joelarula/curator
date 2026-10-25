@@ -12,7 +12,6 @@ import {
   PokerStreet,
   PokerTool,
   PokerModule,
-  PokerLobbyAction,
   DEFAULT_LOBBY_CHOICES,
   DEFAULT_LOBBY_OPTIONS,
 } from '../models/index.ts';

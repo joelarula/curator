@@ -27,6 +27,16 @@ export function formatConversationHistory(remarks: any[] = [], playerId?: string
   return lines.join('\n');
 }
 
+export function getAgentInstruction(agent: any): string {
+  if (agent?.instruction && typeof agent.instruction === 'string' && agent.instruction.trim().length > 0) {
+    return agent.instruction;
+  }
+  if (agent?.persona && typeof agent.persona === 'string') {
+    return `You are ${agent.name}, an autonomous poker agent. Character disposition: ${agent.persona}.`;
+  }
+  return `You are ${agent?.name || 'Player'}, an autonomous poker player aiming to maximize chips through strategic analysis and game theory.`;
+}
+
 export function buildAgentPrompt(args: any): any {
   const ctx = args?.context || args || {};
   const player = ctx.player || (args?.id || args?.name ? args : {});
@@ -36,11 +46,7 @@ export function buildAgentPrompt(args: any): any {
   const boardStr = ctx.boardStr || args?.boardStr || 'None';
 
   // 1. Inject persona instruction from context
-  const instruction =
-    player.instruction ||
-    (player.persona
-      ? `You are ${player.name}, an autonomous poker agent. Character disposition: ${player.persona}.`
-      : `You are ${player.name}, an autonomous poker agent.`);
+  const instruction = getAgentInstruction(player);
 
   // 2. Extract table dynamics
   const toCall = Math.max(0, (gameState.currentBet || 0) - (player.streetBet || 0));

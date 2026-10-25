@@ -45,7 +45,6 @@ const {
   join_lobby,
   events,
   modules,
-  subroutines,
   steps,
   reasons,
 } = pokerComposables;

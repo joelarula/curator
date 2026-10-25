@@ -1,14 +1,24 @@
-export type Suit = '♠' | '♥' | '♦' | '♣';
-export type Rank = '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' | 'J' | 'Q' | 'K' | 'A';
+import {
+  PokerStreet,
+  PokerActionType,
+  type PokerStreetType,
+  type PokerActionTypeValue,
+} from './models/pokerContracts.ts';
+
+export const SUITS = ['♠', '♥', '♦', '♣'] as const;
+export type Suit = (typeof SUITS)[number];
+
+export const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'] as const;
+export type Rank = (typeof RANKS)[number];
 
 export interface Card {
   rank: Rank;
   suit: Suit;
 }
 
-export type Street = 'PREFLOP' | 'FLOP' | 'TURN' | 'RIVER' | 'SHOWDOWN';
-
-export type ActionType = 'FOLD' | 'CHECK' | 'CALL' | 'RAISE' | 'ALL_IN' | 'PAUSE' | 'RESUME' | 'EXIT';
+export { PokerStreet, PokerActionType };
+export type Street = PokerStreetType;
+export type ActionType = PokerActionTypeValue;
 
 export type SpeechAct = string;
 
@@ -17,24 +27,14 @@ export interface PlayerAction {
   amount?: number; // total wagered this street, or raise amount
 }
 
-export interface SpeechAction {
-  text: string;
-  speechAct?: SpeechAct;
-  targetId?: string;
-  speakerId?: string;
-  speakerName?: string;
-}
-
-export interface AgenticSpeechResult {
-  speakerId: string;
-  speakerName: string;
-  speechAct: SpeechAct;
-  recipientId?: string;
-  text: string;
-  innerMonologue: string;
-}
-
-export type PersonaType = string;
+export type PersonaType =
+  | 'shark'
+  | 'rock'
+  | 'fish'
+  | 'maniac'
+  | 'caller'
+  | 'bluffer'
+  | (string & {});
 
 export interface PlayerState {
   id: string;
@@ -57,6 +57,16 @@ export interface PlayerState {
   lastMonologue?: string;
 }
 
+export const PokerStandingStatus = {
+  WINNER: 'Winner',
+  ACTIVE: 'Active',
+  BUST: 'Bust',
+  CASHED_OUT: 'Cashed Out',
+} as const;
+
+export type PokerStandingStatusType =
+  (typeof PokerStandingStatus)[keyof typeof PokerStandingStatus];
+
 export interface PlayerStanding {
   rank: number;
   id: string;
@@ -64,7 +74,7 @@ export interface PlayerStanding {
   startChips: number;
   finalChips: number;
   net: number;
-  status: 'Winner' | 'Active' | 'Bust' | 'Cashed Out';
+  status: PokerStandingStatusType;
 }
 
 export interface SidePot {
@@ -75,8 +85,9 @@ export interface SidePot {
 export interface AmbientRemark {
   speakerId: string;
   speakerName: string;
-  speechAct: SpeechAct;
+  speechAct?: SpeechAct;
   recipientId?: string; // for whispers
+  targetId?: string;
   text: string;
   timestamp: number;
 }
@@ -90,6 +101,8 @@ export interface PlayerJoinOptions {
   persona?: PersonaType;
   model?: string;
   chips?: number;
+  wallet?: number;
+  buyIn?: number;
   seatIdx?: number;
 }
 
@@ -101,8 +114,6 @@ export interface PokerGameState {
   bbIdx: number;
   sbAmount: number;
   bbAmount: number;
-  smallBlind?: number;
-  bigBlind?: number;
   currentStreet: Street;
   board: Card[];
   deck: Card[];
@@ -126,4 +137,3 @@ export interface PokerGameState {
   maxHands?: number;
   finalStandings?: PlayerStanding[];
 }
-

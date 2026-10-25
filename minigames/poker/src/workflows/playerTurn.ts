@@ -7,21 +7,26 @@
  */
 import {
   defineModule,
+  defineSubroutine,
   choice,
   ifElse,
+  whileLoop,
+  waitEvent,
   setState,
   emitEvent,
   type CuratorModuleNode,
 } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
-import { handlePause } from './humanTurn.ts';
 
 const {
   ctx,
   gameState,
   active_player_is_interactive,
+  is_table_paused,
   is_turn_action_pause,
   is_turn_action_exit,
+  is_resume_cmd,
+  is_exit_cmd,
   get_legal_choices,
   ai_decision,
   apply_player_action,
@@ -29,6 +34,38 @@ const {
   modules,
   reasons,
 } = pokerComposables;
+
+/**
+ * Universal subroutine for pausing the table session.
+ */
+export const handlePause = defineSubroutine('handle_pause', () => [
+  setState({ isPaused: true }),
+  emitEvent(events.TABLE_PAUSED, {
+    tableId: String(gameState.tableId),
+  }),
+  whileLoop(
+    is_table_paused,
+    [
+      waitEvent(events.RESUME_ACTION, ctx.resumeCmd),
+      ifElse(
+        is_resume_cmd,
+        [
+          setState({ isPaused: false }),
+          emitEvent(events.TABLE_RESUMED, {
+            tableId: String(gameState.tableId),
+          }),
+        ],
+        ifElse(
+          is_exit_cmd,
+          [
+            setState({ sessionEnded: true, isPaused: false }),
+            emitEvent(events.SESSION_EXITED, { reason: reasons.USER_EXIT }),
+          ],
+        ),
+      ),
+    ],
+  ),
+]);
 
 export function buildPlayerTurnModule(): CuratorModuleNode {
   const can_check = `(${gameState.currentBet} - ${gameState.players}[${gameState.activePlayerIdx}].streetBet) == 0`;

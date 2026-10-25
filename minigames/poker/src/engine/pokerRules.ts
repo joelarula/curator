@@ -9,6 +9,8 @@ import {
   type PokerActionTypeValue,
 } from '../models/pokerConstants.ts';
 import { PokerTool } from '../models/pokerTools.ts';
+import type { Suit, Rank } from '../types.ts';
+import { SUITS, RANKS } from '../types.ts';
 
 export interface TableRulesDefinition {
   name: string;
@@ -22,8 +24,8 @@ export interface TableRulesDefinition {
   };
   deck: {
     cards: number;
-    suits: string[];
-    ranks: string[];
+    suits: Suit[];
+    ranks: Rank[];
   };
   streets: Array<{
     id: string;
@@ -52,8 +54,8 @@ export const tableRules: TableRulesDefinition = {
   },
   deck: {
     cards: 52,
-    suits: ['♠', '♥', '♦', '♣'],
-    ranks: ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'],
+    suits: [...SUITS],
+    ranks: [...RANKS],
   },
   streets: [
     { id: PokerStreet.PREFLOP, name: 'Pre-flop', cardsToDeal: 0, burn: 0 },

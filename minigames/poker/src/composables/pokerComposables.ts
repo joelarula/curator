@@ -9,8 +9,6 @@ import { PokerEvent, type PokerEventType } from '../models/pokerEvents.ts';
 import {
   PokerModule,
   type PokerModuleType,
-  PokerSubroutine,
-  type PokerSubroutineType,
   PokerStep,
   type PokerStepType,
 } from '../models/pokerSteps.ts';
@@ -56,8 +54,6 @@ export {
   type PokerEventType,
   PokerModule,
   type PokerModuleType,
-  PokerSubroutine,
-  type PokerSubroutineType,
   PokerStep,
   type PokerStepType,
   PokerTool,
@@ -184,7 +180,6 @@ export const pokerComposables = {
   // Typed Poker Domain Constants
   events: PokerEvent,
   modules: PokerModule,
-  subroutines: PokerSubroutine,
   steps: PokerStep,
   tools: PokerTool,
   reasons: PokerSessionReason,
@@ -204,7 +199,6 @@ export function usePokerContext() {
     tools: PokerTool,
     steps: PokerStep,
     modules: PokerModule,
-    subroutines: PokerSubroutine,
     reasons: PokerSessionReason,
     actions: PokerActionType,
     predicates: pokerPredicates,

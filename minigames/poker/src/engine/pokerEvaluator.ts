@@ -10,35 +10,38 @@ const RANK_VALUES: Record<Rank, number> = {
   '8': 8,
   '9': 9,
   '10': 10,
-  'J': 11,
-  'Q': 12,
-  'K': 13,
-  'A': 14,
+  J: 11,
+  Q: 12,
+  K: 13,
+  A: 14,
 };
 
-export type HandCategory =
-  | 'HIGH_CARD'
-  | 'ONE_PAIR'
-  | 'TWO_PAIR'
-  | 'THREE_OF_A_KIND'
-  | 'STRAIGHT'
-  | 'FLUSH'
-  | 'FULL_HOUSE'
-  | 'FOUR_OF_A_KIND'
-  | 'STRAIGHT_FLUSH'
-  | 'ROYAL_FLUSH';
+export const HandCategory = {
+  HIGH_CARD: 'HIGH_CARD',
+  ONE_PAIR: 'ONE_PAIR',
+  TWO_PAIR: 'TWO_PAIR',
+  THREE_OF_A_KIND: 'THREE_OF_A_KIND',
+  STRAIGHT: 'STRAIGHT',
+  FLUSH: 'FLUSH',
+  FULL_HOUSE: 'FULL_HOUSE',
+  FOUR_OF_A_KIND: 'FOUR_OF_A_KIND',
+  STRAIGHT_FLUSH: 'STRAIGHT_FLUSH',
+  ROYAL_FLUSH: 'ROYAL_FLUSH',
+} as const;
+
+export type HandCategory = (typeof HandCategory)[keyof typeof HandCategory];
 
 const CATEGORY_RANKS: Record<HandCategory, number> = {
-  HIGH_CARD: 1,
-  ONE_PAIR: 2,
-  TWO_PAIR: 3,
-  THREE_OF_A_KIND: 4,
-  STRAIGHT: 5,
-  FLUSH: 6,
-  FULL_HOUSE: 7,
-  FOUR_OF_A_KIND: 8,
-  STRAIGHT_FLUSH: 9,
-  ROYAL_FLUSH: 10,
+  [HandCategory.HIGH_CARD]: 1,
+  [HandCategory.ONE_PAIR]: 2,
+  [HandCategory.TWO_PAIR]: 3,
+  [HandCategory.THREE_OF_A_KIND]: 4,
+  [HandCategory.STRAIGHT]: 5,
+  [HandCategory.FLUSH]: 6,
+  [HandCategory.FULL_HOUSE]: 7,
+  [HandCategory.FOUR_OF_A_KIND]: 8,
+  [HandCategory.STRAIGHT_FLUSH]: 9,
+  [HandCategory.ROYAL_FLUSH]: 10,
 };
 
 export interface EvaluatedHand {
@@ -107,33 +110,33 @@ function evaluateFiveCards(hand: Card[]): EvaluatedHand {
     .map(([val, count]) => ({ val: Number(val), count }))
     .sort((a, b) => b.count - a.count || b.val - a.val);
 
-  let category: HandCategory = 'HIGH_CARD';
+  let category: HandCategory = HandCategory.HIGH_CARD;
   let score = 0;
   let description = '';
 
   if (isFlush && isStraight) {
     if (straightHigh === 14) {
-      category = 'ROYAL_FLUSH';
+      category = HandCategory.ROYAL_FLUSH;
       description = `Royal Flush in ${suits[0]}`;
     } else {
-      category = 'STRAIGHT_FLUSH';
+      category = HandCategory.STRAIGHT_FLUSH;
       description = `${straightHigh}-high Straight Flush in ${suits[0]}`;
     }
     score = CATEGORY_RANKS[category] * 1e8 + straightHigh;
   } else if (freqEntries[0].count === 4) {
-    category = 'FOUR_OF_A_KIND';
+    category = HandCategory.FOUR_OF_A_KIND;
     const quad = freqEntries[0].val;
     const kicker = freqEntries[1].val;
     description = `Four of a Kind (${quad}s)`;
     score = CATEGORY_RANKS[category] * 1e8 + quad * 1e4 + kicker;
   } else if (freqEntries[0].count === 3 && freqEntries[1].count === 2) {
-    category = 'FULL_HOUSE';
+    category = HandCategory.FULL_HOUSE;
     const trio = freqEntries[0].val;
     const pair = freqEntries[1].val;
     description = `Full House (${trio}s full of ${pair}s)`;
     score = CATEGORY_RANKS[category] * 1e8 + trio * 1e4 + pair;
   } else if (isFlush) {
-    category = 'FLUSH';
+    category = HandCategory.FLUSH;
     description = `Flush (${suits[0]}) high ${values[0]}`;
     score =
       CATEGORY_RANKS[category] * 1e8 +
@@ -143,25 +146,25 @@ function evaluateFiveCards(hand: Card[]): EvaluatedHand {
       values[3] +
       values[4] * 0.01;
   } else if (isStraight) {
-    category = 'STRAIGHT';
+    category = HandCategory.STRAIGHT;
     description = `${straightHigh}-high Straight`;
     score = CATEGORY_RANKS[category] * 1e8 + straightHigh;
   } else if (freqEntries[0].count === 3) {
-    category = 'THREE_OF_A_KIND';
+    category = HandCategory.THREE_OF_A_KIND;
     const trio = freqEntries[0].val;
     const kicker1 = freqEntries[1].val;
     const kicker2 = freqEntries[2].val;
     description = `Three of a Kind (${trio}s)`;
     score = CATEGORY_RANKS[category] * 1e8 + trio * 1e4 + kicker1 * 100 + kicker2;
   } else if (freqEntries[0].count === 2 && freqEntries[1].count === 2) {
-    category = 'TWO_PAIR';
+    category = HandCategory.TWO_PAIR;
     const highPair = Math.max(freqEntries[0].val, freqEntries[1].val);
     const lowPair = Math.min(freqEntries[0].val, freqEntries[1].val);
     const kicker = freqEntries[2].val;
     description = `Two Pair (${highPair}s and ${lowPair}s)`;
     score = CATEGORY_RANKS[category] * 1e8 + highPair * 1e4 + lowPair * 100 + kicker;
   } else if (freqEntries[0].count === 2) {
-    category = 'ONE_PAIR';
+    category = HandCategory.ONE_PAIR;
     const pair = freqEntries[0].val;
     const kickers = freqEntries.slice(1).map((f) => f.val);
     description = `One Pair of ${pair}s`;
@@ -172,7 +175,7 @@ function evaluateFiveCards(hand: Card[]): EvaluatedHand {
       kickers[1] +
       (kickers[2] || 0) * 0.01;
   } else {
-    category = 'HIGH_CARD';
+    category = HandCategory.HIGH_CARD;
     description = `High Card ${values[0]}`;
     score =
       CATEGORY_RANKS[category] * 1e8 +
@@ -200,7 +203,7 @@ export function evaluateBestHand(holeCards: Card[], communityCards: Card[]): Eva
     // Pre-flop or incomplete board: evaluate hole cards or available cards
     const sorted = [...allCards].sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank]);
     const isPair = sorted.length === 2 && sorted[0].rank === sorted[1].rank;
-    const category: HandCategory = isPair ? 'ONE_PAIR' : 'HIGH_CARD';
+    const category: HandCategory = isPair ? HandCategory.ONE_PAIR : HandCategory.HIGH_CARD;
     const score = isPair ? 2e8 + RANK_VALUES[sorted[0].rank] * 1e4 : 1e8 + (RANK_VALUES[sorted[0]?.rank] || 0) * 1e4;
     return {
       category,

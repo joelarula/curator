@@ -42,7 +42,6 @@ import {
   distributePokerPots,
   rotatePokerDealer,
   processTableSpeech,
-  processHumanSpeech,
   checkPokerGameOver,
   getPokerStandings,
   getLegalChoices,
@@ -308,6 +307,19 @@ export const pokerRotateDealerTool = defineTool<PokerRotateDealerParams>({
   },
 });
 
+const speechParameters = {
+  type: 'object',
+  properties: {
+    state: { type: 'object' },
+    speechAct: { type: 'string' },
+    text: { type: 'string' },
+    targetId: { type: 'string' },
+    speakerId: { type: 'string' },
+    speakerName: { type: 'string' },
+  },
+  required: ['text'],
+} as const;
+
 export const pokerSpeechTool = defineTool<PokerHumanSpeechParams>({
   name: PokerTool.SPEECH,
   description: 'Applies table talk, banter, gossip, or private whisper from any player and triggers AI persona reactions.',
@@ -315,25 +327,26 @@ export const pokerSpeechTool = defineTool<PokerHumanSpeechParams>({
   aliases: [PokerToolAlias.SPEECH, PokerTool.HUMAN_SPEECH],
   requiredRole: PokerRole.PLAYER,
   accessLevel: CuratorAccessLevel.SAFE_READ,
-  parameters: {
-    type: 'object',
-    properties: {
-      state: { type: 'object' },
-      speechAct: { type: 'string' },
-      text: { type: 'string' },
-      targetId: { type: 'string' },
-      speakerId: { type: 'string' },
-      speakerName: { type: 'string' },
-    },
-    required: ['text'],
-  },
+  parameters: speechParameters as any,
   execute: async (args: PokerHumanSpeechParams, ctx: any) => {
     const rawState = extractGameState(args, ctx);
     return processTableSpeech(rawState, args);
   },
 });
 
-export const pokerHumanSpeechTool = pokerSpeechTool;
+export const pokerHumanSpeechTool = defineTool<PokerHumanSpeechParams>({
+  name: PokerTool.HUMAN_SPEECH,
+  description: 'Applies table talk, banter, gossip, or private whisper from any player and triggers AI persona reactions.',
+  usage: PokerToolUsage.HUMAN_SPEECH,
+  aliases: [PokerToolAlias.SPEECH, PokerTool.SPEECH],
+  requiredRole: PokerRole.PLAYER,
+  accessLevel: CuratorAccessLevel.SAFE_READ,
+  parameters: speechParameters as any,
+  execute: async (args: PokerHumanSpeechParams, ctx: any) => {
+    const rawState = extractGameState(args, ctx);
+    return processTableSpeech(rawState, args);
+  },
+});
 
 export const pokerCheckGameOverTool = defineTool<PokerCheckGameOverParams>({
   name: PokerTool.CHECK_GAME_OVER,

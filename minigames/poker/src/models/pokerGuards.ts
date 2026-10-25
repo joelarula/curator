@@ -2,20 +2,24 @@
  * Type guards and runtime assertions for Poker models.
  */
 
-import type {
-  Card,
-  Street,
-  ActionType,
-  PlayerAction,
-  PlayerState,
-  PokerGameState,
+import {
+  type Card,
+  type Street,
+  type ActionType,
+  type PlayerAction,
+  type PlayerState,
+  type PokerGameState,
+  PokerStreet,
+  PokerActionType,
+  SUITS,
+  RANKS,
 } from '../types.ts';
 import type { PokerWorkflowContext, PokerLegalChoice, PokerTurnDecision } from './pokerContext.ts';
 
-const VALID_STREETS = new Set<Street>(['PREFLOP', 'FLOP', 'TURN', 'RIVER', 'SHOWDOWN']);
-const VALID_ACTIONS = new Set<ActionType>(['FOLD', 'CHECK', 'CALL', 'RAISE', 'ALL_IN', 'PAUSE', 'RESUME', 'EXIT']);
-const VALID_SUITS = new Set(['♠', '♥', '♦', '♣']);
-const VALID_RANKS = new Set(['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']);
+const VALID_STREETS = new Set<string>(Object.values(PokerStreet));
+const VALID_ACTIONS = new Set<string>(Object.values(PokerActionType));
+const VALID_SUITS = new Set<string>(SUITS);
+const VALID_RANKS = new Set<string>(RANKS);
 
 export function isCard(value: unknown): value is Card {
   if (!value || typeof value !== 'object') return false;

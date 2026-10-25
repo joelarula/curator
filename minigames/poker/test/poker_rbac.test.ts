@@ -26,14 +26,15 @@ test('Poker RBAC — Declarative Plugin Roles & Whitelist Enforcement', async (t
     assert.deepEqual(pokerPlugin.defaultUserRoles, ['poker:player', 'poker:spectator']);
 
     // Tools have requiredRole and accessLevel
-    const startHand = pokerPlugin.tools?.poker_start_hand as any;
+    const tools = pokerPlugin.tools as any;
+    const startHand = tools?.poker_start_hand;
     assert.equal(startHand.requiredRole, 'poker:dealer');
     assert.equal(startHand.accessLevel, 'safe_write');
 
-    const applyAction = pokerPlugin.tools?.poker_apply_action as any;
+    const applyAction = tools?.poker_apply_action;
     assert.equal(applyAction.requiredRole, 'poker:player');
 
-    const listTables = pokerPlugin.tools?.poker_list_tables as any;
+    const listTables = tools?.poker_list_tables;
     assert.equal(listTables.requiredRole, 'poker:spectator');
   });
 

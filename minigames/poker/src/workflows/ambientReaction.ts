@@ -20,13 +20,12 @@ const {
   human_speech,
   events,
   modules,
-  subroutines,
 } = pokerComposables;
 
 /**
  * First-class typed handler for table speech events.
  */
-export const onSpeechEvent = defineSubroutine(subroutines.ON_SPEECH_EVENT, () => [
+export const onSpeechEvent = defineSubroutine('on_speech_event', () => [
   human_speech({
     speechAct: `${params.speechEvt.speechAct} || 'TABLE_TALK'`,
     targetId: params.speechEvt.targetId,
@@ -43,7 +42,7 @@ export const onSpeechEvent = defineSubroutine(subroutines.ON_SPEECH_EVENT, () =>
 /**
  * First-class typed handler for player action events.
  */
-export const onActionTaken = defineSubroutine(subroutines.ON_ACTION_TAKEN, () => [
+export const onActionTaken = defineSubroutine('on_action_taken', () => [
   emitEvent(events.AMBIENT_EVALUATED, {
     player: params.actionEvt.player,
     action: params.actionEvt.action,
