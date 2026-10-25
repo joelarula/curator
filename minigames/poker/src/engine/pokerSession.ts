@@ -537,36 +537,34 @@ export async function createPokerGameSession(
     };
 
     if (eventName === PokerEvent.SPEECH) {
-      if (!host.engine.tools.get(PokerTool.HUMAN_SPEECH)) return null;
-
-      const currentGameState = await getGameState(targetConvId);
       const speakerName = payload?.speakerName || 'You';
-      const speakerId = payload?.speakerId || sessionId || 'player-human';
+      const speakerId = payload?.speakerId || sessionId || 'hero';
       const speechAct = payload?.speechAct || payload?.args?.speechAct || (payload?.targetId ? 'WHISPER' : 'TABLE_TALK');
       const text = payload?.text || payload?.args?.text || '';
       const targetId = payload?.targetId || payload?.args?.targetId;
 
-      const run = await host.runTool(
-        PokerTool.HUMAN_SPEECH,
-        { speechAct, text, targetId, speakerId, speakerName },
-        { ...requestScope, runtimeArgs: { state: currentGameState }, runtimeContext: { state: currentGameState } }
-      );
-      if (run.status === 'WAITING_FOR_USER') return run.record;
-      const result: any = run.result;
-
-      host.events.broadcast(PokerEvent.SPEECH_RESPONSE, {
+      const speechPayload = {
         speaker: speakerName,
+        speakerName,
+        speakerId,
         text,
         speechAct,
-        aiSpeaker: result?.aiResponse?.speakerName,
-        aiReply: result?.aiResponse?.text,
         targetId,
         tableId: String(targetConvId),
         conversationId: targetConvId,
         ...(sessionId ? { sessionId } : {}),
+      };
+
+      // Poker speech is an event: emit into Curator engine to spawn subscriptions (ambient reaction)
+      await host.emitEvent(PokerEvent.SPEECH, speechPayload, {
+        conversationId: targetConvId,
+        origin: 'REPL',
+        broadcast: true,
+        contextPatch: sessionId ? { sessionId } : undefined,
       });
 
-      return result;
+      host.events.broadcast(PokerEvent.SPEECH_RESPONSE, speechPayload);
+      return speechPayload;
     }
 
     if (eventName === 'curator:tool_call' || eventName === PokerEvent.TOOL_CALL) {

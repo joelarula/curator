@@ -18,6 +18,7 @@
 
 ## Architecture & Boundary Principles
 - **Tools as Boundaries:** AST workflows invoke deterministic logic strictly through declared tools (`poker_start_hand`, `poker_apply_action`, `poker_deal_street`, `poker_distribute_pots`).
+- **Speech is Purely an Event:** Speech, banter, and table talk are not deterministic engine tools and do not mutate table state. They belong exclusively to the temporal communication layer as events (`poker:speech`, `poker:speech_response`, `poker:ambient_spoken`) emitted via `host.emitEvent` and consumed via workflow pub/sub subscriptions.
 - **No Procedural Runners:** Never write imperative callback-based game simulators (e.g. `playPokerHand` with `onTurn`/`onTableUpdate`). Workflows run exclusively as compiled ASTs through the Curator Request Processor.
 - **Typed Enums over String Literals:** Use domain enum objects (`HandCategory`, `PokerActionType`, `PokerStreet`, `PokerStandingStatus`, `PokerSpeechAct`, `PokerGameOverResult`) across both engine and AST workflows.
 - **Verification:** Always verify changes with `npm run test:deterministic` (deterministic harness) and `npx tsx --test test/poker_rbac.test.ts` (RBAC enforcement).

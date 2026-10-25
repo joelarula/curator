@@ -270,37 +270,29 @@ export const pokerRotateDealerTool = defineStateTool<PokerRotateDealerParams>(
   (s) => rotatePokerDealer(s),
 );
 
-const speechParameters = {
-  type: 'object',
-  properties: {
-    state: { type: 'object' },
-    speechAct: { type: 'string' },
-    text: { type: 'string' },
-    targetId: { type: 'string' },
-    speakerId: { type: 'string' },
-    speakerName: { type: 'string' },
+export const pokerHumanSpeechTool = defineStateTool<PokerHumanSpeechParams>(
+  PokerTool.HUMAN_SPEECH,
+  'Applies table talk, banter, gossip, or private whisper from any player and triggers AI persona reactions.',
+  PokerRole.PLAYER,
+  (rawState, args, ctx) => {
+    const speakerId = args?.speakerId || ctx?.userId || ctx?.actorId || 'hero';
+    const speakerName = args?.speakerName || ctx?.user?.name || speakerId;
+    return processTableSpeech(rawState, { ...args, speakerId, speakerName });
   },
-  required: ['text'],
-} as const;
-
-function createPokerSpeechTool(name: PokerToolType, aliases: string[]) {
-  return defineTool<PokerHumanSpeechParams>({
-    name,
-    description: 'Applies table talk, banter, gossip, or private whisper from any player and triggers AI persona reactions.',
-    usage: PokerToolUsage.HUMAN_SPEECH,
-    aliases,
-    requiredRole: PokerRole.PLAYER,
+  {
     accessLevel: CuratorAccessLevel.SAFE_READ,
-    parameters: speechParameters as any,
-    execute: async (args: PokerHumanSpeechParams, ctx: any) => {
-      const rawState = extractGameState(args, ctx);
-      return processTableSpeech(rawState, args);
+    usage: PokerToolUsage.HUMAN_SPEECH,
+    aliases: [PokerToolAlias.SPEECH, PokerTool.SPEECH],
+    properties: {
+      speechAct: { type: 'string' },
+      text: { type: 'string' },
+      targetId: { type: 'string' },
     },
-  });
-}
+    required: ['text'],
+  }
+);
 
-export const pokerSpeechTool = createPokerSpeechTool(PokerTool.SPEECH, [PokerToolAlias.SPEECH, PokerTool.HUMAN_SPEECH]);
-export const pokerHumanSpeechTool = createPokerSpeechTool(PokerTool.HUMAN_SPEECH, [PokerToolAlias.SPEECH, PokerTool.SPEECH]);
+export const pokerSpeechTool = pokerHumanSpeechTool;
 
 export const pokerCheckGameOverTool = defineStateTool<PokerCheckGameOverParams>(
   PokerTool.CHECK_GAME_OVER,
@@ -374,7 +366,6 @@ export const pokerToolsList = [
   pokerFastForwardBoardTool,
   pokerDistributePotsTool,
   pokerRotateDealerTool,
-  pokerSpeechTool,
   pokerHumanSpeechTool,
   pokerCheckGameOverTool,
   pokerGetStandingsTool,
@@ -383,7 +374,12 @@ export const pokerToolsList = [
 
 export const pokerTools = Object.assign(
   pokerToolsList,
-  Object.fromEntries(pokerToolsList.map((t) => [t.name, t]))
+  Object.fromEntries(
+    pokerToolsList.flatMap((t) => [
+      [t.name, t],
+      ...(t.aliases || []).map((alias) => [alias, t]),
+    ])
+  )
 );
 
 export const pokerPlugin: CuratorPlugin = {
