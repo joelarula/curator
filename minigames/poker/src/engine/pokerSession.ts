@@ -19,6 +19,7 @@ import {
   DEFAULT_LOBBY_OPTIONS,
 } from '../workflows/pokerLobby.ts';
 import { formatTableChoices } from './pokerEngine.ts';
+import { syncPokerTableResource, closePokerTableResource } from '../services/pokerTableStore.ts';
 
 export interface PokerSessionOptions {
   databasePath?: string;
@@ -284,6 +285,22 @@ export async function createPokerGameTable(
     humanTurn: null,
   };
 
+  await syncPokerTableResource(prisma, {
+    tableId: newConv.id,
+    title,
+    conversationId: newConv.id,
+    projectId: project.id,
+    userId: user.id,
+    maxSeats,
+    players: [
+      {
+        id: options.playerId || options.playerName || user.id,
+        name: options.playerName || user.name || 'Hero',
+        isHuman: true,
+      },
+    ],
+  });
+
   host.events.broadcast(PokerEvent.TABLE_CREATED, {
     tableId: info.tableId,
     conversationId: info.conversationId,
@@ -329,6 +346,8 @@ export async function closePokerGameTable(
       });
     }
   } catch (_) {}
+
+  await closePokerTableResource(prisma, tableId, reason);
 
   host.events.broadcast(PokerEvent.SESSION_EXITED, {
     tableId: String(convId),
@@ -914,6 +933,7 @@ export async function createPokerGameSession(
     for (const c of convs) {
       const meta = parseConversationMetadata(c.metadata);
       if (Boolean(meta.isLobby) || meta.isLobby === 'true' || meta.type === PokerConversationType.LOBBY || meta.type === 'poker_lobby') continue;
+      if (meta.isClosed || meta.status === 'closed') continue;
       if (meta.type !== PokerConversationType.TABLE && !meta.tableName && meta.ruleset !== 'texas_holdem_nl') continue;
       list.push(await resolveTableInfo(c));
     }

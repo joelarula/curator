@@ -51,7 +51,8 @@ import {
   formatTableChoices,
   isTableUnfinishedForUser,
 } from '../engine/pokerEngine.ts';
-import { getLobbyChoices } from '../workflows/pokerLobby.ts';
+import { PokerTableShape } from '../models/pokerShapes.ts';
+import { queryActivePokerTables } from '../services/pokerTableStore.ts';
 import { POKER_AGENT_PROFILES } from '../engine/agentProfiles.ts';
 
 const SCRIPT_DESCRIPTIONS: Record<string, string> = {
@@ -344,8 +345,8 @@ export const pokerListTablesTool = defineTool<PokerListTablesParams>({
   },
   execute: async (args: PokerListTablesParams, ctx: any) => {
     const prisma = ctx?.toolContext?.prisma || ctx?.prisma;
-    if (!prisma?.conversation) {
-      return { tables: [], choices: [], lobbyChoices: getLobbyChoices(false), hasUnfinishedGames: false, count: 0 };
+    if (!prisma?.conversation && !prisma?.resource) {
+      return { tables: [], choices: [], hasUnfinishedGames: false, count: 0 };
     }
 
     const targetProjectId = String(args?.projectId || ctx?.toolContext?.projectId || ctx?.projectId || ctx?.project?.id || '').trim();
@@ -354,54 +355,12 @@ export const pokerListTablesTool = defineTool<PokerListTablesParams>({
     const playerId = String(args?.playerId || reqCtx.playerId || ctx?.playerId || ctx?.user?.id || '').trim();
     const userId = String(args?.userId || reqCtx.userId || ctx?.userId || ctx?.user?.id || '').trim();
 
-    const whereClause: any = {};
-    if (targetProjectId) whereClause.projectId = targetProjectId;
-
-    const convs = await prisma.conversation.findMany({
-      where: whereClause,
-      orderBy: { id: 'asc' },
+    return queryActivePokerTables(prisma, {
+      projectId: targetProjectId,
+      playerName,
+      playerId,
+      userId,
     });
-
-    const userQuery = { playerName, playerId, userId };
-    const matchedConvs: any[] = [];
-
-    for (const c of convs) {
-      let meta: any = {};
-      try {
-        meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata) : (c.metadata || {});
-      } catch (_) {}
-      if (meta.isLobby || meta.type === 'poker_lobby' || meta.isClosed) {
-        continue;
-      }
-      if (meta.type !== 'poker_table' && !meta.tableName && meta.ruleset !== 'texas_holdem_nl') {
-        continue;
-      }
-      const latestReq = await prisma.request.findFirst({
-        where: { conversationId: c.id },
-        orderBy: { updatedAt: 'desc' },
-      });
-      if (isTableUnfinishedForUser(c, latestReq, userQuery)) {
-        matchedConvs.push(c);
-      }
-    }
-
-    const tables = matchedConvs.map((c: any) => ({
-      id: String(c.id),
-      tableId: String(c.id),
-      title: c.metadata?.tableName || c.title || `Table #${c.id}`,
-    }));
-
-    const choices = formatTableChoices(tables);
-    const hasUnfinishedGames = tables.length > 0;
-    const lobbyChoices = getLobbyChoices(hasUnfinishedGames, tables.length);
-
-    return {
-      tables,
-      choices,
-      lobbyChoices,
-      hasUnfinishedGames,
-      count: tables.length,
-    };
   },
 });
 
@@ -521,6 +480,7 @@ export const pokerPlugin: CuratorPlugin = {
     PokerRole.SPECTATOR,
   ],
   tools: pokerTools,
+  models: [PokerTableShape],
   scripts: pokerScripts,
   agents: Object.fromEntries(
     Object.entries(POKER_AGENT_PROFILES).map(([key, profile]) => [

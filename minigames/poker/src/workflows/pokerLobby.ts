@@ -132,10 +132,10 @@ export function buildPokerLobbyModule(): CuratorModuleNode {
           playerId: String(ctx.playerId),
           userId: String(ctx.userId),
         }),
-        input(
-          'Lobby Options:',
-          String(ctx.poker_list_tables.lobbyChoices),
-          { as: ctx.lobbyChoice },
+        ifElse<PokerWorkflowContext>(
+          (c) => Boolean(c.poker_list_tables?.hasUnfinishedGames),
+          input('Lobby Options:', getLobbyChoices(true), { as: ctx.lobbyChoice }),
+          input('Lobby Options:', getLobbyChoices(false), { as: ctx.lobbyChoice }),
         ),
         match(ctx.lobbyChoice, {
           [lobbyActions.EXIT]: [

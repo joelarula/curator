@@ -258,7 +258,7 @@ export interface PokerWorkflowContext {
   poker_list_tables?: {
     tables: Array<{ id: string; tableId: string; title: string }>;
     choices: PokerTableChoice[];
-    lobbyChoices: PokerLobbyChoice[];
+    lobbyChoices?: PokerLobbyChoice[];
     hasUnfinishedGames: boolean;
     count: number;
   };

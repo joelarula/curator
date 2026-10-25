@@ -13,6 +13,7 @@ import {
   type PokerTableChoice,
 } from '../src/workflows/pokerLobby.ts';
 import { formatTableChoices } from '../src/engine/pokerEngine.ts';
+import { POKER_SHAPE_URIS } from '../src/models/pokerShapes.ts';
 import { createPokerHost } from '../src/host.ts';
 import {
   createPokerGameSession,
@@ -234,19 +235,50 @@ test('Lobby Separation & Lifecycle: Dedicated lobby conversation, table creation
     assert.equal(tableConv?.metadata?.isLobby, false);
     assert.equal(tableConv?.metadata?.tableName, 'Diamond Suite #7');
 
-    // 4. Verify listTables only returns the game table, excluding the lobby
+    // 4. Verify PokerTableShape semantic resource & player relation were created
+    const tableResource = await host.prisma.resource.findUnique({
+      where: { uri: `poker:table:${tableInfo.tableId}` },
+      include: {
+        subjectRelations: {
+          include: { predicate: true, object: true },
+        },
+      },
+    });
+    assert.ok(tableResource, 'Semantic resource for PokerTableShape must exist');
+    assert.equal(tableResource.metadata?.shape, POKER_SHAPE_URIS.TABLE_SHAPE);
+    assert.equal(tableResource.metadata?.tableName, 'Diamond Suite #7');
+    assert.equal(tableResource.metadata?.status, 'active');
+
+    const playerRelation = tableResource.subjectRelations.find(
+      (rel: any) => rel.predicate.uri === POKER_SHAPE_URIS.PLAYER_PREDICATE
+    );
+    assert.ok(playerRelation, 'Table resource must be linked via poker:hasPlayer relation');
+    assert.ok(playerRelation.object.uri.startsWith('poker:player:'), 'Player object must have poker:player URI');
+
+    // 5. Verify listTables returns the game table via single indexed semantic resource query
     const tables = await session.listTables();
     assert.equal(tables.length, 1, 'Only game tables are returned');
     assert.equal(tables[0].tableId, tableInfo.tableId);
     assert.ok(!tables.some((t) => t.tableId === String(lobbyConv.id)), 'Lobby conversation must NOT be in tables list');
 
-    // 5. Close the game table
+    // 6. Close the game table
     await closePokerGameTable(host, tableInfo.tableId, 'user_exit');
     const closedConv = await host.prisma.conversation.findUnique({
       where: { id: tableInfo.conversationId },
     });
     assert.equal(closedConv?.metadata?.isClosed, true, 'Table conversation marked as closed');
     assert.equal(closedConv?.metadata?.closingReason, 'user_exit');
+
+    // Semantic resource is updated to closed
+    const closedResource = await host.prisma.resource.findUnique({
+      where: { uri: `poker:table:${tableInfo.tableId}` },
+    });
+    assert.equal(closedResource?.metadata?.status, 'closed', 'Resource status must be closed');
+    assert.equal(closedResource?.metadata?.isClosed, true);
+
+    // After closing, listTables returns empty
+    const tablesAfterClose = await session.listTables();
+    assert.equal(tablesAfterClose.length, 0, 'Closed table is no longer returned in active tables');
 
     // Active requests on closed table are completed
     const activeReqs = await host.prisma.request.findMany({
