@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { setLogLevel } from '@curator/agent-server';
 import type { CuratorHost } from '../types.js';
 
 export interface HostCliOptions {
@@ -40,6 +41,18 @@ export function createHostCli(
       .description(options.description || 'Curator Host Command Line Interface')
       .version(options.version || '1.0.0');
   }
+
+  program
+    .option('--log-level <level>', 'Set log level (error, warn, info, debug, silent)')
+    .option('--debug', 'Enable debug log level')
+    .hook('preAction', (thisCommand) => {
+      const opts = thisCommand.opts();
+      if (opts.debug) {
+        setLogLevel('debug');
+      } else if (opts.logLevel) {
+        setLogLevel(opts.logLevel);
+      }
+    });
 
   // 1. Database Seeding
   program

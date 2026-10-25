@@ -18,6 +18,7 @@ export interface PokerHostOptions {
   databasePath?: string;
   intervalMs?: number;
   quiet?: boolean;
+  logLevel?: string;
   userId?: string;
   userName?: string;
   userEmail?: string;
@@ -48,6 +49,7 @@ export async function createPokerHost(options: PokerHostOptions = {}): Promise<C
       path: dbPath,
     },
     ...(options.intervalMs !== undefined ? { intervalMs: options.intervalMs } : {}),
+    ...(options.logLevel ? { logLevel: options.logLevel } : {}),
     logger: options.quiet
       ? { log: () => { }, info: () => { }, warn: console.warn, error: console.error }
       : {

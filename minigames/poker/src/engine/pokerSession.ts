@@ -39,6 +39,8 @@ export interface PokerSessionOptions {
   sessionId?: string;
   newSession?: boolean;
   resetLight?: boolean;
+  logLevel?: string;
+  debug?: boolean;
 }
 
 export interface HumanTurnPromptInfo {

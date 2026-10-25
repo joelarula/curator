@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 
 // 1. Immediate bootstrap log executed on millisecond 0 (before heavy imports)
-console.log('\x1b[36m[Poker CLI] Booting Texas Hold\'em Engine...\x1b[0m', process.argv.slice(2).join(' ') || '(default play)');
+const isQuietBoot = process.argv.includes('-q') || process.argv.includes('--quiet') || process.env.LOG_LEVEL === 'silent' || process.env.LOG_LEVEL === 'none';
+if (!isQuietBoot) {
+  console.log('\x1b[36m[Poker CLI] Booting Texas Hold\'em Engine...\x1b[0m', process.argv.slice(2).join(' ') || '(default play)');
+}
 
 import { Command } from 'commander';
 
@@ -10,7 +13,18 @@ const program = new Command();
 program
   .name('poker')
   .description('Curator Texas Hold\'em MiniApp & Game Engine powered by CuratorHost and RequestProcessor')
-  .version('1.0.0');
+  .version('1.0.0')
+  .option('--log-level <level>', 'Set log level (error, warn, info, debug, silent)')
+  .option('--debug', 'Enable debug log level')
+  .option('-q, --quiet', 'Quiet mode (suppress verbose logs)', false)
+  .hook('preAction', async (thisCommand) => {
+    const opts = thisCommand.opts();
+    const effective = opts.debug ? 'debug' : (opts.quiet ? 'error' : (opts.logLevel || process.env.LOG_LEVEL));
+    if (effective) {
+      const { setLogLevel } = await import('./curator.ts');
+      setLogLevel(effective);
+    }
+  });
 
 // 2. Standalone AST-driven Poker Server command (Mode A)
 program
@@ -25,12 +39,25 @@ program
   .option('--db <path>', 'Custom SQLite database path')
   .option('-r, --reset', 'Reset database before running', false)
   .option('--poll-interval <ms>', 'Processor poll interval in ms', '300')
+  .option('--log-level <level>', 'Set log level (error, warn, info, debug, silent)')
+  .option('--debug', 'Enable debug log level')
+  .option('-q, --quiet', 'Quiet mode', false)
   .option('-v, --verbose', 'Verbose logging', false)
   .action(async (opts) => {
-    console.log(`\x1b[36m[Poker CLI] Loading server runtime and AST engine...\x1b[0m`);
+    const effectiveLogLevel = opts.debug ? 'debug' : (opts.quiet ? 'error' : (opts.logLevel || program.opts().logLevel || process.env.LOG_LEVEL));
+    if (effectiveLogLevel) {
+      const { setLogLevel } = await import('./curator.ts');
+      setLogLevel(effectiveLogLevel);
+    }
+
+    if (!opts.quiet) {
+      console.log(`\x1b[36m[Poker CLI] Loading server runtime and AST engine...\x1b[0m`);
+    }
     const { createPokerServer } = await import('./server/pokerServer.ts');
 
-    console.log(`\x1b[1m\x1b[36mStarting Curator Texas Hold'em Server on ${opts.host}:${opts.port}...\x1b[0m`);
+    if (!opts.quiet) {
+      console.log(`\x1b[1m\x1b[36mStarting Curator Texas Hold'em Server on ${opts.host}:${opts.port}...\x1b[0m`);
+    }
     const serverInstance = await createPokerServer({
       port: parseInt(opts.port, 10) || 4000,
       host: opts.host || '127.0.0.1',
@@ -41,6 +68,9 @@ program
       smallBlind: parseInt(opts.sb, 10) || 10,
       bigBlind: parseInt(opts.bb, 10) || 20,
       pollInterval: parseInt(opts.pollInterval, 10) || 300,
+      logLevel: effectiveLogLevel,
+      debug: Boolean(opts.debug),
+      quiet: Boolean(opts.quiet),
       verbose: Boolean(opts.verbose),
     });
 
@@ -73,12 +103,25 @@ program
   .option('-r, --reset', 'Reset database before running (direct mode)', false)
   .option('-R, --reset-light', 'Light reset: clear conversations, requests, and responses before running', false)
   .option('--name <player>', 'Your player name')
+  .option('--log-level <level>', 'Set log level (error, warn, info, debug, silent)')
+  .option('--debug', 'Enable debug log level')
+  .option('-q, --quiet', 'Quiet mode (suppress verbose logs)', false)
   .action(async (opts) => {
-    console.log('\x1b[36m[Poker CLI] Loading tabletop client runtime...\x1b[0m');
+    const effectiveLogLevel = opts.debug ? 'debug' : (opts.quiet ? 'error' : (opts.logLevel || program.opts().logLevel || process.env.LOG_LEVEL));
+    if (effectiveLogLevel) {
+      const { setLogLevel } = await import('./curator.ts');
+      setLogLevel(effectiveLogLevel);
+    }
+
+    if (!opts.quiet) {
+      console.log('\x1b[36m[Poker CLI] Loading tabletop client runtime...\x1b[0m');
+    }
     const { runPokerClient } = await import('./client/pokerClient.ts');
 
     if (opts.direct) {
-      console.log('\x1b[36m[Poker CLI] Launching direct lightweight in-process execution...\x1b[0m');
+      if (!opts.quiet) {
+        console.log('\x1b[36m[Poker CLI] Launching direct lightweight in-process execution...\x1b[0m');
+      }
       await runPokerClient({
         direct: true,
         databasePath: opts.db,
@@ -89,13 +132,21 @@ program
         smallBlind: parseInt(opts.sb, 10) || 10,
         bigBlind: parseInt(opts.bb, 10) || 20,
         playerName: opts.name,
+        logLevel: effectiveLogLevel,
+        debug: Boolean(opts.debug),
+        quiet: Boolean(opts.quiet),
       });
     } else {
-      console.log(`\x1b[36m[Poker CLI] Connecting to Poker Server at ${opts.server}...\x1b[0m`);
+      if (!opts.quiet) {
+        console.log(`\x1b[36m[Poker CLI] Connecting to Poker Server at ${opts.server}...\x1b[0m`);
+      }
       await runPokerClient({
         serverUrl: opts.server,
         tableId: opts.table,
         playerName: opts.name,
+        logLevel: effectiveLogLevel,
+        debug: Boolean(opts.debug),
+        quiet: Boolean(opts.quiet),
       });
     }
   });

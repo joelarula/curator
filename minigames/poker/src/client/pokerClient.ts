@@ -17,6 +17,7 @@ import {
   normalizeWsUrl,
 } from '../curatorHost.ts';
 import { createPokerHost } from '../host.ts';
+import { setLogLevel } from '../curator.ts';
 import type { PokerGameState } from '../types.ts';
 import { resolvePlayerIdentity, type PlayerProfile } from './pokerProfile.ts';
 import {
@@ -69,10 +70,12 @@ export async function createDirectSessionChannel(
   let host: CuratorHost | undefined;
   if (!session) {
     console.log('\x1b[90m[Curator] Initializing direct in-process game session...\x1b[0m');
+    const effectiveLogLevel = options.debug ? 'debug' : (options.logLevel || process.env.LOG_LEVEL);
     host = await createPokerHost({
       databasePath: options.databasePath,
       forceReset: options.forceReset,
       quiet: options.quiet,
+      logLevel: effectiveLogLevel,
     });
     session = await createPokerGameSession(host, options);
     if (options.tableId !== undefined) {
@@ -283,6 +286,11 @@ export async function createPokerChannel(
  * Fully event-driven via Curator AST workflow and asynchronous REPL.
  */
 export async function runPokerClient(options: PokerClientOptions = {}): Promise<void> {
+  const effectiveLogLevel = options.debug ? 'debug' : (options.logLevel || process.env.LOG_LEVEL);
+  if (effectiveLogLevel) {
+    setLogLevel(effectiveLogLevel);
+  }
+
   // 1. Resolve player identity locally on client side before lobby entry
   const identity = await resolvePlayerIdentity({
     playerName: options.playerName,
