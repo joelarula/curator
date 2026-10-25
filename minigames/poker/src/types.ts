@@ -1,7 +1,3 @@
-import { AmbientSpeechAct, type AmbientSpeechActType } from './curator.ts';
-
-export { AmbientSpeechAct, type AmbientSpeechActType };
-
 export type Suit = '♠' | '♥' | '♦' | '♣';
 export type Rank = '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' | 'J' | 'Q' | 'K' | 'A';
 
@@ -14,11 +10,7 @@ export type Street = 'PREFLOP' | 'FLOP' | 'TURN' | 'RIVER' | 'SHOWDOWN';
 
 export type ActionType = 'FOLD' | 'CHECK' | 'CALL' | 'RAISE' | 'ALL_IN' | 'PAUSE' | 'RESUME' | 'EXIT';
 
-/**
- * Unified with Curator's canonical Tabletop & Interaction Matrix speech acts
- * (TABLE_TALK, BANTER, WHISPER, PROVOKE, GOSSIP, etc.)
- */
-export type SpeechAct = AmbientSpeechActType | string;
+export type SpeechAct = string;
 
 export interface PlayerAction {
   type: ActionType;

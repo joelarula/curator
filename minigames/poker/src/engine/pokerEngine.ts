@@ -21,7 +21,7 @@ import { GeminiLlmProvider } from '@curator/plugin-llm-gemini';
 import { getPokerRules, sanitizeAction, tableRules } from './pokerRules.ts';
 import { buildAgentPrompt, formatAgentPrompt, formatConversationHistory } from './agentPrompt.ts';
 import { DEFAULT_TABLE_PLAYERS } from './agentProfiles.ts';
-import { AmbientSpeechAct, PokerActionType, PokerStreet } from '../models/pokerConstants.ts';
+import { PokerActionType, PokerStreet } from '../models/pokerConstants.ts';
 import { PokerEvent } from '../models/pokerEvents.ts';
 
 export { getPokerRules, sanitizeAction, tableRules };
@@ -683,7 +683,7 @@ export function processTableSpeech(
     speakerName?: string;
   }
 ): { gameState: PokerGameState; remark: AmbientRemark; aiResponse?: AmbientRemark | null } {
-  const speechAct = (args.speechAct || AmbientSpeechAct.TABLE_TALK) as SpeechAct;
+  const speechAct = args.speechAct || (args.targetId ? 'WHISPER' : 'TABLE_TALK');
   const text = String(args.text || '');
   const targetId = args.targetId ? String(args.targetId) : undefined;
 

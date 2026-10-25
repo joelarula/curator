@@ -1,7 +1,3 @@
-import { AmbientSpeechAct, type AmbientSpeechActType } from '../curator.ts';
-
-export { AmbientSpeechAct, type AmbientSpeechActType };
-
 export const PokerSessionReason = {
   USER_EXIT: 'user_exit',
   GAME_OVER: 'game_over',

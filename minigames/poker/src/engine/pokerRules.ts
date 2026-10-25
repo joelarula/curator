@@ -4,10 +4,8 @@
  */
 
 import {
-  AmbientSpeechAct,
   PokerActionType,
   PokerStreet,
-  type AmbientSpeechActType,
   type PokerActionTypeValue,
 } from '../models/pokerConstants.ts';
 import { PokerTool } from '../models/pokerTools.ts';
@@ -39,7 +37,7 @@ export interface TableRulesDefinition {
     minRaiseMultiplier: number;
     autoAllInOnShortStack: boolean;
   };
-  speechActs: AmbientSpeechActType[];
+  speechActs?: string[];
 }
 
 export const tableRules: TableRulesDefinition = {
@@ -76,31 +74,16 @@ export const tableRules: TableRulesDefinition = {
     minRaiseMultiplier: 1.0,
     autoAllInOnShortStack: true,
   },
-  speechActs: [
-    AmbientSpeechAct.TABLE_TALK,
-    AmbientSpeechAct.BANTER,
-    AmbientSpeechAct.WHISPER,
-    AmbientSpeechAct.PROVOKE,
-    AmbientSpeechAct.GOSSIP,
-  ],
 };
 
 export function getRulesDescription(): string {
-  const discourseActs = [
-    AmbientSpeechAct.TABLE_TALK,
-    AmbientSpeechAct.BANTER,
-    AmbientSpeechAct.WHISPER,
-    AmbientSpeechAct.PROVOKE,
-    AmbientSpeechAct.GOSSIP,
-  ].join(', ');
-
   return `Texas Hold'em Table Rules & Protocol:
 - Allowed betting actions: CHECK, CALL, RAISE, ALL_IN, FOLD.
 - If Cost to Call is 0: you CANNOT FOLD. You must CHECK or RAISE (never fold for free).
 - If Cost to Call > 0: you can CALL, RAISE, ALL_IN, or FOLD.
 - When raising: your total wager must be at least Cost to Call + Min Raise, up to your total chip stack.
 - When chips <= Cost to Call: your only aggressive options are CALL (putting you ALL-IN) or ALL_IN.
-- Table Discourse: You autonomously choose when to speak (${discourseActs}) or stay silent based on your persona.`;
+- Table Discourse: You autonomously choose when to speak (TABLE_TALK, BANTER, WHISPER, PROVOKE, GOSSIP) or stay silent based on your persona.`;
 }
 
 export function sanitizeAction(

@@ -1,5 +1,4 @@
 import { EventEmitter } from 'events';
-import type { AmbientSpeechActType } from './SpeechActs.js';
 
 export interface InteractionEvent {
   id: string;
@@ -9,7 +8,7 @@ export interface InteractionEvent {
   actorName: string;
   action: string;
   payload?: any;
-  speechAct?: AmbientSpeechActType | string;
+  speechAct?: string;
   recipientId?: string;
   isPrivate?: boolean;
   authorizedParticipantIds?: string[];
@@ -86,7 +85,7 @@ export interface LlmContextBundle {
 export interface AgentReactionResult {
   speakerId: string;
   speakerName: string;
-  speechAct: AmbientSpeechActType | string;
+  speechAct?: string;
   recipientId?: string;
   text: string;
   innerMonologue: string;
@@ -383,21 +382,23 @@ export class AgentInteractionContextManager extends EventEmitter {
   }
 
   /**
-   * Records a communicative speech act (TABLE_TALK, BANTER, WHISPER, PROVOKE, etc.).
-   * Enforces asymmetric privacy: whispers are recorded in full for sender and recipient,
-   * while bystanders only observe that a whisper occurred.
+   * Records a speech utterance or message.
+   * If recipientId is specified (or speechAct is 'WHISPER'), privacy is enforced:
+   * the message is recorded in full for sender and recipient, while bystanders
+   * only observe that a private whisper occurred.
    */
-  public recordSpeechAct(options: {
+  public recordSpeech(options: {
     speakerId: string;
-    speechAct: AmbientSpeechActType | string;
     text: string;
+    speechAct?: string;
     recipientId?: string;
   }): void {
     const speakerMem = this.memories.get(options.speakerId);
     const speakerName = speakerMem ? speakerMem.participant.name : options.speakerId;
-    const isWhisper = options.speechAct === 'WHISPER';
+    const isWhisper = options.speechAct === 'WHISPER' || Boolean(options.recipientId);
     const recipientMem = options.recipientId ? this.memories.get(options.recipientId) : undefined;
     const recipientName = recipientMem ? recipientMem.participant.name : options.recipientId;
+    const act = options.speechAct || (isWhisper ? 'WHISPER' : 'SPEECH');
 
     const event: InteractionEvent = {
       id: `spk_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -405,12 +406,12 @@ export class AgentInteractionContextManager extends EventEmitter {
       type: 'SPEECH_ACT',
       actorId: options.speakerId,
       actorName: speakerName,
-      action: options.speechAct,
-      speechAct: options.speechAct,
+      action: act,
+      speechAct: act,
       recipientId: options.recipientId,
       isPrivate: isWhisper,
       authorizedParticipantIds: isWhisper && options.recipientId ? [options.speakerId, options.recipientId] : undefined,
-      summary: `${speakerName} spoke (${options.speechAct}): "${options.text}"`,
+      summary: `${speakerName} spoke: "${options.text}"`,
     };
 
     this.eventLog.push(event);
@@ -444,6 +445,18 @@ export class AgentInteractionContextManager extends EventEmitter {
     }
 
     this.emit('event:speech_act', event);
+  }
+
+  /**
+   * Alias for recordSpeech for backward compatibility.
+   */
+  public recordSpeechAct(options: {
+    speakerId: string;
+    text: string;
+    speechAct?: string;
+    recipientId?: string;
+  }): void {
+    return this.recordSpeech(options);
   }
 
   /**

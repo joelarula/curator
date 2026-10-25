@@ -5,7 +5,6 @@ import {
   CuratorSystemRole,
   CuratorAccessLevel,
 } from '../curator.ts';
-import { AmbientSpeechAct } from '../models/index.ts';
 import {
   PokerModule,
   PokerTool,
@@ -320,22 +319,13 @@ export const pokerSpeechTool = defineTool<PokerHumanSpeechParams>({
     type: 'object',
     properties: {
       state: { type: 'object' },
-      speechAct: {
-        type: 'string',
-        enum: [
-          AmbientSpeechAct.TABLE_TALK,
-          AmbientSpeechAct.BANTER,
-          AmbientSpeechAct.WHISPER,
-          AmbientSpeechAct.PROVOKE,
-          AmbientSpeechAct.GOSSIP,
-        ],
-      },
+      speechAct: { type: 'string' },
       text: { type: 'string' },
       targetId: { type: 'string' },
       speakerId: { type: 'string' },
       speakerName: { type: 'string' },
     },
-    required: ['speechAct', 'text'],
+    required: ['text'],
   },
   execute: async (args: PokerHumanSpeechParams, ctx: any) => {
     const rawState = extractGameState(args, ctx);

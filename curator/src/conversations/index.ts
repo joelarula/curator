@@ -9,4 +9,3 @@ export * from './ConversationRouter.js';
 export * from './ConversationSessionManager.js';
 export * from './exposure/index.js';
 export * from './AgentInteractionContextManager.js';
-export * from './SpeechActs.js';

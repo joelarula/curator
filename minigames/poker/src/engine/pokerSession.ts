@@ -13,7 +13,6 @@ import {
   PokerTool,
   PokerModule,
   PokerLobbyAction,
-  AmbientSpeechAct,
   DEFAULT_LOBBY_CHOICES,
   DEFAULT_LOBBY_OPTIONS,
 } from '../models/index.ts';
@@ -339,7 +338,7 @@ export async function getConversationActors(
     isHuman: true,
     persona: 'human',
     status: 'ACTIVE',
-    capabilities: ['table_action', AmbientSpeechAct.TABLE_TALK, AmbientSpeechAct.WHISPER, AmbientSpeechAct.BANTER],
+    capabilities: ['table_action', 'speech', 'whisper'],
   });
 
   // 3. Resolve Project / Conversation Agent Actors (from prisma.agent)
@@ -385,9 +384,9 @@ export async function getConversationActors(
     else if (isDealer) status = 'DEALER';
     else if (seated) status = seated.folded ? 'FOLDED' : (seated.allIn ? 'ALL_IN' : 'SEATED');
 
-    let capabilities = ['table_action', AmbientSpeechAct.TABLE_TALK, AmbientSpeechAct.WHISPER, AmbientSpeechAct.BANTER];
-    if (isLobby) capabilities = ['lobby_guidance', 'table_matching', AmbientSpeechAct.TABLE_TALK, AmbientSpeechAct.WHISPER];
-    else if (isDealer) capabilities = ['deal_cards', 'manage_pots', AmbientSpeechAct.TABLE_TALK, 'rules_inquiry'];
+    let capabilities = ['table_action', 'speech', 'whisper'];
+    if (isLobby) capabilities = ['lobby_guidance', 'table_matching', 'speech', 'whisper'];
+    else if (isDealer) capabilities = ['deal_cards', 'manage_pots', 'speech', 'rules_inquiry'];
 
     actors.push({
       id: agent.id,
@@ -544,7 +543,7 @@ export async function createPokerGameSession(
       const currentGameState = await getGameState(targetConvId);
       const speakerName = payload?.speakerName || 'You';
       const speakerId = payload?.speakerId || sessionId || 'player-human';
-      const speechAct = payload?.speechAct || payload?.args?.speechAct || AmbientSpeechAct.TABLE_TALK;
+      const speechAct = payload?.speechAct || payload?.args?.speechAct || (payload?.targetId ? 'WHISPER' : 'TABLE_TALK');
       const text = payload?.text || payload?.args?.text || '';
       const targetId = payload?.targetId || payload?.args?.targetId;
 

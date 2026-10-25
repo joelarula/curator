@@ -4,7 +4,7 @@ import {
   formatCard,
 } from './tableRenderer.ts';
 import type { PokerGameState } from '../types.ts';
-import { AmbientSpeechAct, PokerEvent, PokerSessionReason } from '../models/index.ts';
+import { PokerEvent, PokerSessionReason } from '../models/index.ts';
 
 export function renderPokerEvent(
   event: { type: string; payload: any },
@@ -51,9 +51,9 @@ export function renderPokerEvent(
 
     case PokerEvent.SPEECH_RESPONSE: {
       const spk = payload?.speaker || 'Player';
-      const act = payload?.speechAct || AmbientSpeechAct.TABLE_TALK;
       const to = payload?.targetId ? ` -> @${payload.targetId}` : '';
-      console.log(`\x1b[35m[${act}] ${spk}${to}: "${payload?.text}"\x1b[0m`);
+      const tag = payload?.targetId ? '[WHISPER]' : (payload?.speechAct ? `[${payload.speechAct}]` : '[SPEECH]');
+      console.log(`\x1b[35m${tag} ${spk}${to}: "${payload?.text}"\x1b[0m`);
       if (payload?.aiReply) {
         const aiSpk = payload?.aiSpeaker ? `\x1b[1m${payload.aiSpeaker}\x1b[0m: ` : '';
         console.log(`\x1b[36m[REPLY] ${aiSpk}"${payload.aiReply}"\x1b[0m`);

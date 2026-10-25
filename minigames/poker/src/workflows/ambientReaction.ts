@@ -13,7 +13,6 @@ import {
   type CuratorModuleNode,
 } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
-import { AmbientSpeechAct } from '../models/index.ts';
 
 const {
   ctx,
@@ -29,7 +28,7 @@ const {
  */
 export const onSpeechEvent = defineSubroutine(subroutines.ON_SPEECH_EVENT, () => [
   human_speech({
-    speechAct: `${params.speechEvt.speechAct} || '${AmbientSpeechAct.TABLE_TALK}'`,
+    speechAct: `${params.speechEvt.speechAct} || 'TABLE_TALK'`,
     targetId: params.speechEvt.targetId,
     text: `${params.speechEvt.text} || ''`,
     speakerName: `${params.speechEvt.speakerName} || 'Observer'`,
@@ -60,7 +59,7 @@ export function buildAmbientReactionModule(): CuratorModuleNode {
     // 2. Return main sequence directly
     return [
       human_speech({
-        speechAct: `${ctx.eventSpeechAct} || '${AmbientSpeechAct.TABLE_TALK}'`,
+        speechAct: `${ctx.eventSpeechAct} || 'TABLE_TALK'`,
         targetId: ctx.eventTargetId,
         text: `${ctx.eventText} || ''`,
       }),
