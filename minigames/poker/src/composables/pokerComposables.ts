@@ -46,6 +46,7 @@ import type {
   PokerGetStandingsParams,
   PokerGetChoicesParams,
   PokerListTablesParams,
+  PokerCreateTableParams,
 } from '../models/pokerToolParams.ts';
 import type { PokerGameState } from '../types.ts';
 
@@ -165,8 +166,11 @@ export const pokerComposables = {
       ...args,
     }),
 
-  list_tables: (_args: Partial<PokerListTablesParams> = {}): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.LIST_TABLES),
+  list_tables: (args: Partial<PokerListTablesParams> = {}): CuratorToolNode =>
+    CuratorBuilder.tool(PokerTool.LIST_TABLES, args),
+
+  create_table: (args: Partial<PokerCreateTableParams> = {}): CuratorToolNode =>
+    CuratorBuilder.tool(PokerTool.CREATE_TABLE, args),
 
   join_lobby: (player: any = ctx.joinRequest, args: Partial<PokerJoinLobbyParams> = {}): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.JOIN_LOBBY, { player: String(player), ...args }),

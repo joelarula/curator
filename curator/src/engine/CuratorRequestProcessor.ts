@@ -1283,6 +1283,7 @@ export class CuratorRequestProcessor {
       await this.advanceEventCursor(req.id, cursor);
     }
     if (req.context?.__humanInputReceived__) {
+      delete req.context.__humanInputReceived__;
       // Woken by dispatchEvent: the payload is already bound to the alias in context/state.
       const received = ast.payloadAlias ? req.context[ast.payloadAlias] : req.context.input;
       await this.saveResponse(req, typeof received === 'string' ? received : JSON.stringify(received ?? {}));
@@ -1622,6 +1623,7 @@ export class CuratorRequestProcessor {
 
   private async handleHumanInput(ast: any, req: any) {
     if (req.context?.__humanInputReceived__) {
+      delete req.context.__humanInputReceived__;
       const asKey = ast.as || req.context.choiceAs || req.context.as;
       const inputVal = asKey ? req.context[asKey] : req.context.input;
       const responseStr = typeof inputVal === 'string' ? inputVal : JSON.stringify(inputVal || {});
@@ -3189,11 +3191,24 @@ export class CuratorRequestProcessor {
       if (k === 'state') continue;
       try { JSON.stringify(v); safeSandbox[k] = v; } catch (_) {}
     }
+    // Ensure safeSandbox.context transparently delegates property accesses to convState
+    // so both context variables (tool returns) and state variables (setState) are accessible on ctx.
+    const mergedContext = new Proxy(req.context, {
+      get(target, prop) {
+        if (prop in target) return target[prop];
+        if (typeof prop === 'string' && prop in convState) return convState[prop];
+        return undefined;
+      },
+      has(target, prop) {
+        return prop in target || (typeof prop === 'string' && prop in convState);
+      }
+    });
+
     // Always ensure these are present
     safeSandbox.state = convState;
     safeSandbox.input = req.context.input;
-    safeSandbox.context = req.context;
-    safeSandbox.$context = req.context;
+    safeSandbox.context = mergedContext;
+    safeSandbox.$context = mergedContext;
     safeSandbox.$state = convState;
     safeSandbox.$params = req.context.params ?? {};
 

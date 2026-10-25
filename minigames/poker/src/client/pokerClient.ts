@@ -146,6 +146,8 @@ export async function runPokerClientUi(
     });
 
 
+    let lastChoiceRequestId: string | number | undefined;
+
     const unsubscribe = channel.on(async (event: any) => {
       const { type, payload } = event;
 
@@ -189,6 +191,10 @@ export async function runPokerClientUi(
 
       // Universal Curator choices & human input presentation
       if (type === 'curator:choices' || type === 'curator:human_input') {
+        if (payload?.requestId && payload.requestId === lastChoiceRequestId) {
+          return;
+        }
+        lastChoiceRequestId = payload?.requestId;
         const rawChoices: any[] = Array.isArray(payload?.choices)
           ? payload.choices
           : [];

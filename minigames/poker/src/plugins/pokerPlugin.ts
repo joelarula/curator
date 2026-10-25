@@ -29,6 +29,7 @@ import {
   type PokerGetStandingsParams,
   type PokerGetChoicesParams,
   type PokerListTablesParams,
+  type PokerCreateTableParams,
 } from '../composables/pokerComposables.ts';
 import { POKER_WORKFLOW_ASTS } from '../workflows/index.ts';
 import type { PokerGameState, PlayerAction } from '../types.ts';
@@ -48,7 +49,9 @@ import {
   getPokerStandings,
   getLegalChoices,
   formatTableChoices,
+  isTableUnfinishedForUser,
 } from '../engine/pokerEngine.ts';
+import { getLobbyChoices } from '../workflows/pokerLobby.ts';
 import { POKER_AGENT_PROFILES } from '../engine/agentProfiles.ts';
 
 const SCRIPT_DESCRIPTIONS: Record<string, string> = {
@@ -326,27 +329,106 @@ export const pokerGetChoicesTool = defineStateTool<PokerGetChoicesParams>(
 
 export const pokerListTablesTool = defineTool<PokerListTablesParams>({
   name: PokerTool.LIST_TABLES,
-  description: 'Lists all available poker tables in the project.',
+  description: 'Lists all available unfinished poker tables in the project for the current user.',
   aliases: [PokerToolAlias.LIST_TABLES],
   requiredRole: PokerRole.SPECTATOR,
   accessLevel: CuratorAccessLevel.SAFE_READ,
   parameters: {
     type: 'object',
-    properties: {},
+    properties: {
+      userId: { type: 'string' },
+      playerName: { type: 'string' },
+      playerId: { type: 'string' },
+      projectId: { type: 'string' },
+    },
   },
-  execute: async (_args: PokerListTablesParams, ctx: any) => {
+  execute: async (args: PokerListTablesParams, ctx: any) => {
     const prisma = ctx?.toolContext?.prisma || ctx?.prisma;
-    if (!prisma?.conversation) return { tables: [] };
+    if (!prisma?.conversation) {
+      return { tables: [], choices: [], lobbyChoices: getLobbyChoices(false), hasUnfinishedGames: false, count: 0 };
+    }
+
+    const targetProjectId = String(args?.projectId || ctx?.toolContext?.projectId || ctx?.projectId || ctx?.project?.id || '').trim();
+    const reqCtx = (typeof ctx?.toolContext?.context === 'object' && ctx.toolContext.context) || (typeof ctx?.context === 'object' && ctx.context) || {};
+    const playerName = String(args?.playerName || reqCtx.playerName || ctx?.playerName || ctx?.user?.name || '').trim();
+    const playerId = String(args?.playerId || reqCtx.playerId || ctx?.playerId || ctx?.user?.id || '').trim();
+    const userId = String(args?.userId || reqCtx.userId || ctx?.userId || ctx?.user?.id || '').trim();
+
+    const whereClause: any = {};
+    if (targetProjectId) whereClause.projectId = targetProjectId;
+
     const convs = await prisma.conversation.findMany({
+      where: whereClause,
       orderBy: { id: 'asc' },
     });
-    const tables = convs.map((c: any) => ({
+
+    const userQuery = { playerName, playerId, userId };
+    const matchedConvs: any[] = [];
+
+    for (const c of convs) {
+      let meta: any = {};
+      try {
+        meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata) : (c.metadata || {});
+      } catch (_) {}
+      if (meta.isLobby || meta.type === 'poker_lobby' || meta.isClosed) {
+        continue;
+      }
+      if (meta.type !== 'poker_table' && !meta.tableName && meta.ruleset !== 'texas_holdem_nl') {
+        continue;
+      }
+      const latestReq = await prisma.request.findFirst({
+        where: { conversationId: c.id },
+        orderBy: { updatedAt: 'desc' },
+      });
+      if (isTableUnfinishedForUser(c, latestReq, userQuery)) {
+        matchedConvs.push(c);
+      }
+    }
+
+    const tables = matchedConvs.map((c: any) => ({
       id: String(c.id),
       tableId: String(c.id),
       title: c.metadata?.tableName || c.title || `Table #${c.id}`,
     }));
+
     const choices = formatTableChoices(tables);
-    return { tables, choices };
+    const hasUnfinishedGames = tables.length > 0;
+    const lobbyChoices = getLobbyChoices(hasUnfinishedGames, tables.length);
+
+    return {
+      tables,
+      choices,
+      lobbyChoices,
+      hasUnfinishedGames,
+      count: tables.length,
+    };
+  },
+});
+
+export const pokerCreateTableTool = defineTool<PokerCreateTableParams>({
+  name: PokerTool.CREATE_TABLE,
+  description: 'Creates a new poker game table conversation with seated players.',
+  requiredRole: PokerRole.SPECTATOR,
+  accessLevel: CuratorAccessLevel.SAFE_WRITE,
+  parameters: {
+    type: 'object',
+    properties: {
+      tableName: { type: 'string' },
+      playerName: { type: 'string' },
+      startingChips: { type: 'number' },
+      smallBlind: { type: 'number' },
+      bigBlind: { type: 'number' },
+      maxSeats: { type: 'number' },
+    },
+  },
+  execute: async (args: PokerCreateTableParams, ctx: any) => {
+    const host = ctx?.toolContext?.host || ctx?.host;
+    if (host) {
+      const { createPokerGameTable } = await import('../engine/pokerSession.ts');
+      const tableInfo = await createPokerGameTable(host, args as any);
+      return { success: true, table: tableInfo, tableId: tableInfo.tableId };
+    }
+    return { success: false, message: 'Host not available in context' };
   },
 });
 
@@ -359,6 +441,7 @@ export const pokerToolsList = [
   pokerJoinLobbyTool,
   pokerLeaveLobbyTool,
   pokerListTablesTool,
+  pokerCreateTableTool,
   pokerStartHandTool,
   pokerAiDecisionTool,
   pokerApplyActionTool,

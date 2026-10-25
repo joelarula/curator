@@ -37,6 +37,7 @@ import {
 import { DEFAULT_TABLE_PLAYERS } from './agentProfiles.ts';
 import { PokerActionType, PokerStreet } from '../models/pokerConstants.ts';
 import { PokerEvent } from '../models/pokerEvents.ts';
+import { PokerLobbyAction, type PokerTableChoice } from '../workflows/pokerLobby.ts';
 
 export { getPokerRules, sanitizeAction, tableRules };
 export { buildAgentPrompt, formatAgentPrompt, formatConversationHistory, getAgentInstruction };
@@ -66,22 +67,41 @@ export function getLegalChoices(gameState: PokerGameState, playerIdx?: number): 
  * list_tables tool, session discovery, and REPL shell.
  */
 export function formatTableChoices(
-  tables: Array<{ id?: string | number; tableId?: string | number; title?: string }>
-) {
-  return tables.map((t, idx) => {
+  tables: Array<{ id?: string | number; tableId?: string | number; title?: string }>,
+  options: { includeBack?: boolean } = { includeBack: true }
+): PokerTableChoice[] {
+  const choices: PokerTableChoice[] = tables.map((t, idx) => {
     const tableId = String(t.tableId || t.id || idx + 1);
     const title = t.title || `Table #${tableId}`;
+    const numIdx = String(idx + 1);
+    const aliases = numIdx === tableId ? [tableId] : [numIdx, tableId];
     return {
       id: tableId,
       tableId,
       title,
       label: `Table #${tableId} (${title})`,
-      aliases: [String(idx + 1), tableId],
+      aliases,
       event: PokerEvent.TABLE_SELECTED,
       payload: { id: tableId },
       value: { id: tableId },
     };
   });
+
+  if (options?.includeBack !== false) {
+    const backIdx = choices.length + 1;
+    choices.push({
+      id: PokerLobbyAction.BACK,
+      tableId: PokerLobbyAction.BACK,
+      title: 'Back to Lounge Options',
+      label: '« Back to Lounge Options',
+      aliases: [String(backIdx), 'back', 'b', 'cancel'],
+      event: PokerEvent.TABLE_SELECTED,
+      payload: { id: PokerLobbyAction.BACK },
+      value: { id: PokerLobbyAction.BACK },
+    });
+  }
+
+  return choices;
 }
 
 export function createDeck(): Card[] {
@@ -705,4 +725,77 @@ export function checkPokerGameOver(rawState: PokerGameState): {
 export function getPokerStandings(rawState: PokerGameState): { standings: PlayerStanding[] } {
   if (!rawState) throw new Error('getPokerStandings: Game state not found.');
   return { standings: calculateStandings(rawState) };
+}
+
+export interface UnfinishedGameUserQuery {
+  playerName?: string;
+  playerId?: string;
+  userId?: string;
+}
+
+/**
+ * Pure predicate checking whether a conversation represents an unfinished poker game
+ * for a specific human user (non-terminal request, session active, >= 2 seated players, not game over, user is seated/participant).
+ */
+export function isTableUnfinishedForUser(
+  conv: any,
+  latestReq: any,
+  user: UnfinishedGameUserQuery
+): boolean {
+  if (!latestReq) return false;
+
+  // 1. Exclude terminal request statuses
+  const terminalStatuses = ['COMPLETED', 'CANCELLED', 'FAILED', 'SKIPPED'];
+  if (terminalStatuses.includes(latestReq.status)) return false;
+
+  // 2. Check context and game state
+  const reqCtx = typeof latestReq.context === 'string'
+    ? (() => { try { return JSON.parse(latestReq.context); } catch (_) { return {}; } })()
+    : (latestReq.context || {});
+
+  if (reqCtx.sessionEnded === true) return false;
+
+  const gameState = reqCtx.gameState || reqCtx.state?.gameState;
+  if (!gameState || !Array.isArray(gameState.players) || gameState.players.length < 2) {
+    return false;
+  }
+
+  // 3. Game must not be over
+  if (gameState.gameOver === true) return false;
+
+  // 4. Must involve the same user
+  const normName = user.playerName?.trim().toLowerCase();
+  const normPlayerId = user.playerId?.trim().toLowerCase();
+  const normUserId = user.userId?.trim().toLowerCase();
+
+  // If no user identity is known at all, can't attribute to same user
+  if (!normName && !normPlayerId && !normUserId) return false;
+
+  const matchesUser = (id?: string | null, name?: string | null) => {
+    const idNorm = id?.trim().toLowerCase();
+    const nameNorm = name?.trim().toLowerCase();
+    if (normPlayerId && (idNorm === normPlayerId || idNorm === `user_${normPlayerId}`)) return true;
+    if (normUserId && idNorm === normUserId) return true;
+    if (normName && (nameNorm === normName || idNorm === `user_${normName}`)) return true;
+    return false;
+  };
+
+  // Check players seated at table
+  const hasUserInPlayers = gameState.players.some((p: any) =>
+    matchesUser(p.id, p.name) || (p.isHuman && normName && p.name?.trim().toLowerCase() === normName)
+  );
+  if (hasUserInPlayers) return true;
+
+  // Check conversation participants metadata
+  const meta = typeof conv.metadata === 'object' && conv.metadata ? conv.metadata : {};
+  const participants = Array.isArray(meta.participants) ? meta.participants : [];
+  const hasUserInParticipants = participants.some((p: any) => matchesUser(p.id, p.name));
+  if (hasUserInParticipants) return true;
+
+  // Check conversation owner
+  if (normUserId && conv.userId && conv.userId.trim().toLowerCase() === normUserId) {
+    return true;
+  }
+
+  return false;
 }

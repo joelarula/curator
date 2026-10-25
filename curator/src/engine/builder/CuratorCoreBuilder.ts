@@ -23,7 +23,7 @@ import {
   type CuratorSubscribeNode,
   type CuratorUnsubscribeNode,
 } from '../CuratorAst.js';
-import { toVarName, type TypedPathProxy, createContextProxy } from './CuratorProxy.js';
+import { toVarName, type TypedPathProxy, createContextProxy, not, and, or, eq } from './CuratorProxy.js';
 
 export { CuratorNodeType, toVarName, createContextProxy, type TypedPathProxy };
 
@@ -61,8 +61,8 @@ export class CuratorCoreBuilder {
    * If the condition expression evaluates to true, executes `thenBranch`, else optionally executes `elseBranch`.
    * Automatically wraps arrays of steps into a sequential node.
    */
-  static ifElse(
-    condition: string | ((ctx: any) => boolean),
+  static ifElse<TContext = any>(
+    condition: string | ((ctx: TContext) => boolean),
     thenBranch: CuratorAstNode | CuratorAstNode[] | any,
     elseBranch?: CuratorAstNode | CuratorAstNode[] | any
   ): CuratorIfElseNode {
@@ -83,11 +83,143 @@ export class CuratorCoreBuilder {
   }
 
   /**
+   * Rust-inspired pattern matching construct (`match` / `switchCase`).
+   * Eliminates nested if-else ladders by matching a target expression against arms.
+   *
+   * Features inspired by Rust:
+   * - Wildcard `_` (also accepts 'default' and '*')
+   * - Multi-pattern arms using `|`: `'EXIT | QUIT' => branch`
+   * - Match guards using `if <cond>`: `'RESUME if hasGames' => branch`
+   * - Tuple arm arrays: `[[pattern, branch, optionalGuard], ...]`
+   *
+   * Compiles down to an optimized, nested IfElse AST structure.
+   */
+  static match(
+    targetOrArms:
+      | string
+      | TypedPathProxy<any>
+      | Array<
+          | { when: string | ((ctx: any) => boolean); then: CuratorAstNode | CuratorAstNode[] | any }
+          | { pat: string; guard?: string | ((ctx: any) => boolean); then: CuratorAstNode | CuratorAstNode[] | any }
+          | [string | TypedPathProxy<any>, CuratorAstNode | CuratorAstNode[] | any, (string | ((ctx: any) => boolean))?]
+        >,
+    armsOrDefault?:
+      | Record<string, CuratorAstNode | CuratorAstNode[] | any>
+      | Array<[string | TypedPathProxy<any>, CuratorAstNode | CuratorAstNode[] | any, (string | ((ctx: any) => boolean))?]>
+      | CuratorAstNode
+      | CuratorAstNode[]
+      | any,
+    defaultBranch?: CuratorAstNode | CuratorAstNode[] | any
+  ): CuratorAstNode {
+    const resolveBranch = (b: any): CuratorAstNode | undefined => {
+      if (!b) return undefined;
+      if (Array.isArray(b)) {
+        return CuratorCoreBuilder.seq(...b);
+      }
+      return typeof b.build === 'function' ? b.build() : b;
+    };
+
+    const isWildcard = (k: string) => k === '_' || k === 'default' || k === '*';
+
+    const buildCondition = (rawTarget: string, patternKey: string, guard?: string | ((ctx: any) => boolean)): string => {
+      let key = patternKey.trim();
+      let inlineGuard: string | undefined = undefined;
+
+      const ifIdx = key.indexOf(' if ');
+      if (ifIdx !== -1) {
+        inlineGuard = key.substring(ifIdx + 4).trim();
+        key = key.substring(0, ifIdx).trim();
+      }
+
+      const subPatterns = key.split('|').map((s) => s.trim()).filter(Boolean);
+      const patternConds = subPatterns.map((p) => {
+        return `(${rawTarget}.id == '${p}' or ${rawTarget} == '${p}' or ${rawTarget}.value == '${p}')`;
+      });
+
+      const basePatternCond = patternConds.length === 1 ? patternConds[0] : `(${patternConds.join(' or ')})`;
+      const effectiveGuard = guard
+        ? typeof guard === 'function'
+          ? `(${guard.toString()})(context)`
+          : String(guard)
+        : inlineGuard;
+
+      if (effectiveGuard) {
+        return `${basePatternCond} and (${effectiveGuard})`;
+      }
+      return basePatternCond;
+    };
+
+    if (Array.isArray(targetOrArms)) {
+      const armList = targetOrArms;
+      let currentElse: CuratorAstNode | undefined = resolveBranch(armsOrDefault ?? defaultBranch);
+
+      for (let i = armList.length - 1; i >= 0; i--) {
+        const arm = armList[i];
+        if (Array.isArray(arm)) {
+          const [pat, branch, guard] = arm;
+          const pStr = String(pat);
+          if (isWildcard(pStr)) {
+            currentElse = resolveBranch(branch);
+          } else {
+            const cond = guard ? `(${pStr}) and (${typeof guard === 'function' ? `(${guard.toString()})(context)` : guard})` : pStr;
+            currentElse = CuratorCoreBuilder.ifElse(cond, branch, currentElse);
+          }
+        } else if ('when' in arm) {
+          currentElse = CuratorCoreBuilder.ifElse(arm.when, arm.then, currentElse);
+        } else if ('pat' in arm) {
+          const cond = arm.guard ? `(${arm.pat}) and (${arm.guard})` : arm.pat;
+          currentElse = CuratorCoreBuilder.ifElse(cond, arm.then, currentElse);
+        }
+      }
+      return currentElse!;
+    }
+
+    const rawTarget = String(targetOrArms);
+
+    if (Array.isArray(armsOrDefault)) {
+      let currentElse: CuratorAstNode | undefined = resolveBranch(defaultBranch);
+      for (let i = armsOrDefault.length - 1; i >= 0; i--) {
+        const arm = armsOrDefault[i];
+        if (Array.isArray(arm)) {
+          const [pat, branch, guard] = arm;
+          const pStr = String(pat);
+          if (isWildcard(pStr)) {
+            currentElse = resolveBranch(branch);
+          } else {
+            const cond = buildCondition(rawTarget, pStr, guard);
+            currentElse = CuratorCoreBuilder.ifElse(cond, branch, currentElse);
+          }
+        }
+      }
+      return currentElse || resolveBranch(defaultBranch) || CuratorCoreBuilder.seq();
+    }
+
+    const cases = (armsOrDefault || {}) as Record<string, any>;
+    const effectiveDefault = defaultBranch ?? cases['_'] ?? cases['default'] ?? cases['*'];
+    const caseEntries = Object.entries(cases).filter(([k]) => !isWildcard(k));
+
+    let currentElse: CuratorAstNode | undefined = resolveBranch(effectiveDefault);
+
+    for (let i = caseEntries.length - 1; i >= 0; i--) {
+      const [key, branch] = caseEntries[i];
+      const cond = buildCondition(rawTarget, key);
+      currentElse = CuratorCoreBuilder.ifElse(cond, branch, currentElse);
+    }
+
+    return currentElse || resolveBranch(effectiveDefault) || CuratorCoreBuilder.seq();
+  }
+
+  /**
+   * Alias for `match`. Matches a target expression against arms or case mappings.
+   */
+  static switchCase = CuratorCoreBuilder.match;
+
+  /**
    * While the condition evaluates to true, loop over the `body`.
    * Automatically wraps arrays of steps into a sequential node.
    */
-  static whileLoop(
-    condition: string | ((ctx: any) => boolean),
+  static whileLoop<TContext = any>(
+    condition: string | ((ctx: TContext) => boolean),
     body: CuratorAstNode | CuratorAstNode[] | any
   ): CuratorWhileNode {
     const condStr = typeof condition === 'function' ? `(${condition.toString()})(context)` : condition;
@@ -360,40 +492,53 @@ export class CuratorCoreBuilder {
   }
 
   /**
-   * Wait for human input from the UI or CLI.
+   * Universal input verb.
+   * Prompts the user/actor for input (choices, free-form text, or file upload).
+   *
+   * Signatures:
+   * 1. `input(prompt, choices, options)` - choice-based selection (e.g. menu)
+   * 2. `input(prompt, 'choices' | 'text' | 'file', choices, options)` - explicit inputType
    */
-  static humanInput(
+  static input(
     prompt: string,
-    inputType: 'text' | 'choices' | 'file' = 'text',
-    choices?: (string | CuratorChoiceItem)[] | string,
-    options?: { targetUserId?: number; as?: string | TypedPathProxy<any> | any; blocking?: boolean; timeoutSeconds?: number; name?: string }
+    inputTypeOrChoices: 'text' | 'choices' | 'file' | (string | CuratorChoiceItem)[] | string = 'text',
+    choicesOrOptions?: (string | CuratorChoiceItem)[] | string | { targetUserId?: number; as?: string | TypedPathProxy<any> | any; blocking?: boolean; timeoutSeconds?: number; name?: string },
+    explicitOptions?: { targetUserId?: number; as?: string | TypedPathProxy<any> | any; blocking?: boolean; timeoutSeconds?: number; name?: string }
   ): CuratorHumanInputNode {
-    const { as, ...rest } = options || {};
+    let inputType: 'text' | 'choices' | 'file' = 'text';
+    let choices: (string | CuratorChoiceItem)[] | string | undefined;
+    let options: { targetUserId?: number; as?: string | TypedPathProxy<any> | any; blocking?: boolean; timeoutSeconds?: number; name?: string } | undefined;
+
+    if (inputTypeOrChoices === 'text' || inputTypeOrChoices === 'choices' || inputTypeOrChoices === 'file') {
+      inputType = inputTypeOrChoices;
+      choices = choicesOrOptions as any;
+      options = explicitOptions;
+    } else {
+      // Shorthand: input(prompt, choices, options)
+      inputType = 'choices';
+      choices = inputTypeOrChoices;
+      options = choicesOrOptions as any;
+    }
+
+    const { as, blocking = true, ...rest } = options || {};
     const cleanAs = toVarName(as);
     return {
       type: CuratorNodeType.HumanInput,
       prompt,
       inputType,
       choices,
+      blocking,
       ...rest,
       ...(cleanAs ? { as: cleanAs } : {}),
     };
   }
 
   /**
-   * Universal affordance / choice verb.
-   * Presents a set of choices to the user/actor and awaits selection if blocking.
+   * Aliases for `input`.
    */
-  static choice(
-    prompt: string,
-    choices: (string | CuratorChoiceItem)[] | string,
-    options?: { targetUserId?: number; as?: string | TypedPathProxy<any> | any; blocking?: boolean; timeoutSeconds?: number; name?: string }
-  ): CuratorHumanInputNode {
-    return CuratorCoreBuilder.humanInput(prompt, 'choices', choices, {
-      blocking: true,
-      ...options,
-    });
-  }
+  static humanInput = CuratorCoreBuilder.input;
+  static humanSelection = CuratorCoreBuilder.input;
+  static choice = CuratorCoreBuilder.input;
 
   /**
    * Call an LLM agent with tools.
@@ -581,9 +726,13 @@ export const defineModule = CuratorCoreBuilder.defineModule;
 
 // Core standalone workflow verbs for direct import
 export const seq = CuratorCoreBuilder.seq;
-export const choice = CuratorCoreBuilder.choice;
-export const humanInput = CuratorCoreBuilder.humanInput;
+export const input = CuratorCoreBuilder.input;
+export const humanInput = CuratorCoreBuilder.input;
+export const humanSelection = CuratorCoreBuilder.input;
+export const choice = CuratorCoreBuilder.input;
 export const ifElse = CuratorCoreBuilder.ifElse;
+export const match = CuratorCoreBuilder.match;
+export const switchCase = CuratorCoreBuilder.switchCase;
 export const whileLoop = CuratorCoreBuilder.whileLoop;
 export const repeat = CuratorCoreBuilder.repeat;
 export const every = CuratorCoreBuilder.every;
@@ -600,5 +749,6 @@ export const script = CuratorCoreBuilder.script;
 export const agent = CuratorCoreBuilder.agent;
 export const secret = CuratorCoreBuilder.secret;
 export const assign = CuratorCoreBuilder.assign;
+export { not, and, or, eq } from './CuratorProxy.js';
 
 

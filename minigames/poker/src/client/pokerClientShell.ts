@@ -30,6 +30,7 @@ import {
   pokerJoinLobbyTool,
   pokerLeaveLobbyTool,
   pokerListTablesTool,
+  pokerCreateTableTool,
 } from '../plugins/pokerPlugin.ts';
 
 export { type ShellCommand, type ToolAction };
@@ -45,6 +46,7 @@ export const POKER_WHITELISTED_TOOLS: (string | CuratorToolDefinition)[] = [
   pokerJoinLobbyTool,
   pokerLeaveLobbyTool,
   pokerListTablesTool,
+  pokerCreateTableTool,
 ];
 
 /**
@@ -161,6 +163,24 @@ export const POKER_COMMANDS: ReplCommand[] = [
       if (res?.standings) {
         console.log(renderStandings(res.standings));
       }
+    },
+  },
+  {
+    name: 'status',
+    description: 'Display readable player, table, and connection overview',
+    execute: (_args, _tokens, ctx) => {
+      const state = ctx?.getState?.() as any;
+      const isLobby = !state || state.phase === 'LOBBY' || !state.table;
+      console.log('\n\x1b[1m\x1b[36m=== Poker Lounge Status ===\x1b[0m');
+      console.log(`  \x1b[33mPlayer:\x1b[0m     ${ctx?.actorName || 'You'}`);
+      console.log(`  \x1b[33mTable:\x1b[0m      #${ctx?.channel?.tableId || state?.tableId || '1'}`);
+      console.log(`  \x1b[33mPhase:\x1b[0m      ${state?.phase || (isLobby ? 'LOBBY' : 'GAME')}`);
+      console.log(`  \x1b[33mConnection:\x1b[0m \x1b[32mOnline\x1b[0m`);
+      if (!isLobby && state?.currentStreet) {
+        console.log(`  \x1b[33mStreet:\x1b[0m     ${state.currentStreet} (Hand #${state.handNumber || 1})`);
+        console.log(`  \x1b[33mPot:\x1b[0m        $${state.pot || 0}`);
+      }
+      console.log('');
     },
   },
   {

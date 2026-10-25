@@ -15,7 +15,14 @@ import type {
   PlayerStanding,
   AmbientRemark,
 } from '../types.ts';
-import type { PokerTool } from './pokerContracts.ts';
+import type {
+  PokerTool,
+} from './pokerContracts.ts';
+import type {
+  PokerLobbyChoice,
+  PokerTableChoice,
+  PokerLobbyActionType,
+} from '../workflows/pokerLobby.ts';
 
 // ==========================================
 // 1. Tool Parameter Schemas
@@ -123,7 +130,21 @@ export interface PokerGetChoicesParams {
   playerIdx?: WorkflowValue<number>;
 }
 
-export interface PokerListTablesParams {}
+export interface PokerListTablesParams {
+  userId?: WorkflowValue<string>;
+  playerName?: WorkflowValue<string>;
+  playerId?: WorkflowValue<string>;
+  projectId?: WorkflowValue<string>;
+}
+
+export interface PokerCreateTableParams {
+  tableName?: WorkflowValue<string>;
+  playerName?: WorkflowValue<string>;
+  startingChips?: WorkflowValue<number>;
+  smallBlind?: WorkflowValue<number>;
+  bigBlind?: WorkflowValue<number>;
+  maxSeats?: WorkflowValue<number>;
+}
 
 export interface PokerToolParamsMap {
   [PokerTool.INIT_LOBBY]: PokerInitLobbyParams;
@@ -141,6 +162,7 @@ export interface PokerToolParamsMap {
   [PokerTool.GET_STANDINGS]: PokerGetStandingsParams;
   [PokerTool.GET_CHOICES]: PokerGetChoicesParams;
   [PokerTool.LIST_TABLES]: PokerListTablesParams;
+  [PokerTool.CREATE_TABLE]: PokerCreateTableParams;
 }
 
 // ==========================================
@@ -219,8 +241,8 @@ export interface PokerWorkflowContext {
   // Choices and agent decisions
   choices?: PokerLegalChoice[];
   decision?: PokerTurnDecision;
-  lobbyChoice?: { id: string; label?: string } | string;
-  selectedTable?: { id: string; tableId?: string } | string;
+  lobbyChoice?: PokerLobbyChoice | { id: PokerLobbyActionType; label?: string } | string;
+  selectedTable?: PokerTableChoice | { id: string; tableId?: string } | string;
 
   // Tool execution results cached in context under toolName
   poker_init_lobby?: { gameState: PokerGameState };
@@ -233,6 +255,13 @@ export interface PokerWorkflowContext {
   poker_check_game_over?: { gameOver: boolean; standings?: PlayerStanding[] };
   poker_rotate_dealer?: { gameState: PokerGameState };
   poker_join_lobby?: { gameState: PokerGameState };
+  poker_list_tables?: {
+    tables: Array<{ id: string; tableId: string; title: string }>;
+    choices: PokerTableChoice[];
+    lobbyChoices: PokerLobbyChoice[];
+    hasUnfinishedGames: boolean;
+    count: number;
+  };
 
   // Discourse and table remarks
   recentRemarks?: AmbientRemark[];

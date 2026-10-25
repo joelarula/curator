@@ -62,7 +62,10 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
     let db: DatabaseSync | undefined;
     try {
       db = new DatabaseSync(dbPath, { readOnly: true });
-      return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='User'").get());
+      return Boolean(
+        db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='User'").get() &&
+        db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='EventSubscription'").get()
+      );
     } catch {
       // If the file exists with content (> 0 bytes) but was busy/locked during check,
       // it is already provisioned — do not re-push schema or trigger conflicting push
@@ -109,7 +112,25 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
     try {
       const migDb = new DatabaseSync(dbPath);
       migDb.exec('PRAGMA synchronous = OFF;');
-      migDb.exec('ALTER TABLE User ADD COLUMN googleId TEXT;');
+      try { migDb.exec('ALTER TABLE User ADD COLUMN googleId TEXT;'); } catch (_) {}
+      try { migDb.exec('ALTER TABLE Script ADD COLUMN currentVersion INTEGER DEFAULT 0;'); } catch (_) {}
+      try { migDb.exec('ALTER TABLE Request ADD COLUMN scriptVersion INTEGER;'); } catch (_) {}
+      try {
+        migDb.exec(`CREATE TABLE IF NOT EXISTS ScriptVersion (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          scriptId INTEGER NOT NULL,
+          version INTEGER NOT NULL,
+          ast TEXT,
+          body TEXT,
+          hash TEXT NOT NULL,
+          createdBy TEXT,
+          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (scriptId) REFERENCES Script(id) ON DELETE CASCADE
+        );`);
+        migDb.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ScriptVersion_scriptId_version_key ON ScriptVersion(scriptId, version);`);
+        migDb.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ScriptVersion_scriptId_hash_key ON ScriptVersion(scriptId, hash);`);
+      } catch (_) {}
+      try { migDb.exec('ALTER TABLE ScriptVersion ADD COLUMN createdBy TEXT;'); } catch (_) {}
       migDb.close();
     } catch (_) {}
   }

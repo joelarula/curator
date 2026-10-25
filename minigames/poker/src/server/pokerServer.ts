@@ -71,6 +71,12 @@ export async function createPokerServer(options: PokerServerOptions = {}): Promi
 
   const { prisma, conversation } = session;
 
+  // Ensure default table exists for incoming players
+  const existingTables = await session.listTables();
+  if (existingTables.length === 0) {
+    await session.createTable({ title: 'Table #1' });
+  }
+
   // 2. Create HTTP Server for health, REST APIs, and WebSocket upgrading
   const server = http.createServer(async (req, res) => {
     // Enable CORS

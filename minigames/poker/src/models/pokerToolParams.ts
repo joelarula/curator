@@ -19,5 +19,6 @@ export {
   type PokerGetStandingsParams,
   type PokerGetChoicesParams,
   type PokerListTablesParams,
+  type PokerCreateTableParams,
   type PokerToolParamsMap,
 } from './pokerContext.ts';

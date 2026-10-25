@@ -55,3 +55,11 @@ export function createContextProxy<T = any>(root = '$context'): TypedPathProxy<T
   };
   return new Proxy(targetObj, handler) as any;
 }
+
+/**
+ * Declarative condition helpers for building expressions without raw string concatenation.
+ */
+export const not = (expr: unknown): string => `!(${expr})`;
+export const and = (...exprs: unknown[]): string => exprs.map((e) => `(${e})`).join(' && ');
+export const or = (...exprs: unknown[]): string => exprs.map((e) => `(${e})`).join(' || ');
+export const eq = (a: unknown, b: unknown): string => `(${a} === ${typeof b === 'string' ? `'${b}'` : JSON.stringify(b)})`;

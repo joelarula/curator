@@ -35,9 +35,17 @@ export const PokerTool = {
   HUMAN_SPEECH: 'poker_human_speech',
   FAST_FORWARD: 'poker_fast_forward_board',
   GET_STANDINGS: 'poker_get_standings',
+  CREATE_TABLE: 'poker_create_table',
 } as const;
 
 export type PokerToolType = (typeof PokerTool)[keyof typeof PokerTool];
+
+export const PokerConversationType = {
+  LOBBY: 'poker_lobby',
+  TABLE: 'poker_table',
+} as const;
+
+export type PokerConversationType = (typeof PokerConversationType)[keyof typeof PokerConversationType];
 
 export const PokerToolAlias = {
   ACT: 'act',
@@ -152,14 +160,6 @@ export const PokerStreet = {
 
 export type PokerStreetType = (typeof PokerStreet)[keyof typeof PokerStreet];
 
-export const PokerLobbyAction = {
-  NEW: 'new',
-  RESUME: 'resume',
-  EXIT: 'exit',
-} as const;
-
-export type PokerLobbyActionType = (typeof PokerLobbyAction)[keyof typeof PokerLobbyAction];
-
 export const PokerStandingStatus = {
   WINNER: 'Winner',
   ACTIVE: 'Active',
@@ -185,18 +185,6 @@ export const PokerGameOverResult = {
 } as const;
 
 export type PokerGameOverResultType = (typeof PokerGameOverResult)[keyof typeof PokerGameOverResult];
-
-export const DEFAULT_LOBBY_OPTIONS = [
-  { id: PokerLobbyAction.NEW, label: 'New Game', description: 'Start fresh table' },
-  { id: PokerLobbyAction.RESUME, label: 'Resume Game', description: 'Select from active/paused tables' },
-  { id: PokerLobbyAction.EXIT, label: 'Exit', description: 'Quit session' },
-] as const;
-
-export const DEFAULT_LOBBY_CHOICES = [
-  { id: PokerLobbyAction.NEW, label: 'New Game - Start fresh table', aliases: ['n'], event: PokerEvent.LOBBY_CHOICE, payload: { id: PokerLobbyAction.NEW }, value: { id: PokerLobbyAction.NEW } },
-  { id: PokerLobbyAction.RESUME, label: 'Resume Game - Select from active/paused tables', aliases: ['r', 'continue'], event: PokerEvent.LOBBY_CHOICE, payload: { id: PokerLobbyAction.RESUME }, value: { id: PokerLobbyAction.RESUME } },
-  { id: PokerLobbyAction.EXIT, label: 'Exit - Quit session', aliases: ['q', 'exit', 'quit'], event: PokerEvent.LOBBY_CHOICE, payload: { id: PokerLobbyAction.EXIT }, value: { id: PokerLobbyAction.EXIT } },
-];
 
 // ==========================================
 // 5. Workflow Modules, Subroutines & Steps

@@ -143,8 +143,12 @@ test('GraphQL over WebSocket & Session ID: Queries, Mutations, and Subscriptions
       })
     );
 
-    await new Promise((r) => setTimeout(r, 150));
-    const wsQueryResult = receivedGraphqlFrames.find((f) => f.id === 'req-ws-query');
+    let wsQueryResult: any = null;
+    for (let i = 0; i < 20; i++) {
+      wsQueryResult = receivedGraphqlFrames.find((f) => f.id === 'req-ws-query');
+      if (wsQueryResult) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
     assert.ok(wsQueryResult, 'Expected response to WS query');
     assert.equal(wsQueryResult.type, 'result');
     assert.equal(wsQueryResult.data?.tables?.length, 2);
@@ -198,18 +202,21 @@ test('GraphQL over WebSocket & Session ID: Queries, Mutations, and Subscriptions
     assert.equal(speechData.data?.submitSpeech?.sessionId, testSessionId);
 
     // Verify WebSocket subscription received the event and it carries sessionId
-    await new Promise((r) => setTimeout(r, 200));
+    let subFrame: any = null;
+    let rawSpeechEvent: any = null;
+    for (let i = 0; i < 20; i++) {
+      subFrame = receivedGraphqlFrames.find(
+        (f) => f.id === 'sub-table-events' && f.payload?.data?.tableEvents?.type === 'poker:speech_response'
+      );
+      rawSpeechEvent = receivedWsEvents.find((e) => e.type === 'poker:speech_response');
+      if (subFrame && rawSpeechEvent) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
 
-    // Check GraphQL subscription frame
-    const subFrame = receivedGraphqlFrames.find(
-      (f) => f.id === 'sub-table-events' && f.payload?.data?.tableEvents?.type === 'poker:speech_response'
-    );
     assert.ok(subFrame, 'Expected subscription frame for poker:speech_response');
     assert.equal(subFrame.payload.data.tableEvents.sessionId, testSessionId);
     assert.equal(subFrame.payload.data.tableEvents.tableId, table1Id);
 
-    // Check raw event stream envelope also carries sessionId
-    const rawSpeechEvent = receivedWsEvents.find((e) => e.type === 'poker:speech_response');
     assert.ok(rawSpeechEvent, 'Expected raw poker:speech_response event');
     assert.equal(rawSpeechEvent.sessionId, testSessionId);
     assert.equal(rawSpeechEvent.tableId, table1Id);
