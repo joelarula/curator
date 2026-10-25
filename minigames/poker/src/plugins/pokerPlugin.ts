@@ -30,6 +30,10 @@ import {
   type PokerGetChoicesParams,
   type PokerListTablesParams,
   type PokerCreateTableParams,
+  type PokerGetBankrollParams,
+  type PokerDepositBuyInParams,
+  type PokerCashOutParams,
+  type PokerReloadBankrollParams,
 } from '../composables/pokerComposables.ts';
 import { POKER_WORKFLOW_ASTS } from '../workflows/index.ts';
 import type { PokerGameState, PlayerAction } from '../types.ts';
@@ -51,8 +55,16 @@ import {
   formatTableChoices,
   isTableUnfinishedForUser,
 } from '../engine/pokerEngine.ts';
-import { PokerTableShape } from '../models/pokerShapes.ts';
+import { PokerTableShape, PokerBankrollShape } from '../models/pokerShapes.ts';
 import { queryActivePokerTables } from '../services/pokerTableStore.ts';
+import {
+  getOrCreateBankroll,
+  depositBuyIn,
+  cashOutToBankroll,
+  reloadBankroll,
+  getBuyInPresets,
+  parseBuyInAmount,
+} from '../services/pokerBankrollStore.ts';
 import { POKER_AGENT_PROFILES } from '../engine/agentProfiles.ts';
 
 const SCRIPT_DESCRIPTIONS: Record<string, string> = {
@@ -391,6 +403,134 @@ export const pokerCreateTableTool = defineTool<PokerCreateTableParams>({
   },
 });
 
+export const pokerGetBankrollTool = defineTool<PokerGetBankrollParams>({
+  name: PokerTool.GET_BANKROLL,
+  description: 'Retrieves persistent chip bankroll and buy-in presets for a player.',
+  requiredRole: PokerRole.SPECTATOR,
+  accessLevel: CuratorAccessLevel.READ_ONLY,
+  parameters: {
+    type: 'object',
+    properties: {
+      userId: { type: 'string' },
+      playerName: { type: 'string' },
+      sbAmount: { type: 'number' },
+      bbAmount: { type: 'number' },
+    },
+  },
+  execute: async (args: PokerGetBankrollParams, ctx: any) => {
+    const host = ctx?.toolContext?.host || ctx?.host;
+    const prisma = host?.prisma || ctx?.prisma;
+    const userId = String(args.userId || host?.user?.id || 'player');
+    const playerName = String(args.playerName || host?.user?.name || 'Player');
+    const projectId = host?.project?.id;
+
+    if (!prisma) {
+      return { balance: 10000, formattedBalance: '$10,000', minBuyIn: 400, maxBuyIn: 2000, canAfford: true, choices: [] };
+    }
+
+    const bankroll = await getOrCreateBankroll(prisma, userId, playerName, 10000, projectId);
+    const sb = Number(args.sbAmount) || 10;
+    const bb = Number(args.bbAmount) || 20;
+    const options = getBuyInPresets(bankroll.balance, sb, bb);
+
+    return {
+      balance: bankroll.balance,
+      formattedBalance: `$${bankroll.balance.toLocaleString()}`,
+      minBuyIn: options.minBuyIn,
+      maxBuyIn: options.maxBuyIn,
+      canAfford: options.canAfford,
+      choices: options.choices,
+    };
+  },
+});
+
+export const pokerDepositBuyInTool = defineTool<PokerDepositBuyInParams>({
+  name: PokerTool.DEPOSIT_BUY_IN,
+  description: 'Deposits chips from persistent bankroll into table buy-in.',
+  requiredRole: PokerRole.PLAYER,
+  accessLevel: CuratorAccessLevel.SAFE_WRITE,
+  parameters: {
+    type: 'object',
+    properties: {
+      userId: { type: 'string' },
+      tableId: { type: 'string' },
+      amount: { type: ['number', 'string'] },
+    },
+    required: ['amount'],
+  },
+  execute: async (args: PokerDepositBuyInParams, ctx: any) => {
+    const host = ctx?.toolContext?.host || ctx?.host;
+    const prisma = host?.prisma || ctx?.prisma;
+    const userId = String(args.userId || host?.user?.id || 'player');
+    const rawAmount = args.amount;
+    const projectId = host?.project?.id;
+
+    if (!prisma) {
+      const parsedAmt = parseBuyInAmount(rawAmount);
+      return { success: true, newBalance: 10000 - parsedAmt, deposited: parsedAmt };
+    }
+
+    return depositBuyIn(prisma, userId, rawAmount, args.tableId, projectId);
+  },
+});
+
+export const pokerCashOutTool = defineTool<PokerCashOutParams>({
+  name: PokerTool.CASH_OUT,
+  description: 'Credits table chips back into the persistent bankroll.',
+  requiredRole: PokerRole.PLAYER,
+  accessLevel: CuratorAccessLevel.SAFE_WRITE,
+  parameters: {
+    type: 'object',
+    properties: {
+      userId: { type: 'string' },
+      tableId: { type: 'string' },
+      chips: { type: 'number' },
+    },
+    required: ['chips'],
+  },
+  execute: async (args: PokerCashOutParams, ctx: any) => {
+    const host = ctx?.toolContext?.host || ctx?.host;
+    const prisma = host?.prisma || ctx?.prisma;
+    const userId = String(args.userId || host?.user?.id || 'player');
+    const chips = Number(args.chips) || 0;
+    const projectId = host?.project?.id;
+
+    if (!prisma) {
+      return { success: true, newBalance: 10000 + chips, cashedOut: chips };
+    }
+
+    return cashOutToBankroll(prisma, userId, chips, args.tableId, projectId);
+  },
+});
+
+export const pokerReloadBankrollTool = defineTool<PokerReloadBankrollParams>({
+  name: PokerTool.RELOAD_BANKROLL,
+  description: 'Reloads player persistent bankroll with fresh chips.',
+  requiredRole: PokerRole.PLAYER,
+  accessLevel: CuratorAccessLevel.SAFE_WRITE,
+  parameters: {
+    type: 'object',
+    properties: {
+      userId: { type: 'string' },
+      amount: { type: 'number' },
+    },
+  },
+  execute: async (args: PokerReloadBankrollParams, ctx: any) => {
+    const host = ctx?.toolContext?.host || ctx?.host;
+    const prisma = host?.prisma || ctx?.prisma;
+    const userId = String(args.userId || host?.user?.id || 'player');
+    const amount = Number(args.amount) || 5000;
+    const projectId = host?.project?.id;
+
+    if (!prisma) {
+      return { balance: 15000 };
+    }
+
+    const reloaded = await reloadBankroll(prisma, userId, amount, projectId);
+    return { balance: reloaded.balance };
+  },
+});
+
 // ----------------------------------------------------------------------------
 // Curator Poker Plugin Definition
 // ----------------------------------------------------------------------------
@@ -401,6 +541,10 @@ export const pokerToolsList = [
   pokerLeaveLobbyTool,
   pokerListTablesTool,
   pokerCreateTableTool,
+  pokerGetBankrollTool,
+  pokerDepositBuyInTool,
+  pokerCashOutTool,
+  pokerReloadBankrollTool,
   pokerStartHandTool,
   pokerAiDecisionTool,
   pokerApplyActionTool,
@@ -459,6 +603,9 @@ export const pokerPlugin: CuratorPlugin = {
         PokerTool.AI_DECISION,
         PokerTool.SPEECH,
         PokerTool.HUMAN_SPEECH,
+        PokerTool.DEPOSIT_BUY_IN,
+        PokerTool.CASH_OUT,
+        PokerTool.RELOAD_BANKROLL,
       ],
     },
     [PokerRole.SPECTATOR]: {
@@ -468,6 +615,7 @@ export const pokerPlugin: CuratorPlugin = {
         PokerTool.LIST_TABLES,
         PokerTool.GET_CHOICES,
         PokerTool.GET_STANDINGS,
+        PokerTool.GET_BANKROLL,
       ],
     },
   },
@@ -480,7 +628,7 @@ export const pokerPlugin: CuratorPlugin = {
     PokerRole.SPECTATOR,
   ],
   tools: pokerTools,
-  models: [PokerTableShape],
+  models: [PokerTableShape, PokerBankrollShape],
   scripts: pokerScripts,
   agents: Object.fromEntries(
     Object.entries(POKER_AGENT_PROFILES).map(([key, profile]) => [

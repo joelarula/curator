@@ -189,6 +189,7 @@ export interface ActiveChoice {
   usage?: string;
   description?: string;
   blocking?: boolean;
+  amount?: any;
   parse?: (args: string, tokens: string[], ctx: ClientShellConfig) => any;
   execute?: (args: string, tokens: string[], ctx: ClientShellConfig) => any;
 }
@@ -204,6 +205,7 @@ export interface ClientShellConfig<TState = any, _TAction = any> {
   defaultToolName?: string;
   prompt?: string | (() => string);
   getState?: () => TState | null;
+  getWallet?: () => string | number | Promise<string | number | undefined> | undefined;
   redrawView?: () => void;
   onToolCall?: (toolName: string, args: Record<string, any>, ctx?: ClientShellConfig<TState, _TAction>) => Promise<any>;
   onSpeech?: (text: string, speechAct?: string, targetId?: string) => Promise<any>;

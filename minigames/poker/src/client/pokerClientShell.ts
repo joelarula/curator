@@ -168,17 +168,47 @@ export const POKER_COMMANDS: ReplCommand[] = [
   {
     name: 'status',
     description: 'Display readable player, table, and connection overview',
-    execute: (_args, _tokens, ctx) => {
+    execute: async (_args, _tokens, ctx) => {
       const state = ctx?.getState?.() as any;
       const isLobby = !state || state.phase === 'LOBBY' || !state.table;
+      let walletStr = '';
+      if ((ctx as any)?.getWallet) {
+        try {
+          const w = await (ctx as any).getWallet();
+          if (w !== undefined && w !== null) {
+            walletStr = typeof w === 'number' ? `$${w.toLocaleString()}` : String(w);
+          }
+        } catch (_) {}
+      } else if (ctx?.channel && typeof (ctx.channel as any).runTool === 'function') {
+        try {
+          const res = await (ctx.channel as any).runTool(PokerTool.GET_BANKROLL, {
+            playerName: ctx.actorName || 'You',
+          });
+          if (res?.balance !== undefined) {
+            walletStr = `$${Number(res.balance).toLocaleString()}`;
+          }
+        } catch (_) {}
+      }
+
       console.log('\n\x1b[1m\x1b[36m=== Poker Lounge Status ===\x1b[0m');
       console.log(`  \x1b[33mPlayer:\x1b[0m     ${ctx?.actorName || 'You'}`);
+      if (walletStr) {
+        console.log(`  \x1b[33mWallet:\x1b[0m     \x1b[32m${walletStr}\x1b[0m`);
+      }
       console.log(`  \x1b[33mTable:\x1b[0m      #${ctx?.channel?.tableId || state?.tableId || '1'}`);
       console.log(`  \x1b[33mPhase:\x1b[0m      ${state?.phase || (isLobby ? 'LOBBY' : 'GAME')}`);
       console.log(`  \x1b[33mConnection:\x1b[0m \x1b[32mOnline\x1b[0m`);
-      if (!isLobby && state?.currentStreet) {
-        console.log(`  \x1b[33mStreet:\x1b[0m     ${state.currentStreet} (Hand #${state.handNumber || 1})`);
-        console.log(`  \x1b[33mPot:\x1b[0m        $${state.pot || 0}`);
+      if (!isLobby && state) {
+        const me = state.players?.find(
+          (p: any) => p.name === (ctx?.actorName || 'You') || p.id === (ctx?.actorName || 'You')
+        );
+        if (me?.chips !== undefined) {
+          console.log(`  \x1b[33mTable Chips:\x1b[0m \x1b[32m$${Number(me.chips).toLocaleString()}\x1b[0m`);
+        }
+        if (state.currentStreet) {
+          console.log(`  \x1b[33mStreet:\x1b[0m     ${state.currentStreet} (Hand #${state.handNumber || 1})`);
+          console.log(`  \x1b[33mPot:\x1b[0m        $${state.pot || 0}`);
+        }
       }
       console.log('');
     },
@@ -225,6 +255,17 @@ export function createPokerClientShell(
     commands: POKER_COMMANDS,
     tools: POKER_WHITELISTED_TOOLS,
     getState: opts.getGameState,
+    getWallet: async () => {
+      if (opts.channel && typeof (opts.channel as any).runTool === 'function') {
+        try {
+          const res = await (opts.channel as any).runTool(PokerTool.GET_BANKROLL, {
+            playerName: opts.actorName || 'You',
+          });
+          if (res?.balance !== undefined) return res.balance;
+        } catch (_) {}
+      }
+      return undefined;
+    },
     redrawView: () => {
       const state = opts.getGameState();
       if (state) console.log('\n' + renderCompactStatus(state));
@@ -250,19 +291,34 @@ export function createPokerClientShell(
         return opts.channel.send(PokerEvent.HUMAN_ACTION, action);
       }
     },
-    onChoice: async (choice: any) => {
+    onChoice: async (choice: any, ctx?: ShellContext) => {
       if (opts.channel) {
+        // 1. Declarative event on the choice itself takes priority
         if (choice?.event) {
-          return opts.channel.send(choice.event, choice.payload || choice.value || choice);
+          return opts.channel.send(
+            choice.event,
+            choice.payload !== undefined ? choice.payload : (choice.value ?? choice)
+          );
         }
-        const cId = choice?.id || choice?.tableId;
-        if (cId === 'new' || cId === 'resume' || cId === 'exit') {
-          return opts.channel.send(PokerEvent.LOBBY_CHOICE, { id: cId });
-        }
-        if (cId) {
-          return opts.channel.send(PokerEvent.TABLE_SELECTED, { id: cId });
-        }
-        return opts.channel.send('curator:choice', { choice });
+
+        // 2. Dynamic binding to active choice node context
+        const activePrompt = (ctx as any)?.activePrompt;
+        const activeChoices = (ctx as any)?.activeChoices || [];
+        const sharedChoiceEvent = activeChoices.length > 0 ? activeChoices[0]?.event : undefined;
+
+        const val = choice?.value !== undefined ? choice.value : (choice?.id !== undefined ? choice.id : choice);
+        const parsedNum = typeof val === 'number' ? val : (typeof val === 'string' && /^\d+$/.test(val.trim()) ? Number(val.trim()) : undefined);
+
+        const payload: Record<string, any> = {
+          choice: val,
+          ...(parsedNum !== undefined ? { amount: parsedNum } : {}),
+          ...(activePrompt?.as ? { as: activePrompt.as } : {}),
+          ...(activePrompt?.requestId ? { requestId: activePrompt.requestId } : {}),
+          ...(activePrompt?.conversationId ? { conversationId: activePrompt.conversationId } : {}),
+        };
+
+        const eventName = choice?.waitEvent || activePrompt?.event || sharedChoiceEvent || 'curator:choice';
+        return opts.channel.send(eventName, payload);
       }
     },
     onToolCall: async (toolName: string, args: Record<string, any>, ctx?: ShellContext) => {
@@ -300,5 +356,5 @@ export function createPokerClientShell(
         });
       }
     },
-  });
+  } as any);
 }

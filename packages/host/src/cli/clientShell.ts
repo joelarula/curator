@@ -48,6 +48,7 @@ export class ClientShell<TState = any, TAction = ToolAction> {
   private commands: ReplCommand[] = [];
   private tools: Map<string, CuratorToolDefinition> = new Map();
   private activeChoices: ActiveChoice[] = [];
+  public activePromptContext?: Record<string, any>;
   private isBlockingStep: boolean = false;
   private blockingResolve?: (value: any) => void;
   private rl?: readline.Interface;
@@ -91,8 +92,17 @@ export class ClientShell<TState = any, TAction = ToolAction> {
 
   setChoices(
     choices: (ActiveChoice | any)[],
-    options: { blocking?: boolean; hint?: string } = {}
+    options: {
+      blocking?: boolean;
+      hint?: string;
+      as?: string;
+      requestId?: any;
+      conversationId?: any;
+      prompt?: string;
+      event?: string;
+    } = {}
   ): this {
+    this.activePromptContext = options;
     this.activeChoices = choices.map((c: any, i: number) => {
       const act = c.action || (c.type ? c : undefined);
       const actType = act?.type || c.type;
@@ -133,6 +143,7 @@ export class ClientShell<TState = any, TAction = ToolAction> {
         tool,
         args,
         action: act,
+        amount: defaultAmount,
         value: c.value !== undefined ? c.value : (act || c),
         event,
         payload,
@@ -177,12 +188,14 @@ export class ClientShell<TState = any, TAction = ToolAction> {
     return this;
   }
 
-  buildContext(): ClientShellConfig<TState, TAction> {
+  buildContext(): ClientShellConfig<TState, TAction> & { activePrompt?: Record<string, any>; activeChoices?: ActiveChoice[] } {
     return {
       ...this.config,
       commands: this.commands,
       tools: [...this.tools.values()],
       availableTools: [...this.tools.values()],
+      activePrompt: this.activePromptContext,
+      activeChoices: this.activeChoices,
     };
   }
 
@@ -283,16 +296,44 @@ export class ClientShell<TState = any, TAction = ToolAction> {
         const state: any = this.config.getState?.();
         const info: Record<string, any> = {
           actor: this.config.actorName || 'You',
-          tableId: this.config.channel?.tableId || (state as any)?.tableId || '1',
-          connected: Boolean(this.config.channel),
-          activeChoices: this.activeChoices.length,
         };
+
+        if (this.config.getWallet) {
+          try {
+            const w = await this.config.getWallet();
+            if (w !== undefined && w !== null) {
+              info.wallet = typeof w === 'number' ? `$${w.toLocaleString()}` : String(w);
+            }
+          } catch (_) {}
+        } else if (this.config.channel && typeof (this.config.channel as any).runTool === 'function') {
+          try {
+            const bankroll = await (this.config.channel as any).runTool('poker_get_bankroll', {
+              playerName: this.config.actorName || 'You',
+            });
+            if (bankroll?.balance !== undefined) {
+              info.wallet = `$${Number(bankroll.balance).toLocaleString()}`;
+            }
+          } catch (_) {}
+        }
+
         if (state) {
+          const me = state.players?.find(
+            (p: any) => p.name === (this.config.actorName || 'You') || p.id === (this.config.actorName || 'You')
+          );
+          if (!info.wallet && me?.wallet !== undefined) {
+            info.wallet = `$${Number(me.wallet).toLocaleString()}`;
+          }
+          if (me?.chips !== undefined) info.tableChips = `$${Number(me.chips).toLocaleString()}`;
           if (state.pot !== undefined) info.pot = `$${state.pot}`;
           if (state.currentStreet) info.street = state.currentStreet;
           if (state.handNumber) info.hand = state.handNumber;
           if (state.players) info.players = state.players.length;
         }
+
+        info.tableId = this.config.channel?.tableId || (state as any)?.tableId || '1';
+        info.connected = Boolean(this.config.channel);
+        info.activeChoices = this.activeChoices.length;
+
         console.log('\x1b[36m[STATUS]\x1b[0m', JSON.stringify(info, null, 2));
       });
 
@@ -349,8 +390,10 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       .action(async () => {
         console.log('\x1b[33m[REPL] Exiting session...\x1b[0m');
         if (this.config.channel) {
-          await this.config.channel.send('curator:exit');
-          await this.config.channel.close();
+          try {
+            await this.config.channel.send('curator:exit');
+            await this.config.channel.close();
+          } catch (_) {}
         }
         this.stop();
         process.exit(0);
@@ -381,8 +424,8 @@ export class ClientShell<TState = any, TAction = ToolAction> {
           c.allowUnknownOption(true);
           c.action(async (...args) => {
             const strTokens = args.flatMap((a) => (Array.isArray(a) ? a.filter((x) => typeof x === 'string') : typeof a === 'string' ? [a] : []));
-            const res = await this.executeChoice(choice, strTokens);
             this.activeChoices = [];
+            const res = await this.executeChoice(choice, strTokens);
             onResult?.(res);
           });
         }
@@ -396,8 +439,8 @@ export class ClientShell<TState = any, TAction = ToolAction> {
             .allowUnknownOption(true)
             .action(async (...args) => {
               const strTokens = args.flatMap((a) => (Array.isArray(a) ? a.filter((x) => typeof x === 'string') : typeof a === 'string' ? [a] : []));
-              const res = await this.executeChoice(choice, strTokens);
               this.activeChoices = [];
+              const res = await this.executeChoice(choice, strTokens);
               onResult?.(res);
             });
         }
@@ -581,7 +624,15 @@ export class ClientShell<TState = any, TAction = ToolAction> {
 
     // 2. Dispatch declarative event (e.g. event: 'poker:lobby_choice', payload: { id: 'new' })
     if (choice.event && this.config.channel) {
-      const payload = choice.payload !== undefined ? choice.payload : (choice.value !== undefined ? choice.value : choice);
+      const basePayload = choice.payload !== undefined ? choice.payload : (choice.value !== undefined ? choice.value : choice);
+      const payload = typeof basePayload === 'object' && basePayload !== null
+        ? {
+            conversationId: this.activePromptContext?.conversationId,
+            requestId: this.activePromptContext?.requestId,
+            as: this.activePromptContext?.as,
+            ...basePayload,
+          }
+        : basePayload;
       await this.config.channel.send(choice.event, payload);
       return payload;
     }
@@ -597,13 +648,13 @@ export class ClientShell<TState = any, TAction = ToolAction> {
         }
       }
       if (this.config.onAction) {
-        return await this.config.onAction(actionPayload, choiceTokens, this.config);
+        return await this.config.onAction(actionPayload, choiceTokens, this.buildContext());
       }
     }
 
     // 4. Dispatch value / channel choice / onChoice
     if (this.config.onChoice) {
-      return await this.config.onChoice(choice.value !== undefined ? choice.value : choice, this.config);
+      return await this.config.onChoice(choice.value !== undefined ? choice.value : choice, this.buildContext());
     }
 
     if (choice.value !== undefined) {
@@ -611,7 +662,14 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       if (typeof val === 'object' && val !== null && val.tool) {
         await this.dispatchTool(val.tool, val.args || val);
       } else if (this.config.channel) {
-        await this.config.channel.send('curator:choice', { choice: val });
+        const payload = {
+          choice: val,
+          conversationId: this.activePromptContext?.conversationId,
+          requestId: this.activePromptContext?.requestId,
+          as: this.activePromptContext?.as,
+        };
+        const eventName = this.activePromptContext?.event || 'curator:choice';
+        await this.config.channel.send(eventName, payload);
       }
       return val;
     }
@@ -641,6 +699,26 @@ export class ClientShell<TState = any, TAction = ToolAction> {
     const tokens = parseCommandLine(clean);
     if (tokens.length === 0) return;
 
+    // 2b. Direct choice selection against active choices (e.g. user typed "1", "2", or alias)
+    if (!isSlash && this.activeChoices.length > 0) {
+      const numIdx = parseInt(tokens[0], 10);
+      if (!isNaN(numIdx) && numIdx >= 1 && numIdx <= this.activeChoices.length) {
+        const choice = this.activeChoices[numIdx - 1];
+        this.activeChoices = [];
+        return await this.executeChoice(choice, tokens.slice(1));
+      }
+
+      const targetClean = clean.toLowerCase();
+      const matchedChoice = this.activeChoices.find((c) => {
+        const id = String(c.id || '').toLowerCase();
+        return id === targetClean || c.aliases?.some((a: string) => String(a).toLowerCase() === targetClean);
+      });
+      if (matchedChoice) {
+        this.activeChoices = [];
+        return await this.executeChoice(matchedChoice, tokens.slice(1));
+      }
+    }
+
     // 3. Parse using Commander program instance (subshell handles choices, commands, and tools)
     try {
       let commandResult: any = undefined;
@@ -656,8 +734,52 @@ export class ClientShell<TState = any, TAction = ToolAction> {
         err instanceof CommanderError &&
         (err.code === 'commander.unknownCommand' || err.code === 'commander.unknownOption')
       ) {
-        // Allow free-text speech even during a blocking step as a parallel async flow.
-        // Free text input -> spawned as userSpeech parallel branch emitting user:speech
+        // A. Direct numeric index selection against active choices (e.g. user typed "1")
+        const numIdx = parseInt(tokens[0], 10);
+        if (!isNaN(numIdx) && numIdx >= 1 && numIdx <= this.activeChoices.length) {
+          const choice = this.activeChoices[numIdx - 1];
+          this.activeChoices = [];
+          return await this.executeChoice(choice, tokens.slice(1));
+        }
+
+        // B. Match alias against active choices (case-insensitive)
+        const targetClean = clean.toLowerCase();
+        const matchedChoice = this.activeChoices.find((c) => {
+          const id = String(c.id || '').toLowerCase();
+          return id === targetClean || c.aliases?.some((a: string) => String(a).toLowerCase() === targetClean);
+        });
+        if (matchedChoice) {
+          this.activeChoices = [];
+          return await this.executeChoice(matchedChoice, tokens.slice(1));
+        }
+
+        // C. If blocking input step and user provided a numeric amount for choices accepting amounts (e.g. buy-in / raise)
+        const isAmountInput = /^\$?\d+([.,]\d+)?$/.test(trimmed);
+        const acceptsAmount = this.activeChoices.some((c) => c.amount !== undefined || c.action === 'RAISE' || c.action === 'BET') ||
+          this.activePromptContext?.inputType === 'amount';
+
+        if (this.isBlockingStep && isAmountInput && acceptsAmount) {
+          const matchedChoice = this.activeChoices.find((c) => c.amount !== undefined || c.action === 'RAISE' || c.action === 'BET');
+          const ctx = this.buildContext();
+          this.activeChoices = [];
+          if (this.config.onChoice) {
+            const parsedNum = parseInt(trimmed.replace(/[$,]/g, ''), 10);
+            return await this.config.onChoice(
+              matchedChoice
+                ? { ...matchedChoice, id: 'custom', amount: parsedNum, value: parsedNum, payload: { ...(matchedChoice.payload || {}), id: 'custom', amount: parsedNum } }
+                : trimmed,
+              ctx
+            );
+          }
+          if (this.config.channel) {
+            const parsedNum = parseInt(trimmed.replace(/[$,]/g, ''), 10);
+            const payload = { id: 'custom', amount: parsedNum, choice: parsedNum };
+            await this.config.channel.send('curator:choice', payload);
+            return payload;
+          }
+        }
+
+        // D. Free text input (unmatched conversational speech) -> spawned as userSpeech parallel branch emitting user:speech
         await this.spawnSpeechBranch(trimmed);
       } else if (
         err instanceof CommanderError &&

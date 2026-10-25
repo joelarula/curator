@@ -5,6 +5,8 @@ export {
   PokerSessionReason,
   PokerActionType,
   PokerStreet,
+  PokerClientConstant,
+  CuratorCoreEvent,
   type PokerSessionReasonType,
   type PokerActionTypeValue,
   type PokerStreetType,

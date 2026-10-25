@@ -146,6 +146,30 @@ export interface PokerCreateTableParams {
   maxSeats?: WorkflowValue<number>;
 }
 
+export interface PokerGetBankrollParams {
+  userId?: WorkflowValue<string>;
+  playerName?: WorkflowValue<string>;
+  sbAmount?: WorkflowValue<number>;
+  bbAmount?: WorkflowValue<number>;
+}
+
+export interface PokerDepositBuyInParams {
+  userId?: WorkflowValue<string>;
+  tableId?: WorkflowValue<string | number>;
+  amount?: WorkflowValue<number>;
+}
+
+export interface PokerCashOutParams {
+  userId?: WorkflowValue<string>;
+  tableId?: WorkflowValue<string | number>;
+  chips?: WorkflowValue<number>;
+}
+
+export interface PokerReloadBankrollParams {
+  userId?: WorkflowValue<string>;
+  amount?: WorkflowValue<number>;
+}
+
 export interface PokerToolParamsMap {
   [PokerTool.INIT_LOBBY]: PokerInitLobbyParams;
   [PokerTool.JOIN_LOBBY]: PokerJoinLobbyParams;
@@ -163,6 +187,10 @@ export interface PokerToolParamsMap {
   [PokerTool.GET_CHOICES]: PokerGetChoicesParams;
   [PokerTool.LIST_TABLES]: PokerListTablesParams;
   [PokerTool.CREATE_TABLE]: PokerCreateTableParams;
+  [PokerTool.GET_BANKROLL]: PokerGetBankrollParams;
+  [PokerTool.DEPOSIT_BUY_IN]: PokerDepositBuyInParams;
+  [PokerTool.CASH_OUT]: PokerCashOutParams;
+  [PokerTool.RELOAD_BANKROLL]: PokerReloadBankrollParams;
 }
 
 // ==========================================
@@ -242,9 +270,34 @@ export interface PokerWorkflowContext {
   choices?: PokerLegalChoice[];
   decision?: PokerTurnDecision;
   lobbyChoice?: PokerLobbyChoice | { id: PokerLobbyActionType; label?: string } | string;
+  lobbyChoices?: PokerLobbyChoice[];
   selectedTable?: PokerTableChoice | { id: string; tableId?: string } | string;
+  buyInChoice?: any;
+  buyInChoices?: any[];
+  selectedBuyIn?: number;
+  bankroll?: any;
 
   // Tool execution results cached in context under toolName
+  poker_get_bankroll?: {
+    balance: number;
+    minBuyIn: number;
+    maxBuyIn: number;
+    canAfford: boolean;
+    choices: any[];
+  };
+  poker_deposit_buy_in?: {
+    success: boolean;
+    newBalance: number;
+    deposited: number;
+  };
+  poker_cash_out?: {
+    success: boolean;
+    newBalance: number;
+    cashedOut: number;
+  };
+  poker_reload_bankroll?: {
+    balance: number;
+  };
   poker_init_lobby?: { gameState: PokerGameState };
   poker_start_hand?: { gameState: PokerGameState };
   poker_get_choices?: { choices: PokerLegalChoice[] };

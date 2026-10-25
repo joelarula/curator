@@ -70,6 +70,9 @@ export function buildPlayerTurnStep() {
       active_player_is_interactive,
       seq(steps.HUMAN_AGENT_FLOW, [
         get_legal_choices(),
+        emitEvent(events.AWAITING_HUMAN_ACTION, {
+          gameState: String(gameState),
+        }),
         choice(
           'Your turn:',
           String(ctx.poker_get_choices.choices),
@@ -99,7 +102,10 @@ export function buildPlayerTurnStep() {
       seq(steps.APPLY_ACTION, [
         apply_player_action(ctx.turnAction),
         emitEvent(events.ACTION_TAKEN, {
+          summary: String(gameState.lastActionSummary),
           player: `${gameState.players}[${gameState.activePlayerIdx}].name`,
+          action: String(ctx.turnAction),
+          gameState: String(gameState),
         }),
       ]),
     ),
@@ -115,6 +121,7 @@ export const dealNextStreetSub = defineSubroutine('deal_next_street', {
     deal_next_street(),
     emitEvent(events.PHASE_STREET, {
       street: String(gameState.currentStreet),
+      gameState: String(gameState),
     }),
   ]),
 });
@@ -128,6 +135,7 @@ export const settleShowdownSub = defineSubroutine('settle_showdown', {
     settle_showdown(),
     emitEvent(events.PHASE_SETTLE, {
       winnerSummary: String(ctx.winnerSummary),
+      gameState: String(gameState),
     }),
   ]),
 });
@@ -178,9 +186,11 @@ export function buildPokerWorkflowModule(): CuratorModuleNode {
           start_poker_hand(),
           emitEvent(events.NEW_ROUND, {
             handNumber: String(gameState.handNumber),
+            gameState: String(gameState),
           }),
           emitEvent(events.PHASE_DEAL, {
             street: String(gameState.currentStreet),
+            gameState: String(gameState),
           }),
 
           // Phase 2: Street Wagering Loop

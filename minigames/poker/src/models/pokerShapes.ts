@@ -8,6 +8,9 @@ export const POKER_SHAPE_URIS = {
   CONVERSATION_PREDICATE: 'poker:hasConversation',
   MAX_SEATS_PREDICATE: 'poker:maxSeats',
   BLINDS_PREDICATE: 'poker:blinds',
+  BANKROLL_SHAPE: 'poker:PokerBankrollShape',
+  BANKROLL_CLASS: 'poker:Bankroll',
+  BALANCE_PREDICATE: 'poker:balance',
 } as const;
 
 export const POKER_TABLE_STATUS = {
@@ -68,3 +71,24 @@ export const PokerTableShape: SemanticNodeShape = {
     },
   },
 };
+
+/**
+ * Semantic Node Shape for a Player Bankroll resource in Curator's Knowledge Graph.
+ */
+export const PokerBankrollShape: SemanticNodeShape = {
+  uri: POKER_SHAPE_URIS.BANKROLL_SHAPE,
+  targetClass: POKER_SHAPE_URIS.BANKROLL_CLASS,
+  name: 'Poker Bankroll',
+  description: "Persistent chip bankroll and cashier balance for a player across tables",
+  properties: {
+    balance: {
+      path: POKER_SHAPE_URIS.BALANCE_PREDICATE,
+      name: 'Chip Balance',
+      description: 'Available bankroll chips for table buy-ins',
+      datatype: 'xsd:integer',
+      minCount: 1,
+      maxCount: 1,
+    },
+  },
+};
+

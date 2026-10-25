@@ -7,6 +7,7 @@
  */
 import {
   defineModule,
+  seq,
   input,
   ifElse,
   match,
@@ -117,7 +118,48 @@ const {
   events,
   modules,
   reasons,
+  steps,
+  table_has_no_state,
+  get_bankroll,
+  deposit_buy_in,
+  reload_bankroll,
 } = pokerComposables;
+
+function buildBuyInSequence() {
+  return [
+    get_bankroll({
+      userId: String(ctx.userId),
+      playerName: String(ctx.playerName),
+      sbAmount: `${ctx.sbAmount} || 10`,
+      bbAmount: `${ctx.bbAmount} || 20`,
+    }),
+    ifElse<PokerWorkflowContext>(
+      (c) => Boolean(c.poker_get_bankroll && !c.poker_get_bankroll.canAfford),
+      seq('RELOAD_BANKROLL_FLOW', [
+        reload_bankroll({ userId: String(ctx.userId), amount: 5000 }),
+        get_bankroll({
+          userId: String(ctx.userId),
+          playerName: String(ctx.playerName),
+          sbAmount: `${ctx.sbAmount} || 10`,
+          bbAmount: `${ctx.bbAmount} || 20`,
+        }),
+      ]),
+    ),
+    input(
+      'Enter Buy-In amount (or select preset):',
+      String(ctx.poker_get_bankroll.choices),
+      { as: ctx.buyInChoice }
+    ),
+    deposit_buy_in({
+      userId: String(ctx.userId),
+      tableId: String(ctx.tableId),
+      amount: `${ctx.buyInChoice.amount} || ${ctx.buyInChoice} || 1000`,
+    }),
+    setState({
+      selectedBuyIn: `${ctx.poker_deposit_buy_in.deposited} || ${ctx.buyInChoice.amount} || ${ctx.buyInChoice} || 1000`,
+    }),
+  ];
+}
 
 export function buildPokerLobbyModule(): CuratorModuleNode {
   return defineModule(modules.LOBBY, {
@@ -134,9 +176,10 @@ export function buildPokerLobbyModule(): CuratorModuleNode {
         }),
         ifElse<PokerWorkflowContext>(
           (c) => Boolean(c.poker_list_tables?.hasUnfinishedGames),
-          input('Lobby Options:', getLobbyChoices(true), { as: ctx.lobbyChoice }),
-          input('Lobby Options:', getLobbyChoices(false), { as: ctx.lobbyChoice }),
+          setState({ lobbyChoices: getLobbyChoices(true) }),
+          setState({ lobbyChoices: getLobbyChoices(false) }),
         ),
+        input('Lobby Options:', String(ctx.lobbyChoices), { as: ctx.lobbyChoice }),
         match(ctx.lobbyChoice, {
           [lobbyActions.EXIT]: [
             setState({ sessionEnded: true }),
@@ -149,15 +192,16 @@ export function buildPokerLobbyModule(): CuratorModuleNode {
                 setState({
                   lobbyChoice: null,
                   selectedTable: null,
-                  __humanInputReceived__: false,
                 }),
               ],
               _: [
                 setState({
                   tableId: `${ctx.selectedTable.id} || ${ctx.selectedTable.tableId} || ${ctx.selectedTable}`,
                 }),
+                ...buildBuyInSequence(),
                 emitEvent(events.TABLE_SELECTED, {
                   tableId: String(ctx.tableId),
+                  buyIn: ctx.selectedBuyIn,
                 }),
               ],
             }),
@@ -169,8 +213,10 @@ export function buildPokerLobbyModule(): CuratorModuleNode {
             setState({
               tableId: `${ctx.poker_create_table.tableId} || ${ctx.tableId} || 'poker:high_roller_lounge'`,
             }),
+            ...buildBuyInSequence(),
             emitEvent(events.TABLE_SELECTED, {
               tableId: String(ctx.tableId),
+              buyIn: ctx.selectedBuyIn,
             }),
           ],
           _: [
@@ -182,30 +228,19 @@ export function buildPokerLobbyModule(): CuratorModuleNode {
       ],
     ),
 
-    // 2. If session not exited, initialize table and seat players
-    ifElse<PokerWorkflowContext>(
-      (c) => !c.sessionEnded,
-      [
+    // 2. Fallback Table Booting: Initializes table if tableId was provided directly without state
+    ifElse(
+      `${table_has_no_state} and not ${ctx.sessionEnded}`,
+      seq(steps.BOOT_TABLE, [
         boot_table(),
         emitEvent(events.LOBBY_READY, {
           tableId: String(gameState.tableId),
         }),
-        whileLoop<PokerWorkflowContext>(
-          (c) => !c.gameState || c.gameState.players.length < 2,
-          [
-            emitEvent(events.AWAITING_PLAYERS, {
-              tableId: String(gameState.tableId),
-              seatedCount: String(gameState.players.length),
-            }),
-            waitEvent(events.PLAYER_JOINED, ctx.joinRequest),
-            join_lobby(ctx.joinRequest),
-          ],
-        ),
         emitEvent(events.TABLE_READY, {
           tableId: String(gameState.tableId),
           playerCount: String(gameState.players.length),
         }),
-      ],
+      ]),
     ),
   ]);
 }

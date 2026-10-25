@@ -19,6 +19,8 @@ import {
   createPokerGameSession,
   ensureTableConversation,
   ensureLobbyConversation,
+  createLobbyConversation,
+  closePokerLobbyConversation,
   createPokerGameTable,
   closePokerGameTable,
   enqueueTableASTRequest,
@@ -292,3 +294,76 @@ test('Lobby Separation & Lifecycle: Dedicated lobby conversation, table creation
     await host.stop();
   }
 });
+
+test('Multi-Client Isolation: Multiple simultaneous clients have isolated lobby conversations and requests', async () => {
+  const dbPath = path.join(os.tmpdir(), `poker_multiclient_test_${Date.now()}.db`);
+  const host = await createPokerHost({
+    databasePath: dbPath,
+    forceReset: true,
+    quiet: true,
+  });
+
+  try {
+    // 1. Client A connects as Alice
+    const sessionA = await createPokerGameSession(host, {
+      quiet: true,
+      playerName: 'Alice',
+      playerId: 'user_alice',
+      newSession: true,
+    });
+
+    // 2. Client B connects as Bob simultaneously
+    const sessionB = await createPokerGameSession(host, {
+      quiet: true,
+      playerName: 'Bob',
+      playerId: 'user_bob',
+      newSession: true,
+    });
+
+    // 3. Verify conversations are completely isolated
+    assert.notEqual(
+      sessionA.conversation.id,
+      sessionB.conversation.id,
+      'Each client run must have a distinct lobby concierge conversation'
+    );
+
+    // 4. Step both clients to their interactive Lobby Options prompts
+    await sessionA.step(sessionA.conversation.id, 100);
+    await sessionB.step(sessionB.conversation.id, 100);
+
+    const reqA = await host.prisma.request.findFirst({
+      where: { conversationId: sessionA.conversation.id, status: 'WAITING_FOR_USER' },
+    });
+    const reqB = await host.prisma.request.findFirst({
+      where: { conversationId: sessionB.conversation.id, status: 'WAITING_FOR_USER' },
+    });
+
+    assert.ok(reqA, "Alice's lobby request must be waiting for user");
+    assert.ok(reqB, "Bob's lobby request must be waiting for user");
+    assert.notEqual(reqA.id, reqB.id, 'Requests must be isolated');
+
+    // 5. Alice selects Exit; Bob remains in the lobby
+    await sessionA.send('poker:lobby_choice', { id: 'exit' }, sessionA.conversation.id);
+    await sessionA.step(sessionA.conversation.id, 100);
+
+    // Verify Alice's lobby conversation is closed
+    const convA = await host.prisma.conversation.findUnique({
+      where: { id: sessionA.conversation.id },
+    });
+    assert.equal(convA?.metadata?.isClosed, true, "Alice's lobby must be closed on exit");
+
+    // Verify Bob's lobby conversation is still active and unaffected!
+    const convB = await host.prisma.conversation.findUnique({
+      where: { id: sessionB.conversation.id },
+    });
+    assert.equal(convB?.metadata?.isClosed, false, "Bob's lobby must remain active and unaffected");
+
+    const reqBAfterAliceExit = await host.prisma.request.findFirst({
+      where: { conversationId: sessionB.conversation.id, status: 'WAITING_FOR_USER' },
+    });
+    assert.ok(reqBAfterAliceExit, "Bob's request must still be waiting for user input");
+  } finally {
+    await host.stop();
+  }
+});
+

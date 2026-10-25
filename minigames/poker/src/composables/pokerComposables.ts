@@ -47,6 +47,10 @@ import type {
   PokerGetChoicesParams,
   PokerListTablesParams,
   PokerCreateTableParams,
+  PokerGetBankrollParams,
+  PokerDepositBuyInParams,
+  PokerCashOutParams,
+  PokerReloadBankrollParams,
 } from '../models/pokerToolParams.ts';
 import type { PokerGameState } from '../types.ts';
 
@@ -94,12 +98,12 @@ export const pokerPredicates = {
   table_needs_players: `not ${ctx.gameState} or ${ctx.gameState.players.length} < 2`,
   is_session_active: `not ${ctx.sessionEnded}`,
   is_session_unpaused: `not ${ctx.sessionEnded} and not ${ctx.isPaused}`,
-  is_turn_action_pause: `${ctx.turnAction.type} == '${PokerActionType.PAUSE}' or ${ctx.humanAction.type} == '${PokerActionType.PAUSE}'`,
-  is_turn_action_exit: `${ctx.turnAction.type} == '${PokerActionType.EXIT}' or ${ctx.humanAction.type} == '${PokerActionType.EXIT}'`,
-  is_human_action_pause: `${ctx.humanAction.type} == '${PokerActionType.PAUSE}'`,
-  is_human_action_exit: `${ctx.humanAction.type} == '${PokerActionType.EXIT}'`,
-  is_resume_cmd: `${ctx.resumeCmd.type} == '${PokerActionType.RESUME}' or ${ctx.resumeCmd} == '${PokerActionType.RESUME}'`,
-  is_exit_cmd: `${ctx.resumeCmd.type} == '${PokerActionType.EXIT}' or ${ctx.resumeCmd} == '${PokerActionType.EXIT}'`,
+  is_turn_action_pause: `(${ctx.turnAction} && ${ctx.turnAction}.type == '${PokerActionType.PAUSE}') || (${ctx.humanAction} && ${ctx.humanAction}.type == '${PokerActionType.PAUSE}')`,
+  is_turn_action_exit: `(${ctx.turnAction} && ${ctx.turnAction}.type == '${PokerActionType.EXIT}') || (${ctx.humanAction} && ${ctx.humanAction}.type == '${PokerActionType.EXIT}')`,
+  is_human_action_pause: `${ctx.humanAction} && ${ctx.humanAction}.type == '${PokerActionType.PAUSE}'`,
+  is_human_action_exit: `${ctx.humanAction} && ${ctx.humanAction}.type == '${PokerActionType.EXIT}'`,
+  is_resume_cmd: `(${ctx.resumeCmd} && ${ctx.resumeCmd}.type == '${PokerActionType.RESUME}') || ${ctx.resumeCmd} == '${PokerActionType.RESUME}'`,
+  is_exit_cmd: `(${ctx.resumeCmd} && ${ctx.resumeCmd}.type == '${PokerActionType.EXIT}') || ${ctx.resumeCmd} == '${PokerActionType.EXIT}'`,
 };
 
 /**
@@ -180,6 +184,18 @@ export const pokerComposables = {
 
   human_speech: (args: PokerHumanSpeechParams): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.HUMAN_SPEECH, args),
+
+  get_bankroll: (args: Partial<PokerGetBankrollParams> = {}): CuratorToolNode =>
+    CuratorBuilder.tool(PokerTool.GET_BANKROLL, args),
+
+  deposit_buy_in: (args: Partial<PokerDepositBuyInParams> = {}): CuratorToolNode =>
+    CuratorBuilder.tool(PokerTool.DEPOSIT_BUY_IN, args),
+
+  cash_out: (args: Partial<PokerCashOutParams> = {}): CuratorToolNode =>
+    CuratorBuilder.tool(PokerTool.CASH_OUT, args),
+
+  reload_bankroll: (args: Partial<PokerReloadBankrollParams> = {}): CuratorToolNode =>
+    CuratorBuilder.tool(PokerTool.RELOAD_BANKROLL, args),
 
   // Typed Poker Domain Constants
   events: PokerEvent,

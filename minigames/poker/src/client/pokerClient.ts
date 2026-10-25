@@ -19,6 +19,11 @@ import {
 import { createPokerHost } from '../host.ts';
 import type { PokerGameState } from '../types.ts';
 import { resolvePlayerIdentity, type PlayerProfile } from './pokerProfile.ts';
+import {
+  PokerEvent,
+  PokerClientConstant,
+  CuratorCoreEvent,
+} from '../models/pokerContracts.ts';
 
 export { resolvePlayerIdentity, type PlayerProfile };
 
@@ -42,12 +47,12 @@ export async function createWebSocketChannel(options: PokerClientOptions = {}): 
   if (options.playerName) queryParams.set('playerName', options.playerName);
   if (options.playerId) queryParams.set('playerId', options.playerId);
   const qs = queryParams.toString();
-  const defaultPath = qs ? `/api/events?${qs}` : '/api/events';
+  const defaultPath = qs ? `${PokerClientConstant.DEFAULT_WS_PATH}?${qs}` : PokerClientConstant.DEFAULT_WS_PATH;
 
   return createHostWebSocketChannel({
     serverUrl: options.serverUrl,
     tableId: options.tableId,
-    envUrlKey: 'POKER_SERVER_URL',
+    envUrlKey: PokerClientConstant.ENV_SERVER_URL,
     defaultPath,
   });
 }
@@ -78,16 +83,16 @@ export async function createDirectSessionChannel(
   }
 
   const baseChannel = createDirectChannel(session, options.tableId);
-  return {
-    ...baseChannel,
-    runTool: (toolName: string, args?: Record<string, any>) => session.runTool(toolName, args, options.tableId),
+  const origClose = baseChannel.close.bind(baseChannel);
+  return Object.assign(baseChannel, {
+    runTool: (toolName: string, args?: Record<string, any>) => session.runTool(toolName, args, baseChannel.tableId),
     close: async () => {
-      await baseChannel.close();
+      await origClose();
       if (host) {
         await host.stop();
       }
     },
-  };
+  });
 }
 
 /**
@@ -97,7 +102,7 @@ export async function createDirectSessionChannel(
  */
 export async function runPokerClientUi(
   channel: PokerGameChannel,
-  playerName: string = 'You',
+  playerName: string = PokerClientConstant.DEFAULT_PLAYER_NAME,
   existingRl?: readline.Interface,
   hasExplicitTable: boolean = false
 ): Promise<void> {
@@ -135,9 +140,9 @@ export async function runPokerClientUi(
       getGameState: () => {
         if (!currentGameState) {
           return {
-            phase: 'LOBBY',
+            phase: PokerClientConstant.LOBBY_PHASE,
             table: null,
-            status: 'WAITING_FOR_LOBBY_CHOICE',
+            status: PokerClientConstant.LOBBY_WAITING_STATUS,
             choices: shell?.activeChoices?.map((c: any, i: number) => `[${i + 1}] ${c.label}`) || [],
           } as any;
         }
@@ -152,20 +157,39 @@ export async function runPokerClientUi(
       const { type, payload } = event;
 
       if (payload?.gameState) {
-        currentGameState = payload.gameState;
+        currentGameState = typeof payload.gameState === 'string'
+          ? (payload.gameState.startsWith('{') ? JSON.parse(payload.gameState) : currentGameState)
+          : payload.gameState;
       } else if (payload?.state) {
-        currentGameState = payload.state;
+        currentGameState = typeof payload.state === 'string'
+          ? (payload.state.startsWith('{') ? JSON.parse(payload.state) : currentGameState)
+          : payload.state;
       }
 
       renderPokerEvent(event, currentGameState);
 
-      if (type === 'poker:game_over' || type === 'poker:session_exited') {
+      if (type === PokerEvent.TABLE_SELECTED) {
+        const targetTableId = payload?.tableId || payload?.id;
+        if (targetTableId && targetTableId !== PokerClientConstant.BACK_CHOICE_ID && channel.tableId !== String(targetTableId)) {
+          channel.tableId = String(targetTableId);
+          // In direct execution mode, advance the newly selected table conversation so the game loop deals and begins
+          if (typeof channel.start === 'function') {
+            setImmediate(() => {
+              channel.start?.().catch((err: any) => {
+                console.error(`\x1b[31m[Table Start Error] ${err?.message || err}\x1b[0m`);
+              });
+            });
+          }
+        }
+      }
+
+      if (type === PokerEvent.GAME_OVER || type === PokerEvent.SESSION_EXITED) {
         await cleanup();
         return;
       }
 
       // Lobby choice presentation (non-blocking)
-      if (type === 'poker:lobby_prompt') {
+      if (type === PokerEvent.LOBBY_PROMPT) {
         console.log("\n\x1b[1m\x1b[36m╔══════════════════════════════════════════════════════════════════════╗\x1b[0m");
         console.log("\x1b[1m\x1b[36m║                    Curator Texas Hold'em Lounge                      ║\x1b[0m");
         console.log("\x1b[1m\x1b[36m╚══════════════════════════════════════════════════════════════════════╝\x1b[0m\n");
@@ -176,11 +200,11 @@ export async function runPokerClientUi(
       }
 
       // Table selection presentation (non-blocking)
-      if (type === 'poker:request_table_selection') {
+      if (type === PokerEvent.REQUEST_TABLE_SELECTION) {
         const rawChoices: any[] = payload?.choices || payload?.tables || [];
         if (rawChoices.length === 0) {
           console.log("\x1b[33mNo existing tables found. Starting fresh table instead...\x1b[0m\n");
-          await channel.send('poker:table_selected', { id: 'poker:high_roller_lounge' });
+          await channel.send(PokerEvent.TABLE_SELECTED, { id: PokerClientConstant.DEFAULT_TABLE_ID });
           return;
         }
 
@@ -190,7 +214,7 @@ export async function runPokerClientUi(
       }
 
       // Universal Curator choices & human input presentation
-      if (type === 'curator:choices' || type === 'curator:human_input') {
+      if (type === CuratorCoreEvent.CHOICES || type === CuratorCoreEvent.HUMAN_INPUT) {
         if (payload?.requestId && payload.requestId === lastChoiceRequestId) {
           return;
         }
@@ -201,18 +225,32 @@ export async function runPokerClientUi(
         if (payload?.prompt) {
           console.log(`\n\x1b[1m${payload.prompt}\x1b[0m`);
         }
-        shell.setChoices(rawChoices, { blocking: Boolean(payload?.blocking) });
+        shell.setChoices(rawChoices, {
+          blocking: Boolean(payload?.blocking),
+          as: payload?.as,
+          requestId: payload?.requestId,
+          conversationId: payload?.conversationId,
+          prompt: payload?.prompt,
+          event: payload?.event || payload?.waitEvent,
+        });
         return;
       }
 
       // Awaiting human player action (non-blocking by default)
-      if (type === 'poker:awaiting_human_action') {
+      if (type === PokerEvent.AWAITING_HUMAN_ACTION) {
         const rawChoices: any[] = Array.isArray(payload?.choices)
           ? payload.choices
           : Array.isArray(payload?.choices?.choices)
             ? payload.choices.choices
             : [];
-        shell.setChoices(rawChoices, { blocking: Boolean(payload?.blocking) });
+        shell.setChoices(rawChoices, {
+          blocking: Boolean(payload?.blocking),
+          as: payload?.as || PokerClientConstant.ACTION_CONTEXT_KEY,
+          requestId: payload?.requestId,
+          conversationId: payload?.conversationId,
+          prompt: payload?.prompt,
+          event: payload?.event || PokerEvent.HUMAN_ACTION,
+        });
       }
     });
 

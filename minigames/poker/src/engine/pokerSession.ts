@@ -36,6 +36,8 @@ export interface PokerSessionOptions {
   intervalMs?: number;
   playerName?: string;
   playerId?: string;
+  sessionId?: string;
+  newSession?: boolean;
   resetLight?: boolean;
 }
 
@@ -120,43 +122,16 @@ export function parseConversationMetadata(metadata: any): Record<string, any> {
 }
 
 /**
- * Resolves or creates a dedicated lounge lobby conversation scoped directly to the host's project and user.
- * The lobby conversation is not related to any specific game table and runs pokerLobbyAst.
+ * Creates a fresh, dedicated lounge lobby concierge conversation for a client run.
  */
-export async function ensureLobbyConversation(host: CuratorHost): Promise<any> {
+export async function createLobbyConversation(
+  host: CuratorHost,
+  options: { playerName?: string; playerId?: string; sessionId?: string } = {}
+): Promise<any> {
   const prisma = host.prisma;
   const projectId = host.project.id;
   const userId = host.user.id;
-
-  const convs = await prisma.conversation.findMany({
-    where: { projectId },
-    orderBy: { id: 'asc' },
-  });
-
-  const existing = convs.find((c: any) => {
-    const meta = parseConversationMetadata(c.metadata);
-    return meta.isLobby === true || meta.type === PokerConversationType.LOBBY;
-  });
-
-  if (existing) return existing;
-
-  // If host seeded an initial empty default conversation, adopt it as the lobby
-  const emptyDefault = convs.find((c: any) => {
-    const meta = parseConversationMetadata(c.metadata);
-    return !meta.type && !meta.tableName && !meta.ruleset;
-  });
-  if (emptyDefault) {
-    return prisma.conversation.update({
-      where: { id: emptyDefault.id },
-      data: {
-        metadata: {
-          type: PokerConversationType.LOBBY,
-          isLobby: true,
-          title: "Curator Texas Hold'em Lounge Concierge",
-        },
-      },
-    });
-  }
+  const clientName = options.playerName || host.user.name || 'Player';
 
   return prisma.conversation.create({
     data: {
@@ -165,10 +140,88 @@ export async function ensureLobbyConversation(host: CuratorHost): Promise<any> {
       metadata: {
         type: PokerConversationType.LOBBY,
         isLobby: true,
-        title: "Curator Texas Hold'em Lounge Concierge",
+        title: `${clientName}'s Lounge Concierge`,
+        playerName: clientName,
+        playerId: options.playerId || userId,
+        sessionId: options.sessionId,
+        isClosed: false,
       },
     },
   });
+}
+
+/**
+ * Closes an ephemeral poker lobby concierge conversation and cancels its pending requests.
+ */
+export async function closePokerLobbyConversation(
+  host: CuratorHost,
+  lobbyId: string | number,
+  reason: string = 'user_exit'
+): Promise<void> {
+  const targetId = Number(lobbyId);
+  if (Number.isNaN(targetId)) return;
+
+  const prisma = host.prisma;
+  const conv = await prisma.conversation.findUnique({
+    where: { id: targetId },
+  });
+  if (!conv) return;
+
+  const meta = parseConversationMetadata(conv.metadata);
+  await prisma.conversation.update({
+    where: { id: targetId },
+    data: {
+      metadata: {
+        ...meta,
+        isClosed: true,
+        closingReason: reason,
+        closedAt: new Date().toISOString(),
+      },
+    },
+  });
+
+  await prisma.request.updateMany({
+    where: {
+      conversationId: targetId,
+      status: { in: ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT'] },
+    },
+    data: { status: 'CANCELLED' },
+  });
+}
+
+/**
+ * Resolves or creates a dedicated lounge lobby conversation scoped directly to the host's project and user.
+ * Skips closed lobbies and creates an isolated concierge conversation for the client.
+ */
+export async function ensureLobbyConversation(
+  host: CuratorHost,
+  options: { forceNew?: boolean; playerName?: string; playerId?: string; sessionId?: string } = {}
+): Promise<any> {
+  if (options.forceNew) {
+    return createLobbyConversation(host, options);
+  }
+
+  const prisma = host.prisma;
+  const projectId = host.project.id;
+  const userId = host.user.id;
+
+  const convs = await prisma.conversation.findMany({
+    where: { projectId, userId },
+    orderBy: { id: 'desc' },
+  });
+
+  const existing = convs.find((c: any) => {
+    const meta = parseConversationMetadata(c.metadata);
+    return (
+      (meta.isLobby === true || meta.type === PokerConversationType.LOBBY) &&
+      !meta.isClosed &&
+      meta.status !== 'closed'
+    );
+  });
+
+  if (existing) return existing;
+
+  return createLobbyConversation(host, options);
 }
 
 /**
@@ -232,7 +285,7 @@ export async function createPokerGameTable(
   const user = host.user;
   const project = host.project;
   const maxSeats = Math.min(6, Math.max(2, options.maxSeats || 4));
-  const startingChips = options.startingChips || 1000;
+  const startingChips = options.startingChips || (options as any).buyIn || 1000;
   const smallBlind = options.smallBlind || 10;
   const bigBlind = options.bigBlind || 20;
 
@@ -320,6 +373,25 @@ export async function closePokerGameTable(
 ): Promise<void> {
   const prisma = host.prisma;
   const convId = Number(tableId);
+
+  // Cash out human player chips back into their persistent bankroll
+  try {
+    const latestReq = await prisma.request.findFirst({
+      where: { conversationId: convId },
+      orderBy: { updatedAt: 'desc' },
+    });
+    const reqCtx = latestReq?.context as any;
+    const gState = reqCtx?.gameState || reqCtx?.state?.gameState;
+    if (gState && Array.isArray(gState.players)) {
+      const human = gState.players.find(
+        (p: any) => p.isHuman || p.id === host.user.id || p.name === host.user.name
+      );
+      if (human && typeof human.chips === 'number' && human.chips > 0) {
+        const { cashOutToBankroll } = await import('../services/pokerBankrollStore.ts');
+        await cashOutToBankroll(prisma, host.user.id, human.chips, convId, host.project.id);
+      }
+    }
+  } catch (_) {}
 
   await prisma.request.updateMany({
     where: {
@@ -669,7 +741,12 @@ export async function createPokerGameSession(
         tableId: options.tableId,
         maxSeats,
       })
-    : await ensureLobbyConversation(host);
+    : await ensureLobbyConversation(host, {
+        playerName: options.playerName,
+        playerId: options.playerId,
+        sessionId: options.sessionId,
+        forceNew: options.newSession,
+      });
 
   // 1b. Ensure human user actor exists in database with roles and conversation participant metadata
   await ensureHumanActorInDatabase(host, conversation.id, {
@@ -807,7 +884,7 @@ export async function createPokerGameSession(
     tableId?: string | number,
     sessionId?: string
   ): Promise<any> => {
-    const targetConvId = tableId !== undefined ? Number(tableId) : conversation.id;
+    let targetConvId = payload?.conversationId !== undefined ? Number(payload.conversationId) : (tableId !== undefined ? Number(tableId) : conversation.id);
 
     // 1. Native Table Speech / Whispers
     if (eventName === PokerEvent.SPEECH) {
@@ -848,8 +925,13 @@ export async function createPokerGameSession(
 
     // 3. Emit as a Request: the core matcher spawns subscriptions and resumes matching waits.
     //    Poker adds its event families on top of exact `waitEvent` matching.
-    const choiceFamily = new Set<string>([PokerEvent.HUMAN_ACTION, PokerEvent.LOBBY_CHOICE, PokerEvent.TABLE_SELECTED]);
-    const emitted = await host.emitEvent(eventName, payload, {
+    const choiceFamily = new Set<string>([
+      PokerEvent.HUMAN_ACTION,
+      PokerEvent.LOBBY_CHOICE,
+      PokerEvent.TABLE_SELECTED,
+      PokerEvent.BUY_IN_CHOICE,
+    ]);
+    let emitted = await host.emitEvent(eventName, payload, {
       conversationId: targetConvId,
       origin: 'REPL',
       broadcast: false, // broadcast below with table scoping, only when something was resumed
@@ -860,7 +942,26 @@ export async function createPokerGameSession(
       waitValue: (p) => (p?.choice !== undefined ? p.choice : p),
       contextPatch: sessionId ? { sessionId } : undefined,
     });
-    const woken = emitted.woken.length > 0;
+    let woken = emitted.woken.length > 0;
+
+    // Resilient fallback: if nothing was waiting on targetConvId, check root session conversation (e.g. Lobby)
+    if (!woken && targetConvId !== conversation.id) {
+      const fallbackEmitted = await host.emitEvent(eventName, payload, {
+        conversationId: conversation.id,
+        origin: 'REPL',
+        broadcast: false,
+        matchWait: (waitEvent, evt, p) =>
+          evt === 'curator:choice' ||
+          (waitEvent === 'curator:choice' && choiceFamily.has(evt)) ||
+          (waitEvent === PokerEvent.RESUME_ACTION && evt === PokerEvent.HUMAN_ACTION && (p?.type === PokerActionType.RESUME || p?.type === PokerActionType.EXIT)),
+        waitValue: (p) => (p?.choice !== undefined ? p.choice : p),
+        contextPatch: sessionId ? { sessionId } : undefined,
+      });
+      if (fallbackEmitted.woken.length > 0) {
+        targetConvId = conversation.id;
+        woken = true;
+      }
+    }
 
     if (woken) {
       host.events.broadcast(eventName, {
@@ -977,6 +1078,14 @@ export async function createPokerGameSession(
       console.log(`\x1b[32m✔ [Curator Engine] Action required from ${humanTurn.name} (chips: $${humanTurn.chips}, to call: $${humanTurn.toCall})\x1b[0m`);
     }
 
+    if (stepRes.done) {
+      const conv = await prisma.conversation.findUnique({ where: { id: targetConvId } });
+      const meta = parseConversationMetadata(conv?.metadata);
+      if (meta.isLobby) {
+        await closePokerLobbyConversation(host, targetConvId, 'lobby_completed');
+      }
+    }
+
     return {
       done: stepRes.done || Boolean(gameState?.gameOver),
       waitingForHuman: stepRes.waiting,
@@ -986,12 +1095,11 @@ export async function createPokerGameSession(
     };
   };
 
-
-
-
-
   const close = async (): Promise<void> => {
-    // Session cleanup hook
+    const meta = parseConversationMetadata(conversation.metadata);
+    if (meta.isLobby) {
+      await closePokerLobbyConversation(host, conversation.id, 'session_closed');
+    }
   };
 
   return {

@@ -12,6 +12,19 @@ export function renderPokerEvent(
 ): void {
   const { type, payload } = event;
   switch (type) {
+    case PokerEvent.TABLE_SELECTED: {
+      const tid = (payload?.tableId && typeof payload.tableId === 'string' && !payload.tableId.startsWith('$'))
+        ? payload.tableId
+        : (currentGameState?.tableId || '1');
+      const rawBuyIn = payload?.buyIn;
+      const cleanBuyIn = typeof rawBuyIn === 'number'
+        ? rawBuyIn
+        : (typeof rawBuyIn === 'string' && /^\d+$/.test(rawBuyIn.trim()) ? rawBuyIn.trim() : undefined);
+      const buyInStr = cleanBuyIn ? ` with $${cleanBuyIn} buy-in` : '';
+      console.log(`\x1b[32m✔ Transitioning to Table #${tid}${buyInStr}...\x1b[0m`);
+      break;
+    }
+
     case PokerEvent.LOBBY_READY: {
       const rawTid = payload?.tableId;
       const tid = (rawTid && typeof rawTid === 'string' && !rawTid.startsWith('$'))
@@ -35,16 +48,29 @@ export function renderPokerEvent(
     case PokerEvent.PHASE_DEAL:
     case PokerEvent.PHASE_STREET: {
       const street = payload?.street || PokerStreet.FLOP;
-      const boardStr = currentGameState?.board?.map((c) => formatCard(c)).join(' ') || '';
+      const boardStr = currentGameState?.board?.length
+        ? ` ${currentGameState.board.map((c) => formatCard(c)).join(' ')}`
+        : '';
       const potStr = currentGameState ? ` (Pot: $${currentGameState.pot})` : '';
-      console.log(`\n\x1b[1m\x1b[36m[DEALER] Dealing ${street}: ${boardStr}${potStr}\x1b[0m`);
+      console.log(`\n\x1b[1m\x1b[36m[DEALER] Dealing ${street}:${boardStr}${potStr}\x1b[0m`);
+      if (currentGameState && (street === PokerStreet.PREFLOP || street === 'PREFLOP')) {
+        console.log(renderTable(currentGameState, false));
+      }
       break;
     }
 
     case PokerEvent.ACTION_TAKEN: {
+      if (payload?.summary) {
+        console.log(`\x1b[33m▶ ${payload.summary}\x1b[0m`);
+        break;
+      }
       const pName = payload?.player || 'Player';
-      const act = payload?.action?.type || payload?.action || 'ACT';
-      const amt = payload?.action?.amount ? ` $${payload.action.amount}` : '';
+      let actObj = payload?.action;
+      if (typeof actObj === 'string' && actObj.startsWith('{')) {
+        try { actObj = JSON.parse(actObj); } catch (_) {}
+      }
+      const act = actObj?.type || actObj || 'ACT';
+      const amt = actObj?.amount ? ` $${actObj.amount}` : '';
       console.log(`\x1b[33m▶ ${pName}: ${act}${amt}\x1b[0m`);
       break;
     }

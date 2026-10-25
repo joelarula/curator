@@ -36,6 +36,10 @@ export const PokerTool = {
   FAST_FORWARD: 'poker_fast_forward_board',
   GET_STANDINGS: 'poker_get_standings',
   CREATE_TABLE: 'poker_create_table',
+  GET_BANKROLL: 'poker_get_bankroll',
+  DEPOSIT_BUY_IN: 'poker_deposit_buy_in',
+  CASH_OUT: 'poker_cash_out',
+  RELOAD_BANKROLL: 'poker_reload_bankroll',
 } as const;
 
 export type PokerToolType = (typeof PokerTool)[keyof typeof PokerTool];
@@ -82,6 +86,8 @@ export const PokerEvent = {
   TABLE_SELECTED: 'poker:table_selected',
   HUMAN_ACTION: 'poker:human_action',
   LOBBY_CHOICE: 'poker:lobby_choice',
+  BUY_IN_CHOICE: 'poker:buy_in_choice',
+  BANKROLL_UPDATED: 'poker:bankroll_updated',
 
   // Hand & Street Lifecycle
   NEW_ROUND: 'poker:new_round',
@@ -245,3 +251,24 @@ export const PokerStep = {
 } as const;
 
 export type PokerStepType = (typeof PokerStep)[keyof typeof PokerStep];
+
+// ==========================================
+// 6. Client Transport & Runtime Constants
+// ==========================================
+export const PokerClientConstant = {
+  DEFAULT_PLAYER_NAME: 'You',
+  DEFAULT_TABLE_ID: 'poker:high_roller_lounge',
+  ENV_SERVER_URL: 'POKER_SERVER_URL',
+  DEFAULT_WS_PATH: '/api/events',
+  BACK_CHOICE_ID: 'back',
+  ACTION_CONTEXT_KEY: 'action',
+  LOBBY_PHASE: 'LOBBY',
+  LOBBY_WAITING_STATUS: 'WAITING_FOR_LOBBY_CHOICE',
+} as const;
+
+export const CuratorCoreEvent = {
+  CHOICES: 'curator:choices',
+  HUMAN_INPUT: 'curator:human_input',
+  CHOICE: 'curator:choice',
+  EXIT: 'curator:exit',
+} as const;
