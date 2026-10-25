@@ -4,7 +4,7 @@
  */
 
 import { CuratorSystemRole } from '../curator.ts';
-import { PokerRole } from '../models/pokerRoles.ts';
+import { PokerRole, PokerModule } from '../models/index.ts';
 
 export interface PokerAgentProfile {
   id: string;
@@ -22,7 +22,7 @@ export const POKER_AGENT_PROFILES: Record<string, PokerAgentProfile> = {
   hero: {
     id: 'hero',
     name: 'You (Hero)',
-    scriptName: 'human_turn',
+    scriptName: PokerModule.HUMAN_TURN,
     schedule: 'manual',
     enabled: true,
     instruction: 'You are the human player (Hero) at the high-roller poker table.',
@@ -33,7 +33,7 @@ export const POKER_AGENT_PROFILES: Record<string, PokerAgentProfile> = {
   lobby: {
     id: 'lobby',
     name: 'Lobby (Concierge)',
-    scriptName: 'poker_lobby',
+    scriptName: PokerModule.LOBBY,
     schedule: 'manual',
     enabled: true,
     instruction:
@@ -44,7 +44,7 @@ export const POKER_AGENT_PROFILES: Record<string, PokerAgentProfile> = {
   dealer: {
     id: 'dealer',
     name: 'Dealer (House)',
-    scriptName: 'poker_workflow',
+    scriptName: PokerModule.WORKFLOW,
     schedule: 'manual',
     enabled: true,
     instruction:
@@ -55,7 +55,7 @@ export const POKER_AGENT_PROFILES: Record<string, PokerAgentProfile> = {
   viper: {
     id: 'viper',
     name: 'Viper (Shark)',
-    scriptName: 'agent_turn',
+    scriptName: PokerModule.AGENT_TURN,
     schedule: 'manual',
     enabled: true,
     instruction:
@@ -66,7 +66,7 @@ export const POKER_AGENT_PROFILES: Record<string, PokerAgentProfile> = {
   maddog: {
     id: 'maddog',
     name: 'MadDog (Maniac)',
-    scriptName: 'agent_turn',
+    scriptName: PokerModule.AGENT_TURN,
     schedule: 'manual',
     enabled: true,
     instruction:
@@ -77,7 +77,7 @@ export const POKER_AGENT_PROFILES: Record<string, PokerAgentProfile> = {
   barnaby: {
     id: 'barnaby',
     name: 'Barnaby (Station)',
-    scriptName: 'agent_turn',
+    scriptName: PokerModule.AGENT_TURN,
     schedule: 'manual',
     enabled: true,
     instruction:

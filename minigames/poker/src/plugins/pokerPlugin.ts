@@ -9,6 +9,7 @@ import {
 import {
   PokerModule,
   PokerTool,
+  type PokerToolType,
   PokerRole,
   PokerEvent,
   PokerToolAlias,
@@ -88,6 +89,41 @@ function extractGameState(args: any, ctx: any): PokerGameState {
 // Curator Tool Registrations
 // ----------------------------------------------------------------------------
 
+function defineStateTool<T = any>(
+  name: string,
+  description: string,
+  requiredRole: string,
+  handler: (state: PokerGameState, args: any, ctx: any) => any,
+  options: {
+    accessLevel?: CuratorToolAccessLevel;
+    aliases?: string[];
+    usage?: string;
+    properties?: Record<string, any>;
+    required?: string[];
+  } = {}
+) {
+  return defineTool<T>({
+    name,
+    description,
+    requiredRole,
+    accessLevel: options.accessLevel || CuratorAccessLevel.SAFE_WRITE,
+    aliases: options.aliases,
+    usage: options.usage,
+    parameters: {
+      type: 'object',
+      properties: {
+        state: { type: 'object' },
+        ...(options.properties || {}),
+      },
+      required: options.required,
+    },
+    execute: async (args: any, ctx: any) => {
+      const state = extractGameState(args, ctx);
+      return handler(state, args, ctx);
+    },
+  });
+}
+
 export const pokerInitLobbyTool = defineTool<PokerInitLobbyParams>({
   name: PokerTool.INIT_LOBBY,
   description: 'Initializes Texas Holdem lobby frame. Can accept dynamic initial players or start as an open table.',
@@ -128,16 +164,14 @@ export const pokerInitLobbyTool = defineTool<PokerInitLobbyParams>({
   },
 });
 
-export const pokerJoinLobbyTool = defineTool<PokerJoinLobbyParams>({
-  name: PokerTool.JOIN_LOBBY,
-  description: 'Dynamically seats an actor at the poker table with their wallet / buy-in.',
-  usage: PokerToolUsage.JOIN_LOBBY,
-  requiredRole: PokerRole.PLAYER,
-  accessLevel: CuratorAccessLevel.SAFE_WRITE,
-  parameters: {
-    type: 'object',
+export const pokerJoinLobbyTool = defineStateTool<PokerJoinLobbyParams>(
+  PokerTool.JOIN_LOBBY,
+  'Dynamically seats an actor at the poker table with their wallet / buy-in.',
+  PokerRole.PLAYER,
+  (rawState, args) => joinPokerLobby(rawState, args?.player || args),
+  {
+    usage: PokerToolUsage.JOIN_LOBBY,
     properties: {
-      state: { type: 'object' },
       player: { type: 'object' },
       id: { type: 'string' },
       name: { type: 'string' },
@@ -151,69 +185,22 @@ export const pokerJoinLobbyTool = defineTool<PokerJoinLobbyParams>({
       chips: { type: 'number' },
       seatIdx: { type: 'number' },
     },
-  },
-  execute: async (args: PokerJoinLobbyParams, ctx: any) => {
-    const rawState = extractGameState(args, ctx);
-    const pData = args?.player || args;
-    return joinPokerLobby(rawState, pData);
-  },
-});
+  }
+);
 
-export const pokerLeaveLobbyTool = defineTool<PokerLeaveLobbyParams>({
-  name: PokerTool.LEAVE_LOBBY,
-  description: 'Removes or cashes out an actor from the poker table.',
-  usage: PokerToolUsage.LEAVE_LOBBY,
-  requiredRole: PokerRole.PLAYER,
-  accessLevel: CuratorAccessLevel.SAFE_WRITE,
-  parameters: {
-    type: 'object',
+export const pokerLeaveLobbyTool = defineStateTool<PokerLeaveLobbyParams>(
+  PokerTool.LEAVE_LOBBY,
+  'Removes or cashes out an actor from the poker table.',
+  PokerRole.PLAYER,
+  (rawState, args) => leavePokerLobby(rawState, String(args.id)),
+  {
+    usage: PokerToolUsage.LEAVE_LOBBY,
     properties: {
-      state: { type: 'object' },
       id: { type: 'string' },
     },
     required: ['id'],
-  },
-  execute: async (args: PokerLeaveLobbyParams, ctx: any) => {
-    const rawState = extractGameState(args, ctx);
-    const id = String(args.id);
-    return leavePokerLobby(rawState, id);
-  },
-});
-
-function defineStateTool<T = any>(
-  name: string,
-  description: string,
-  requiredRole: string,
-  handler: (state: PokerGameState, args: any, ctx: any) => any,
-  options: {
-    accessLevel?: CuratorToolAccessLevel;
-    aliases?: string[];
-    usage?: string;
-    properties?: Record<string, any>;
-    required?: string[];
-  } = {}
-) {
-  return defineTool<T>({
-    name,
-    description,
-    requiredRole,
-    accessLevel: options.accessLevel || CuratorAccessLevel.SAFE_WRITE,
-    aliases: options.aliases,
-    usage: options.usage,
-    parameters: {
-      type: 'object',
-      properties: {
-        state: { type: 'object' },
-        ...(options.properties || {}),
-      },
-      required: options.required,
-    },
-    execute: async (args: any, ctx: any) => {
-      const state = extractGameState(args, ctx);
-      return handler(state, args, ctx);
-    },
-  });
-}
+  }
+);
 
 export const pokerStartHandTool = defineStateTool<PokerStartHandParams>(
   PokerTool.START_HAND,
@@ -222,26 +209,23 @@ export const pokerStartHandTool = defineStateTool<PokerStartHandParams>(
   (s) => startPokerHand(s),
 );
 
-export const pokerAiDecisionTool = defineTool<PokerAiDecisionParams>({
-  name: PokerTool.AI_DECISION,
-  description: 'Calculates AI player action and ambient remark via Curator Agentic Engine.',
-  requiredRole: PokerRole.PLAYER,
-  accessLevel: CuratorAccessLevel.SAFE_READ,
-  parameters: {
-    type: 'object',
-    properties: {
-      state: { type: 'object' },
-      playerIdx: { type: 'number' },
-    },
-  },
-  execute: async (args: PokerAiDecisionParams, ctx: any) => {
-    const rawState = extractGameState(args, ctx);
+export const pokerAiDecisionTool = defineStateTool<PokerAiDecisionParams>(
+  PokerTool.AI_DECISION,
+  'Calculates AI player action and ambient remark via Curator Agentic Engine.',
+  PokerRole.PLAYER,
+  async (rawState, args) => {
     const idx = typeof args?.playerIdx === 'number' ? args.playerIdx : rawState.activePlayerIdx;
     const player = rawState.players[idx];
     const action = await agenticDecidePokerAction(player, rawState);
     return { action };
   },
-});
+  {
+    accessLevel: CuratorAccessLevel.SAFE_READ,
+    properties: {
+      playerIdx: { type: 'number' },
+    },
+  }
+);
 
 export const pokerApplyActionTool = defineStateTool<PokerApplyActionParams>(
   PokerTool.APPLY_ACTION,
@@ -299,33 +283,24 @@ const speechParameters = {
   required: ['text'],
 } as const;
 
-export const pokerSpeechTool = defineTool<PokerHumanSpeechParams>({
-  name: PokerTool.SPEECH,
-  description: 'Applies table talk, banter, gossip, or private whisper from any player and triggers AI persona reactions.',
-  usage: PokerToolUsage.HUMAN_SPEECH,
-  aliases: [PokerToolAlias.SPEECH, PokerTool.HUMAN_SPEECH],
-  requiredRole: PokerRole.PLAYER,
-  accessLevel: CuratorAccessLevel.SAFE_READ,
-  parameters: speechParameters as any,
-  execute: async (args: PokerHumanSpeechParams, ctx: any) => {
-    const rawState = extractGameState(args, ctx);
-    return processTableSpeech(rawState, args);
-  },
-});
+function createPokerSpeechTool(name: PokerToolType, aliases: string[]) {
+  return defineTool<PokerHumanSpeechParams>({
+    name,
+    description: 'Applies table talk, banter, gossip, or private whisper from any player and triggers AI persona reactions.',
+    usage: PokerToolUsage.HUMAN_SPEECH,
+    aliases,
+    requiredRole: PokerRole.PLAYER,
+    accessLevel: CuratorAccessLevel.SAFE_READ,
+    parameters: speechParameters as any,
+    execute: async (args: PokerHumanSpeechParams, ctx: any) => {
+      const rawState = extractGameState(args, ctx);
+      return processTableSpeech(rawState, args);
+    },
+  });
+}
 
-export const pokerHumanSpeechTool = defineTool<PokerHumanSpeechParams>({
-  name: PokerTool.HUMAN_SPEECH,
-  description: 'Applies table talk, banter, gossip, or private whisper from any player and triggers AI persona reactions.',
-  usage: PokerToolUsage.HUMAN_SPEECH,
-  aliases: [PokerToolAlias.SPEECH, PokerTool.SPEECH],
-  requiredRole: PokerRole.PLAYER,
-  accessLevel: CuratorAccessLevel.SAFE_READ,
-  parameters: speechParameters as any,
-  execute: async (args: PokerHumanSpeechParams, ctx: any) => {
-    const rawState = extractGameState(args, ctx);
-    return processTableSpeech(rawState, args);
-  },
-});
+export const pokerSpeechTool = createPokerSpeechTool(PokerTool.SPEECH, [PokerToolAlias.SPEECH, PokerTool.HUMAN_SPEECH]);
+export const pokerHumanSpeechTool = createPokerSpeechTool(PokerTool.HUMAN_SPEECH, [PokerToolAlias.SPEECH, PokerTool.SPEECH]);
 
 export const pokerCheckGameOverTool = defineStateTool<PokerCheckGameOverParams>(
   PokerTool.CHECK_GAME_OVER,

@@ -160,6 +160,32 @@ export const PokerLobbyAction = {
 
 export type PokerLobbyActionType = (typeof PokerLobbyAction)[keyof typeof PokerLobbyAction];
 
+export const PokerStandingStatus = {
+  WINNER: 'Winner',
+  ACTIVE: 'Active',
+  BUST: 'Bust',
+  CASHED_OUT: 'Cashed Out',
+} as const;
+
+export type PokerStandingStatusType = (typeof PokerStandingStatus)[keyof typeof PokerStandingStatus];
+
+export const PokerSpeechAct = {
+  TABLE_TALK: 'TABLE_TALK',
+  WHISPER: 'WHISPER',
+  BANTER: 'BANTER',
+  PROVOKE: 'PROVOKE',
+  GOSSIP: 'GOSSIP',
+} as const;
+
+export type SpeechAct = (typeof PokerSpeechAct)[keyof typeof PokerSpeechAct] | string;
+
+export const PokerGameOverResult = {
+  GAME_OVER: 'GAME_OVER',
+  CONTINUE: 'CONTINUE',
+} as const;
+
+export type PokerGameOverResultType = (typeof PokerGameOverResult)[keyof typeof PokerGameOverResult];
+
 export const DEFAULT_LOBBY_OPTIONS = [
   { id: PokerLobbyAction.NEW, label: 'New Game', description: 'Start fresh table' },
   { id: PokerLobbyAction.RESUME, label: 'Resume Game', description: 'Select from active/paused tables' },
@@ -167,9 +193,9 @@ export const DEFAULT_LOBBY_OPTIONS = [
 ] as const;
 
 export const DEFAULT_LOBBY_CHOICES = [
-  { id: PokerLobbyAction.NEW, label: 'New Game - Start fresh table', aliases: ['n'], event: 'poker:lobby_choice', payload: { id: PokerLobbyAction.NEW }, value: { id: PokerLobbyAction.NEW } },
-  { id: PokerLobbyAction.RESUME, label: 'Resume Game - Select from active/paused tables', aliases: ['r', 'continue'], event: 'poker:lobby_choice', payload: { id: PokerLobbyAction.RESUME }, value: { id: PokerLobbyAction.RESUME } },
-  { id: PokerLobbyAction.EXIT, label: 'Exit - Quit session', aliases: ['q', 'exit', 'quit'], event: 'poker:lobby_choice', payload: { id: PokerLobbyAction.EXIT }, value: { id: PokerLobbyAction.EXIT } },
+  { id: PokerLobbyAction.NEW, label: 'New Game - Start fresh table', aliases: ['n'], event: PokerEvent.LOBBY_CHOICE, payload: { id: PokerLobbyAction.NEW }, value: { id: PokerLobbyAction.NEW } },
+  { id: PokerLobbyAction.RESUME, label: 'Resume Game - Select from active/paused tables', aliases: ['r', 'continue'], event: PokerEvent.LOBBY_CHOICE, payload: { id: PokerLobbyAction.RESUME }, value: { id: PokerLobbyAction.RESUME } },
+  { id: PokerLobbyAction.EXIT, label: 'Exit - Quit session', aliases: ['q', 'exit', 'quit'], event: PokerEvent.LOBBY_CHOICE, payload: { id: PokerLobbyAction.EXIT }, value: { id: PokerLobbyAction.EXIT } },
 ];
 
 // ==========================================

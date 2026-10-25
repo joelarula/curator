@@ -7,26 +7,19 @@
  */
 import {
   defineModule,
-  seq,
   type CuratorModuleNode,
 } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
+import { buildAgentTurnSteps } from './playerTurn.ts';
 
-const {
-  ctx,
-  ai_decision,
-  apply_player_action,
-  modules,
-  steps,
-} = pokerComposables;
+const { modules } = pokerComposables;
+
+export { buildAgentTurnSteps };
 
 export function buildAgentTurnModule(): CuratorModuleNode {
   return defineModule(modules.AGENT_TURN, {
     description: 'Autonomous AI player decision flow with LLM persona and prompt injection',
-  }, () => [
-    ai_decision(),
-    apply_player_action(`${ctx.poker_ai_decision.action} || ${ctx.lastAiAction} || ${ctx.action}`),
-  ]);
+  }, () => buildAgentTurnSteps());
 }
 
 export const agentTurnAst = buildAgentTurnModule();

@@ -1,4 +1,5 @@
 import type { PokerGameState, Card, PlayerState, PlayerStanding } from '../types.ts';
+import { PokerStandingStatus, PokerStreet } from '../models/index.ts';
 import { evaluateBestHand } from '../engine/pokerEvaluator.ts';
 
 export function formatCard(c?: Card): string {
@@ -42,7 +43,7 @@ export function renderCompactStatus(gameState?: PokerGameState, viewerId?: strin
   const toCall = Math.max(0, (gameState.currentBet || 0) - (hero.streetBet || 0));
   const toCallStr = toCall > 0 ? `To Call: ${green}$${toCall}${reset}` : `${green}Check Available${reset}`;
 
-  let out = `\x1b[90m───\x1b[0m ${cyan}${bold}Table:${reset} ${yellow}${gameState.currentStreet || 'PREFLOP'}${reset} (Hand #${gameState.handNumber || 1})  |  ${cyan}Board:${reset} ${boardCards}  |  ${cyan}Pot:${reset} ${green}$${gameState.pot || 0}${reset}  |  ${toCallStr} \x1b[90m───\x1b[0m\n`;
+  let out = `\x1b[90m───\x1b[0m ${cyan}${bold}Table:${reset} ${yellow}${gameState.currentStreet || PokerStreet.PREFLOP}${reset} (Hand #${gameState.handNumber || 1})  |  ${cyan}Board:${reset} ${boardCards}  |  ${cyan}Pot:${reset} ${green}$${gameState.pot || 0}${reset}  |  ${toCallStr} \x1b[90m───\x1b[0m\n`;
   out += `  ${bold}Your Hand:${reset} ${heroCards} ${heroBest ? `(${cyan}${heroBest}${reset})` : ''}  |  ${bold}Chips:${reset} ${green}$${hero.chips}${reset}  |  ${bold}In Hand:${reset} ${activeOpponents}`;
   return out;
 }
@@ -124,7 +125,7 @@ export function renderStandings(standings: PlayerStanding[]): string {
   let report = '\n\x1b[1m\x1b[36m--- CURRENT / FINAL STANDINGS ---\x1b[0m\n';
   for (const s of standings) {
     const netStr = s.net >= 0 ? `+${s.net}` : `${s.net}`;
-    const statusStr = s.status && s.status !== 'Active' ? ` [${s.status}]` : '';
+    const statusStr = s.status && s.status !== PokerStandingStatus.ACTIVE ? ` [${s.status}]` : '';
     report += `  Rank ${s.rank}: ${s.name} (Start: ${s.startChips}, Final: ${s.finalChips}, Net: ${netStr})${statusStr}\n`;
   }
   return report;

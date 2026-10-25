@@ -1,8 +1,14 @@
 import {
   PokerStreet,
   PokerActionType,
+  PokerStandingStatus,
+  PokerSpeechAct,
+  PokerGameOverResult,
   type PokerStreetType,
   type PokerActionTypeValue,
+  type PokerStandingStatusType,
+  type PokerGameOverResultType,
+  type SpeechAct,
 } from './models/pokerContracts.ts';
 
 export const SUITS = ['♠', '♥', '♦', '♣'] as const;
@@ -16,11 +22,18 @@ export interface Card {
   suit: Suit;
 }
 
-export { PokerStreet, PokerActionType };
+export {
+  PokerStreet,
+  PokerActionType,
+  PokerStandingStatus,
+  PokerSpeechAct,
+  PokerGameOverResult,
+  type PokerStandingStatusType,
+  type PokerGameOverResultType,
+  type SpeechAct,
+};
 export type Street = PokerStreetType;
 export type ActionType = PokerActionTypeValue;
-
-export type SpeechAct = string;
 
 export interface PlayerAction {
   type: ActionType;
@@ -56,16 +69,6 @@ export interface PlayerState {
   seatIdx: number;
   lastMonologue?: string;
 }
-
-export const PokerStandingStatus = {
-  WINNER: 'Winner',
-  ACTIVE: 'Active',
-  BUST: 'Bust',
-  CASHED_OUT: 'Cashed Out',
-} as const;
-
-export type PokerStandingStatusType =
-  (typeof PokerStandingStatus)[keyof typeof PokerStandingStatus];
 
 export interface PlayerStanding {
   rank: number;

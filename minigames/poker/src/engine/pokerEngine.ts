@@ -1,14 +1,20 @@
-import type {
-  Card,
-  PlayerState,
-  PokerGameState,
-  Rank,
-  Suit,
-  PlayerAction,
-  SpeechAct,
-  AmbientRemark,
-  PlayerStanding,
-  ActionType,
+import {
+  PokerStandingStatus,
+  type PokerStandingStatusType,
+  PokerGameOverResult,
+  type PokerGameOverResultType,
+  PokerSpeechAct,
+  type Card,
+  type PlayerState,
+  type PokerGameState,
+  type Rank,
+  type Suit,
+  type PlayerAction,
+  type SpeechAct,
+  type AmbientRemark,
+  type PlayerStanding,
+  type ActionType,
+  type Street,
 } from '../types.ts';
 import { evaluateBestHand } from './pokerEvaluator.ts';
 import { curatorEngine, LlmFactory } from '../curator.ts';
@@ -389,19 +395,17 @@ export function startPokerHand(rawState: PokerGameState): { gameState: PokerGame
     seatIdx: idx,
   }));
 
-  const sbPlayer = players[sbIdx];
-  const sbPost = Math.min(sbPlayer.chips, rawState.sbAmount || 10);
-  sbPlayer.chips -= sbPost;
-  sbPlayer.streetBet = sbPost;
-  sbPlayer.totalHandBet = sbPost;
-  if (sbPlayer.chips === 0) sbPlayer.allIn = true;
+  const postBlind = (player: PlayerState, amount: number) => {
+    const post = Math.min(player.chips, amount);
+    player.chips -= post;
+    player.streetBet = post;
+    player.totalHandBet = post;
+    if (player.chips === 0) player.allIn = true;
+    return post;
+  };
 
-  const bbPlayer = players[bbIdx];
-  const bbPost = Math.min(bbPlayer.chips, rawState.bbAmount || 20);
-  bbPlayer.chips -= bbPost;
-  bbPlayer.streetBet = bbPost;
-  bbPlayer.totalHandBet = bbPost;
-  if (bbPlayer.chips === 0) bbPlayer.allIn = true;
+  const sbPost = postBlind(players[sbIdx], rawState.sbAmount || 10);
+  const bbPost = postBlind(players[bbIdx], rawState.bbAmount || 20);
 
   const pot = sbPost + bbPost;
   const currentBet = Math.max(sbPost, bbPost);
@@ -431,123 +435,112 @@ export function startPokerHand(rawState: PokerGameState): { gameState: PokerGame
   return { gameState: nextState };
 }
 
+function getNextActivePlayerIdx(players: PlayerState[], startIdx: number): number {
+  for (let offset = 1; offset <= players.length; offset++) {
+    const next = (startIdx + offset) % players.length;
+    if (!players[next].folded && !players[next].allIn) {
+      return next;
+    }
+  }
+  return startIdx;
+}
+
 export function applyPokerAction(rawState: PokerGameState, action: PlayerAction): { gameState: PokerGameState } {
+  if (!rawState) throw new Error('applyPokerAction: Game state not found.');
+
   const idx = rawState.activePlayerIdx;
-  const player = rawState.players[idx];
+  const players = rawState.players.map((p, i) => (i === idx ? { ...p } : p));
+  const player = players[idx];
 
   let pot = rawState.pot;
   let currentBet = rawState.currentBet;
   let minRaise = rawState.minRaise;
-  let actionDesc = '';
 
-  const toCall = currentBet - player.streetBet;
+  const toCall = Math.max(0, currentBet - player.streetBet);
 
-  if (action.type === PokerActionType.FOLD) {
-    player.folded = true;
-    actionDesc = `${player.name} folds.`;
-  } else if (action.type === PokerActionType.CHECK) {
-    actionDesc = `${player.name} checks.`;
-  } else if (action.type === PokerActionType.CALL) {
-    const callAmount = Math.min(player.chips, toCall);
-    player.chips -= callAmount;
-    player.streetBet += callAmount;
-    player.totalHandBet += callAmount;
-    pot += callAmount;
-    if (player.chips === 0) player.allIn = true;
-    actionDesc = `${player.name} calls $${callAmount}.`;
-  } else if (action.type === PokerActionType.RAISE) {
-    const raiseAmt = action.amount || Math.min(player.chips, toCall + minRaise);
-    const amountToDeduct = Math.min(player.chips, raiseAmt);
-
-    player.chips -= amountToDeduct;
-    player.streetBet += amountToDeduct;
-    player.totalHandBet += amountToDeduct;
-    pot += amountToDeduct;
+  const commitWager = (amount: number): number => {
+    const commit = Math.min(player.chips, Math.max(0, amount));
+    player.chips -= commit;
+    player.streetBet += commit;
+    player.totalHandBet += commit;
+    pot += commit;
 
     if (player.streetBet > currentBet) {
       minRaise = player.streetBet - currentBet;
       currentBet = player.streetBet;
     }
-    if (player.chips === 0) player.allIn = true;
-    actionDesc = `${player.name} raises to $${currentBet}.`;
-  } else if (action.type === PokerActionType.ALL_IN) {
-    const shoveAmt = player.chips;
-    player.chips = 0;
-    player.streetBet += shoveAmt;
-    player.totalHandBet += shoveAmt;
-    player.allIn = true;
-    pot += shoveAmt;
-
-    if (player.streetBet > currentBet) {
-      minRaise = player.streetBet - currentBet;
-      currentBet = player.streetBet;
+    if (player.chips === 0) {
+      player.allIn = true;
     }
-    actionDesc = `${player.name} goes ALL-IN for $${shoveAmt}!`;
-  }
+    return commit;
+  };
 
-  const activeSurvivors = rawState.players.filter((p) => !p.folded);
-  const handOver = activeSurvivors.length <= 1;
+  const ACTIONS: Record<string, () => string> = {
+    [PokerActionType.FOLD]: () => {
+      player.folded = true;
+      return `${player.name} folds.`;
+    },
+    [PokerActionType.CHECK]: () => `${player.name} checks.`,
+    [PokerActionType.CALL]: () => `${player.name} calls $${commitWager(toCall)}.`,
+    [PokerActionType.RAISE]: () => {
+      commitWager(action.amount ?? (toCall + minRaise));
+      return `${player.name} raises to $${currentBet}.`;
+    },
+    [PokerActionType.ALL_IN]: () => {
+      player.allIn = true;
+      return `${player.name} goes ALL-IN for $${commitWager(player.chips)}!`;
+    },
+  };
+
+  const actionDesc = (ACTIONS[action.type] ?? (() => `${player.name} acts (${action.type}).`))();
+
+  const activeSurvivors = players.filter((p) => !p.folded);
   const singleSurvivor = activeSurvivors.length === 1;
+  const handOver = activeSurvivors.length <= 1;
 
-  const nonFolded = rawState.players.filter((p) => !p.folded);
-  const nonAllIn = nonFolded.filter((p) => !p.allIn);
+  const nonAllIn = activeSurvivors.filter((p) => !p.allIn);
   const allBetsMatched = nonAllIn.every((p) => p.streetBet === currentBet);
   const allActed = nonAllIn.length <= 1 || allBetsMatched;
-
-  let nextIdx = (idx + 1) % rawState.players.length;
-  let loopCount = 0;
-  while ((rawState.players[nextIdx].folded || rawState.players[nextIdx].allIn) && loopCount < rawState.players.length) {
-    nextIdx = (nextIdx + 1) % rawState.players.length;
-    loopCount++;
-  }
 
   const nextState: PokerGameState = {
     ...rawState,
     pot,
     currentBet,
     minRaise,
-    activePlayerIdx: nextIdx,
+    activePlayerIdx: getNextActivePlayerIdx(players, idx),
     streetComplete: allActed && !handOver,
     handOver,
     singleSurvivor,
     winnerIds: singleSurvivor ? [activeSurvivors[0].id] : [],
-    players: rawState.players,
+    players,
     lastActionSummary: actionDesc,
   };
 
   return { gameState: nextState };
 }
 
+const STREET_TRANSITIONS: Record<Street, { next: Street; cards: number }> = {
+  [PokerStreet.PREFLOP]: { next: PokerStreet.FLOP, cards: 3 },
+  [PokerStreet.FLOP]: { next: PokerStreet.TURN, cards: 1 },
+  [PokerStreet.TURN]: { next: PokerStreet.RIVER, cards: 1 },
+  [PokerStreet.RIVER]: { next: PokerStreet.SHOWDOWN, cards: 0 },
+  [PokerStreet.SHOWDOWN]: { next: PokerStreet.SHOWDOWN, cards: 0 },
+};
+
 export function dealPokerStreet(rawState: PokerGameState): { gameState: PokerGameState } {
   const deck = [...rawState.deck];
   const board = [...rawState.board];
 
-  let nextStreet = rawState.currentStreet;
-
-  if (rawState.currentStreet === PokerStreet.PREFLOP) {
-    nextStreet = PokerStreet.FLOP;
-    deck.pop();
-    board.push(deck.pop()!, deck.pop()!, deck.pop()!);
-  } else if (rawState.currentStreet === PokerStreet.FLOP) {
-    nextStreet = PokerStreet.TURN;
-    deck.pop();
-    board.push(deck.pop()!);
-  } else if (rawState.currentStreet === PokerStreet.TURN) {
-    nextStreet = PokerStreet.RIVER;
-    deck.pop();
-    board.push(deck.pop()!);
-  } else if (rawState.currentStreet === PokerStreet.RIVER) {
-    nextStreet = PokerStreet.SHOWDOWN;
+  const trans = STREET_TRANSITIONS[rawState.currentStreet] ?? { next: rawState.currentStreet, cards: 0 };
+  const nextStreet = trans.next;
+  if (trans.cards > 0) {
+    deck.pop(); // Burn card
+    for (let i = 0; i < trans.cards; i++) {
+      board.push(deck.pop()!);
+    }
   }
 
   const players = rawState.players.map((p) => ({ ...p, streetBet: 0 }));
-
-  let nextIdx = (rawState.buttonIdx + 1) % players.length;
-  let loopCount = 0;
-  while ((players[nextIdx].folded || players[nextIdx].allIn) && loopCount < players.length) {
-    nextIdx = (nextIdx + 1) % players.length;
-    loopCount++;
-  }
 
   const nextState: PokerGameState = {
     ...rawState,
@@ -556,7 +549,7 @@ export function dealPokerStreet(rawState: PokerGameState): { gameState: PokerGam
     currentStreet: nextStreet,
     currentBet: 0,
     minRaise: rawState.bbAmount || 20,
-    activePlayerIdx: nextIdx,
+    activePlayerIdx: getNextActivePlayerIdx(players, rawState.buttonIdx),
     streetComplete: false,
     players,
     lastActionSummary: `Dealt ${nextStreet}.`,
@@ -648,7 +641,7 @@ export function processTableSpeech(
   const remark: AmbientRemark = {
     speakerId: args.speakerId || 'hero',
     speakerName: args.speakerName || args.speakerId || 'Hero',
-    speechAct: args.speechAct || (args.targetId ? 'WHISPER' : 'TABLE_TALK'),
+    speechAct: args.speechAct || (args.targetId ? PokerSpeechAct.WHISPER : PokerSpeechAct.TABLE_TALK),
     recipientId: args.targetId ? String(args.targetId) : undefined,
     text: String(args.text || ''),
     timestamp: Date.now(),
@@ -657,28 +650,15 @@ export function processTableSpeech(
   return { gameState: rawState, remark, aiResponse: null };
 }
 
-export function checkPokerGameOver(rawState: PokerGameState): {
-  gameOver: boolean;
-  result: 'GAME_OVER' | 'CONTINUE';
-  standings: PlayerStanding[];
-  report: string;
-  winner: string;
-  gameState: PokerGameState;
-} {
-  if (!rawState) throw new Error('checkPokerGameOver: Game state not found.');
-
-  const solventPlayers = rawState.players.filter((p) => p.chips > 0);
-  const maxHandsReached = rawState.maxHands !== undefined && rawState.handNumber >= rawState.maxHands;
-  const gameOver = solventPlayers.length <= 1 || maxHandsReached;
-
+export function calculateStandings(rawState: PokerGameState, winnerId?: string): PlayerStanding[] {
   const startingWallets = rawState.startingWallets || {};
   const standings: PlayerStanding[] = rawState.players.map((p) => {
     const start = startingWallets[p.id] ?? (rawState.startingChips || 1000);
     const finalChips = p.chips;
     const net = finalChips - start;
-    let status: PlayerStanding['status'] = 'Active';
-    if (finalChips === 0) status = 'Bust';
-    else if (solventPlayers.length === 1 && solventPlayers[0].id === p.id) status = 'Winner';
+    let status: PokerStandingStatusType = PokerStandingStatus.ACTIVE;
+    if (finalChips === 0) status = PokerStandingStatus.BUST;
+    else if (winnerId && winnerId === p.id) status = PokerStandingStatus.WINNER;
     return {
       rank: 0,
       id: p.id,
@@ -692,11 +672,30 @@ export function checkPokerGameOver(rawState: PokerGameState): {
 
   standings.sort((a, b) => b.finalChips - a.finalChips);
   standings.forEach((s, idx) => { s.rank = idx + 1; });
+  return standings;
+}
+
+export function checkPokerGameOver(rawState: PokerGameState): {
+  gameOver: boolean;
+  result: PokerGameOverResultType;
+  standings: PlayerStanding[];
+  report: string;
+  winner: string;
+  gameState: PokerGameState;
+} {
+  if (!rawState) throw new Error('checkPokerGameOver: Game state not found.');
+
+  const solventPlayers = rawState.players.filter((p) => p.chips > 0);
+  const maxHandsReached = rawState.maxHands !== undefined && rawState.handNumber >= rawState.maxHands;
+  const gameOver = solventPlayers.length <= 1 || maxHandsReached;
+
+  const winnerId = solventPlayers.length === 1 ? solventPlayers[0].id : undefined;
+  const standings = calculateStandings(rawState, winnerId);
 
   let report = '\n--- FINAL STANDINGS ---\n';
   for (const s of standings) {
     const netStr = s.net >= 0 ? `+${s.net}` : `${s.net}`;
-    const statusStr = s.status !== 'Active' ? ` [${s.status}]` : '';
+    const statusStr = s.status !== PokerStandingStatus.ACTIVE ? ` [${s.status}]` : '';
     report += ` Rank ${s.rank}: ${s.name} (Start: ${s.startChips}, Final: ${s.finalChips}, Net: ${netStr})${statusStr}\n`;
   }
 
@@ -708,7 +707,7 @@ export function checkPokerGameOver(rawState: PokerGameState): {
 
   return {
     gameOver,
-    result: gameOver ? 'GAME_OVER' : 'CONTINUE',
+    result: gameOver ? PokerGameOverResult.GAME_OVER : PokerGameOverResult.CONTINUE,
     standings,
     report,
     winner: solventPlayers[0]?.name || 'None',
@@ -718,23 +717,5 @@ export function checkPokerGameOver(rawState: PokerGameState): {
 
 export function getPokerStandings(rawState: PokerGameState): { standings: PlayerStanding[] } {
   if (!rawState) throw new Error('getPokerStandings: Game state not found.');
-
-  const startingWallets = rawState.startingWallets || {};
-  const standings: PlayerStanding[] = rawState.players.map((p) => {
-    const start = startingWallets[p.id] ?? (rawState.startingChips || 1000);
-    const finalChips = p.chips;
-    const net = finalChips - start;
-    return {
-      rank: 0,
-      id: p.id,
-      name: p.name,
-      startChips: start,
-      finalChips,
-      net,
-      status: finalChips === 0 ? 'Bust' : 'Active',
-    };
-  });
-  standings.sort((a, b) => b.finalChips - a.finalChips);
-  standings.forEach((s, idx) => { s.rank = idx + 1; });
-  return { standings };
+  return { standings: calculateStandings(rawState) };
 }

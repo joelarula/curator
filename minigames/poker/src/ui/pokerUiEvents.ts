@@ -4,7 +4,7 @@ import {
   formatCard,
 } from './tableRenderer.ts';
 import type { PokerGameState } from '../types.ts';
-import { PokerEvent, PokerSessionReason } from '../models/index.ts';
+import { PokerEvent, PokerSessionReason, PokerStreet, PokerSpeechAct } from '../models/index.ts';
 
 export function renderPokerEvent(
   event: { type: string; payload: any },
@@ -34,7 +34,7 @@ export function renderPokerEvent(
 
     case PokerEvent.PHASE_DEAL:
     case PokerEvent.PHASE_STREET: {
-      const street = payload?.street || 'FLOP';
+      const street = payload?.street || PokerStreet.FLOP;
       const boardStr = currentGameState?.board?.map((c) => formatCard(c)).join(' ') || '';
       const potStr = currentGameState ? ` (Pot: $${currentGameState.pot})` : '';
       console.log(`\n\x1b[1m\x1b[36m[DEALER] Dealing ${street}: ${boardStr}${potStr}\x1b[0m`);
@@ -52,7 +52,7 @@ export function renderPokerEvent(
     case PokerEvent.SPEECH_RESPONSE: {
       const spk = payload?.speaker || 'Player';
       const to = payload?.targetId ? ` -> @${payload.targetId}` : '';
-      const tag = payload?.targetId ? '[WHISPER]' : (payload?.speechAct ? `[${payload.speechAct}]` : '[SPEECH]');
+      const tag = payload?.targetId ? `[${PokerSpeechAct.WHISPER}]` : (payload?.speechAct ? `[${payload.speechAct}]` : `[${PokerSpeechAct.TABLE_TALK}]`);
       console.log(`\x1b[35m${tag} ${spk}${to}: "${payload?.text}"\x1b[0m`);
       if (payload?.aiReply) {
         const aiSpk = payload?.aiSpeaker ? `\x1b[1m${payload.aiSpeaker}\x1b[0m: ` : '';
