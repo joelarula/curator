@@ -72,7 +72,7 @@ program
   .option('--db <path>', 'Custom SQLite database path (direct mode)')
   .option('-r, --reset', 'Reset database before running (direct mode)', false)
   .option('-R, --reset-light', 'Light reset: clear conversations, requests, and responses before running', false)
-  .option('--name <player>', 'Your player name', 'You')
+  .option('--name <player>', 'Your player name')
   .action(async (opts) => {
     console.log('\x1b[36m[Poker CLI] Loading tabletop client runtime...\x1b[0m');
     const { runPokerClient } = await import('./client/pokerClient.ts');

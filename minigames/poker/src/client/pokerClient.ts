@@ -18,6 +18,9 @@ import {
 } from '../curatorHost.ts';
 import { createPokerHost } from '../host.ts';
 import type { PokerGameState } from '../types.ts';
+import { resolvePlayerIdentity, type PlayerProfile } from './pokerProfile.ts';
+
+export { resolvePlayerIdentity, type PlayerProfile };
 
 export interface PokerClientOptions extends PokerSessionOptions {
   direct?: boolean;
@@ -35,11 +38,17 @@ export { normalizeWsUrl };
  * Creates a network-backed channel communicating with an external Poker Server over WebSockets.
  */
 export async function createWebSocketChannel(options: PokerClientOptions = {}): Promise<PokerGameChannel> {
+  const queryParams = new URLSearchParams();
+  if (options.playerName) queryParams.set('playerName', options.playerName);
+  if (options.playerId) queryParams.set('playerId', options.playerId);
+  const qs = queryParams.toString();
+  const defaultPath = qs ? `/api/events?${qs}` : '/api/events';
+
   return createHostWebSocketChannel({
     serverUrl: options.serverUrl,
     tableId: options.tableId,
     envUrlKey: 'POKER_SERVER_URL',
-    defaultPath: '/api/events',
+    defaultPath,
   });
 }
 
@@ -230,14 +239,26 @@ export async function createPokerChannel(
  * Fully event-driven via Curator AST workflow and asynchronous REPL.
  */
 export async function runPokerClient(options: PokerClientOptions = {}): Promise<void> {
+  // 1. Resolve player identity locally on client side before lobby entry
+  const identity = await resolvePlayerIdentity({
+    playerName: options.playerName,
+    quiet: options.quiet,
+  });
+
+  const resolvedOptions: PokerClientOptions = {
+    ...options,
+    playerName: identity.playerName,
+    playerId: identity.playerId,
+  };
+
   let channel: PokerGameChannel;
   try {
-    channel = await createPokerChannel(options);
+    channel = await createPokerChannel(resolvedOptions);
   } catch (err: any) {
     console.error(`\x1b[31mFailed to connect to server: ${err.message}\x1b[0m`);
     console.log('\x1b[33mTip: Use "poker play --direct" for lightweight in-process play without a server.\x1b[0m');
     return;
   }
 
-  await runPokerClientUi(channel, options.playerName, undefined, options.tableId !== undefined);
+  await runPokerClientUi(channel, identity.playerName, undefined, options.tableId !== undefined);
 }

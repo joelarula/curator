@@ -280,14 +280,38 @@ export async function createPokerServer(options: PokerServerOptions = {}): Promi
   });
 
   // 4. Handle incoming WebSocket client messages (GraphQL over WS, human action & speech dispatch)
-  wss.on('connection', (ws: WebSocket) => {
+  wss.on('connection', async (ws: WebSocket, req: any) => {
     (ws as any).graphqlSubs = new Map();
+
+    // Register connecting player identity into database
+    if (req?.url) {
+      try {
+        const parsedUrl = new URL(req.url, 'http://localhost');
+        const playerName = parsedUrl.searchParams.get('playerName');
+        const playerId = parsedUrl.searchParams.get('playerId');
+        if (playerName) {
+          const { ensureHumanActorInDatabase } = await import('../engine/pokerSession.ts');
+          await ensureHumanActorInDatabase(host, session.conversation.id, {
+            playerName,
+            playerId: playerId || undefined,
+          });
+        }
+      } catch (_) {}
+    }
 
     ws.on('message', async (data: any) => {
       try {
         const msg = JSON.parse(data.toString());
         const tableId = msg.tableId || msg.table || (ws as any).tableFilter || session.tableId;
         const sessionId = msg.sessionId || (ws as any).sessionId;
+
+        if (msg.playerName) {
+          const { ensureHumanActorInDatabase } = await import('../engine/pokerSession.ts');
+          await ensureHumanActorInDatabase(host, session.conversation.id, {
+            playerName: msg.playerName,
+            playerId: msg.playerId,
+          });
+        }
 
         // GraphQL-over-WS: connection_init handshake
         if (msg.type === 'connection_init') {

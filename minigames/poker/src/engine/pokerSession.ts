@@ -231,23 +231,36 @@ export async function ensureHumanActorInDatabase(
   options: { playerName?: string; playerId?: string } = {}
 ): Promise<any> {
   const prisma = host.prisma;
-  const playerId = options.playerId || host.user?.id || 'player';
-  const playerName = options.playerName || host.user?.name || 'You';
+  const playerName = (options.playerName || host.user?.name || 'You').trim();
+  const playerSlug = playerName.toLowerCase().replace(/[^a-z0-9_-]/g, '_').replace(/^_+|_+$/g, '') || 'hero';
+  const playerId = options.playerId || (playerSlug === 'you' || playerSlug === 'system' ? (host.user?.id || 'player') : `user_${playerSlug}`);
+  const playerEmail = `${playerSlug}@local.curator`;
 
   // 1. Ensure User entity in DB
   let user: any = null;
   try {
-    user = await prisma.user.upsert({
-      where: { id: playerId },
-      create: {
-        id: playerId,
-        name: playerName,
-        email: `${playerId}@local.curator`,
-      },
-      update: {
-        name: playerName,
+    user = await prisma.user.findFirst({
+      where: {
+        OR: [{ id: playerId }, { email: playerEmail }, { name: playerName }],
       },
     });
+
+    if (user) {
+      if (user.name !== playerName) {
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: { name: playerName },
+        });
+      }
+    } else {
+      user = await prisma.user.create({
+        data: {
+          id: playerId,
+          name: playerName,
+          email: playerEmail,
+        },
+      });
+    }
   } catch (_) {
     user = host.user;
   }
@@ -285,20 +298,23 @@ export async function ensureHumanActorInDatabase(
     if (conv) {
       const meta = typeof conv.metadata === 'object' && conv.metadata ? conv.metadata : {};
       const existingParticipants = Array.isArray(meta.participants) ? meta.participants : [];
-      if (!existingParticipants.some((p: any) => p.id === playerId)) {
+      const existingIdx = existingParticipants.findIndex((p: any) => p.id === playerId || (user && p.id === user.id));
+      if (existingIdx >= 0) {
+        existingParticipants[existingIdx].name = playerName;
+      } else {
         existingParticipants.push({
-          id: playerId,
+          id: user?.id || playerId,
           name: playerName,
           kind: 'user',
           isHuman: true,
           role: 'player',
           roles: humanRoles,
         });
-        await prisma.conversation.update({
-          where: { id: conversationId },
-          data: { metadata: { ...meta, participants: existingParticipants } },
-        });
       }
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: { metadata: { ...meta, participants: existingParticipants } },
+      });
     }
   } catch (_) {}
 
