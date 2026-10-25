@@ -19,10 +19,12 @@ import {
 } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
 import { handlePause } from './playerTurn.ts';
+import { DEFAULT_LOBBY_CHOICES, PokerLobbyAction } from '../models/index.ts';
 
 const {
   ctx,
   gameState,
+  list_tables,
   is_game_active,
   is_hand_active,
   is_street_active,
@@ -144,9 +146,43 @@ export function buildPokerWorkflowModule(): CuratorModuleNode {
       subroutines: [handlePause, aiAgentFlow, dealNextStreetSub, settleShowdownSub],
     },
     () => seq(steps.DYNAMIC_ENGINE, [
-      // 1. Initialize open table lobby if not present
+      // 1. Interactive Lobby Selection Gate (when not explicitly bypassed and no tableId specified)
       ifElse(
-        table_has_no_state,
+        `not ${ctx.tableId} and not ${ctx.bypassLobby}`,
+        [
+          choice(
+            'Lobby Options:',
+            DEFAULT_LOBBY_CHOICES,
+            { as: ctx.lobbyChoice },
+          ),
+          ifElse(
+            `${ctx.lobbyChoice.id} == '${PokerLobbyAction.EXIT}' or ${ctx.lobbyChoice} == '${PokerLobbyAction.EXIT}'`,
+            [
+              setState({ sessionEnded: true }),
+              emitEvent(events.SESSION_EXITED, { reason: reasons.USER_EXIT }),
+            ],
+            ifElse(
+              `${ctx.lobbyChoice.id} == '${PokerLobbyAction.RESUME}' or ${ctx.lobbyChoice} == '${PokerLobbyAction.RESUME}'`,
+              [
+                list_tables(),
+                choice('Select Table:', String(ctx.poker_list_tables.choices), { as: ctx.selectedTable }),
+                setState({
+                  tableId: `${ctx.selectedTable.id} || ${ctx.selectedTable.tableId} || ${ctx.selectedTable}`,
+                }),
+              ],
+              [
+                setState({
+                  tableId: `${ctx.tableId} || 'poker:high_roller_lounge'`,
+                }),
+              ],
+            ),
+          ),
+        ],
+      ),
+
+      // 2. Initialize open table lobby if not present
+      ifElse(
+        `${table_has_no_state} and not ${ctx.sessionEnded}`,
         seq(steps.BOOT_TABLE, [
           boot_table(),
           emitEvent(events.LOBBY_READY, {
@@ -163,10 +199,14 @@ export function buildPokerWorkflowModule(): CuratorModuleNode {
               join_lobby(ctx.joinRequest),
             ]),
           ),
+          emitEvent(events.TABLE_READY, {
+            tableId: String(gameState.tableId),
+            playerCount: String(gameState.players.length),
+          }),
         ]),
       ),
 
-      // 2. Main Game Session Loop
+      // 3. Main Game Session Loop
       whileLoop(
         is_game_active,
         seq(steps.SINGLE_HAND, [

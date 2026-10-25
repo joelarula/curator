@@ -26,7 +26,9 @@ export interface PokerClientOptions extends PokerSessionOptions {
   tableId?: string | number;
 }
 
-export type PokerGameChannel = CuratorChannel;
+export type PokerGameChannel = CuratorChannel & {
+  runTool?(toolName: string, args?: Record<string, any>): Promise<any>;
+};
 export { normalizeWsUrl };
 
 /**
@@ -69,6 +71,7 @@ export async function createDirectSessionChannel(
   const baseChannel = createDirectChannel(session, options.tableId);
   return {
     ...baseChannel,
+    runTool: (toolName: string, args?: Record<string, any>) => session.runTool(toolName, args, options.tableId),
     close: async () => {
       await baseChannel.close();
       if (host) {

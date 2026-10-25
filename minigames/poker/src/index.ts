@@ -1,4 +1,5 @@
 export * from './types.ts';
+export * from './deck/index.ts';
 export * from './engine/pokerEvaluator.ts';
 export * from './engine/pokerEngine.ts';
 export * from './plugins/pokerPlugin.ts';

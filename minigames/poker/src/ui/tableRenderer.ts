@@ -1,12 +1,10 @@
 import type { PokerGameState, Card, PlayerState, PlayerStanding } from '../types.ts';
 import { PokerStandingStatus, PokerStreet } from '../models/index.ts';
 import { evaluateBestHand } from '../engine/pokerEvaluator.ts';
+import { formatCard as deckFormatCard } from '../deck/index.ts';
 
-export function formatCard(c?: Card): string {
-  if (!c) return '[ -- ]';
-  const suitColor = c.suit === '♥' || c.suit === '♦' ? '\x1b[31m' : '\x1b[34m';
-  const reset = '\x1b[0m';
-  return `[ ${c.rank}${suitColor}${c.suit}${reset} ]`;
+function formatCard(c?: Card): string {
+  return deckFormatCard(c, { color: true });
 }
 
 /**

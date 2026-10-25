@@ -1,20 +1,9 @@
-import type { Card, Rank, Suit } from '../types.ts';
-
-const RANK_VALUES: Record<Rank, number> = {
-  '2': 2,
-  '3': 3,
-  '4': 4,
-  '5': 5,
-  '6': 6,
-  '7': 7,
-  '8': 8,
-  '9': 9,
-  '10': 10,
-  J: 11,
-  Q: 12,
-  K: 13,
-  A: 14,
-};
+import type { Card } from '../types.ts';
+import {
+  CARD_RANK_VALUES as RANK_VALUES,
+  getCombinations,
+  sortCardsByRank,
+} from '../deck/index.ts';
 
 export const HandCategory = {
   HIGH_CARD: 'HIGH_CARD',
@@ -52,30 +41,10 @@ export interface EvaluatedHand {
 }
 
 /**
- * Generates all 5-card combinations from an array of cards (up to 7 cards).
- */
-function getCombinations(cards: Card[], size = 5): Card[][] {
-  const result: Card[][] = [];
-  function combine(start: number, combo: Card[]) {
-    if (combo.length === size) {
-      result.push([...combo]);
-      return;
-    }
-    for (let i = start; i < cards.length; i++) {
-      combo.push(cards[i]);
-      combine(i + 1, combo);
-      combo.pop();
-    }
-  }
-  combine(0, []);
-  return result;
-}
-
-/**
  * Evaluates an exact 5-card poker hand.
  */
 function evaluateFiveCards(hand: Card[]): EvaluatedHand {
-  const sorted = [...hand].sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank]);
+  const sorted = sortCardsByRank(hand, 'desc');
   const values = sorted.map((c) => RANK_VALUES[c.rank]);
   const suits = sorted.map((c) => c.suit);
 
@@ -201,7 +170,7 @@ export function evaluateBestHand(holeCards: Card[], communityCards: Card[]): Eva
   const allCards = [...holeCards, ...communityCards];
   if (allCards.length < 5) {
     // Pre-flop or incomplete board: evaluate hole cards or available cards
-    const sorted = [...allCards].sort((a, b) => RANK_VALUES[b.rank] - RANK_VALUES[a.rank]);
+    const sorted = sortCardsByRank(allCards, 'desc');
     const isPair = sorted.length === 2 && sorted[0].rank === sorted[1].rank;
     const category: HandCategory = isPair ? HandCategory.ONE_PAIR : HandCategory.HIGH_CARD;
     const score = isPair ? 2e8 + RANK_VALUES[sorted[0].rank] * 1e4 : 1e8 + (RANK_VALUES[sorted[0]?.rank] || 0) * 1e4;

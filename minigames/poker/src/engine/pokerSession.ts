@@ -31,6 +31,7 @@ export interface PokerSessionOptions {
   quiet?: boolean;
   intervalMs?: number;
   playerName?: string;
+  playerId?: string;
   resetLight?: boolean;
 }
 
@@ -91,6 +92,8 @@ export interface PokerGameSession {
   getWaitingTurn?(tableId?: string | number): Promise<PlayerTurnPromptInfo | null>;
   getWaitingHumanTurn(tableId?: string | number): Promise<HumanTurnPromptInfo | null>;
   getActors?(tableId?: string | number): Promise<CuratorActor[]>;
+  resetLight?(): Promise<any>;
+  runTool(toolName: string, args?: Record<string, any>, tableId?: string | number, sessionId?: string): Promise<any>;
   send(type: string, payload?: any, tableId?: string | number, sessionId?: string): Promise<any>;
   step(tableId?: string | number, maxSteps?: number): Promise<DirectStepResult>;
   close(): Promise<void>;
@@ -186,7 +189,7 @@ export async function enqueueTableASTRequest(
   } = {}
 ): Promise<any> {
   const bypassLobby = options.bypassLobby ?? (options.tableId !== undefined);
-  const targetScript = options.scriptName || (bypassLobby ? PokerModule.WORKFLOW : PokerModule.LOBBY);
+  const targetScript = options.scriptName || PokerModule.WORKFLOW;
   const ast = await getScriptAST(host.prisma, targetScript);
   return host.prisma.request.create({
     data: {
@@ -228,8 +231,8 @@ export async function ensureHumanActorInDatabase(
   options: { playerName?: string; playerId?: string } = {}
 ): Promise<any> {
   const prisma = host.prisma;
-  const playerId = options.playerId || 'hero';
-  const playerName = options.playerName || 'You (Hero)';
+  const playerId = options.playerId || host.user?.id || 'player';
+  const playerName = options.playerName || host.user?.name || 'You';
 
   // 1. Ensure User entity in DB
   let user: any = null;
@@ -330,9 +333,9 @@ export async function getConversationActors(
   if (!user) user = host.user;
 
   actors.push({
-    id: user?.id || 'hero',
+    id: user?.id || host.user?.id || 'player',
     kind: 'user',
-    name: user?.name || 'You (Hero)',
+    name: user?.name || host.user?.name || 'You',
     roles: [PokerRole.PLAYER, PokerRole.SPECTATOR],
     isHuman: true,
     persona: 'human',
@@ -370,7 +373,7 @@ export async function getConversationActors(
   const seatedMap = new Map((gameState?.players || []).map((p: any) => [p.id.toLowerCase(), p]));
 
   for (const agent of dbAgents) {
-    if (agent.id === 'hero' || agent.id === user?.id) continue;
+    if (agent.id === user?.id || agent.id === host.user?.id) continue;
     const roleNames = agent.roles?.map((r: any) => r.role?.name || r.roleId) || [];
     const pluginDef = (host.engine?.agents?.get(agent.id) as any) || {};
     const seated = seatedMap.get(agent.id.toLowerCase());
@@ -436,7 +439,7 @@ export async function createPokerGameSession(
   // 1b. Ensure human user actor exists in database with roles and conversation participant metadata
   await ensureHumanActorInDatabase(host, conversation.id, {
     playerName: options.playerName,
-    playerId: 'hero',
+    playerId: options.playerId || host.user?.id || 'player',
   });
 
   // 2. Resume active request only if a specific table was targeted.
@@ -510,14 +513,52 @@ export async function createPokerGameSession(
 
     return {
       requestId: choiceInfo.requestId,
-      player: activePlayer?.id || 'hero',
-      name: activePlayer?.name || 'You',
+      player: activePlayer?.id || user?.id || host.user?.id || 'player',
+      name: activePlayer?.name || user?.name || host.user?.name || 'You',
       chips: activePlayer?.chips ?? 0,
       pot: gameState?.pot ?? 0,
       toCall: (gameState?.currentBet ?? 0) - (activePlayer?.streetBet ?? 0),
       street: gameState?.currentStreet || PokerStreet.PREFLOP,
       choices: choiceInfo.choices,
     };
+  };
+
+  const runTool = async (
+    toolName: string,
+    args: Record<string, any> = {},
+    tableId?: string | number,
+    sessionId?: string
+  ): Promise<any> => {
+    const targetConvId = tableId !== undefined ? Number(tableId) : conversation.id;
+    if (!host.engine.tools.get(toolName)) {
+      console.warn(`[PokerSession] Tool "${toolName}" not found on engine.`);
+      return null;
+    }
+
+    const currentGameState = await getGameState(targetConvId);
+    const run = await host.runTool(toolName, args, {
+      conversationId: targetConvId,
+      origin: 'REPL' as const,
+      context: sessionId ? { sessionId } : undefined,
+      runtimeArgs: { state: currentGameState },
+      runtimeContext: { state: currentGameState },
+      broadcastToolEvents: false, // broadcast below with table scoping
+    });
+
+    if (run.status === 'WAITING_FOR_USER') return run.record;
+    const result: any = run.result;
+
+    if (result && typeof result === 'object' && result.event) {
+      const evtName = typeof result.event === 'string' ? result.event : result.event.name;
+      const evtPayload = result.event.payload !== undefined ? result.event.payload : result;
+      host.events.broadcast(evtName, {
+        tableId: String(targetConvId),
+        conversationId: targetConvId,
+        ...(typeof evtPayload === 'object' ? evtPayload : { data: evtPayload }),
+      });
+    }
+
+    return result;
   };
 
   const send = async (
@@ -528,17 +569,10 @@ export async function createPokerGameSession(
   ): Promise<any> => {
     const targetConvId = tableId !== undefined ? Number(tableId) : conversation.id;
 
-    // Every client interaction is a Request (audit + RBAC + approval in the core). The actor is the
-    // host session; client payloads cannot choose userId/agentId.
-    const requestScope = {
-      conversationId: targetConvId,
-      origin: 'REPL' as const,
-      context: sessionId ? { sessionId } : undefined,
-    };
-
+    // 1. Native Table Speech / Whispers
     if (eventName === PokerEvent.SPEECH) {
-      const speakerName = payload?.speakerName || 'You';
-      const speakerId = payload?.speakerId || sessionId || 'hero';
+      const speakerName = payload?.speakerName || user?.name || host.user?.name || 'You';
+      const speakerId = payload?.speakerId || sessionId || user?.id || host.user?.id || 'player';
       const speechAct = payload?.speechAct || payload?.args?.speechAct || (payload?.targetId ? 'WHISPER' : 'TABLE_TALK');
       const text = payload?.text || payload?.args?.text || '';
       const targetId = payload?.targetId || payload?.args?.targetId;
@@ -567,78 +601,15 @@ export async function createPokerGameSession(
       return speechPayload;
     }
 
+    // 2. Compatibility: If a tool call was dispatched over event transport, delegate directly to runTool
     if (eventName === 'curator:tool_call' || eventName === PokerEvent.TOOL_CALL) {
-      const toolName = payload?.tool || payload?.name;
-      if (!host.engine.tools.get(toolName)) {
-        console.warn(`[PokerSession] Tool "${toolName}" not found on engine.`);
-        return null;
-      }
-
-      const currentGameState = await getGameState(targetConvId);
-      const run = await host.runTool(toolName, payload?.args || {}, {
-        ...requestScope,
-        runtimeArgs: { state: currentGameState },
-        runtimeContext: { state: currentGameState },
-        broadcastToolEvents: false, // broadcast below with table scoping
-      });
-      if (run.status === 'WAITING_FOR_USER') return run.record;
-      const result: any = run.result;
-
-      if (result && typeof result === 'object' && result.event) {
-        const evtName = typeof result.event === 'string' ? result.event : result.event.name;
-        const evtPayload = result.event.payload !== undefined ? result.event.payload : result;
-        host.events.broadcast(evtName, {
-          tableId: String(targetConvId),
-          conversationId: targetConvId,
-          ...(typeof evtPayload === 'object' ? evtPayload : { data: evtPayload }),
-        });
-      }
-
-      return result;
-    }
-
-    // 2. Normalize canonical event names and payloads
-    let targetEvent = eventName;
-    let targetPayload = payload;
-
-    if (eventName === PokerEvent.PAUSE) {
-      targetEvent = PokerEvent.HUMAN_ACTION;
-      targetPayload = { type: PokerActionType.PAUSE };
-    } else if (eventName === PokerEvent.RESUME) {
-      targetEvent = PokerEvent.RESUME_ACTION;
-      targetPayload = { type: PokerActionType.RESUME };
-    } else if (eventName === 'curator:exit') {
-      targetEvent = 'curator:choice';
-      targetPayload = { id: PokerActionType.EXIT.toLowerCase(), type: PokerActionType.EXIT };
-    } else if (eventName === PokerEvent.GET_ACTORS) {
-      const actors = await getConversationActors(host, targetConvId);
-      return { actors };
-    } else if (eventName === PokerEvent.LIST_TABLES) {
-      const tables = await listTables();
-      const choices = formatTableChoices(tables);
-      host.events.broadcast(PokerEvent.REQUEST_TABLE_SELECTION, { tables, choices });
-      return tables;
-    } else if (eventName === PokerEvent.RESET_LIGHT) {
-      const res = await resetPokerDatabaseLight(prisma, { quiet: false });
-      const newConv = await ensureTableConversation(host, { maxSeats });
-      await enqueueTableASTRequest(host, newConv.id, {
-        startingChips,
-        smallBlind,
-        bigBlind,
-        maxSeats,
-        bypassLobby: false,
-      });
-      host.events.broadcast(PokerEvent.LOBBY_PROMPT, {
-        options: DEFAULT_LOBBY_OPTIONS,
-        choices: DEFAULT_LOBBY_CHOICES,
-      });
-      return res;
+      return runTool(payload?.tool || payload?.name, payload?.args || {}, targetConvId, sessionId);
     }
 
     // 3. Emit as a Request: the core matcher spawns subscriptions and resumes matching waits.
     //    Poker adds its event families on top of exact `waitEvent` matching.
     const choiceFamily = new Set<string>([PokerEvent.HUMAN_ACTION, PokerEvent.LOBBY_CHOICE, PokerEvent.TABLE_SELECTED]);
-    const emitted = await host.emitEvent(targetEvent, targetPayload, {
+    const emitted = await host.emitEvent(eventName, payload, {
       conversationId: targetConvId,
       origin: 'REPL',
       broadcast: false, // broadcast below with table scoping, only when something was resumed
@@ -652,14 +623,31 @@ export async function createPokerGameSession(
     const woken = emitted.woken.length > 0;
 
     if (woken) {
-      host.events.broadcast(targetEvent, {
-        payload: targetPayload,
+      host.events.broadcast(eventName, {
+        payload,
         tableId: String(targetConvId),
         conversationId: targetConvId,
         ...(sessionId ? { sessionId } : {}),
       });
     }
     return woken;
+  };
+
+  const resetLight = async (): Promise<any> => {
+    const res = await resetPokerDatabaseLight(prisma, { quiet: false });
+    const newConv = await ensureTableConversation(host, { maxSeats });
+    await enqueueTableASTRequest(host, newConv.id, {
+      startingChips,
+      smallBlind,
+      bigBlind,
+      maxSeats,
+      bypassLobby: false,
+    });
+    host.events.broadcast(PokerEvent.LOBBY_PROMPT, {
+      options: DEFAULT_LOBBY_OPTIONS,
+      choices: DEFAULT_LOBBY_CHOICES,
+    });
+    return res;
   };
 
   const createTable = async (tableOpts: CreateTableOptions = {}): Promise<PokerTableInfo> => {
@@ -776,46 +764,7 @@ export async function createPokerGameSession(
       }
     }
 
-    let stepRes = await stepInteractiveConversation(host, targetConvId, maxSteps);
-
-    // Check if the lobby finished booting the table and we should transition to the dealer workflow
-    if (stepRes.done) {
-      const lastCompletedReq = await prisma.request.findFirst({
-        where: { conversationId: targetConvId, status: 'COMPLETED' },
-        orderBy: { id: 'desc' },
-      });
-      const ctx = (lastCompletedReq?.context as any) || {};
-      const hasGameState = Boolean(ctx.gameState);
-      const isSessionEnded = Boolean(ctx.sessionEnded);
-
-      if (hasGameState && !isSessionEnded && !ctx.gameState?.gameOver) {
-        const activeReq = await prisma.request.findFirst({
-          where: {
-            conversationId: targetConvId,
-            status: { in: ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT'] },
-          },
-        });
-        if (!activeReq) {
-          const workflowAST = await getTableWorkflowAST(prisma);
-          await prisma.request.create({
-            data: {
-              userId: host.user.id,
-              projectId: host.project.id,
-              conversationId: targetConvId,
-              status: 'NEW',
-              ast: workflowAST as any,
-              context: {
-                ...ctx,
-                bypassLobby: true,
-              },
-            },
-          });
-          // Step immediately into the dealer table workflow
-          stepRes = await stepInteractiveConversation(host, targetConvId, maxSteps);
-        }
-      }
-    }
-
+    const stepRes = await stepInteractiveConversation(host, targetConvId, maxSteps);
     const humanTurn = await getWaitingHumanTurn(targetConvId);
     const gameState = await getGameState(targetConvId);
 
@@ -858,6 +807,8 @@ export async function createPokerGameSession(
     getActors: (convId?: string | number) => getConversationActors(host, convId !== undefined ? convId : conversation.id),
     send,
     step,
+    runTool,
+    resetLight,
     close,
   };
 }

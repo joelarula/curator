@@ -1,8 +1,8 @@
 import {
   renderTable,
   renderStandings,
-  formatCard,
 } from './tableRenderer.ts';
+import { formatCard } from '../deck/index.ts';
 import type { PokerGameState } from '../types.ts';
 import { PokerEvent, PokerSessionReason, PokerStreet, PokerSpeechAct } from '../models/index.ts';
 

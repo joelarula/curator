@@ -17,6 +17,7 @@ import {
   type Street,
 } from '../types.ts';
 import { evaluateBestHand } from './pokerEvaluator.ts';
+import { createStandardDeck, formatCards } from '../deck/index.ts';
 import { curatorEngine, LlmFactory } from '../curator.ts';
 import { GeminiLlmProvider } from '@curator/plugin-llm-gemini';
 
@@ -85,21 +86,11 @@ export function formatTableChoices(
 
 export function createDeck(): Card[] {
   const rules = getTableRules();
-  const suits: Suit[] = rules.deck?.suits || ['♠', '♥', '♦', '♣'];
-  const ranks: Rank[] = rules.deck?.ranks || ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
-
-  const deck: Card[] = [];
-  for (const suit of suits) {
-    for (const rank of ranks) {
-      deck.push({ rank, suit });
-    }
-  }
-  // Fisher-Yates shuffle
-  for (let i = deck.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [deck[i], deck[j]] = [deck[j], deck[i]];
-  }
-  return deck;
+  return createStandardDeck({
+    suits: rules.deck?.suits,
+    ranks: rules.deck?.ranks,
+    shuffle: true,
+  });
 }
 
 export function sliceSidePots(players: PlayerState[]): { mainPot: number; sidePots: { amount: number; eligiblePlayerIds: string[] }[] } {
@@ -122,10 +113,6 @@ export function sliceSidePots(players: PlayerState[]): { mainPot: number; sidePo
 
   const mainPot = sidePots.length > 0 ? sidePots[0].amount : 0;
   return { mainPot, sidePots: sidePots.slice(1) };
-}
-
-export function formatCards(cards: Card[]): string {
-  return cards.map((c) => `[${c.rank}${c.suit}]`).join(' ');
 }
 
 export function buildAgentSystemPrompt(player: PlayerState): string {
@@ -217,11 +204,11 @@ export function initPokerLobby(args?: any): { gameState: PokerGameState } {
       const chips = Number(p.chips ?? p.buyIn ?? Math.min(wallet, startingChips));
       return {
         id: p.id,
-        name: p.name,
-        isHuman: p.isHuman ?? (p.persona === 'human' || p.id === 'hero'),
+        name: p.name || p.id,
+        isHuman: Boolean(p.isHuman),
         instruction: p.instruction,
         provider: p.provider,
-        persona: p.persona || (p.isHuman ? 'human' : 'shark'),
+        persona: p.persona,
         model: p.model,
         wallet,
         buyIn: chips,
@@ -237,8 +224,8 @@ export function initPokerLobby(args?: any): { gameState: PokerGameState } {
   } else {
     players = DEFAULT_TABLE_PLAYERS.map((profile, idx) => ({
       id: profile.id,
-      name: profile.id === 'hero' ? (args?.playerName || 'You') : profile.name,
-      isHuman: profile.isHuman ?? false,
+      name: profile.isHuman ? (args?.playerName || 'You') : profile.name,
+      isHuman: Boolean(profile.isHuman),
       instruction: profile.instruction,
       persona: profile.persona,
       wallet: startingChips,
@@ -294,9 +281,9 @@ export function joinPokerLobby(rawState: PokerGameState, pData: any): { gameStat
 
   const id = String(pData.id || `player_${Date.now()}`);
   const name = String(pData.name || id);
-  const isHuman: boolean = Boolean(pData.isHuman ?? (pData.persona === 'human' || id === 'hero'));
+  const isHuman = Boolean(pData.isHuman);
   const instruction = pData.instruction ? String(pData.instruction) : undefined;
-  const persona = pData.persona ? String(pData.persona) : (isHuman ? 'human' : 'autonomous_agent');
+  const persona = pData.persona ? String(pData.persona) : undefined;
   const model = pData.model ? String(pData.model) : undefined;
   const initialWallet = Number(pData.wallet ?? pData.startingWallet ?? pData.chips ?? rawState.startingChips ?? 1000);
   const chips = Number(pData.chips ?? pData.buyIn ?? Math.min(initialWallet, rawState.startingChips ?? 1000));

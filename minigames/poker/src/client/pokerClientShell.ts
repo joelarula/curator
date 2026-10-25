@@ -14,7 +14,13 @@ import {
   type CuratorToolDefinition,
   type ReplCommand,
 } from '../curatorHost.ts';
-import type { PokerGameState } from '../types.ts';
+import {
+  type PokerGameState,
+  PokerActionType,
+  PokerSpeechAct,
+  PokerEvent,
+  PokerTool,
+} from '../types.ts';
 import { renderTable, renderCompactStatus, renderStandings } from '../ui/tableRenderer.ts';
 import {
   pokerApplyActionTool,
@@ -62,10 +68,10 @@ export const POKER_COMMANDS: ReplCommand[] = [
       const targetId = tokens[0];
       const text = tokens.slice(1).join(' ');
       if (ctx.channel) {
-        await ctx.channel.send('poker:speech', {
+        await ctx.channel.send(PokerEvent.SPEECH, {
           text,
           speakerName: ctx.actorName || 'You',
-          speechAct: 'speak',
+          speechAct: PokerSpeechAct.TABLE_TALK,
           targetId,
         });
       }
@@ -84,10 +90,10 @@ export const POKER_COMMANDS: ReplCommand[] = [
       const targetId = tokens[0];
       const text = tokens.slice(1).join(' ');
       if (ctx.channel) {
-        await ctx.channel.send('poker:speech', {
+        await ctx.channel.send(PokerEvent.SPEECH, {
           text,
           speakerName: ctx.actorName || 'You',
-          speechAct: 'whisper',
+          speechAct: PokerSpeechAct.WHISPER,
           targetId,
         });
       }
@@ -110,10 +116,10 @@ export const POKER_COMMANDS: ReplCommand[] = [
         text = tokens.slice(1).join(' ');
       }
       if (ctx.channel) {
-        await ctx.channel.send('poker:speech', {
+        await ctx.channel.send(PokerEvent.SPEECH, {
           text,
           speakerName: ctx.actorName || 'You',
-          speechAct: 'message',
+          speechAct: targetId ? PokerSpeechAct.WHISPER : PokerSpeechAct.TABLE_TALK,
           targetId,
         });
       }
@@ -127,7 +133,7 @@ export const POKER_COMMANDS: ReplCommand[] = [
     description: 'List active actors in this conversation context (users, agents, dealer)',
     execute: async (_rawArgs, _tokens, ctx) => {
       if (ctx.channel) {
-        await ctx.channel.send('poker:get_actors');
+        await ctx.channel.send(PokerEvent.GET_ACTORS);
       }
     },
   },
@@ -162,7 +168,7 @@ export const POKER_COMMANDS: ReplCommand[] = [
     description: 'Pause the current poker table game loop',
     execute: async (_args, _tokens, ctx) => {
       if (ctx.channel) {
-        await ctx.channel.send('poker:pause');
+        await ctx.channel.send(PokerEvent.HUMAN_ACTION, { type: PokerActionType.PAUSE });
         console.log('\x1b[33m[Table] Pause requested...\x1b[0m');
       }
     },
@@ -173,7 +179,7 @@ export const POKER_COMMANDS: ReplCommand[] = [
     description: 'Resume a paused poker table game loop',
     execute: async (_args, _tokens, ctx) => {
       if (ctx.channel) {
-        await ctx.channel.send('poker:resume');
+        await ctx.channel.send(PokerEvent.RESUME_ACTION, { type: PokerActionType.RESUME });
         console.log('\x1b[32m[Table] Resuming game loop...\x1b[0m');
       }
     },
@@ -195,7 +201,7 @@ export function createPokerClientShell(
   return createClientShell<PokerGameState, ToolAction>({
     actorName: opts.actorName || 'You',
     channel: opts.channel,
-    defaultToolName: 'poker_human_speech',
+    defaultToolName: PokerTool.HUMAN_SPEECH,
     commands: POKER_COMMANDS,
     tools: POKER_WHITELISTED_TOOLS,
     getState: opts.getGameState,
@@ -205,23 +211,23 @@ export function createPokerClientShell(
     },
     onSpeech: async (text: string, speechAct?: string, targetId?: string) => {
       if (opts.channel) {
-        return opts.channel.send('poker:speech', {
+        return opts.channel.send(PokerEvent.SPEECH, {
           text,
           speakerName: opts.actorName || 'You',
-          speechAct: speechAct || (targetId ? 'WHISPER' : 'TABLE_TALK'),
+          speechAct: speechAct || (targetId ? PokerSpeechAct.WHISPER : PokerSpeechAct.TABLE_TALK),
           targetId,
         });
       }
     },
     onAction: async (action: any) => {
       if (opts.channel) {
-        if (action?.type === 'EXIT') {
+        if (action?.type === PokerActionType.EXIT) {
           console.log('\n\x1b[33m[Game] Exiting table session...\x1b[0m');
-          await opts.channel.send('poker:human_action', action);
+          await opts.channel.send(PokerEvent.HUMAN_ACTION, action);
           await opts.channel.close();
           return;
         }
-        return opts.channel.send('poker:human_action', action);
+        return opts.channel.send(PokerEvent.HUMAN_ACTION, action);
       }
     },
     onChoice: async (choice: any) => {
@@ -231,10 +237,10 @@ export function createPokerClientShell(
         }
         const cId = choice?.id || choice?.tableId;
         if (cId === 'new' || cId === 'resume' || cId === 'exit') {
-          return opts.channel.send('poker:lobby_choice', { id: cId });
+          return opts.channel.send(PokerEvent.LOBBY_CHOICE, { id: cId });
         }
         if (cId) {
-          return opts.channel.send('poker:table_selected', { id: cId });
+          return opts.channel.send(PokerEvent.TABLE_SELECTED, { id: cId });
         }
         return opts.channel.send('curator:choice', { choice });
       }
@@ -252,18 +258,21 @@ export function createPokerClientShell(
 
       // 2. Direct channel / WebSocket dispatch
       if (opts.channel) {
-        if (toolName === 'poker_apply_action') {
-          return opts.channel.send('poker:human_action', args.action || args);
+        if (toolName === PokerTool.APPLY_ACTION) {
+          return opts.channel.send(PokerEvent.HUMAN_ACTION, args.action || args);
         }
-        if (toolName === 'poker_human_speech') {
-          return opts.channel.send('poker:speech', {
+        if (toolName === PokerTool.HUMAN_SPEECH) {
+          return opts.channel.send(PokerEvent.SPEECH, {
             text: args.text || args.content,
             speakerName: opts.actorName || 'You',
             speechAct: args.speechAct,
             targetId: args.targetId,
           });
         }
-        return opts.channel.send('curator:tool_call', {
+        if ((opts.channel as any)?.runTool) {
+          return await (opts.channel as any).runTool(toolName, args);
+        }
+        return opts.channel.send(PokerEvent.TOOL_CALL, {
           tool: toolName,
           args,
           tableId: opts.channel.tableId,
