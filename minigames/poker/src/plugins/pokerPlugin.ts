@@ -2,6 +2,7 @@ import {
   defineTool,
   type CuratorPlugin,
   type CuratorScriptDefinition,
+  type CuratorToolAccessLevel,
   CuratorSystemRole,
   CuratorAccessLevel,
 } from '../curator.ts';
@@ -179,22 +180,47 @@ export const pokerLeaveLobbyTool = defineTool<PokerLeaveLobbyParams>({
   },
 });
 
-export const pokerStartHandTool = defineTool<PokerStartHandParams>({
-  name: PokerTool.START_HAND,
-  description: 'Starts a new hand: shuffles deck, posts blinds, deals hole cards.',
-  requiredRole: PokerRole.DEALER,
-  accessLevel: CuratorAccessLevel.SAFE_WRITE,
-  parameters: {
-    type: 'object',
-    properties: {
-      state: { type: 'object' },
+function defineStateTool<T = any>(
+  name: string,
+  description: string,
+  requiredRole: string,
+  handler: (state: PokerGameState, args: any, ctx: any) => any,
+  options: {
+    accessLevel?: CuratorToolAccessLevel;
+    aliases?: string[];
+    usage?: string;
+    properties?: Record<string, any>;
+    required?: string[];
+  } = {}
+) {
+  return defineTool<T>({
+    name,
+    description,
+    requiredRole,
+    accessLevel: options.accessLevel || CuratorAccessLevel.SAFE_WRITE,
+    aliases: options.aliases,
+    usage: options.usage,
+    parameters: {
+      type: 'object',
+      properties: {
+        state: { type: 'object' },
+        ...(options.properties || {}),
+      },
+      required: options.required,
     },
-  },
-  execute: async (args: PokerStartHandParams, ctx: any) => {
-    const rawState = extractGameState(args, ctx);
-    return startPokerHand(rawState);
-  },
-});
+    execute: async (args: any, ctx: any) => {
+      const state = extractGameState(args, ctx);
+      return handler(state, args, ctx);
+    },
+  });
+}
+
+export const pokerStartHandTool = defineStateTool<PokerStartHandParams>(
+  PokerTool.START_HAND,
+  'Starts a new hand: shuffles deck, posts blinds, deals hole cards.',
+  PokerRole.DEALER,
+  (s) => startPokerHand(s),
+);
 
 export const pokerAiDecisionTool = defineTool<PokerAiDecisionParams>({
   name: PokerTool.AI_DECISION,
@@ -212,100 +238,53 @@ export const pokerAiDecisionTool = defineTool<PokerAiDecisionParams>({
     const rawState = extractGameState(args, ctx);
     const idx = typeof args?.playerIdx === 'number' ? args.playerIdx : rawState.activePlayerIdx;
     const player = rawState.players[idx];
-
     const action = await agenticDecidePokerAction(player, rawState);
     return { action };
   },
 });
 
-export const pokerApplyActionTool = defineTool<PokerApplyActionParams>({
-  name: PokerTool.APPLY_ACTION,
-  description: 'Applies player action (FOLD, CHECK, CALL, RAISE <amount>, ALL_IN) to table state.',
-  usage: PokerToolUsage.APPLY_ACTION,
-  aliases: [PokerToolAlias.ACT],
-  requiredRole: PokerRole.PLAYER,
-  accessLevel: CuratorAccessLevel.SAFE_WRITE,
-  parameters: {
-    type: 'object',
-    properties: {
-      state: { type: 'object' },
-      action: { type: 'object' },
-    },
-  },
-  execute: async (args: PokerApplyActionParams, ctx: any) => {
-    const rawState = extractGameState(args, ctx);
+export const pokerApplyActionTool = defineStateTool<PokerApplyActionParams>(
+  PokerTool.APPLY_ACTION,
+  'Applies player action (FOLD, CHECK, CALL, RAISE <amount>, ALL_IN) to table state.',
+  PokerRole.PLAYER,
+  (s, args, ctx) => {
     const action = (args?.action || ctx?.context?.lastAction || { type: 'CHECK' }) as PlayerAction;
-    return applyPokerAction(rawState, action);
+    return applyPokerAction(s, action);
   },
-});
+  {
+    usage: PokerToolUsage.APPLY_ACTION,
+    aliases: [PokerToolAlias.ACT],
+    properties: { action: { type: 'object' } },
+  },
+);
 
-export const pokerDealStreetTool = defineTool<PokerDealStreetParams>({
-  name: PokerTool.DEAL_STREET,
-  description: 'Deals next street community cards (FLOP, TURN, RIVER) and resets street wagering.',
-  requiredRole: PokerRole.DEALER,
-  accessLevel: CuratorAccessLevel.SAFE_WRITE,
-  parameters: {
-    type: 'object',
-    properties: {
-      state: { type: 'object' },
-    },
-  },
-  execute: async (args: PokerDealStreetParams, ctx: any) => {
-    const rawState = extractGameState(args, ctx);
-    return dealPokerStreet(rawState);
-  },
-});
+export const pokerDealStreetTool = defineStateTool<PokerDealStreetParams>(
+  PokerTool.DEAL_STREET,
+  'Deals next street community cards (FLOP, TURN, RIVER) and resets street wagering.',
+  PokerRole.DEALER,
+  (s) => dealPokerStreet(s),
+);
 
-export const pokerFastForwardBoardTool = defineTool<PokerFastForwardParams>({
-  name: PokerTool.FAST_FORWARD,
-  description: 'Deals all remaining board cards when players are all-in.',
-  requiredRole: PokerRole.DEALER,
-  accessLevel: CuratorAccessLevel.SAFE_WRITE,
-  parameters: {
-    type: 'object',
-    properties: {
-      state: { type: 'object' },
-    },
-  },
-  execute: async (args: PokerFastForwardParams, ctx: any) => {
-    const rawState = extractGameState(args, ctx);
-    return fastForwardPokerBoard(rawState);
-  },
-});
+export const pokerFastForwardBoardTool = defineStateTool<PokerFastForwardParams>(
+  PokerTool.FAST_FORWARD,
+  'Deals all remaining board cards when players are all-in.',
+  PokerRole.DEALER,
+  (s) => fastForwardPokerBoard(s),
+);
 
-export const pokerDistributePotsTool = defineTool<PokerDistributePotsParams>({
-  name: PokerTool.DISTRIBUTE_POTS,
-  description: 'Adjudicates showdown hands, allocates main and side pots, and settles chip counts.',
-  requiredRole: PokerRole.DEALER,
-  accessLevel: CuratorAccessLevel.SAFE_WRITE,
-  parameters: {
-    type: 'object',
-    properties: {
-      state: { type: 'object' },
-    },
-  },
-  execute: async (args: PokerDistributePotsParams, ctx: any) => {
-    const rawState = extractGameState(args, ctx);
-    return distributePokerPots(rawState);
-  },
-});
+export const pokerDistributePotsTool = defineStateTool<PokerDistributePotsParams>(
+  PokerTool.DISTRIBUTE_POTS,
+  'Adjudicates showdown hands, allocates main and side pots, and settles chip counts.',
+  PokerRole.DEALER,
+  (s) => distributePokerPots(s),
+);
 
-export const pokerRotateDealerTool = defineTool<PokerRotateDealerParams>({
-  name: PokerTool.ROTATE_DEALER,
-  description: 'Rotates dealer button to next active seat.',
-  requiredRole: PokerRole.DEALER,
-  accessLevel: CuratorAccessLevel.SAFE_WRITE,
-  parameters: {
-    type: 'object',
-    properties: {
-      state: { type: 'object' },
-    },
-  },
-  execute: async (args: PokerRotateDealerParams, ctx: any) => {
-    const rawState = extractGameState(args, ctx);
-    return rotatePokerDealer(rawState);
-  },
-});
+export const pokerRotateDealerTool = defineStateTool<PokerRotateDealerParams>(
+  PokerTool.ROTATE_DEALER,
+  'Rotates dealer button to next active seat.',
+  PokerRole.DEALER,
+  (s) => rotatePokerDealer(s),
+);
 
 const speechParameters = {
   type: 'object',
@@ -348,67 +327,35 @@ export const pokerHumanSpeechTool = defineTool<PokerHumanSpeechParams>({
   },
 });
 
-export const pokerCheckGameOverTool = defineTool<PokerCheckGameOverParams>({
-  name: PokerTool.CHECK_GAME_OVER,
-  description: 'Checks if table is down to 1 solvent player or reached max hands, compiling final standings.',
-  requiredRole: PokerRole.DEALER,
-  accessLevel: CuratorAccessLevel.SAFE_WRITE,
-  parameters: {
-    type: 'object',
-    properties: {
-      state: { type: 'object' },
-    },
-  },
-  execute: async (args: PokerCheckGameOverParams, ctx: any) => {
-    const rawState = extractGameState(args, ctx);
-    return checkPokerGameOver(rawState);
-  },
-});
+export const pokerCheckGameOverTool = defineStateTool<PokerCheckGameOverParams>(
+  PokerTool.CHECK_GAME_OVER,
+  'Checks if table is down to 1 solvent player or reached max hands, compiling final standings.',
+  PokerRole.DEALER,
+  (s) => checkPokerGameOver(s),
+);
 
-export const pokerGetStandingsTool = defineTool<PokerGetStandingsParams>({
-  name: PokerTool.GET_STANDINGS,
-  description: 'Returns the current session standings and chip profit/loss report.',
-  aliases: [PokerToolAlias.STANDINGS],
-  requiredRole: PokerRole.SPECTATOR,
-  accessLevel: CuratorAccessLevel.SAFE_READ,
-  parameters: {
-    type: 'object',
-    properties: {
-      state: { type: 'object' },
-    },
+export const pokerGetStandingsTool = defineStateTool<PokerGetStandingsParams>(
+  PokerTool.GET_STANDINGS,
+  'Returns the current session standings and chip profit/loss report.',
+  PokerRole.SPECTATOR,
+  (s) => (!s || !s.players ? { standings: [], message: 'No active table game state found. Table may be in lobby or paused.' } : getPokerStandings(s)),
+  {
+    accessLevel: CuratorAccessLevel.SAFE_READ,
+    aliases: [PokerToolAlias.STANDINGS],
   },
-  execute: async (args: PokerGetStandingsParams, ctx: any) => {
-    const rawState = extractGameState(args, ctx);
-    if (!rawState || !rawState.players) {
-      return { standings: [], message: 'No active table game state found. Table may be in lobby or paused.' };
-    }
-    return getPokerStandings(rawState);
-  },
-});
+);
 
-export const pokerGetChoicesTool = defineTool<PokerGetChoicesParams>({
-  name: PokerTool.GET_CHOICES,
-  description: 'Calculates the dynamically allowed legal choices and actions for a player based on table rules',
-  usage: PokerToolUsage.GET_CHOICES,
-  requiredRole: PokerRole.SPECTATOR,
-  accessLevel: CuratorAccessLevel.SAFE_READ,
-  parameters: {
-    type: 'object',
-    properties: {
-      state: { type: 'object' },
-      playerIdx: { type: 'number' },
-    },
-    required: ['state'],
+export const pokerGetChoicesTool = defineStateTool<PokerGetChoicesParams>(
+  PokerTool.GET_CHOICES,
+  'Calculates the dynamically allowed legal choices and actions for a player based on table rules',
+  PokerRole.SPECTATOR,
+  (s, args) => (!s ? { choices: [], message: 'No active table game state found. Table may be in lobby or paused.' } : { choices: getLegalChoices(s, typeof args?.playerIdx === 'number' ? args.playerIdx : undefined) }),
+  {
+    accessLevel: CuratorAccessLevel.SAFE_READ,
+    usage: PokerToolUsage.GET_CHOICES,
+    properties: { playerIdx: { type: 'number' } },
   },
-  execute: async (args: PokerGetChoicesParams, ctx: any) => {
-    const rawState = extractGameState(args, ctx);
-    if (!rawState) {
-      return { choices: [], message: 'No active table game state found. Table may be in lobby or paused.' };
-    }
-    const idx = typeof args?.playerIdx === 'number' ? args.playerIdx : undefined;
-    return { choices: getLegalChoices(rawState, idx) };
-  },
-});
+);
 
 export const pokerListTablesTool = defineTool<PokerListTablesParams>({
   name: PokerTool.LIST_TABLES,

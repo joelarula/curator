@@ -393,7 +393,6 @@ test('Poker TypeScript Context Models: Path proxies, type guards, and semantic s
     PokerTool,
     PokerStep,
     PokerModule,
-    PokerSubroutine,
     PokerSessionReason,
     PokerLobbyAction,
     PokerActionType,

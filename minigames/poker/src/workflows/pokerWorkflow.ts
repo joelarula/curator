@@ -18,6 +18,7 @@ import {
   type CuratorModuleNode,
 } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
+import { handlePause } from './playerTurn.ts';
 
 const {
   ctx,
@@ -76,27 +77,7 @@ export function buildPlayerTurnStep() {
         ),
         ifElse(
           is_turn_action_pause,
-          seq(steps.HANDLE_PAUSE, [
-            setState({ isPaused: true }),
-            emitEvent(events.TABLE_PAUSED, {
-              tableId: String(gameState.tableId),
-            }),
-            whileLoop(
-              is_table_paused,
-              seq(steps.WAIT_RESUME, [
-                waitEvent(events.RESUME_ACTION, ctx.resumeCmd),
-                ifElse(
-                  is_resume_cmd,
-                  seq(steps.UNPAUSE, [
-                    setState({ isPaused: false }),
-                    emitEvent(events.TABLE_RESUMED, {
-                      tableId: String(gameState.tableId),
-                    }),
-                  ]),
-                ),
-              ]),
-            ),
-          ]),
+          handlePause(),
           ifElse(
             is_turn_action_exit,
             seq(steps.HANDLE_EXIT, [
@@ -160,7 +141,7 @@ export function buildPokerWorkflowModule(): CuratorModuleNode {
     modules.WORKFLOW,
     {
       description: "Curator Texas Hold'em autonomous event-driven 5-phase game loop engine",
-      subroutines: [aiAgentFlow, dealNextStreetSub, settleShowdownSub],
+      subroutines: [handlePause, aiAgentFlow, dealNextStreetSub, settleShowdownSub],
     },
     () => seq(steps.DYNAMIC_ENGINE, [
       // 1. Initialize open table lobby if not present

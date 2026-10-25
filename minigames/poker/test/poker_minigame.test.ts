@@ -24,6 +24,8 @@ function getPokerScriptAST(scriptId: string) {
 }
 import type { Card, PlayerState, PokerGameState } from '../src/types.ts';
 
+curatorEngine.registerPlugin(pokerPlugin);
+
 class MockPokerLlmProvider {
   readonly providerName = 'gemini';
   async generateContent(req: any) {

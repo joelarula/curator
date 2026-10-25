@@ -1,7 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
 import type {
   Card,
   PlayerState,
@@ -38,10 +34,6 @@ import { PokerEvent } from '../models/pokerEvents.ts';
 export { getPokerRules, sanitizeAction, tableRules };
 export { buildAgentPrompt, formatAgentPrompt, formatConversationHistory, getAgentInstruction };
 export * from './agentProfiles.ts';
-
-// Backward compatibility alias
-export const formatAgentPromptCoffeeScript = buildAgentPrompt;
-
 
 export function getTableRules(): TableRulesDefinition {
   return tableRules;
@@ -653,20 +645,12 @@ export function processTableSpeech(
     speakerName?: string;
   }
 ): { gameState: PokerGameState; remark: AmbientRemark; aiResponse?: AmbientRemark | null } {
-  const speechAct = args.speechAct || (args.targetId ? 'WHISPER' : 'TABLE_TALK');
-  const text = String(args.text || '');
-  const targetId = args.targetId ? String(args.targetId) : undefined;
-
-  const speakerId = args.speakerId || 'hero';
-  const speakerPlayer = rawState?.players?.find((p) => p.id === speakerId);
-  const speakerName = args.speakerName || speakerPlayer?.name || 'You (Hero)';
-
   const remark: AmbientRemark = {
-    speakerId,
-    speakerName,
-    speechAct,
-    recipientId: targetId,
-    text,
+    speakerId: args.speakerId || 'hero',
+    speakerName: args.speakerName || args.speakerId || 'Hero',
+    speechAct: args.speechAct || (args.targetId ? 'WHISPER' : 'TABLE_TALK'),
+    recipientId: args.targetId ? String(args.targetId) : undefined,
+    text: String(args.text || ''),
     timestamp: Date.now(),
   };
 
@@ -753,77 +737,4 @@ export function getPokerStandings(rawState: PokerGameState): { standings: Player
   standings.sort((a, b) => b.finalChips - a.finalChips);
   standings.forEach((s, idx) => { s.rank = idx + 1; });
   return { standings };
-}
-
-export interface PlayHandHandlers {
-  onTurn?: (player: PlayerState, state: PokerGameState, choices: PlayerChoice[]) => Promise<PlayerAction> | PlayerAction;
-  onHumanTurn?: (state: PokerGameState, choices: PlayerChoice[]) => Promise<PlayerAction> | PlayerAction;
-  onTableUpdate?: (state: PokerGameState, actionDesc?: string) => Promise<void> | void;
-  onStreetDealt?: (state: PokerGameState, street: string) => Promise<void> | void;
-  onShowdown?: (state: PokerGameState, winnerSummary: string) => Promise<void> | void;
-  onTurnLogged?: (content: string) => Promise<void> | void;
-  isAutoplay?: boolean;
-}
-
-/**
- * Orchestrates a complete single Texas Hold'em hand across all betting streets
- * (Preflop -> Flop -> Turn -> River -> Showdown & Pot Distribution)
- * without duplicating state machine logic in client runners.
- */
-export async function playPokerHand(
-  initialState: PokerGameState,
-  handlers: PlayHandHandlers = {},
-  toolContext?: { prisma?: any; conversationId?: any }
-): Promise<{ gameState: PokerGameState; winnerSummary: string }> {
-  // 1. Start Hand (rotates button, posts blinds, deals hole cards)
-  const startRes = startPokerHand(initialState);
-  let state = startRes.gameState;
-  await handlers.onTurnLogged?.(`Hand #${state.handNumber} started. Button is Seat ${state.buttonIdx} (${state.players[state.buttonIdx].name}).`);
-
-  // 2. Street Wagering Loop (PREFLOP -> FLOP -> TURN -> RIVER)
-  while (!state.handOver && state.currentStreet !== PokerStreet.SHOWDOWN) {
-    let streetDone = false;
-    while (!streetDone && !state.handOver) {
-      const activeIdx = state.activePlayerIdx;
-      const activePlayer = state.players[activeIdx];
-      const legalChoices = getLegalChoices(state, activeIdx);
-
-      let chosenAction: PlayerAction;
-      if (handlers.onTurn) {
-        chosenAction = await handlers.onTurn(activePlayer, state, legalChoices);
-      } else if (activePlayer.isHuman) {
-        if (handlers.isAutoplay || !handlers.onHumanTurn) {
-          const passive = legalChoices.find((c) => c.action.type === PokerActionType.CHECK || c.action.type === PokerActionType.CALL);
-          chosenAction = passive ? passive.action : legalChoices[0].action;
-        } else {
-          chosenAction = await handlers.onHumanTurn(state, legalChoices);
-        }
-      } else {
-        chosenAction = await agenticDecidePokerAction(activePlayer, state);
-      }
-
-      const actRes = applyPokerAction(state, chosenAction);
-      state = actRes.gameState;
-      const actionDesc = `${activePlayer.name}: ${chosenAction.type}${chosenAction.amount ? ' $' + chosenAction.amount : ''}`;
-      await handlers.onTableUpdate?.(state, actionDesc);
-
-      if (state.streetComplete || state.handOver) {
-        streetDone = true;
-      }
-    }
-
-    if (!state.handOver) {
-      const dealRes = dealPokerStreet(state);
-      state = dealRes.gameState;
-      await handlers.onStreetDealt?.(state, state.currentStreet);
-    }
-  }
-
-  // 3. Showdown & Pot Distribution
-  const showRes = distributePokerPots(state);
-  state = showRes.gameState;
-  await handlers.onShowdown?.(state, showRes.winnerSummary);
-  await handlers.onTurnLogged?.(`Hand #${state.handNumber} Result: ${showRes.winnerSummary}`);
-
-  return { gameState: state, winnerSummary: showRes.winnerSummary };
 }

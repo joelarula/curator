@@ -126,6 +126,14 @@ export function sanitizeAction(
   };
 }
 
+const ACTION_DEFAULTS: Partial<Record<PokerActionTypeValue, { label: (amt?: number) => string; aliases: string[] }>> = {
+  [PokerActionType.CHECK]: { label: () => 'Check', aliases: ['k'] },
+  [PokerActionType.CALL]: { label: (amt = 0) => `Call $${amt}`, aliases: ['c'] },
+  [PokerActionType.FOLD]: { label: () => 'Fold', aliases: ['f'] },
+  [PokerActionType.ALL_IN]: { label: (amt = 0) => `All-In ($${amt})`, aliases: ['allin', 'all-in', 'shove'] },
+  [PokerActionType.RAISE]: { label: (amt = 0) => `Raise to $${amt}+`, aliases: ['r', 'raise'] },
+};
+
 function createActionChoice(
   type: PokerActionTypeValue,
   options: {
@@ -139,30 +147,9 @@ function createActionChoice(
   } = {}
 ) {
   const id = options.id || type.toLowerCase();
-  const defaultLabel =
-    type === PokerActionType.CHECK
-      ? 'Check'
-      : type === PokerActionType.FOLD
-        ? 'Fold'
-        : type === PokerActionType.ALL_IN
-          ? `All-In ($${options.amount ?? 0})`
-          : type === PokerActionType.CALL
-            ? `Call $${options.amount ?? 0}`
-            : `Raise to $${options.amount ?? 0}+`;
-
-  const defaultAliases =
-    type === PokerActionType.CHECK
-      ? ['k']
-      : type === PokerActionType.CALL
-        ? ['c']
-        : type === PokerActionType.FOLD
-          ? ['f']
-          : type === PokerActionType.ALL_IN
-            ? ['allin', 'all-in', 'shove']
-            : ['r', 'raise'];
-
-  const label = options.label || defaultLabel;
-  const aliases = options.aliases || defaultAliases;
+  const defaults = ACTION_DEFAULTS[type] ?? { label: () => type, aliases: [] };
+  const label = options.label || defaults.label(options.amount);
+  const aliases = options.aliases || defaults.aliases;
   const action = options.amount !== undefined ? { type, amount: options.amount } : { type };
 
   return {
