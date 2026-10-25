@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import type { AmbientSpeechActType } from '../plugins/tabletop/matrix.js';
+import type { AmbientSpeechActType } from './SpeechActs.js';
 
 export interface InteractionEvent {
   id: string;

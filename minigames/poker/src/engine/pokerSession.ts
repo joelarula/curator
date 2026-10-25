@@ -1,4 +1,8 @@
-import type { CuratorHost } from '../curatorHost.ts';
+import {
+  stepInteractiveConversation,
+  getWaitingChoice,
+  type CuratorHost,
+} from '../curatorHost.ts';
 import { AgentRoleService } from '../curator.ts';
 import type { PlayerAction, PokerGameState } from '../types.ts';
 import {
@@ -492,40 +496,24 @@ export async function createPokerGameSession(
 
   const getWaitingHumanTurn = async (tableId?: string | number): Promise<HumanTurnPromptInfo | null> => {
     const targetConvId = tableId !== undefined ? Number(tableId) : conversation.id;
+    const choiceInfo = await getWaitingChoice(prisma, targetConvId);
+    if (!choiceInfo) return null;
 
-    const waitingReq = await prisma.request.findFirst({
-      where: {
-        conversationId: targetConvId,
-        status: { in: ['WAITING_FOR_EVENT', 'WAITING_FOR_USER'] },
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
-
-    if (!waitingReq) return null;
-    const ctx = (waitingReq.context as any) || {};
-    const ast = waitingReq.ast as any;
-    const isHumanTurn =
-      ctx.waitEvent === PokerEvent.HUMAN_ACTION ||
-      ctx.waitEvent === 'curator:choice' ||
-      ast?.type === 'Curator_HumanInput';
-    if (!isHumanTurn) return null;
-
-    const choicesInfo = ctx.activeChoices || ctx.poker_get_choices?.choices || ctx.poker_get_choices || [];
-    const gameState = ctx.gameState;
+    const gameState = choiceInfo.context?.gameState;
     if (!gameState || !Array.isArray(gameState.players) || gameState.players.length === 0) {
       return null;
     }
     const activePlayer = gameState.players[gameState.activePlayerIdx];
 
     return {
-      requestId: waitingReq.id,
+      requestId: choiceInfo.requestId,
       player: activePlayer?.id || 'hero',
       name: activePlayer?.name || 'You',
       chips: activePlayer?.chips ?? 0,
       pot: gameState?.pot ?? 0,
       toCall: (gameState?.currentBet ?? 0) - (activePlayer?.streetBet ?? 0),
       street: gameState?.currentStreet || PokerStreet.PREFLOP,
-      choices: Array.isArray(choicesInfo) ? choicesInfo : (choicesInfo.choices || []),
+      choices: choiceInfo.choices,
     };
   };
 
@@ -802,13 +790,10 @@ export async function createPokerGameSession(
       }
     }
 
-    let result = await host.processor.stepUntil({
-      conversationId: targetConvId,
-      maxSteps,
-    });
+    let stepRes = await stepInteractiveConversation(host, targetConvId, maxSteps);
 
     // Check if the lobby finished booting the table and we should transition to the dealer workflow
-    if (result.done) {
+    if (stepRes.done) {
       const lastCompletedReq = await prisma.request.findFirst({
         where: { conversationId: targetConvId, status: 'COMPLETED' },
         orderBy: { id: 'desc' },
@@ -840,10 +825,7 @@ export async function createPokerGameSession(
             },
           });
           // Step immediately into the dealer table workflow
-          result = await host.processor.stepUntil({
-            conversationId: targetConvId,
-            maxSteps,
-          });
+          stepRes = await stepInteractiveConversation(host, targetConvId, maxSteps);
         }
       }
     }
@@ -856,11 +838,11 @@ export async function createPokerGameSession(
     }
 
     return {
-      done: result.done || Boolean(gameState?.gameOver),
-      waitingForHuman: result.waiting,
+      done: stepRes.done || Boolean(gameState?.gameOver),
+      waitingForHuman: stepRes.waiting,
       humanTurn,
       gameState,
-      steps: result.steps,
+      steps: stepRes.steps,
     };
   };
 

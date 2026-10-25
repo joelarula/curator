@@ -25,4 +25,12 @@ export {
   createWebSocketChannel,
   createDirectChannel,
 } from './client/curatorChannel.js'; 
+export {
+  getWaitingChoice,
+  stepInteractiveConversation,
+  resolveSessionActors,
+  type WaitingChoiceInfo,
+  type ConversationStepResult,
+  type SessionActor,
+} from './session/InteractiveSessionRunner.js';
 export * from './types.js';

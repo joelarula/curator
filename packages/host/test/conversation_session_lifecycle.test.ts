@@ -3,8 +3,6 @@ import assert from 'node:assert/strict';
 import {
   ConversationRouter,
   ConversationSessionManager,
-  FluentGameBuilder,
-  game,
   compileCoffeeScriptToAST,
 } from '../../../curator/dist/src/index.js';
 
@@ -301,125 +299,6 @@ test('End-to-End Pipeline: Event In -> State Processing -> Event Out via Router'
   assert.equal(leaveResult.outboundEnvelopes.length, 1);
   assert.equal(leaveResult.outboundEnvelopes[0].speechAct, 'LEAVE');
   assert.equal(leaveResult.outboundEnvelopes[0].payload.reason, 'court_adjourned');
-});
-
-test('Fluent Game Builder: Session Verbs (join, table_talk, gossip, whisper, leave) compile to valid Execution AST', () => {
-  const g = new FluentGameBuilder('poker:table_alpha');
-
-  g.join({ agentId: 'alice', as_role: 'dealer', capabilities: ['deal'] })
-   .join({ agentId: 'bob', as_role: 'player' })
-   .table_talk('Nice weather outside the casino')
-   .gossip({ subject: 'casino_owner', utterance: 'He is watching from the balcony' })
-   .whisper('bob', 'Let us play conservatively')
-   .leave({ agentId: 'bob', reason: 'broke', concede: true });
-
-  const ast: any = g.build();
-  assert.equal(ast.type, 'Curator_Sequential');
-  assert.equal(ast.name, 'poker:table_alpha');
-  assert(ast.subAgents.length >= 10);
-
-  // Verify child nodes have the emitEvent nodes with correct speech acts
-  const emitNodes = ast.subAgents.filter((n: any) => n.type === 'Curator_EmitEvent' && n.eventName === 'agent:message');
-  assert(emitNodes.length >= 6);
-
-  const speechActs = emitNodes.map((n: any) => n.payload?.speechAct || n.args?.payload?.speechAct);
-  assert(speechActs.includes('JOIN'));
-  assert(speechActs.includes('INFORM'));
-  assert(speechActs.includes('LEAVE'));
-});
-
-test('CoffeeScript DSL: Session Lifecycle & Real-Time Presence compilation to AST', async () => {
-  const coffeeScript = `
-game('poker:table_vip')
-  .join(agentId: 'alice', as_role: 'dealer', capabilities: ['deal'])
-  .join(agentId: 'bob', as_role: 'player')
-  .table_talk('Good luck everyone')
-  .gossip(subject: 'charlie', utterance: 'He never bluffs')
-  .whisper('bob', 'Split the pot?')
-  .leave(agentId: 'bob', reason: 'Folded hand', concede: true)
-  .leave(agentId: 'alice', reason: 'Shift over')
-`;
-
-  const ast: any = await compileCoffeeScriptToAST(coffeeScript);
-  assert.equal(ast.type, 'Curator_Sequential');
-  assert(ast.subAgents.length > 0);
-});
-
-test('Fluent CoffeeScript DSL: Complete Texas Holdem Hand Workflow compilation', async () => {
-  const script = `
-game('poker:high_roller_lounge')
-  .bracket(frame: 'texas_holdem_nl')
-  .join(agentId: 'hero', as_role: 'player', name: 'You')
-  .join(agentId: 'viper', as_role: 'dealer', name: 'Viper (Shark)', capabilities: ['deal', 'manage_pot'])
-  .join(agentId: 'maddog', as_role: 'player', name: 'MadDog (Maniac)')
-  .join(agentId: 'barnaby', as_role: 'player', name: 'Barnaby (Station)')
-  .wager(action: 'small_blind', amount: 10, as_role: '$context.sbPlayer')
-  .wager(action: 'big_blind', amount: 20, as_role: '$context.bbPlayer')
-  .deal_private(count: 2, as_role: 'dealer')
-  .table_talk('Cards are dealt. Action is on player.')
-  .bid(action: 'preflop_wagering')
-  .gossip(subject: 'viper', utterance: 'He never limps, watch out.')
-  .deal_public(count: 3, as_role: 'dealer', street: 'FLOP')
-  .bid(action: 'flop_wagering')
-  .deal_public(count: 1, as_role: 'dealer', street: 'TURN')
-  .bid(action: 'turn_wagering')
-  .deal_public(count: 1, as_role: 'dealer', street: 'RIVER')
-  .whisper('viper', 'Careful on that flush board...')
-  .bid(action: 'river_wagering')
-  .showdown(street: 'RIVER')
-  .reveal(cards: 'all_eligible_hands')
-  .settlement(rule: 'side_pots_then_main')
-  .rotate_dealer()
-`;
-
-  const ast: any = await compileCoffeeScriptToAST(script);
-  assert.equal(ast.type, 'Curator_Sequential');
-  assert.equal(ast.name, 'poker:high_roller_lounge');
-  assert(ast.subAgents.length >= 20);
-});
-
-test('Fluent CoffeeScript DSL: Real-Time Dynamic Event-Driven Poker State Machine Loop', async () => {
-  const script = `
-seq "poker:dynamic_engine", [
-  tool "poker_init_hand", tableId: "poker:high_roller_lounge"
-  while_loop "not $context.handOver and $context.currentStreet != 'SHOWDOWN'",
-    seq "poker:street_loop", [
-      while_loop "not $context.streetComplete and not $context.handOver",
-        seq "poker:turn_step", [
-          if_else "$context.activePlayer.isHuman",
-            seq("poker:human_input", [
-              emit_event "poker:awaiting_human_action", player: "$context.activePlayerId"
-              wait_event "poker:action", "humanAction"
-            ]),
-            seq("poker:ai_input", [
-              tool "poker_ai_decision", persona: "$context.activePlayer.persona"
-            ])
-          tool "poker_apply_action", action: "$context.lastAction"
-          if_else "$context.activeCount <= 1",
-            set_state handOver: true, singleSurvivor: true
-        ]
-      if_else "not $context.handOver",
-        seq "poker:advance_street", [
-          tool "poker_slice_side_pots"
-          if_else "$context.allInRunout",
-            tool("poker_fast_forward_board"),
-            tool("poker_deal_street")
-        ]
-    ]
-  if_else "$context.singleSurvivor",
-    tool("poker_award_survivor"),
-    seq "poker:showdown", [
-      tool "eval_poker", hands: "$context.hands", community: "$context.board"
-      tool "poker_distribute_pots"
-    ]
-  rotate_dealer()
-]
-`;
-
-  const ast: any = await compileCoffeeScriptToAST(script);
-  assert.equal(ast.type, 'Curator_Sequential');
-  assert.equal(ast.name, 'poker:dynamic_engine');
-  assert(ast.subAgents.length > 0);
 });
 
 

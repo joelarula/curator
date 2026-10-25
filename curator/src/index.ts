@@ -40,7 +40,6 @@ export * from './db/mariadbProvisioner.js';
 // Built-in Plugins
 export * from './plugins/core/index.js';
 export * from './plugins/semantic-shapes/index.js';
-export * from './plugins/tabletop/index.js';
 
 // Conversational Multi-Agent Protocol & Patterns
 export * from './conversations/index.js';
