@@ -550,17 +550,23 @@ export interface GameDialogueState {
  * Ambient out-of-turn speech acts that occur between formal game turns:
  * table talk, banter, whispers, backchannels, interjections, and psychological warfare.
  */
-export type AmbientSpeechActType =
-  | 'TABLE_TALK'     // General table commentary, reading hands, psychological probe
-  | 'BANTER'         // Playful social sparring, humor
-  | 'GOSSIP'         // Social rumors, anecdotes, gossip about participants or external figures
-  | 'SMALL_TALK'     // Casual chit-chat (weather, drinks, hobbies, daily life)
-  | 'SIDE_ACTIVITY'  // Ambient parallel physical/mundane actions (sipping tea, stacking chips, checking phone)
-  | 'WHISPER'        // Bilateral private side-channel between specific actors
-  | 'SIDE_CHANNEL'   // Backchannel communication
-  | 'INTERJECT'      // Spontaneous out-of-turn reaction (gasp, laugh, expletive)
-  | 'PROVOKE'        // Psychological tilt induction
-  | 'LEAK_TELL';     // Inadvertent or staged behavioral signal
+export const AmbientSpeechAct = {
+  TABLE_TALK: 'TABLE_TALK',
+  BANTER: 'BANTER',
+  GOSSIP: 'GOSSIP',
+  SMALL_TALK: 'SMALL_TALK',
+  SIDE_ACTIVITY: 'SIDE_ACTIVITY',
+  WHISPER: 'WHISPER',
+  SIDE_CHANNEL: 'SIDE_CHANNEL',
+  INTERJECT: 'INTERJECT',
+  PROVOKE: 'PROVOKE',
+  LEAK_TELL: 'LEAK_TELL',
+} as const;
+
+export const TabletopSpeechAct = AmbientSpeechAct;
+export type TabletopSpeechActType = (typeof TabletopSpeechAct)[keyof typeof TabletopSpeechAct];
+
+export type AmbientSpeechActType = (typeof AmbientSpeechAct)[keyof typeof AmbientSpeechAct];
 
 export interface AmbientSpeechActOptions {
   utterance?: string;

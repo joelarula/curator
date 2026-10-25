@@ -4,7 +4,7 @@ import {
   formatCard,
 } from './tableRenderer.ts';
 import type { PokerGameState } from '../types.ts';
-import { PokerEvent, PokerSessionReason } from '../models/index.ts';
+import { AmbientSpeechAct, PokerEvent, PokerSessionReason } from '../models/index.ts';
 
 export function renderPokerEvent(
   event: { type: string; payload: any },
@@ -51,7 +51,7 @@ export function renderPokerEvent(
 
     case PokerEvent.SPEECH_RESPONSE: {
       const spk = payload?.speaker || 'Player';
-      const act = payload?.speechAct || 'TABLE_TALK';
+      const act = payload?.speechAct || AmbientSpeechAct.TABLE_TALK;
       const to = payload?.targetId ? ` -> @${payload.targetId}` : '';
       console.log(`\x1b[35m[${act}] ${spk}${to}: "${payload?.text}"\x1b[0m`);
       if (payload?.aiReply) {

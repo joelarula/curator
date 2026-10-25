@@ -7,6 +7,7 @@ export const PokerModule = {
   WORKFLOW: 'poker_workflow',
   LOBBY: 'poker_lobby',
   ACTION: 'poker_action',
+  PLAYER_TURN: 'player_turn',
   HUMAN_TURN: 'human_turn',
   AGENT_TURN: 'agent_turn',
   AMBIENT_REACTION: 'ambient_reaction',

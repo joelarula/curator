@@ -21,7 +21,7 @@ import { GeminiLlmProvider } from '@curator/plugin-llm-gemini';
 import { getPokerRules, sanitizeAction, tableRules } from './pokerRules.ts';
 import { buildAgentPrompt, formatAgentPrompt, formatConversationHistory } from './agentPrompt.ts';
 import { DEFAULT_TABLE_PLAYERS } from './agentProfiles.ts';
-import { PokerActionType, PokerStreet } from '../models/pokerConstants.ts';
+import { AmbientSpeechAct, PokerActionType, PokerStreet } from '../models/pokerConstants.ts';
 
 export { getPokerRules, sanitizeAction, tableRules };
 export { buildAgentPrompt, formatAgentPrompt, formatConversationHistory };
@@ -649,7 +649,7 @@ export function rotatePokerDealer(rawState: PokerGameState): { gameState: PokerG
   return { gameState: { ...rawState, buttonIdx: nextBtn } };
 }
 
-export function processHumanSpeech(
+export function processTableSpeech(
   rawState: PokerGameState,
   args: {
     speechAct?: string;
@@ -659,7 +659,7 @@ export function processHumanSpeech(
     speakerName?: string;
   }
 ): { gameState: PokerGameState; remark: AmbientRemark; aiResponse?: AmbientRemark | null } {
-  const speechAct = (args.speechAct || 'TABLE_TALK') as SpeechAct;
+  const speechAct = (args.speechAct || AmbientSpeechAct.TABLE_TALK) as SpeechAct;
   const text = String(args.text || '');
   const targetId = args.targetId ? String(args.targetId) : undefined;
 
@@ -678,6 +678,8 @@ export function processHumanSpeech(
 
   return { gameState: rawState, remark, aiResponse: null };
 }
+
+export const processHumanSpeech = processTableSpeech;
 
 export function checkPokerGameOver(rawState: PokerGameState): {
   gameOver: boolean;
@@ -762,6 +764,7 @@ export function getPokerStandings(rawState: PokerGameState): { standings: Player
 }
 
 export interface PlayHandHandlers {
+  onTurn?: (player: PlayerState, state: PokerGameState, choices: PlayerChoice[]) => Promise<PlayerAction> | PlayerAction;
   onHumanTurn?: (state: PokerGameState, choices: PlayerChoice[]) => Promise<PlayerAction> | PlayerAction;
   onTableUpdate?: (state: PokerGameState, actionDesc?: string) => Promise<void> | void;
   onStreetDealt?: (state: PokerGameState, street: string) => Promise<void> | void;
@@ -791,10 +794,12 @@ export async function playPokerHand(
     while (!streetDone && !state.handOver) {
       const activeIdx = state.activePlayerIdx;
       const activePlayer = state.players[activeIdx];
+      const legalChoices = getLegalChoices(state, activeIdx);
 
       let chosenAction: PlayerAction;
-      if (activePlayer.isHuman) {
-        const legalChoices = getLegalChoices(state, activeIdx);
+      if (handlers.onTurn) {
+        chosenAction = await handlers.onTurn(activePlayer, state, legalChoices);
+      } else if (activePlayer.isHuman) {
         if (handlers.isAutoplay || !handlers.onHumanTurn) {
           const passive = legalChoices.find((c) => c.action.type === PokerActionType.CHECK || c.action.type === PokerActionType.CALL);
           chosenAction = passive ? passive.action : legalChoices[0].action;

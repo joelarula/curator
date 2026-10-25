@@ -180,19 +180,23 @@ export function buildPokerWorkflowModule(): CuratorModuleNode {
                               reason: reasons.USER_EXIT,
                             }),
                           ]),
-                          seq(steps.APPLY_ACTION, [
-                            apply_player_action(ctx.humanAction),
-                          ]),
+                          setState({ turnAction: ctx.humanAction }),
                         ),
                       ),
                     ]),
-                    aiAgentFlow(),
+                    seq(steps.AI_AGENT_FLOW, [
+                      ai_decision(),
+                      setState({ turnAction: `${ctx.poker_ai_decision.action} || ${ctx.lastAiAction}` }),
+                    ]),
                   ),
                   ifElse(
                     is_session_unpaused,
-                    emitEvent(events.ACTION_TAKEN, {
-                      player: `${gameState.players}[${gameState.activePlayerIdx}].name`,
-                    }),
+                    seq(steps.APPLY_ACTION, [
+                      apply_player_action(ctx.turnAction),
+                      emitEvent(events.ACTION_TAKEN, {
+                        player: `${gameState.players}[${gameState.activePlayerIdx}].name`,
+                      }),
+                    ]),
                   ),
                 ]),
               ),

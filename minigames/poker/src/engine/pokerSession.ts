@@ -9,6 +9,7 @@ import {
   PokerTool,
   PokerModule,
   PokerLobbyAction,
+  AmbientSpeechAct,
 } from '../models/index.ts';
 
 export interface PokerSessionOptions {
@@ -36,6 +37,8 @@ export interface HumanTurnPromptInfo {
   street: string;
   choices: any[];
 }
+
+export type PlayerTurnPromptInfo = HumanTurnPromptInfo;
 
 export interface CreateTableOptions {
   title?: string;
@@ -78,6 +81,7 @@ export interface PokerGameSession {
   getTable(tableId?: string | number): Promise<PokerTableInfo | null>;
   createTable(options?: CreateTableOptions): Promise<PokerTableInfo>;
   getGameState(tableId?: string | number): Promise<PokerGameState | null>;
+  getWaitingTurn?(tableId?: string | number): Promise<PlayerTurnPromptInfo | null>;
   getWaitingHumanTurn(tableId?: string | number): Promise<HumanTurnPromptInfo | null>;
   getActors?(tableId?: string | number): Promise<CuratorActor[]>;
   send(type: string, payload?: any, tableId?: string | number, sessionId?: string): Promise<any>;
@@ -326,7 +330,7 @@ export async function getConversationActors(
     isHuman: true,
     persona: 'human',
     status: 'ACTIVE',
-    capabilities: ['table_action', 'TABLE_TALK', 'WHISPER', 'BANTER'],
+    capabilities: ['table_action', AmbientSpeechAct.TABLE_TALK, AmbientSpeechAct.WHISPER, AmbientSpeechAct.BANTER],
   });
 
   // 3. Resolve Project / Conversation Agent Actors (from prisma.agent)
@@ -372,9 +376,9 @@ export async function getConversationActors(
     else if (isDealer) status = 'DEALER';
     else if (seated) status = seated.folded ? 'FOLDED' : (seated.allIn ? 'ALL_IN' : 'SEATED');
 
-    let capabilities = ['table_action', 'TABLE_TALK', 'WHISPER', 'BANTER'];
-    if (isLobby) capabilities = ['lobby_guidance', 'table_matching', 'TABLE_TALK', 'WHISPER'];
-    else if (isDealer) capabilities = ['deal_cards', 'manage_pots', 'TABLE_TALK', 'rules_inquiry'];
+    let capabilities = ['table_action', AmbientSpeechAct.TABLE_TALK, AmbientSpeechAct.WHISPER, AmbientSpeechAct.BANTER];
+    if (isLobby) capabilities = ['lobby_guidance', 'table_matching', AmbientSpeechAct.TABLE_TALK, AmbientSpeechAct.WHISPER];
+    else if (isDealer) capabilities = ['deal_cards', 'manage_pots', AmbientSpeechAct.TABLE_TALK, 'rules_inquiry'];
 
     actors.push({
       id: agent.id,
@@ -547,7 +551,7 @@ export async function createPokerGameSession(
       const currentGameState = await getGameState(targetConvId);
       const speakerName = payload?.speakerName || 'You';
       const speakerId = payload?.speakerId || sessionId || 'player-human';
-      const speechAct = payload?.speechAct || payload?.args?.speechAct || 'TABLE_TALK';
+      const speechAct = payload?.speechAct || payload?.args?.speechAct || AmbientSpeechAct.TABLE_TALK;
       const text = payload?.text || payload?.args?.text || '';
       const targetId = payload?.targetId || payload?.args?.targetId;
 
@@ -881,6 +885,7 @@ export async function createPokerGameSession(
     getTable,
     createTable,
     getGameState,
+    getWaitingTurn: getWaitingHumanTurn,
     getWaitingHumanTurn,
     getActors: (convId?: string | number) => getConversationActors(host, convId !== undefined ? convId : conversation.id),
     send,

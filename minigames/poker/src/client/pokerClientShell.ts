@@ -15,6 +15,7 @@ import {
   type ReplCommand,
 } from '../curatorHost.ts';
 import type { PokerGameState } from '../types.ts';
+import { AmbientSpeechAct } from '../models/index.ts';
 import { renderTable, renderCompactStatus, renderStandings } from '../ui/tableRenderer.ts';
 import {
   pokerApplyActionTool,
@@ -208,7 +209,7 @@ export function createPokerClientShell(
         return opts.channel.send('poker:speech', {
           text,
           speakerName: opts.actorName || 'You',
-          speechAct: speechAct || 'TABLE_TALK',
+          speechAct: speechAct || AmbientSpeechAct.TABLE_TALK,
           targetId,
         });
       }

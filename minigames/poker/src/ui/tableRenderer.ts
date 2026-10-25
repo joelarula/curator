@@ -12,7 +12,7 @@ export function formatCard(c?: Card): string {
  * Compact 2-line status card for the live group chat stream.
  * Displays essential table info without clearing scrollback history.
  */
-export function renderCompactStatus(gameState?: PokerGameState): string {
+export function renderCompactStatus(gameState?: PokerGameState, viewerId?: string): string {
   if (!gameState || !Array.isArray(gameState.players) || gameState.players.length === 0) {
     return '';
   }
@@ -27,13 +27,15 @@ export function renderCompactStatus(gameState?: PokerGameState): string {
     ? board.map((c) => formatCard(c)).join(' ')
     : '\x1b[90m[No community cards dealt]\x1b[0m';
 
-  const hero = gameState.players.find((p) => p.isHuman) || gameState.players[0];
+  const hero = (viewerId ? gameState.players.find((p) => p.id === viewerId) : undefined)
+    || gameState.players.find((p) => p.isHuman)
+    || gameState.players[0];
   if (!hero) return '';
   const heroCards = Array.isArray(hero.holeCards) ? hero.holeCards.map((c) => formatCard(c)).join(' ') : '[ -- ]';
   const heroBest = board.length >= 3 && Array.isArray(hero.holeCards) ? evaluateBestHand(hero.holeCards, board).description : '';
 
   const activeOpponents = gameState.players
-    .filter((p) => !p.isHuman && !p.folded)
+    .filter((p) => p.id !== hero.id && !p.folded)
     .map((p) => `${p.name} ($${p.chips})`)
     .join(', ') || 'None';
 
@@ -49,7 +51,7 @@ export function renderCompactStatus(gameState?: PokerGameState): string {
  * Detailed ASCII seat-by-seat diagram.
  * Used for Showdown reveals or on-demand inspection via `/table`.
  */
-export function renderTable(gameState?: PokerGameState, showAllCards = false): string {
+export function renderTable(gameState?: PokerGameState, showAllCards = false, viewerId?: string): string {
   if (!gameState || !Array.isArray(gameState.players) || gameState.players.length === 0) {
     return '\n\x1b[33m[Table] No active table hand in progress. Still in lobby.\x1b[0m\n';
   }
@@ -63,7 +65,9 @@ export function renderTable(gameState?: PokerGameState, showAllCards = false): s
   const board = Array.isArray(gameState.board) ? gameState.board : [];
   const boardCards = [0, 1, 2, 3, 4].map((i) => formatCard(board[i])).join(' ');
 
-  const hero = gameState.players.find((p) => p.isHuman) || gameState.players[0];
+  const hero = (viewerId ? gameState.players.find((p) => p.id === viewerId) : undefined)
+    || gameState.players.find((p) => p.isHuman)
+    || gameState.players[0];
   const heroHole = hero && Array.isArray(hero.holeCards) ? hero.holeCards : [];
   const heroBest = board.length >= 3 && heroHole.length > 0 ? evaluateBestHand(heroHole, board).description : '';
   const heroMonologue = hero?.lastMonologue;
@@ -91,7 +95,7 @@ export function renderTable(gameState?: PokerGameState, showAllCards = false): s
     if (isTurn) badge += `${green}▶ ACTIVE TURN ◀${reset} `;
 
     let cardsStr = '[ ?  ? ]';
-    if (p.isHuman || showAllCards || gameState.handOver) {
+    if (p.id === hero?.id || p.isHuman || showAllCards || gameState.handOver) {
       cardsStr = p.holeCards.map((c) => formatCard(c)).join(' ');
     }
 

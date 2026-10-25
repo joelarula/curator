@@ -3,13 +3,14 @@
  * Pure TypeScript implementation replacing legacy agent_prompt.coffee.
  */
 
+import { AmbientSpeechAct, PokerStreet } from '../models/pokerConstants.ts';
 import { getRulesDescription } from './pokerRules.ts';
 
 export function formatConversationHistory(remarks: any[] = [], playerId?: string): string {
   if (!remarks || remarks.length === 0) return 'None';
 
   const lines = remarks.slice(-6).map((r) => {
-    if (r.speechAct === 'WHISPER') {
+    if (r.speechAct === AmbientSpeechAct.WHISPER) {
       if (r.speakerId === playerId) {
         return `[YOU WHISPERED to ${r.recipientId}]: "${r.text}"`;
       } else if (r.recipientId === playerId) {
@@ -18,7 +19,7 @@ export function formatConversationHistory(remarks: any[] = [], playerId?: string
         return `[OBSERVED]: ${r.speakerName} leaned over and whispered secretly to ${r.recipientId}.`;
       }
     } else {
-      return `${r.speakerName} (${r.speechAct || 'TABLE_TALK'}): "${r.text}"`;
+      return `${r.speakerName} (${r.speechAct || AmbientSpeechAct.TABLE_TALK}): "${r.text}"`;
     }
   });
 
@@ -44,7 +45,7 @@ export function buildAgentPrompt(args: any): any {
   const toCall = Math.max(0, (gameState.currentBet || 0) - (player.streetBet || 0));
   const pot = gameState.pot || 0;
   const minRaise = gameState.minRaise || 20;
-  const street = gameState.currentStreet || 'PREFLOP';
+  const street = gameState.currentStreet || PokerStreet.PREFLOP;
 
   // 3. Form game conversation history from context
   const remarks = ctx.recentRemarks || ctx.remarks || gameState?.recentRemarks || [];
@@ -61,6 +62,14 @@ export function buildAgentPrompt(args: any): any {
 
   const rulesBlock = ctx.rulesDescription || getRulesDescription();
 
+  const speechActChoices = [
+    AmbientSpeechAct.TABLE_TALK,
+    AmbientSpeechAct.BANTER,
+    AmbientSpeechAct.WHISPER,
+    AmbientSpeechAct.PROVOKE,
+    AmbientSpeechAct.GOSSIP,
+  ].map((act) => `"${act}"`).join(' | ');
+
   // 5. Formulate unified Agent System Prompt with Texas Hold'em Rules
   const systemPrompt = `You are ${player.name}, an autonomous agent playing Texas Hold'em Poker in the Curator ecosystem.
 
@@ -73,7 +82,7 @@ ${rulesBlock}
   "action": "CHECK" | "CALL" | "RAISE" | "ALL_IN" | "FOLD",
   "amount": number (required if RAISE or CALL; for RAISE, specify total street bet or raise amount),
   "speech": "dialogue spoken out loud to the table (optional, 1 sentence in character)",
-  "speechAct": "TABLE_TALK" | "BANTER" | "WHISPER" | "PROVOKE" | "GOSSIP",
+  "speechAct": ${speechActChoices},
   "innerMonologue": "private strategic reasoning about this turn (1 sentence)"
 }`;
 

@@ -4,8 +4,10 @@
  */
 
 import {
+  AmbientSpeechAct,
   PokerActionType,
   PokerStreet,
+  type AmbientSpeechActType,
   type PokerActionTypeValue,
 } from '../models/pokerConstants.ts';
 import { PokerTool } from '../models/pokerTools.ts';
@@ -37,7 +39,7 @@ export interface TableRulesDefinition {
     minRaiseMultiplier: number;
     autoAllInOnShortStack: boolean;
   };
-  speechActs: string[];
+  speechActs: AmbientSpeechActType[];
 }
 
 export const tableRules: TableRulesDefinition = {
@@ -74,17 +76,31 @@ export const tableRules: TableRulesDefinition = {
     minRaiseMultiplier: 1.0,
     autoAllInOnShortStack: true,
   },
-  speechActs: ['TABLE_TALK', 'BANTER', 'WHISPER', 'PROVOKE', 'GOSSIP'],
+  speechActs: [
+    AmbientSpeechAct.TABLE_TALK,
+    AmbientSpeechAct.BANTER,
+    AmbientSpeechAct.WHISPER,
+    AmbientSpeechAct.PROVOKE,
+    AmbientSpeechAct.GOSSIP,
+  ],
 };
 
 export function getRulesDescription(): string {
+  const discourseActs = [
+    AmbientSpeechAct.TABLE_TALK,
+    AmbientSpeechAct.BANTER,
+    AmbientSpeechAct.WHISPER,
+    AmbientSpeechAct.PROVOKE,
+    AmbientSpeechAct.GOSSIP,
+  ].join(', ');
+
   return `Texas Hold'em Table Rules & Protocol:
 - Allowed betting actions: CHECK, CALL, RAISE, ALL_IN, FOLD.
 - If Cost to Call is 0: you CANNOT FOLD. You must CHECK or RAISE (never fold for free).
 - If Cost to Call > 0: you can CALL, RAISE, ALL_IN, or FOLD.
 - When raising: your total wager must be at least Cost to Call + Min Raise, up to your total chip stack.
 - When chips <= Cost to Call: your only aggressive options are CALL (putting you ALL-IN) or ALL_IN.
-- Table Discourse: You autonomously choose when to speak (TABLE_TALK, BANTER, WHISPER, PROVOKE, GOSSIP) or stay silent based on your persona.`;
+- Table Discourse: You autonomously choose when to speak (${discourseActs}) or stay silent based on your persona.`;
 }
 
 export function sanitizeAction(
@@ -126,18 +142,49 @@ export function sanitizeAction(
 }
 
 function createActionChoice(
-  id: string,
-  label: string,
   type: PokerActionTypeValue,
-  amount?: number,
-  options: { aliases?: string[]; usage?: string; minAmount?: number; maxAmount?: number } = {}
+  options: {
+    id?: string;
+    label?: string;
+    amount?: number;
+    minAmount?: number;
+    maxAmount?: number;
+    aliases?: string[];
+    usage?: string;
+  } = {}
 ) {
-  const action = amount !== undefined ? { type, amount } : { type };
+  const id = options.id || type.toLowerCase();
+  const defaultLabel =
+    type === PokerActionType.CHECK
+      ? 'Check'
+      : type === PokerActionType.FOLD
+        ? 'Fold'
+        : type === PokerActionType.ALL_IN
+          ? `All-In ($${options.amount ?? 0})`
+          : type === PokerActionType.CALL
+            ? `Call $${options.amount ?? 0}`
+            : `Raise to $${options.amount ?? 0}+`;
+
+  const defaultAliases =
+    type === PokerActionType.CHECK
+      ? ['k']
+      : type === PokerActionType.CALL
+        ? ['c']
+        : type === PokerActionType.FOLD
+          ? ['f']
+          : type === PokerActionType.ALL_IN
+            ? ['allin', 'all-in', 'shove']
+            : ['r', 'raise'];
+
+  const label = options.label || defaultLabel;
+  const aliases = options.aliases || defaultAliases;
+  const action = options.amount !== undefined ? { type, amount: options.amount } : { type };
+
   return {
     id,
     label,
-    aliases: options.aliases,
-    usage: options.usage,
+    aliases,
+    usage: options.usage || (type === PokerActionType.RAISE ? '<amount>' : undefined),
     minAmount: options.minAmount,
     maxAmount: options.maxAmount,
     tool: PokerTool.APPLY_ACTION,
@@ -156,26 +203,27 @@ export function getLegalChoices(
   const canCheck = toCall === 0;
 
   if (canCheck) {
-    choices.push(createActionChoice('check', 'Check', PokerActionType.CHECK, undefined, { aliases: ['k'] }));
+    choices.push(createActionChoice(PokerActionType.CHECK));
     if (chips >= minRaise) {
       choices.push(
-        createActionChoice('bet', `Bet (min $${minRaise})`, PokerActionType.RAISE, minRaise, {
-          aliases: ['b', 'bet', 'r', 'raise'],
-          usage: '<amount>',
+        createActionChoice(PokerActionType.RAISE, {
+          id: 'bet',
+          label: `Bet (min $${minRaise})`,
+          amount: minRaise,
           minAmount: minRaise,
           maxAmount: chips,
+          aliases: ['b', 'bet', 'r', 'raise'],
         })
       );
     }
   } else {
     if (chips > toCall) {
-      choices.push(createActionChoice('call', `Call $${toCall}`, PokerActionType.CALL, toCall, { aliases: ['c'] }));
+      choices.push(createActionChoice(PokerActionType.CALL, { amount: toCall }));
       const minRaiseTotal = toCall + minRaise;
       if (chips >= minRaiseTotal) {
         choices.push(
-          createActionChoice('raise', `Raise to $${currentBet + minRaise}+`, PokerActionType.RAISE, minRaiseTotal, {
-            aliases: ['r', 'raise'],
-            usage: '<amount>',
+          createActionChoice(PokerActionType.RAISE, {
+            amount: minRaiseTotal,
             minAmount: minRaiseTotal,
             maxAmount: chips,
           })
@@ -185,15 +233,11 @@ export function getLegalChoices(
   }
 
   if (chips > 0) {
-    choices.push(
-      createActionChoice('all_in', `All-In ($${chips})`, PokerActionType.ALL_IN, chips, {
-        aliases: ['allin', 'all-in', 'shove'],
-      })
-    );
+    choices.push(createActionChoice(PokerActionType.ALL_IN, { amount: chips }));
   }
 
   if (!canCheck) {
-    choices.push(createActionChoice('fold', 'Fold', PokerActionType.FOLD, undefined, { aliases: ['f'] }));
+    choices.push(createActionChoice(PokerActionType.FOLD));
   }
 
   return choices;

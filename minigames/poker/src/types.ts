@@ -1,4 +1,6 @@
-import type { AmbientSpeechActType } from './curator.ts';
+import { AmbientSpeechAct, type AmbientSpeechActType } from './curator.ts';
+
+export { AmbientSpeechAct, type AmbientSpeechActType };
 
 export type Suit = '♠' | '♥' | '♦' | '♣';
 export type Rank = '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' | 'J' | 'Q' | 'K' | 'A';
@@ -45,7 +47,8 @@ export type PersonaType = string;
 export interface PlayerState {
   id: string;
   name: string;
-  isHuman: boolean;
+  isHuman?: boolean;
+  isInteractive?: boolean;
   instruction?: string; // Autonomous agent system prompt / persona instruction
   provider?: string;    // LLM provider identifier (e.g. 'gemini', 'openai', 'mock')
   model?: string;       // LLM model identifier for Curator LLM dispatch

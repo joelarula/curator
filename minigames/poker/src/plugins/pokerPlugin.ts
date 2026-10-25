@@ -5,6 +5,7 @@ import {
   CuratorSystemRole,
   CuratorAccessLevel,
 } from '../curator.ts';
+import { AmbientSpeechAct } from '../models/index.ts';
 import {
   PokerModule,
   PokerTool,
@@ -41,6 +42,7 @@ import {
   fastForwardPokerBoard,
   distributePokerPots,
   rotatePokerDealer,
+  processTableSpeech,
   processHumanSpeech,
   checkPokerGameOver,
   getPokerStandings,
@@ -51,6 +53,7 @@ import { POKER_AGENT_PROFILES } from '../engine/agentProfiles.ts';
 const SCRIPT_DESCRIPTIONS: Record<string, string> = {
   [PokerModule.WORKFLOW]: 'Texas Holdem master game loop and table manager AST workflow',
   [PokerModule.LOBBY]: 'Texas Holdem lounge concierge and table seating AST workflow',
+  [PokerModule.PLAYER_TURN]: 'Universal Texas Holdem player turn AST workflow',
   [PokerModule.HUMAN_TURN]: 'Human player turn handler AST workflow',
   [PokerModule.AGENT_TURN]: 'AI Agent turn handler AST workflow',
   [PokerModule.ACTION]: 'Player action event distributor AST workflow',
@@ -305,18 +308,27 @@ export const pokerRotateDealerTool = defineTool<PokerRotateDealerParams>({
   },
 });
 
-export const pokerHumanSpeechTool = defineTool<PokerHumanSpeechParams>({
-  name: PokerTool.HUMAN_SPEECH,
-  description: 'Applies human table talk, banter, or private whisper to the table and triggers AI persona reactions.',
+export const pokerSpeechTool = defineTool<PokerHumanSpeechParams>({
+  name: PokerTool.SPEECH,
+  description: 'Applies table talk, banter, gossip, or private whisper from any player and triggers AI persona reactions.',
   usage: PokerToolUsage.HUMAN_SPEECH,
-  aliases: [PokerToolAlias.SPEECH],
+  aliases: [PokerToolAlias.SPEECH, PokerTool.HUMAN_SPEECH],
   requiredRole: PokerRole.PLAYER,
   accessLevel: CuratorAccessLevel.SAFE_READ,
   parameters: {
     type: 'object',
     properties: {
       state: { type: 'object' },
-      speechAct: { type: 'string', enum: ['TABLE_TALK', 'BANTER', 'WHISPER', 'PROVOKE'] },
+      speechAct: {
+        type: 'string',
+        enum: [
+          AmbientSpeechAct.TABLE_TALK,
+          AmbientSpeechAct.BANTER,
+          AmbientSpeechAct.WHISPER,
+          AmbientSpeechAct.PROVOKE,
+          AmbientSpeechAct.GOSSIP,
+        ],
+      },
       text: { type: 'string' },
       targetId: { type: 'string' },
       speakerId: { type: 'string' },
@@ -326,9 +338,11 @@ export const pokerHumanSpeechTool = defineTool<PokerHumanSpeechParams>({
   },
   execute: async (args: PokerHumanSpeechParams, ctx: any) => {
     const rawState = extractGameState(args, ctx);
-    return processHumanSpeech(rawState, args);
+    return processTableSpeech(rawState, args);
   },
 });
+
+export const pokerHumanSpeechTool = pokerSpeechTool;
 
 export const pokerCheckGameOverTool = defineTool<PokerCheckGameOverParams>({
   name: PokerTool.CHECK_GAME_OVER,
@@ -441,6 +455,7 @@ export const pokerToolsList = [
   pokerFastForwardBoardTool,
   pokerDistributePotsTool,
   pokerRotateDealerTool,
+  pokerSpeechTool,
   pokerHumanSpeechTool,
   pokerCheckGameOverTool,
   pokerGetStandingsTool,
@@ -485,6 +500,7 @@ export const pokerPlugin: CuratorPlugin = {
         PokerTool.LEAVE_LOBBY,
         PokerTool.APPLY_ACTION,
         PokerTool.AI_DECISION,
+        PokerTool.SPEECH,
         PokerTool.HUMAN_SPEECH,
       ],
     },

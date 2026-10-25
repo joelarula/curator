@@ -1,7 +1,6 @@
-/**
- * Poker Domain Constants
- * Eliminates literal strings for session reasons, speech acts, lobby actions, and player action types.
- */
+import { AmbientSpeechAct, type AmbientSpeechActType } from '../curator.ts';
+
+export { AmbientSpeechAct, type AmbientSpeechActType };
 
 export const PokerSessionReason = {
   USER_EXIT: 'user_exit',

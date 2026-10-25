@@ -16,6 +16,7 @@ export const PokerTool = {
   ROTATE_DEALER: 'poker_rotate_dealer',
   AI_DECISION: 'poker_ai_decision',
   LIST_TABLES: 'poker_list_tables',
+  SPEECH: 'poker_speech',
   HUMAN_SPEECH: 'poker_human_speech',
   FAST_FORWARD: 'poker_fast_forward_board',
   GET_STANDINGS: 'poker_get_standings',

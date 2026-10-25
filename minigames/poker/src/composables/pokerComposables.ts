@@ -90,12 +90,15 @@ export const pokerPredicates = {
   is_hand_active: `${ctx.gameState} and not ${ctx.gameState.handOver} and ${ctx.gameState.currentStreet} != "SHOWDOWN"`,
   is_street_active: `${ctx.gameState} and not ${ctx.gameState.streetComplete} and not ${ctx.gameState.handOver}`,
   active_player_is_human: `${ctx.gameState.players}[${ctx.gameState.activePlayerIdx}].isHuman`,
+  active_player_is_interactive: `${ctx.gameState.players}[${ctx.gameState.activePlayerIdx}].isHuman or ${ctx.gameState.players}[${ctx.gameState.activePlayerIdx}].isInteractive`,
   has_table_players: `${ctx.gameState} and ${ctx.gameState.players.length} >= 2`,
   is_table_paused: `${ctx.isPaused} and not ${ctx.sessionEnded}`,
   table_has_no_state: `not ${ctx.gameState}`,
   table_needs_players: `not ${ctx.gameState} or ${ctx.gameState.players.length} < 2`,
   is_session_active: `not ${ctx.sessionEnded}`,
   is_session_unpaused: `not ${ctx.sessionEnded} and not ${ctx.isPaused}`,
+  is_turn_action_pause: `${ctx.turnAction.type} == '${PokerActionType.PAUSE}' or ${ctx.humanAction.type} == '${PokerActionType.PAUSE}'`,
+  is_turn_action_exit: `${ctx.turnAction.type} == '${PokerActionType.EXIT}' or ${ctx.humanAction.type} == '${PokerActionType.EXIT}'`,
   is_human_action_pause: `${ctx.humanAction.type} == '${PokerActionType.PAUSE}'`,
   is_human_action_exit: `${ctx.humanAction.type} == '${PokerActionType.EXIT}'`,
   is_resume_cmd: `${ctx.resumeCmd.type} == '${PokerActionType.RESUME}' or ${ctx.resumeCmd} == '${PokerActionType.RESUME}'`,
@@ -129,7 +132,7 @@ export const pokerComposables = {
   apply_player_action: (action?: any, args: Partial<PokerApplyActionParams> = {}): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.APPLY_ACTION, {
       state: String(gameState),
-      action: String(action ?? `${ctx.humanAction} || ${ctx.poker_ai_decision.action} || ${ctx.action}`),
+      action: String(action ?? `${ctx.turnAction} || ${ctx.humanAction} || ${ctx.poker_ai_decision.action} || ${ctx.action}`),
       ...args,
     }),
 
