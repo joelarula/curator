@@ -488,7 +488,10 @@ export function applyPokerAction(rawState: PokerGameState, action: PlayerAction)
       return `${player.name} folds.`;
     },
     [PokerActionType.CHECK]: () => `${player.name} checks.`,
-    [PokerActionType.CALL]: () => `${player.name} calls $${commitWager(toCall)}.`,
+    [PokerActionType.CALL]: () => {
+      const commit = commitWager(toCall);
+      return commit === 0 ? `${player.name} checks.` : `${player.name} calls $${commit}.`;
+    },
     [PokerActionType.RAISE]: () => {
       commitWager(action.amount ?? (toCall + minRaise));
       return `${player.name} raises to $${currentBet}.`;

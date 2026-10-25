@@ -14,3 +14,21 @@ export const logger = winston.createLogger({
     new winston.transports.Console()
   ]
 });
+
+export function setLogLevel(level: string): void {
+  const norm = level.toLowerCase();
+  process.env.LOG_LEVEL = norm;
+  if (norm === 'silent' || norm === 'none') {
+    logger.silent = true;
+    for (const transport of logger.transports) {
+      transport.silent = true;
+    }
+  } else {
+    logger.silent = false;
+    logger.level = norm;
+    for (const transport of logger.transports) {
+      transport.silent = false;
+      transport.level = norm;
+    }
+  }
+}

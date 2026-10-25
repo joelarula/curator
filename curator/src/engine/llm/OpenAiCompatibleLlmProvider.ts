@@ -77,7 +77,7 @@ export class OpenAiCompatibleLlmProvider implements ILlmProvider {
       }));
     }
 
-    logger.info(`[OpenAiCompatibleLlmProvider] Calling ${endpoint} with model=${model}`);
+    logger.debug(`[OpenAiCompatibleLlmProvider] Calling ${endpoint} with model=${model}`);
 
     const res = await fetch(endpoint, {
       method: 'POST',

@@ -44,3 +44,6 @@ export * from './plugins/semantic-shapes/index.js';
 // Conversational Multi-Agent Protocol & Patterns
 export * from './conversations/index.js';
 
+// Logger & Diagnostic Levels
+export * from './utils/logger.js';
+

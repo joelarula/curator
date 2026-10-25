@@ -97,7 +97,7 @@ export function sanitizeAction(
   const canCheck = toCall === 0;
   let actionType = (rawAction?.action || rawAction?.type || (canCheck ? PokerActionType.CHECK : PokerActionType.FOLD)).toUpperCase();
 
-  if (canCheck && actionType === PokerActionType.FOLD) {
+  if (canCheck && (actionType === PokerActionType.FOLD || actionType === PokerActionType.CALL)) {
     actionType = PokerActionType.CHECK;
   }
   if (!canCheck && actionType === PokerActionType.CHECK) {

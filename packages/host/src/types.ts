@@ -55,6 +55,7 @@ export interface CuratorHostConfig {
   intervalMs?: number;
   domainDb?: unknown;
   logger?: CuratorLogger;
+  logLevel?: string;
   rbac?: CuratorHostRbacConfig;
   /** Persistence profile; defaults to 'embedded'. Individual policies below override profile defaults. */
   profile?: CuratorHostProfile;

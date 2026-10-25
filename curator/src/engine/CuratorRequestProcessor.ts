@@ -167,7 +167,7 @@ export class CuratorRequestProcessor {
     const explicitConcurrency = options.maxConcurrency ?? (process.env.CURATOR_MAX_CONCURRENCY ? parseInt(process.env.CURATOR_MAX_CONCURRENCY, 10) : undefined);
     
     this.maxConcurrency = explicitConcurrency ?? defaultConcurrency;
-    logger.info(`[CuratorRequestProcessor] Concurrency limit initialized to ${this.maxConcurrency} (DB Pool: ${this.poolLimit}, Reserved for Web: ${this.reserveWebConnections})`);
+    logger.debug(`[CuratorRequestProcessor] Concurrency limit initialized to ${this.maxConcurrency} (DB Pool: ${this.poolLimit}, Reserved for Web: ${this.reserveWebConnections})`);
   }
 
   private emit(type: string, payload: any) {
@@ -265,7 +265,7 @@ export class CuratorRequestProcessor {
     this.isStopped = false;
     await this.syncToolsToDb();
     await this.syncAgentsToDb();
-    logger.info(`[CuratorRequestProcessor] Starting worker ${this.workerId} with ${intervalMs}ms interval...`);
+    logger.debug(`[CuratorRequestProcessor] Starting worker ${this.workerId} with ${intervalMs}ms interval...`);
     this.timer = setInterval(() => this.pollRequests(), intervalMs);
     if ((this.timer as any)?.unref) {
       (this.timer as any).unref();
@@ -275,7 +275,7 @@ export class CuratorRequestProcessor {
 
   private async syncToolsToDb() {
     try {
-      logger.info(`[CuratorRequestProcessor] Syncing tools & permissions from CuratorEngine registry...`);
+      logger.debug(`[CuratorRequestProcessor] Syncing tools & permissions from CuratorEngine registry...`);
       let count = 0;
 
       // Seed baseline security roles
@@ -361,7 +361,7 @@ export class CuratorRequestProcessor {
 
         count++;
       }
-      logger.info(`[CuratorRequestProcessor] Synced ${count} tools with permissions & nested roles.`);
+      logger.debug(`[CuratorRequestProcessor] Synced ${count} tools with permissions & nested roles.`);
     } catch (err) {
       logger.error('[CuratorRequestProcessor] Failed to sync tools to DB:', err);
     }
@@ -369,7 +369,7 @@ export class CuratorRequestProcessor {
 
   private async syncAgentsToDb() {
     try {
-      logger.info(`[CuratorRequestProcessor] Syncing agents from CuratorEngine registry...`);
+      logger.debug(`[CuratorRequestProcessor] Syncing agents from CuratorEngine registry...`);
       let count = 0;
 
       const workerRole = await this.prisma.role.findUnique({ where: { name: 'AgentWorker' } });
@@ -425,7 +425,7 @@ export class CuratorRequestProcessor {
 
         count++;
       }
-      logger.info(`[CuratorRequestProcessor] Synced ${count} agents.`);
+      logger.debug(`[CuratorRequestProcessor] Synced ${count} agents.`);
 
       // Clean up any lingering active/pending requests for disabled agents
       try {
@@ -437,7 +437,7 @@ export class CuratorRequestProcessor {
         const enabledCount = await this.prisma.agent.count({ where: { enabled: true } });
 
         if (totalCount > 0 && enabledCount === 0) {
-          logger.info(`[CuratorRequestProcessor] All agents are disabled. Cancelling all active/pending/waiting requests in DB...`);
+          logger.debug(`[CuratorRequestProcessor] All agents are disabled. Cancelling all active/pending/waiting requests in DB...`);
           await this.prisma.request.updateMany({
             where: {
               status: { in: ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT', 'PAUSED'] }
@@ -482,7 +482,7 @@ export class CuratorRequestProcessor {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
-      logger.info(`[CuratorRequestProcessor] Worker ${this.workerId} stopped.`);
+      logger.debug(`[CuratorRequestProcessor] Worker ${this.workerId} stopped.`);
     }
   }
 
@@ -518,7 +518,7 @@ export class CuratorRequestProcessor {
             ast: loopAst
           }
         });
-        logger.info(`[CuratorRequestProcessor] Scheduler loop for agent '${agent.name}' started on '${agent.schedule}' (Request #${newReq.id})`);
+        logger.debug(`[CuratorRequestProcessor] Scheduler loop for agent '${agent.name}' started on '${agent.schedule}' (Request #${newReq.id})`);
         this.emit('log', { message: `[Curator] Scheduler loop for agent '${agent.name}' started on '${agent.schedule}' (Request #${newReq.id})` });
       });
       if (result.started.length || result.restarted.length || result.cancelled.length) {
@@ -610,7 +610,7 @@ export class CuratorRequestProcessor {
           }
         }
 
-        logger.info(`[CuratorRequestProcessor] Request ${req.id} received human input. Resuming...`);
+        logger.debug(`[CuratorRequestProcessor] Request ${req.id} received human input. Resuming...`);
         // We lock it briefly so another worker doesn't double-complete it
         await this.prisma.request.update({
           where: { id: req.id },
@@ -836,7 +836,7 @@ export class CuratorRequestProcessor {
   }
 
   public async processRequest(request: any) {
-    logger.info(`[CuratorRequestProcessor] Processing request ${request.id}`);
+    logger.debug(`[CuratorRequestProcessor] Processing request ${request.id}`);
     this.emit('request_start', { requestId: request.id });
     try {
       const req = await this.prisma.request.findUnique({
@@ -850,7 +850,7 @@ export class CuratorRequestProcessor {
         const totalAgents = await this.prisma.agent.count();
         const enabledCount = await this.prisma.agent.count({ where: { enabled: true } });
         if (totalAgents > 0 && enabledCount === 0) {
-          logger.info(`[CuratorRequestProcessor] Cancelling request ${req.id}: all agents are disabled.`);
+          logger.debug(`[CuratorRequestProcessor] Cancelling request ${req.id}: all agents are disabled.`);
           await this.prisma.request.update({
             where: { id: req.id },
             data: { status: 'CANCELLED', lockedBy: null, lockedAt: null }
@@ -891,7 +891,7 @@ export class CuratorRequestProcessor {
         }
 
         if (agent && agent.enabled === false) {
-          logger.info(`[CuratorRequestProcessor] Cancelling request ${req.id}: associated agent '${agent.name}' is disabled.`);
+          logger.debug(`[CuratorRequestProcessor] Cancelling request ${req.id}: associated agent '${agent.name}' is disabled.`);
           await this.prisma.request.update({
             where: { id: req.id },
             data: { status: 'CANCELLED', lockedBy: null, lockedAt: null }
@@ -983,7 +983,7 @@ export class CuratorRequestProcessor {
         let delayMs = 5000 * Math.pow(2, req.retryCount);
         if (retryMatch) delayMs = parseFloat(retryMatch[1]) * 1000 + 1000;
         const scheduledAt = new Date(this.clock() + delayMs);
-        logger.info(`[CuratorRequestProcessor] Rate limit. Rescheduling request ${request.id} in ${Math.round(delayMs/1000)}s (Attempt ${req.retryCount + 1}/${MAX_RETRIES})`);
+        logger.debug(`[CuratorRequestProcessor] Rate limit. Rescheduling request ${request.id} in ${Math.round(delayMs/1000)}s (Attempt ${req.retryCount + 1}/${MAX_RETRIES})`);
         await this.prisma.request.update({ where: { id: request.id }, data: { status: 'NEW', lockedBy: null, lockedAt: null, retryCount: req.retryCount + 1, scheduledAt } });
         return;
       }
@@ -999,7 +999,7 @@ export class CuratorRequestProcessor {
   }
 
   private async handleEmitEvent(node: any, req: any) {
-    logger.info(`[CuratorRequestProcessor] Emitting event: ${node.eventName}`);
+    logger.debug(`[CuratorRequestProcessor] Emitting event: ${node.eventName}`);
     
     // Evaluate dynamic payload
     let payload = node.payload ?? req.context?.input;
@@ -1139,7 +1139,7 @@ export class CuratorRequestProcessor {
       const matches = ctx?.waitEvent === eventName || (opts.matchWait?.(ctx?.waitEvent, eventName, payload) ?? false);
       if (matches && target && this.identityOf(waitReq) !== target) continue;
       if (matches) {
-        logger.info(`[CuratorRequestProcessor] Waking up request ${waitReq.id} waiting for event ${eventName}`);
+        logger.debug(`[CuratorRequestProcessor] Waking up request ${waitReq.id} waiting for event ${eventName}`);
         const value = opts.waitValue ? opts.waitValue(payload) : payload;
 
         const aliasKey = ctx.payloadAlias || ctx.choiceAs || ctx.as;
@@ -1172,7 +1172,7 @@ export class CuratorRequestProcessor {
       }
     }
 
-    logger.info(`[CuratorRequestProcessor] Event '${eventName}': spawned ${spawned.length}, woke ${woken.length}`);
+    logger.debug(`[CuratorRequestProcessor] Event '${eventName}': spawned ${spawned.length}, woke ${woken.length}`);
     return { eventName, spawned, woken };
   }
 
@@ -1270,7 +1270,7 @@ export class CuratorRequestProcessor {
       }
       if (missed) {
         // Emitted while this flow was between waits: deliver it as if it had woken us.
-        logger.info(`[CuratorRequestProcessor] Request ${req.id} consumed buffered event '${ast.eventName}' (#${missed.id}).`);
+        logger.debug(`[CuratorRequestProcessor] Request ${req.id} consumed buffered event '${ast.eventName}' (#${missed.id}).`);
         await this.advanceEventCursor(req.id, missed.id);
         const value = missed.payload;
         if (ast.payloadAlias) {
@@ -1290,7 +1290,7 @@ export class CuratorRequestProcessor {
       await this.completeRequest(req.id, 'COMPLETED');
       return;
     }
-    logger.info(`[CuratorRequestProcessor] Request ${req.id} paused, waiting for event '${ast.eventName}'.`);
+    logger.debug(`[CuratorRequestProcessor] Request ${req.id} paused, waiting for event '${ast.eventName}'.`);
     const updatedContext: any = { ...(req.context || {}), waitEvent: ast.eventName, payloadAlias: ast.payloadAlias };
     delete updatedContext.waitDeadline;
     if (ast.timeoutSeconds > 0) updatedContext.waitDeadline = new Date(this.clock() + ast.timeoutSeconds * 1000).toISOString();
@@ -1410,7 +1410,7 @@ export class CuratorRequestProcessor {
   }
 
   private async handleJoin(ast: CuratorJoinNode, req: any) {
-    logger.info(`[CuratorRequestProcessor] Executing Join Node for request ${req.id}`);
+    logger.debug(`[CuratorRequestProcessor] Executing Join Node for request ${req.id}`);
     const children = await this.prisma.request.findMany({
       where: { notifyId: req.id, status: 'COMPLETED' },
       include: { responses: { orderBy: { createdAt: 'desc' }, take: 1 } }
@@ -1425,7 +1425,7 @@ export class CuratorRequestProcessor {
     
     // Phase 1: Evaluate the router logic
     if (!context.routeDecided) {
-      logger.info(`[CuratorRequestProcessor] Route Node (Phase 1) for request ${req.id} - inserting router node.`);
+      logger.debug(`[CuratorRequestProcessor] Route Node (Phase 1) for request ${req.id} - inserting router node.`);
       
       // Inherit the prompt into the router if applicable
       let routerAst = { ...ast.router } as any;
@@ -1457,7 +1457,7 @@ export class CuratorRequestProcessor {
     }
 
     // Phase 2: Execute the sub-agent based on the router's decision
-    logger.info(`[CuratorRequestProcessor] Route Node (Phase 2) for request ${req.id} - making decision.`);
+    logger.debug(`[CuratorRequestProcessor] Route Node (Phase 2) for request ${req.id} - making decision.`);
     
     let decision = String(context.input || '').trim();
     try {
@@ -1467,7 +1467,7 @@ export class CuratorRequestProcessor {
       }
     } catch (e) {}
 
-    logger.info(`[CuratorRequestProcessor] Route decision: '${decision}'`);
+    logger.debug(`[CuratorRequestProcessor] Route decision: '${decision}'`);
 
     const targetAst = ast.subAgents[decision] || (ast.defaultRoute ? ast.subAgents[ast.defaultRoute] : null);
 
@@ -1510,7 +1510,7 @@ export class CuratorRequestProcessor {
       if (waitingFor === 'NODE') {
         // A state node just finished. Save its output to stateData.
         stateData = req.context?.input || stateData;
-        logger.info(`[CuratorRequestProcessor] Graph Node ${req.id} finished state '${activeNode}'.`);
+        logger.debug(`[CuratorRequestProcessor] Graph Node ${req.id} finished state '${activeNode}'.`);
       } else if (waitingFor === 'ROUTER') {
         // A conditional router just finished evaluating the state.
         // Its output was merged into Conversation.state. If it returned a raw string,
@@ -1523,7 +1523,7 @@ export class CuratorRequestProcessor {
           routeDest = req.context?.input?.trim() || '';
         }
 
-        logger.info(`[CuratorRequestProcessor] Graph Node ${req.id} routed to '${routeDest}'.`);
+        logger.debug(`[CuratorRequestProcessor] Graph Node ${req.id} routed to '${routeDest}'.`);
         
         activeNode = routeDest;
       }
@@ -1533,17 +1533,17 @@ export class CuratorRequestProcessor {
         const edge = ast.edges ? ast.edges[activeNode] : null;
         
         if (!edge || edge === '__end__') {
-          logger.info(`[CuratorRequestProcessor] Graph Node ${req.id} reached terminal state.`);
+          logger.debug(`[CuratorRequestProcessor] Graph Node ${req.id} reached terminal state.`);
           await this.saveResponse(req, stateData);
           await this.completeRequest(req.id, 'COMPLETED');
           return;
         }
 
         if (typeof edge === 'string') {
-          logger.info(`[CuratorRequestProcessor] Graph Node ${req.id} statically transitioning to '${edge}'.`);
+          logger.debug(`[CuratorRequestProcessor] Graph Node ${req.id} statically transitioning to '${edge}'.`);
           activeNode = edge;
         } else {
-          logger.info(`[CuratorRequestProcessor] Graph Node ${req.id} spawning conditional router for '${activeNode}'.`);
+          logger.debug(`[CuratorRequestProcessor] Graph Node ${req.id} spawning conditional router for '${activeNode}'.`);
           await this.createValidatedRequest({
             data: {
               userId: req.userId,
@@ -1577,7 +1577,7 @@ export class CuratorRequestProcessor {
     // Phase 2: Execute the active state node
     if (!waitingFor) {
       if (activeNode === '__end__') {
-        logger.info(`[CuratorRequestProcessor] Graph Node ${req.id} reached __end__ before execution.`);
+        logger.debug(`[CuratorRequestProcessor] Graph Node ${req.id} reached __end__ before execution.`);
         await this.saveResponse(req, stateData);
         await this.completeRequest(req.id, 'COMPLETED');
         return;
@@ -1591,7 +1591,7 @@ export class CuratorRequestProcessor {
         return;
       }
 
-      logger.info(`[CuratorRequestProcessor] Graph Node ${req.id} executing state '${activeNode}'.`);
+      logger.debug(`[CuratorRequestProcessor] Graph Node ${req.id} executing state '${activeNode}'.`);
       
       let nodeAst = { ...targetAst } as any;
 
@@ -1657,7 +1657,7 @@ export class CuratorRequestProcessor {
       });
     }
 
-    logger.info(`[CuratorRequestProcessor] Request ${req.id} presenting prompt/choices (${choices?.length ?? 0} choices) to ${ast.targetUserId ? `user ${ast.targetUserId}` : 'any user'} (${ast.inputType || 'choices'}).`);
+    logger.debug(`[CuratorRequestProcessor] Request ${req.id} presenting prompt/choices (${choices?.length ?? 0} choices) to ${ast.targetUserId ? `user ${ast.targetUserId}` : 'any user'} (${ast.inputType || 'choices'}).`);
 
     const choicePayload = {
       requestId: req.id,
@@ -2030,7 +2030,7 @@ export class CuratorRequestProcessor {
       return;
     }
 
-    logger.info(`[CuratorRequestProcessor] Executing Script Node (${ast.language || 'javascript'}) for request ${req.id}`);
+    logger.debug(`[CuratorRequestProcessor] Executing Script Node (${ast.language || 'javascript'}) for request ${req.id}`);
     const sandbox = {
       console,
       input: req.context?.input || '',
@@ -2048,7 +2048,7 @@ export class CuratorRequestProcessor {
       
       const nodeTypes = ['Curator_Agent', 'Curator_Sequential', 'Curator_Parallel', 'Curator_Join', 'Curator_Tool', 'Curator_Script', 'Curator_Route', 'Curator_HumanInput', 'Curator_Graph', 'Curator_AgentRef', 'Curator_SetState', 'Curator_EmitEvent', 'Curator_WaitEvent', 'Curator_Interrupt', 'Curator_Assign',       'Curator_IfElse', 'Curator_While', 'Curator_Loop', 'Curator_ForEach'];
       if (output && typeof output === 'object' && output.type && nodeTypes.includes(output.type)) {
-        logger.info(`[CuratorRequestProcessor] Script generated a valid AST node of type ${output.type}. Spawning as child...`);
+        logger.debug(`[CuratorRequestProcessor] Script generated a valid AST node of type ${output.type}. Spawning as child...`);
         // Spawn the dynamic AST
         await this.createValidatedRequest({
           data: {
@@ -2253,7 +2253,7 @@ export class CuratorRequestProcessor {
       });
       if (claimed.count === 0) continue;
 
-      logger.info(`[CuratorRequestProcessor] Approval wait for '${pending.name}' on request ${req.id} expired.`);
+      logger.debug(`[CuratorRequestProcessor] Approval wait for '${pending.name}' on request ${req.id} expired.`);
       const record: CuratorStructuredResponse = {
         type: 'APPROVAL_EXPIRED', ok: false, tool: pending.name, expiresAt: pending.expiresAt, reason: ctx.reason
       };
@@ -2294,7 +2294,7 @@ export class CuratorRequestProcessor {
       if (claimed.count === 0) continue;
 
       const isEventWait = req.status === 'WAITING_FOR_EVENT';
-      logger.info(`[CuratorRequestProcessor] Human prompt on request ${req.id} timed out.`);
+      logger.debug(`[CuratorRequestProcessor] Human prompt on request ${req.id} timed out.`);
       const nextCtx: any = { ...ctx };
       delete nextCtx.waitEvent;
       delete nextCtx.waitDeadline;
@@ -2341,12 +2341,12 @@ export class CuratorRequestProcessor {
     const ids = victims.map((v: any) => v.id);
     await this.prisma.response.deleteMany({ where: { requestId: { in: ids } } });
     const deleted = await this.prisma.request.deleteMany({ where: { id: { in: ids } } });
-    logger.info(`[CuratorRequestProcessor] Retention: pruned ${deleted.count} read-only tool request(s) older than ${cutoff.toISOString()}.`);
+    logger.debug(`[CuratorRequestProcessor] Retention: pruned ${deleted.count} read-only tool request(s) older than ${cutoff.toISOString()}.`);
     return deleted.count;
   }
 
   private async handleTool(ast: CuratorToolNode, req: any) {
-    logger.info(`[CuratorRequestProcessor] Executing Tool '${ast.toolName}' for request ${req.id}`);
+    logger.debug(`[CuratorRequestProcessor] Executing Tool '${ast.toolName}' for request ${req.id}`);
     const tool = this.engine.tools.get(ast.toolName);
     if (!tool) throw new Error(`Tool ${ast.toolName} not found in dynamic registry.`);
 
@@ -2381,7 +2381,7 @@ export class CuratorRequestProcessor {
     const accessCheck = await this.checkToolAccess(req, ast.toolName, tool);
     if (!accessCheck.allowed) {
       if (accessCheck.requiresConfirmation) {
-        logger.info(`[CuratorRequestProcessor] Request ${req.id} pausing on WAITING_FOR_USER for tool '${ast.toolName}'.`);
+        logger.debug(`[CuratorRequestProcessor] Request ${req.id} pausing on WAITING_FOR_USER for tool '${ast.toolName}'.`);
         const ttlMs = ast.approvalTtlMs ?? (tool as any).approvalTtlMs ?? this.approvalTtlMs;
         const expiresAt = ttlMs > 0 ? new Date(this.clock() + ttlMs).toISOString() : undefined;
         await this.prisma.request.update({
@@ -2509,7 +2509,7 @@ export class CuratorRequestProcessor {
   }
 
   private async handleSetState(ast: any, req: any) {
-    logger.info(`[CuratorRequestProcessor] Setting state for request ${req.id}`);
+    logger.debug(`[CuratorRequestProcessor] Setting state for request ${req.id}`);
     if (ast.state && typeof ast.state === 'object') {
       await this.writeState(req.conversationId, this.parseContext(req.context).__scope, ast.state);
       await this.saveResponse(req, JSON.stringify({ status: 'State updated', state: ast.state }));
@@ -2531,7 +2531,7 @@ export class CuratorRequestProcessor {
     const cancelThreshold: number = ast.cancelBelowPriority ?? priority;
     const mode: 'stop' | 'pause' | 'play' = ast.mode ?? 'stop';
 
-    logger.info(`[CuratorRequestProcessor] Interrupt (mode=${mode}, priority=${priority}) for conversation ${req.conversationId}`);
+    logger.debug(`[CuratorRequestProcessor] Interrupt (mode=${mode}, priority=${priority}) for conversation ${req.conversationId}`);
 
     if (mode === 'play') {
       // Resume all PAUSED requests in this conversation
@@ -2542,7 +2542,7 @@ export class CuratorRequestProcessor {
         },
         data: { status: 'NEW', lockedBy: null, lockedAt: null }
       });
-      logger.info(`[CuratorRequestProcessor] Resumed ${resumed.count} paused requests.`);
+      logger.debug(`[CuratorRequestProcessor] Resumed ${resumed.count} paused requests.`);
       await this.saveResponse(req, JSON.stringify({ status: 'play', resumed: resumed.count }));
       await this.completeRequest(req.id, 'COMPLETED');
       return;
@@ -2565,7 +2565,7 @@ export class CuratorRequestProcessor {
         },
         data: { status: 'PAUSED' }
       });
-      logger.info(`[CuratorRequestProcessor] Paused ${paused.count} requests.`);
+      logger.debug(`[CuratorRequestProcessor] Paused ${paused.count} requests.`);
 
       // Run handler if provided
       if (ast.handler) {
@@ -2602,7 +2602,7 @@ export class CuratorRequestProcessor {
       },
       data: { status: 'FAILED' }
     });
-    logger.info(`[CuratorRequestProcessor] Cancelled ${cancelled.count} lower-priority requests.`);
+    logger.debug(`[CuratorRequestProcessor] Cancelled ${cancelled.count} lower-priority requests.`);
 
     // Run the interrupt handler at high priority
     if (ast.handler) {
@@ -2789,7 +2789,7 @@ export class CuratorRequestProcessor {
     }
     const hasTools = offeredTools.length > 0;
 
-    logger.info(`[CuratorRequestProcessor] Executing Agent '${ast.agentName}' for request ${req.id} using provider '${provider.providerName}' [mode: ${hasTools ? 'agentic' : 'direct'}]`);
+    logger.debug(`[CuratorRequestProcessor] Executing Agent '${ast.agentName}' for request ${req.id} using provider '${provider.providerName}' [mode: ${hasTools ? 'agentic' : 'direct'}]`);
 
     // Build tool definitions if tools specified
     const toolDefs: LlmToolDefinition[] = [];
@@ -2856,7 +2856,7 @@ export class CuratorRequestProcessor {
       }
 
       // Model returned tool calls: persist the assistant turn into DB
-      logger.info(`[CuratorRequestProcessor] Agent '${ast.agentName}' invoked ${response.toolCalls.length} tool(s) in turn ${iterations}.`);
+      logger.debug(`[CuratorRequestProcessor] Agent '${ast.agentName}' invoked ${response.toolCalls.length} tool(s) in turn ${iterations}.`);
       
       messages.push({
         role: 'assistant',
@@ -2881,7 +2881,7 @@ export class CuratorRequestProcessor {
           const accessCheck = await this.checkToolAccess(req, tc.name, tool);
           if (!accessCheck.allowed) {
             if (accessCheck.requiresConfirmation) {
-              logger.info(`[CuratorRequestProcessor] Request ${req.id} pausing on WAITING_FOR_USER for tool '${tc.name}'.`);
+              logger.debug(`[CuratorRequestProcessor] Request ${req.id} pausing on WAITING_FOR_USER for tool '${tc.name}'.`);
               const ttlMs = (tool as any).approvalTtlMs ?? this.approvalTtlMs;
               const expiresAt = ttlMs > 0 ? new Date(this.clock() + ttlMs).toISOString() : undefined;
               await this.prisma.request.update({
@@ -3007,7 +3007,7 @@ export class CuratorRequestProcessor {
       }
     }
 
-    logger.info(`[CuratorRequestProcessor] Agent '${ast.agentName}' completed in ${iterations} turn(s). Output length: ${finalOutput.length}`);
+    logger.debug(`[CuratorRequestProcessor] Agent '${ast.agentName}' completed in ${iterations} turn(s). Output length: ${finalOutput.length}`);
     await this.saveResponse(req, finalOutput);
     await this.completeRequest(req.id, 'COMPLETED');
   }
@@ -3222,7 +3222,7 @@ export class CuratorRequestProcessor {
   }
 
   private async handleAssign(ast: any, req: any) {
-    logger.info(`[CuratorRequestProcessor] Handling Assign node for ${req.id}`);
+    logger.debug(`[CuratorRequestProcessor] Handling Assign node for ${req.id}`);
     const evaluatedValue = await this.evaluateExpressionAsync(ast.expression, req);
     
     const updateObj: Record<string, any> = {};
@@ -3245,7 +3245,7 @@ export class CuratorRequestProcessor {
   }
 
   private async handleIfElse(ast: any, req: any) {
-    logger.info(`[CuratorRequestProcessor] Handling IfElse node for ${req.id}`);
+    logger.debug(`[CuratorRequestProcessor] Handling IfElse node for ${req.id}`);
     
     if (req.context?.ifElseEvaluated) {
       // The branch finished and woke us up.
@@ -3289,7 +3289,7 @@ export class CuratorRequestProcessor {
   }
 
   private async handleWhile(ast: any, req: any) {
-    logger.info(`[CuratorRequestProcessor] Handling While node for ${req.id}`);
+    logger.debug(`[CuratorRequestProcessor] Handling While node for ${req.id}`);
     
     // We need fresh state to evaluate condition properly across iterations
     const conv = await this.prisma.conversation.findUnique({ where: { id: req.conversationId } });
@@ -3393,7 +3393,7 @@ export class CuratorRequestProcessor {
   }
 
   private async handleForEach(ast: any, req: any) {
-    logger.info(`[CuratorRequestProcessor] Handling ForEach node for ${req.id}`);
+    logger.debug(`[CuratorRequestProcessor] Handling ForEach node for ${req.id}`);
     
     let collection = req.context?.forEachCollection;
     if (!collection) {

@@ -1,13 +1,13 @@
-#!/usr/bin/env tsx
-logger.info('[CLI Bootstrap] Booting...');
 import dotenv from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
 import { Command } from 'commander';
-import { logger } from '../utils/logger.js';
+import { logger, setLogLevel } from '../utils/logger.js';
+
+logger.debug('[CLI Bootstrap] Booting...');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-import fs from 'node:fs';
 
 // Resolve project root dynamically by walking up until we find package.json
 let root = path.join(__dirname, '..', '..');
@@ -35,7 +35,17 @@ const program = new Command();
 program
   .name('curator-agent')
   .description('Curator Agent Runner CLI')
-  .version('1.0.0');
+  .version('1.0.0')
+  .option('--log-level <level>', 'Set log level (error, warn, info, debug, silent)')
+  .option('--debug', 'Enable debug log level')
+  .hook('preAction', (thisCommand) => {
+    const opts = thisCommand.opts();
+    if (opts.debug) {
+      setLogLevel('debug');
+    } else if (opts.logLevel) {
+      setLogLevel(opts.logLevel);
+    }
+  });
 
 program
   .command('run')

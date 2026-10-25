@@ -6,6 +6,7 @@ import {
   curatorEngine,
   ConversationManager,
   ConversationRouter,
+  setLogLevel,
 } from '@curator/agent-server';
 import { CuratorHostEvents } from './events/CuratorHostEvents.js';
 import { seedAgentsAndTools } from './seed/seedAgentsAndTools.js';
@@ -13,6 +14,9 @@ import { resolveHostPolicy } from './hostPolicy.js';
 import type { CuratorHost, CuratorHostConfig, SeedResult, HostRunToolOptions, HostEmitEventOptions } from './types.js';
 
 export async function createCuratorHost(config: CuratorHostConfig): Promise<CuratorHost> {
+  if (config.logLevel) {
+    setLogLevel(config.logLevel);
+  }
   const name = config.name || 'curator';
   const dataDir = config.dataDir ?? process.env.DATA_DIR ?? './data';
   const logger = config.logger ?? console;
