@@ -14,7 +14,10 @@ import {
   PokerModule,
   PokerLobbyAction,
   AmbientSpeechAct,
+  DEFAULT_LOBBY_CHOICES,
+  DEFAULT_LOBBY_OPTIONS,
 } from '../models/index.ts';
+import { formatTableChoices } from './pokerEngine.ts';
 
 export interface PokerSessionOptions {
   databasePath?: string;
@@ -22,6 +25,8 @@ export interface PokerSessionOptions {
   tableId?: string | number;
   maxSeats?: number;
   startingChips?: number;
+  sbAmount?: number;
+  bbAmount?: number;
   smallBlind?: number;
   bigBlind?: number;
   verbose?: boolean;
@@ -412,8 +417,8 @@ export async function createPokerGameSession(
 ): Promise<PokerGameSession> {
   const maxSeats = Math.min(6, Math.max(2, options.maxSeats || 4));
   const startingChips = options.startingChips || 1000;
-  const smallBlind = options.smallBlind || 10;
-  const bigBlind = options.bigBlind || 20;
+  const smallBlind = options.sbAmount ?? options.smallBlind ?? 10;
+  const bigBlind = options.bbAmount ?? options.bigBlind ?? 20;
 
   const prisma = host.prisma;
   const user = host.user;
@@ -614,14 +619,7 @@ export async function createPokerGameSession(
       return { actors };
     } else if (eventName === PokerEvent.LIST_TABLES) {
       const tables = await listTables();
-      const choices = tables.map((t: any, idx: number) => ({
-        id: String(t.id || t.tableId || idx + 1),
-        label: `Table #${t.tableId || t.id || idx + 1} (${t.title || 'Table'})`,
-        aliases: [String(idx + 1), String(t.tableId || t.id || idx + 1)],
-        event: PokerEvent.TABLE_SELECTED,
-        payload: { id: String(t.tableId || t.id || idx + 1) },
-        value: { id: String(t.tableId || t.id || idx + 1) },
-      }));
+      const choices = formatTableChoices(tables);
       host.events.broadcast(PokerEvent.REQUEST_TABLE_SELECTION, { tables, choices });
       return tables;
     } else if (eventName === PokerEvent.RESET_LIGHT) {
@@ -635,16 +633,8 @@ export async function createPokerGameSession(
         bypassLobby: false,
       });
       host.events.broadcast(PokerEvent.LOBBY_PROMPT, {
-        options: [
-          { id: PokerLobbyAction.NEW, label: 'New Game', description: 'Start fresh table' },
-          { id: PokerLobbyAction.RESUME, label: 'Resume Game', description: 'Select from active/paused tables' },
-          { id: PokerLobbyAction.EXIT, label: 'Exit', description: 'Quit session' },
-        ],
-        choices: [
-          { id: PokerLobbyAction.NEW, label: 'New Game - Start fresh table', aliases: ['n'], event: PokerEvent.LOBBY_CHOICE, payload: { id: PokerLobbyAction.NEW }, value: { id: PokerLobbyAction.NEW } },
-          { id: PokerLobbyAction.RESUME, label: 'Resume Game - Select from active/paused tables', aliases: ['r', 'continue'], event: PokerEvent.LOBBY_CHOICE, payload: { id: PokerLobbyAction.RESUME }, value: { id: PokerLobbyAction.RESUME } },
-          { id: PokerLobbyAction.EXIT, label: 'Exit - Quit session', aliases: ['q', 'exit', 'quit'], event: PokerEvent.LOBBY_CHOICE, payload: { id: PokerLobbyAction.EXIT }, value: { id: PokerLobbyAction.EXIT } },
-        ],
+        options: DEFAULT_LOBBY_OPTIONS,
+        choices: DEFAULT_LOBBY_CHOICES,
       });
       return res;
     }

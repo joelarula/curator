@@ -17,6 +17,7 @@ export type PokerModuleType = (typeof PokerModule)[keyof typeof PokerModule];
 
 export const PokerSubroutine = {
   HANDLE_PAUSE: '#handle_pause',
+  PLAYER_TURN: '#player_turn',
   AI_AGENT_FLOW: '#ai_agent_flow',
   DEAL_NEXT_STREET: '#deal_next_street',
   SETTLE_SHOWDOWN: '#settle_showdown',
@@ -40,7 +41,8 @@ export const PokerStep = {
   BOOT_TABLE: 'poker:boot_table',
   WAIT_FOR_PLAYERS: 'poker:wait_for_players',
 
-  // Human Turn Steps
+  // Player Turn Steps
+  PLAYER_TURN: 'poker:player_turn',
   HUMAN_TURN: 'poker:human_turn',
   HANDLE_PAUSE: 'poker:handle_pause',
   WAIT_RESUME: 'poker:wait_resume',

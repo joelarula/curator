@@ -17,7 +17,7 @@ import {
 } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
 
-import { PokerLobbyAction, type PokerLobbyActionType } from '../models/index.ts';
+import { PokerLobbyAction, type PokerLobbyActionType, DEFAULT_LOBBY_CHOICES } from '../models/index.ts';
 export { PokerLobbyAction, type PokerLobbyActionType };
 export const lobbyActions = PokerLobbyAction;
 
@@ -61,11 +61,7 @@ export function buildPokerLobbyModule(): CuratorModuleNode {
       [
         choice(
           'Lobby Options:',
-          [
-            { id: lobbyActions.NEW, label: 'New Game - Start fresh table', aliases: ['n'], value: { id: lobbyActions.NEW } },
-            { id: lobbyActions.RESUME, label: 'Resume Game - Select from active/paused tables', aliases: ['r', 'continue'], value: { id: lobbyActions.RESUME } },
-            { id: lobbyActions.EXIT, label: 'Exit - Quit session', aliases: ['q', 'exit', 'quit'], value: { id: lobbyActions.EXIT } },
-          ],
+          DEFAULT_LOBBY_CHOICES,
           { as: ctx.lobbyChoice },
         ),
         ifElse(

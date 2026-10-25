@@ -22,6 +22,7 @@ import { getPokerRules, sanitizeAction, tableRules } from './pokerRules.ts';
 import { buildAgentPrompt, formatAgentPrompt, formatConversationHistory } from './agentPrompt.ts';
 import { DEFAULT_TABLE_PLAYERS } from './agentProfiles.ts';
 import { AmbientSpeechAct, PokerActionType, PokerStreet } from '../models/pokerConstants.ts';
+import { PokerEvent } from '../models/pokerEvents.ts';
 
 export { getPokerRules, sanitizeAction, tableRules };
 export { buildAgentPrompt, formatAgentPrompt, formatConversationHistory };
@@ -49,6 +50,29 @@ export function getLegalChoices(gameState: PokerGameState, playerIdx?: number): 
   const toCall = Math.max(0, (gameState.currentBet || 0) - (player.streetBet || 0));
   const rules = getPokerRules();
   return rules.getLegalChoices(toCall, player.chips || 0, gameState.minRaise || 20, gameState.currentBet || 0);
+}
+
+/**
+ * Standardizes mapping of table conversations to interactive selection choices across
+ * list_tables tool, session discovery, and REPL shell.
+ */
+export function formatTableChoices(
+  tables: Array<{ id?: string | number; tableId?: string | number; title?: string }>
+) {
+  return tables.map((t, idx) => {
+    const tableId = String(t.tableId || t.id || idx + 1);
+    const title = t.title || `Table #${tableId}`;
+    return {
+      id: tableId,
+      tableId,
+      title,
+      label: `Table #${tableId} (${title})`,
+      aliases: [String(idx + 1), tableId],
+      event: PokerEvent.TABLE_SELECTED,
+      payload: { id: tableId },
+      value: { id: tableId },
+    };
+  });
 }
 
 export function createDeck(): Card[] {

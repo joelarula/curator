@@ -42,3 +42,15 @@ export const PokerLobbyAction = {
 
 export type PokerLobbyActionType = (typeof PokerLobbyAction)[keyof typeof PokerLobbyAction];
 
+export const DEFAULT_LOBBY_OPTIONS = [
+  { id: PokerLobbyAction.NEW, label: 'New Game', description: 'Start fresh table' },
+  { id: PokerLobbyAction.RESUME, label: 'Resume Game', description: 'Select from active/paused tables' },
+  { id: PokerLobbyAction.EXIT, label: 'Exit', description: 'Quit session' },
+] as const;
+
+export const DEFAULT_LOBBY_CHOICES = [
+  { id: PokerLobbyAction.NEW, label: 'New Game - Start fresh table', aliases: ['n'], event: 'poker:lobby_choice', payload: { id: PokerLobbyAction.NEW }, value: { id: PokerLobbyAction.NEW } },
+  { id: PokerLobbyAction.RESUME, label: 'Resume Game - Select from active/paused tables', aliases: ['r', 'continue'], event: 'poker:lobby_choice', payload: { id: PokerLobbyAction.RESUME }, value: { id: PokerLobbyAction.RESUME } },
+  { id: PokerLobbyAction.EXIT, label: 'Exit - Quit session', aliases: ['q', 'exit', 'quit'], event: 'poker:lobby_choice', payload: { id: PokerLobbyAction.EXIT }, value: { id: PokerLobbyAction.EXIT } },
+];
+

@@ -25,13 +25,13 @@ const {
   is_game_active,
   is_hand_active,
   is_street_active,
-  active_player_is_human,
+  active_player_is_interactive,
   is_table_paused,
   table_has_no_state,
   table_needs_players,
   is_session_unpaused,
-  is_human_action_pause,
-  is_human_action_exit,
+  is_turn_action_pause,
+  is_turn_action_exit,
   is_resume_cmd,
   start_poker_hand,
   deal_next_street,
@@ -45,6 +45,7 @@ const {
   join_lobby,
   events,
   modules,
+  subroutines,
   steps,
   reasons,
 } = pokerComposables;
@@ -59,6 +60,71 @@ export const aiAgentFlow = defineSubroutine('ai_agent_flow', {
     apply_player_action(),
   ]),
 });
+
+/**
+ * Composable sequence for universal player turn handling (interactive choices and autonomous agent deliberation).
+ */
+export function buildPlayerTurnStep() {
+  return seq(steps.TURN_STEP, [
+    ifElse(
+      active_player_is_interactive,
+      seq(steps.HUMAN_AGENT_FLOW, [
+        get_legal_choices(),
+        choice(
+          'Your turn:',
+          String(ctx.poker_get_choices.choices),
+          { as: ctx.turnAction },
+        ),
+        ifElse(
+          is_turn_action_pause,
+          seq(steps.HANDLE_PAUSE, [
+            setState({ isPaused: true }),
+            emitEvent(events.TABLE_PAUSED, {
+              tableId: String(gameState.tableId),
+            }),
+            whileLoop(
+              is_table_paused,
+              seq(steps.WAIT_RESUME, [
+                waitEvent(events.RESUME_ACTION, ctx.resumeCmd),
+                ifElse(
+                  is_resume_cmd,
+                  seq(steps.UNPAUSE, [
+                    setState({ isPaused: false }),
+                    emitEvent(events.TABLE_RESUMED, {
+                      tableId: String(gameState.tableId),
+                    }),
+                  ]),
+                ),
+              ]),
+            ),
+          ]),
+          ifElse(
+            is_turn_action_exit,
+            seq(steps.HANDLE_EXIT, [
+              setState({ sessionEnded: true }),
+              emitEvent(events.SESSION_EXITED, {
+                reason: reasons.USER_EXIT,
+              }),
+            ]),
+          ),
+        ),
+      ]),
+      seq(steps.AI_AGENT_FLOW, [
+        ai_decision(),
+        setState({ turnAction: `${ctx.poker_ai_decision.action} || ${ctx.lastAiAction}` }),
+      ]),
+    ),
+    ifElse(
+      is_session_unpaused,
+      seq(steps.APPLY_ACTION, [
+        apply_player_action(ctx.turnAction),
+        emitEvent(events.ACTION_TAKEN, {
+          player: `${gameState.players}[${gameState.activePlayerIdx}].name`,
+        }),
+      ]),
+    ),
+  ]);
+}
 
 /**
  * Subroutine for dealing the next street community cards.
@@ -139,66 +205,7 @@ export function buildPokerWorkflowModule(): CuratorModuleNode {
             seq(steps.STREET_LOOP, [
               whileLoop(
                 is_street_active,
-                seq(steps.TURN_STEP, [
-                  ifElse(
-                    active_player_is_human,
-                    seq(steps.HUMAN_AGENT_FLOW, [
-                      get_legal_choices(),
-                      choice(
-                        'Your turn:',
-                        String(ctx.poker_get_choices.choices),
-                        { as: ctx.humanAction },
-                      ),
-                      ifElse(
-                        is_human_action_pause,
-                        seq(steps.HANDLE_PAUSE, [
-                          setState({ isPaused: true }),
-                          emitEvent(events.TABLE_PAUSED, {
-                            tableId: String(gameState.tableId),
-                          }),
-                          whileLoop(
-                            is_table_paused,
-                            seq(steps.WAIT_RESUME, [
-                              waitEvent(events.RESUME_ACTION, ctx.resumeCmd),
-                              ifElse(
-                                is_resume_cmd,
-                                seq(steps.UNPAUSE, [
-                                  setState({ isPaused: false }),
-                                  emitEvent(events.TABLE_RESUMED, {
-                                    tableId: String(gameState.tableId),
-                                  }),
-                                ]),
-                              ),
-                            ]),
-                          ),
-                        ]),
-                        ifElse(
-                          is_human_action_exit,
-                          seq(steps.HANDLE_EXIT, [
-                            setState({ sessionEnded: true }),
-                            emitEvent(events.SESSION_EXITED, {
-                              reason: reasons.USER_EXIT,
-                            }),
-                          ]),
-                          setState({ turnAction: ctx.humanAction }),
-                        ),
-                      ),
-                    ]),
-                    seq(steps.AI_AGENT_FLOW, [
-                      ai_decision(),
-                      setState({ turnAction: `${ctx.poker_ai_decision.action} || ${ctx.lastAiAction}` }),
-                    ]),
-                  ),
-                  ifElse(
-                    is_session_unpaused,
-                    seq(steps.APPLY_ACTION, [
-                      apply_player_action(ctx.turnAction),
-                      emitEvent(events.ACTION_TAKEN, {
-                        player: `${gameState.players}[${gameState.activePlayerIdx}].name`,
-                      }),
-                    ]),
-                  ),
-                ]),
+                buildPlayerTurnStep(),
               ),
               ifElse(
                 `${gameState} and not ${gameState.handOver}`,

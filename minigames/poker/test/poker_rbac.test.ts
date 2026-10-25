@@ -96,20 +96,20 @@ test('Poker RBAC — Declarative Plugin Roles & Whitelist Enforcement', async (t
       role: {
         findFirst: async ({ where }: any) => {
           const val = where.OR?.[0]?.name || where.OR?.[0]?.id || where.OR?.[1]?.name || where.OR?.[1]?.id;
-          if (val === 'poker:dealer' || val === 1) return { id: 1, name: 'poker:dealer' };
-          if (val === 'poker:player' || val === 2) return { id: 2, name: 'poker:player' };
-          if (val === 'poker:spectator' || val === 3) return { id: 3, name: 'poker:spectator' };
+          if (val === 'poker:dealer' || val === 1 || val === '1') return { id: 1, name: 'poker:dealer' };
+          if (val === 'poker:player' || val === 2 || val === '2') return { id: 2, name: 'poker:player' };
+          if (val === 'poker:spectator' || val === 3 || val === '3') return { id: 3, name: 'poker:spectator' };
           return null;
         },
       },
       roleInheritance: {
         findMany: async ({ where }: any) => {
           // poker:dealer -> poker:player
-          if (where.parentId === 1 || where.parentId === 'poker:dealer') {
+          if (where.parentId === 1 || where.parentId === '1' || where.parentId === 'poker:dealer') {
             return [{ subRoleId: 2, subRole: { name: 'poker:player' } }];
           }
           // poker:player -> poker:spectator
-          if (where.parentId === 2 || where.parentId === 'poker:player') {
+          if (where.parentId === 2 || where.parentId === '2' || where.parentId === 'poker:player') {
             return [{ subRoleId: 3, subRole: { name: 'poker:spectator' } }];
           }
           return [];

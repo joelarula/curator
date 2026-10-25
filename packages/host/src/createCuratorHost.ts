@@ -383,25 +383,40 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
     },
 
     async listProjects(): Promise<any[]> {
-      return prisma.project.findMany({
+      const projects = await prisma.project.findMany({
         where: { existent: true },
         include: {
-          roles: { include: { role: true } },
+          projectRoles: { include: { role: true } },
+          roles: true,
           conversations: true,
         },
         orderBy: { createdAt: 'desc' },
       });
+      return projects.map((p: any) => ({
+        ...p,
+        roles: (p.projectRoles && p.projectRoles.length > 0)
+          ? p.projectRoles.map((pr: any) => pr.role).filter(Boolean)
+          : (p.roles || []),
+      }));
     },
 
     async getProject(projectId: string): Promise<any | null> {
-      return prisma.project.findFirst({
+      const p = await prisma.project.findFirst({
         where: { id: projectId, existent: true },
         include: {
-          roles: { include: { role: true } },
+          projectRoles: { include: { role: true } },
+          roles: true,
           conversations: true,
           agents: true,
         },
       });
+      if (!p) return null;
+      return {
+        ...p,
+        roles: (p.projectRoles && p.projectRoles.length > 0)
+          ? p.projectRoles.map((pr: any) => pr.role).filter(Boolean)
+          : (p.roles || []),
+      };
     },
 
     async assignUserProjectRole(userId: string, roleName: string, projectId: string): Promise<any> {

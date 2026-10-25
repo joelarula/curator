@@ -47,6 +47,7 @@ import {
   checkPokerGameOver,
   getPokerStandings,
   getLegalChoices,
+  formatTableChoices,
 } from '../engine/pokerEngine.ts';
 import { POKER_AGENT_PROFILES } from '../engine/agentProfiles.ts';
 
@@ -427,14 +428,7 @@ export const pokerListTablesTool = defineTool<PokerListTablesParams>({
       tableId: String(c.id),
       title: c.metadata?.tableName || c.title || `Table #${c.id}`,
     }));
-    const choices = tables.map((t: any, idx: number) => ({
-      id: String(t.id),
-      label: `Table #${t.id} (${t.title})`,
-      aliases: [String(idx + 1), String(t.id)],
-      event: PokerEvent.TABLE_SELECTED,
-      payload: { id: String(t.id) },
-      value: { id: String(t.id) },
-    }));
+    const choices = formatTableChoices(tables);
     return { tables, choices };
   },
 });
