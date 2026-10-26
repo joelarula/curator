@@ -3,6 +3,8 @@ import { WebSocket } from 'ws';
 import { createPokerGameSession, type PokerGameSession, type PokerSessionOptions } from '../session/pokerSession.ts';
 import { executePokerGraphQL, POKER_SCHEMA_SDL } from '../graphql/index.ts';
 import { createPokerHost } from '../host.ts';
+import { handlePokerMessage } from '../shared/pokerMessage.ts';
+
 import type { CuratorHost } from '../curatorHost.ts';
 
 export interface PokerServerOptions extends PokerSessionOptions {
@@ -371,22 +373,8 @@ export async function createPokerServer(options: PokerServerOptions = {}): Promi
           return;
         }
 
-        if (msg.type === 'poker:human_action') {
-          await session.submitAction(msg.payload || msg.action, { tableId, sessionId });
-          return;
-        }
-
-        if (msg.type === 'poker:speech') {
-          await session.submitSpeech(msg.payload || msg, { tableId, sessionId });
-          return;
-        }
-
-        if (typeof msg.type === 'string' && (msg.type.startsWith('poker:') || msg.type.startsWith('curator:'))) {
-          const woken = await session.send(msg.type, msg.payload || msg.action, tableId, sessionId);
-          if (woken) {
-            await session.step(tableId);
-          }
-        }
+        // Unified message handling via shared module
+        await handlePokerMessage(msg, session, { tableId, sessionId });
       } catch (_) {}
     });
   });
