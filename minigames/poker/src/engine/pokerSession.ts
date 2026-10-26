@@ -3,7 +3,7 @@ import {
   getWaitingChoice,
   type CuratorHost,
 } from '../curatorHost.ts';
-import { AgentRoleService } from '../curator.ts';
+import { AgentRoleService, logger } from '../curator.ts';
 import type { PlayerAction, PokerGameState } from '../types.ts';
 import {
   PokerEvent,
@@ -1063,21 +1063,19 @@ export async function createPokerGameSession(
   ): Promise<DirectStepResult> => {
     const targetConvId = tableId !== undefined ? Number(tableId) : conversation.id;
 
-    if (!options.quiet) {
-      const currentGState = await getGameState(targetConvId);
-      if (currentGState) {
-        console.log(`\x1b[90m[Curator Engine] Stepping AST workflow on Table #${targetConvId}...\x1b[0m`);
-      } else {
-        console.log(`\x1b[90m[Curator Engine] Stepping Poker Lobby AST workflow...\x1b[0m`);
-      }
+    const currentGState = await getGameState(targetConvId);
+    if (currentGState) {
+      logger.debug(`[Curator Engine] Stepping AST workflow on Table #${targetConvId}...`);
+    } else {
+      logger.debug(`[Curator Engine] Stepping Poker Lobby AST workflow...`);
     }
 
     const stepRes = await stepInteractiveConversation(host, targetConvId, maxSteps);
     const humanTurn = await getWaitingHumanTurn(targetConvId);
     const gameState = await getGameState(targetConvId);
 
-    if (humanTurn && !options.quiet) {
-      console.log(`\x1b[32m✔ [Curator Engine] Action required from ${humanTurn.name} (chips: $${humanTurn.chips}, to call: $${humanTurn.toCall})\x1b[0m`);
+    if (humanTurn) {
+      logger.debug(`[Curator Engine] Action required from ${humanTurn.name} (chips: $${humanTurn.chips}, to call: $${humanTurn.toCall})`);
     }
 
     if (stepRes.done) {

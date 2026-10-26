@@ -17,6 +17,7 @@ import {
   type CuratorModuleNode,
 } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
+import { buildAgentTurnSteps } from './agentTurn.ts';
 
 const {
   ctx,
@@ -28,7 +29,6 @@ const {
   is_resume_cmd,
   is_exit_cmd,
   get_legal_choices,
-  ai_decision,
   apply_player_action,
   events,
   modules,
@@ -93,12 +93,7 @@ export function buildHumanTurnSteps() {
   ];
 }
 
-export function buildAgentTurnSteps() {
-  return [
-    ai_decision(),
-    apply_player_action(`${ctx.poker_ai_decision.action} || ${ctx.lastAiAction} || ${ctx.turnAction}`),
-  ];
-}
+export { buildAgentTurnSteps };
 
 export function buildPlayerTurnModule(): CuratorModuleNode {
   return defineModule(modules.PLAYER_TURN, {

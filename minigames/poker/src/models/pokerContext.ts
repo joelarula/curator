@@ -23,6 +23,7 @@ import type {
   PokerTableChoice,
   PokerLobbyActionType,
 } from '../workflows/pokerLobby.ts';
+import { createContextProxy, type TypedPathProxy } from '../curator.ts';
 
 // ==========================================
 // 1. Tool Parameter Schemas
@@ -369,3 +370,9 @@ export interface PokerEventMap {
   'poker:session_exited': { reason: string };
   'poker:game_over': { tableId: string; standings: PlayerStanding[] };
 }
+
+export const ctx: TypedPathProxy<PokerWorkflowContext> = createContextProxy<PokerWorkflowContext>('$context');
+export const gameState: TypedPathProxy<PokerGameState> = createContextProxy<PokerGameState>('$context.gameState');
+export const state: TypedPathProxy<PokerWorkflowState> = createContextProxy<PokerWorkflowState>('$state');
+export const params: TypedPathProxy<PokerWorkflowParams> = createContextProxy<PokerWorkflowParams>('$params');
+

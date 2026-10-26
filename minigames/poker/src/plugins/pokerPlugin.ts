@@ -42,21 +42,22 @@ import {
   joinPokerLobby,
   leavePokerLobby,
   startPokerHand,
-  agenticDecidePokerAction,
   applyPokerAction,
   dealPokerStreet,
   fastForwardPokerBoard,
   distributePokerPots,
   rotatePokerDealer,
-  processTableSpeech,
   checkPokerGameOver,
   getPokerStandings,
   getLegalChoices,
+} from '../engine/pokerEngine.ts';
+import { PokerSpeechAct } from '../models/index.ts';
+import { PokerTableShape, PokerBankrollShape } from '../models/pokerShapes.ts';
+import {
+  queryActivePokerTables,
   formatTableChoices,
   isTableUnfinishedForUser,
-} from '../engine/pokerEngine.ts';
-import { PokerTableShape, PokerBankrollShape } from '../models/pokerShapes.ts';
-import { queryActivePokerTables } from '../services/pokerTableStore.ts';
+} from '../services/pokerTableStore.ts';
 import {
   getOrCreateBankroll,
   depositBuyIn,
@@ -225,23 +226,6 @@ export const pokerStartHandTool = defineStateTool<PokerStartHandParams>(
   (s) => startPokerHand(s),
 );
 
-export const pokerAiDecisionTool = defineStateTool<PokerAiDecisionParams>(
-  PokerTool.AI_DECISION,
-  'Calculates AI player action and ambient remark via Curator Agentic Engine.',
-  PokerRole.PLAYER,
-  async (rawState, args) => {
-    const idx = typeof args?.playerIdx === 'number' ? args.playerIdx : rawState.activePlayerIdx;
-    const player = rawState.players[idx];
-    const action = await agenticDecidePokerAction(player, rawState);
-    return { action };
-  },
-  {
-    accessLevel: CuratorAccessLevel.SAFE_READ,
-    properties: {
-      playerIdx: { type: 'number' },
-    },
-  }
-);
 
 export const pokerApplyActionTool = defineStateTool<PokerApplyActionParams>(
   PokerTool.APPLY_ACTION,
@@ -293,7 +277,15 @@ export const pokerHumanSpeechTool = defineStateTool<PokerHumanSpeechParams>(
   (rawState, args, ctx) => {
     const speakerId = args?.speakerId || ctx?.userId || ctx?.actorId || 'hero';
     const speakerName = args?.speakerName || ctx?.user?.name || speakerId;
-    return processTableSpeech(rawState, { ...args, speakerId, speakerName });
+    const remark = {
+      speakerId,
+      speakerName,
+      speechAct: args?.speechAct || (args?.targetId ? PokerSpeechAct.WHISPER : PokerSpeechAct.TABLE_TALK),
+      recipientId: args?.targetId ? String(args.targetId) : undefined,
+      text: String(args?.text || ''),
+      timestamp: Date.now(),
+    };
+    return { gameState: rawState, remark, aiResponse: null };
   },
   {
     accessLevel: CuratorAccessLevel.SAFE_READ,
@@ -546,7 +538,6 @@ export const pokerToolsList = [
   pokerCashOutTool,
   pokerReloadBankrollTool,
   pokerStartHandTool,
-  pokerAiDecisionTool,
   pokerApplyActionTool,
   pokerDealStreetTool,
   pokerFastForwardBoardTool,
@@ -600,7 +591,6 @@ export const pokerPlugin: CuratorPlugin = {
         PokerTool.JOIN_LOBBY,
         PokerTool.LEAVE_LOBBY,
         PokerTool.APPLY_ACTION,
-        PokerTool.AI_DECISION,
         PokerTool.SPEECH,
         PokerTool.HUMAN_SPEECH,
         PokerTool.DEPOSIT_BUY_IN,

@@ -9,9 +9,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import {
   evaluateBestHand,
-  agenticDecidePokerAction,
+  pokerComposables,
   pokerPlugin,
 } from '../src/index.ts';
+const { agent_decision } = pokerComposables;
 import {
   curatorEngine,
   provisionSqliteDb,
@@ -177,8 +178,19 @@ test('AI Personas: Shark plays discipline, Maniac aggresses, Station calls', asy
     allIn: false,
     seatIdx: 1,
   };
-  const viperAction = await agenticDecidePokerAction(viper, dummyState);
-  assert.equal(viperAction.type, 'FOLD');
+  const viperAgentNode = agent_decision({
+    agentName: viper.name,
+    prompt: `Turn State: Cost to Call: $60. Hand: [7♠] [2♦] (${viper.name})`,
+  });
+  assert.equal(viperAgentNode.type, 'Curator_Agent');
+  const provider = LlmFactory.getProvider('gemini');
+  const viperRes = await provider.generateContent({
+    systemPrompt: viperAgentNode.instruction,
+    messages: [{ role: 'user', content: viperAgentNode.prompt || '' }],
+    jsonOutput: true,
+  });
+  const viperAction = JSON.parse(viperRes.text || '{}');
+  assert.equal(viperAction.action, 'FOLD');
 
   // Barnaby (Station) calls
   const barnaby: PlayerState = {
@@ -194,8 +206,18 @@ test('AI Personas: Shark plays discipline, Maniac aggresses, Station calls', asy
     allIn: false,
     seatIdx: 3,
   };
-  const barnabyAction = await agenticDecidePokerAction(barnaby, dummyState);
-  assert.equal(barnabyAction.type, 'CALL');
+  const barnabyAgentNode = agent_decision({
+    agentName: barnaby.name,
+    prompt: `Turn State: Cost to Call: $60. Hand: [9♠] [8♦] (${barnaby.name})`,
+  });
+  assert.equal(barnabyAgentNode.type, 'Curator_Agent');
+  const barnabyRes = await provider.generateContent({
+    systemPrompt: barnabyAgentNode.instruction,
+    messages: [{ role: 'user', content: barnabyAgentNode.prompt || '' }],
+    jsonOutput: true,
+  });
+  const barnabyAction = JSON.parse(barnabyRes.text || '{}');
+  assert.equal(barnabyAction.action, 'CALL');
 });
 
 test('Agent Discourse: Autonomous agents attach in-character dialogue and speech acts', async () => {
@@ -251,8 +273,19 @@ test('Agent Discourse: Autonomous agents attach in-character dialogue and speech
     recentRemarks: [],
   };
 
-  const action = await agenticDecidePokerAction(maddog, dummyState);
-  assert(['RAISE', 'CALL', 'CHECK', 'FOLD', 'ALL_IN'].includes(action.type));
+  const maddogAgentNode = agent_decision({
+    agentName: maddog.name,
+    prompt: `Turn State: Cost to Call: $20. Hand: [A♥] [K♦] (${maddog.name})`,
+  });
+  assert.equal(maddogAgentNode.type, 'Curator_Agent');
+  const provider = LlmFactory.getProvider('gemini');
+  const maddogRes = await provider.generateContent({
+    systemPrompt: maddogAgentNode.instruction,
+    messages: [{ role: 'user', content: maddogAgentNode.prompt || '' }],
+    jsonOutput: true,
+  });
+  const action = JSON.parse(maddogRes.text || '{}');
+  assert(['RAISE', 'CALL', 'CHECK', 'FOLD', 'ALL_IN'].includes(action.action));
 });
 
 test('Reactive Poker Workflow AST: Validates dynamic poker state machine workflow', async () => {

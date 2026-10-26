@@ -81,6 +81,7 @@ export interface PlayerState {
   holeCards: Card[];
   folded: boolean;
   allIn: boolean;
+  hasActedThisStreet?: boolean;
   seatIdx: number;
   lastMonologue?: string;
 }
@@ -148,6 +149,10 @@ export interface PokerGameState {
   players: PlayerState[];
   recentRemarks?: AmbientRemark[];
   lastActionSummary?: string;
+  lastActorId?: string;
+  lastActorName?: string;
+  lastActionType?: string;
+  lastActionAmount?: number;
   maxSeats?: number;
   startingChips?: number;
   startingWallets?: Record<string, number>;

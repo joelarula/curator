@@ -2686,9 +2686,16 @@ export class CuratorRequestProcessor {
           throw new Error(`Template Error: Context variable '${contextKey}' is not defined`);
         }
       } else {
-        // State variable
+        // State variable or fallback to context variable
+        const ctx = req.context || {};
         if (varName in state && state[varName] !== undefined && state[varName] !== null) {
-          replacementValue = String(state[varName]);
+          replacementValue = typeof state[varName] === 'string'
+            ? state[varName]
+            : (typeof state[varName] === 'object' && state[varName] !== null
+                ? JSON.stringify(state[varName])
+                : String(state[varName]));
+        } else if (varName in ctx && ctx[varName] !== undefined && ctx[varName] !== null) {
+          replacementValue = typeof ctx[varName] === 'string' ? ctx[varName] : JSON.stringify(ctx[varName]);
         } else if (!isOptional) {
           throw new Error(`Template Error: State variable '${varName}' is not defined`);
         }

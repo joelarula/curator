@@ -30,4 +30,5 @@ export * from './db/mariadbProvisioner.js';
 // Built-in Plugins
 export * from './plugins/core/index.js';
 export * from './plugins/semantic-shapes/index.js';
+export * from './utils/logger.js';
 //# sourceMappingURL=index.js.map

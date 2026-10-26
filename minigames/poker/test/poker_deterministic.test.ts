@@ -182,6 +182,15 @@ test('Poker Deterministic Harness: agent_turn executes AI decision tool and acti
   const canned = createPokerCannedTools();
   const env = await createEnv('poker_det_agent', canned);
   try {
+    env.useLlm([
+      {
+        text: JSON.stringify({
+          action: { type: 'CALL', amount: 20 },
+          speech: 'I call your bet.',
+        }),
+      },
+    ]);
+
     const agentAst = await loadScriptAst('agent_turn');
     const saved = await saveScript(env, 'agent_turn', agentAst);
 
@@ -200,9 +209,9 @@ test('Poker Deterministic Harness: agent_turn executes AI decision tool and acti
     assert.equal(rootReq.status, 'COMPLETED');
 
     const calledTools = env.calls.map((c) => c.tool);
-    assert.deepEqual(calledTools, ['poker_ai_decision', 'poker_apply_action']);
+    assert.deepEqual(calledTools, ['poker_apply_action']);
 
-    // Check that apply_action received the decision output from ai_decision
+    // Check that apply_action received the decision output from agent_decision AST construct
     const applyCall = env.calls.find((c) => c.tool === 'poker_apply_action');
     assert.deepEqual(applyCall?.args?.action, { type: 'CALL', amount: 20 });
   } finally {

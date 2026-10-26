@@ -19,6 +19,7 @@ import {
 } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
 import { handlePause } from './playerTurn.ts';
+import { aiAgentFlow, buildAgentDecisionSteps } from './agentTurn.ts';
 
 const {
   ctx,
@@ -39,7 +40,6 @@ const {
   settle_showdown,
   check_game_over,
   rotate_dealer,
-  ai_decision,
   apply_player_action,
   get_legal_choices,
   boot_table,
@@ -50,16 +50,7 @@ const {
   reasons,
 } = pokerComposables;
 
-/**
- * Subroutine for autonomous AI decision calculation and action dispatch.
- */
-export const aiAgentFlow = defineSubroutine('ai_agent_flow', {
-  defaultMode: 'inline',
-  body: seq(steps.AI_AGENT_FLOW, [
-    ai_decision(),
-    apply_player_action(),
-  ]),
-});
+export { aiAgentFlow };
 
 /**
  * Composable sequence for universal player turn handling (interactive choices and autonomous agent deliberation).
@@ -92,10 +83,7 @@ export function buildPlayerTurnStep() {
           ),
         ),
       ]),
-      seq(steps.AI_AGENT_FLOW, [
-        ai_decision(),
-        setState({ turnAction: `${ctx.poker_ai_decision.action} || ${ctx.lastAiAction}` }),
-      ]),
+      seq(steps.AI_AGENT_FLOW, buildAgentDecisionSteps()),
     ),
     ifElse(
       is_session_unpaused,
@@ -103,7 +91,7 @@ export function buildPlayerTurnStep() {
         apply_player_action(ctx.turnAction),
         emitEvent(events.ACTION_TAKEN, {
           summary: String(gameState.lastActionSummary),
-          player: `${gameState.players}[${gameState.activePlayerIdx}].name`,
+          player: `${gameState.lastActorName} || ${gameState.players}[${gameState.activePlayerIdx}].name`,
           action: String(ctx.turnAction),
           gameState: String(gameState),
         }),

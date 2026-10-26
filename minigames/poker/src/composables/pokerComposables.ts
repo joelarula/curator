@@ -3,7 +3,28 @@ import {
   createContextProxy,
   type TypedPathProxy,
   type CuratorToolNode,
+  type CuratorAgentNode,
 } from '../curator.ts';
+
+import {
+  POKER_DECISION_OUTPUT_SCHEMA,
+  POKER_AGENT_INSTRUCTION,
+  type PokerAgentDecisionOptions,
+  agent_decision,
+  ai_decision,
+} from '../workflows/agentTurn.ts';
+
+export {
+  POKER_DECISION_OUTPUT_SCHEMA,
+  POKER_AGENT_INSTRUCTION,
+  type PokerAgentDecisionOptions,
+  agent_decision,
+  ai_decision,
+};
+
+import { ctx, gameState, state, params } from '../models/pokerContext.ts';
+export { ctx, gameState, state, params };
+
 import type { PokerWorkflowContext, PokerWorkflowState, PokerWorkflowParams } from '../models/pokerContext.ts';
 import { PokerEvent, type PokerEventType } from '../models/pokerEvents.ts';
 import {
@@ -77,11 +98,6 @@ export {
   type TypedPathProxy,
 };
 
-export const ctx: TypedPathProxy<PokerWorkflowContext> = createContextProxy<PokerWorkflowContext>('$context');
-export const gameState: TypedPathProxy<PokerGameState> = createContextProxy<PokerGameState>('$context.gameState');
-export const state: TypedPathProxy<PokerWorkflowState> = createContextProxy<PokerWorkflowState>('$state');
-export const params: TypedPathProxy<PokerWorkflowParams> = createContextProxy<PokerWorkflowParams>('$params');
-
 /**
  * High-level readable predicates for poker game loops and transitions.
  * Built with typed path proxies to eliminate fragile literal strings.
@@ -153,11 +169,9 @@ export const pokerComposables = {
   rotate_dealer: (args: Partial<PokerRotateDealerParams> = {}): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.ROTATE_DEALER, { state: String(gameState), ...args }),
 
-  ai_decision: (args: Partial<PokerAiDecisionParams> = {}): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.AI_DECISION, {
-      state: String(gameState),
-      ...args,
-    }),
+  agent_decision,
+
+  ai_decision,
 
   boot_table: (args: Partial<PokerInitLobbyParams> = {}): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.INIT_LOBBY, {
@@ -167,6 +181,7 @@ export const pokerComposables = {
       bbAmount: `${ctx.bbAmount} || 20`,
       maxSeats: `${ctx.maxSeats} || 6`,
       players: String(ctx.players),
+      playerName: `${ctx.playerName} || 'You'`,
       ...args,
     }),
 

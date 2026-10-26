@@ -163,6 +163,10 @@ export class ClientShell<TState = any, TAction = ToolAction> {
   }
 
   public printChoices(): void {
+    if (this.rl && process.stdout.isTTY) {
+      readline.clearLine(process.stdout, 0);
+      readline.cursorTo(process.stdout, 0);
+    }
     if (this.activeChoices.length > 0) {
       const choiceList = this.activeChoices
         .map((c, i) => {

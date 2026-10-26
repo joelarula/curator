@@ -15,3 +15,4 @@ export * from './graphql/index.ts';
 export * from './composables/pokerComposables.ts';
 export * from './models/index.ts';
 export * from './workflows/index.ts';
+export { ctx, gameState, state, params } from './composables/pokerComposables.ts';

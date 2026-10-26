@@ -3,23 +3,15 @@ import {
   type PokerStandingStatusType,
   PokerGameOverResult,
   type PokerGameOverResultType,
-  PokerSpeechAct,
   type Card,
   type PlayerState,
   type PokerGameState,
-  type Rank,
-  type Suit,
   type PlayerAction,
-  type SpeechAct,
-  type AmbientRemark,
   type PlayerStanding,
-  type ActionType,
   type Street,
 } from '../types.ts';
 import { evaluateBestHand } from './pokerEvaluator.ts';
-import { createStandardDeck, formatCards } from '../deck/index.ts';
-import { curatorEngine, LlmFactory } from '../curator.ts';
-import { GeminiLlmProvider } from '@curator/plugin-llm-gemini';
+import { createStandardDeck } from '../deck/index.ts';
 
 import {
   getPokerRules,
@@ -36,12 +28,20 @@ import {
 } from './agentPrompt.ts';
 import { DEFAULT_TABLE_PLAYERS } from './agentProfiles.ts';
 import { PokerActionType, PokerStreet } from '../models/pokerConstants.ts';
-import { PokerEvent } from '../models/pokerEvents.ts';
-import { PokerLobbyAction, type PokerTableChoice } from '../workflows/pokerLobby.ts';
 
+// Re-export domain rules, prompts, and agent profiles
 export { getPokerRules, sanitizeAction, tableRules };
 export { buildAgentPrompt, formatAgentPrompt, formatConversationHistory, getAgentInstruction };
+export const buildAgentSystemPrompt = buildAgentPrompt;
 export * from './agentProfiles.ts';
+
+
+// Re-export table choices & storage querying from dedicated pokerTableStore layer
+export {
+  formatTableChoices,
+  isTableUnfinishedForUser,
+  type UnfinishedGameUserQuery,
+} from '../services/pokerTableStore.ts';
 
 export function getTableRules(): TableRulesDefinition {
   return tableRules;
@@ -60,48 +60,6 @@ export function getLegalChoices(gameState: PokerGameState, playerIdx?: number): 
   if (!player) return [];
   const toCall = Math.max(0, (gameState.currentBet || 0) - (player.streetBet || 0));
   return calculateLegalChoices(toCall, player.chips || 0, gameState.minRaise || 20, gameState.currentBet || 0);
-}
-
-/**
- * Standardizes mapping of table conversations to interactive selection choices across
- * list_tables tool, session discovery, and REPL shell.
- */
-export function formatTableChoices(
-  tables: Array<{ id?: string | number; tableId?: string | number; title?: string }>,
-  options: { includeBack?: boolean } = { includeBack: true }
-): PokerTableChoice[] {
-  const choices: PokerTableChoice[] = tables.map((t, idx) => {
-    const tableId = String(t.tableId || t.id || idx + 1);
-    const title = t.title || `Table #${tableId}`;
-    const numIdx = String(idx + 1);
-    const aliases = numIdx === tableId ? [tableId] : [numIdx, tableId];
-    return {
-      id: tableId,
-      tableId,
-      title,
-      label: `Table #${tableId} (${title})`,
-      aliases,
-      event: PokerEvent.TABLE_SELECTED,
-      payload: { id: tableId },
-      value: { id: tableId },
-    };
-  });
-
-  if (options?.includeBack !== false) {
-    const backIdx = choices.length + 1;
-    choices.push({
-      id: PokerLobbyAction.BACK,
-      tableId: PokerLobbyAction.BACK,
-      title: 'Back to Lounge Options',
-      label: '« Back to Lounge Options',
-      aliases: [String(backIdx), 'back', 'b', 'cancel'],
-      event: PokerEvent.TABLE_SELECTED,
-      payload: { id: PokerLobbyAction.BACK },
-      value: { id: PokerLobbyAction.BACK },
-    });
-  }
-
-  return choices;
 }
 
 export function createDeck(): Card[] {
@@ -135,78 +93,6 @@ export function sliceSidePots(players: PlayerState[]): { mainPot: number; sidePo
   return { mainPot, sidePots: sidePots.slice(1) };
 }
 
-export function buildAgentSystemPrompt(player: PlayerState): string {
-  return buildAgentPrompt(player);
-}
-
-export async function generateAgentLlmContent<T = any>(
-  systemPrompt: string,
-  userPrompt: string,
-  options: { model?: string; provider?: string; temperature?: number; maxTokens?: number } = {}
-): Promise<T | null> {
-  const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
-  if (apiKey) {
-    try {
-      LlmFactory.getProvider('gemini');
-    } catch {
-      LlmFactory.registerProvider('gemini', new GeminiLlmProvider());
-    }
-  }
-
-  try {
-    const response = await curatorEngine.generateContent({
-      provider: options.provider || 'gemini',
-      model: options.model || 'gemini-2.5-flash',
-      systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
-      jsonOutput: true,
-      apiKey: apiKey || 'curator-local-key',
-      temperature: options.temperature ?? 0.8,
-      maxTokens: options.maxTokens ?? 350,
-    });
-
-    if (!response?.text) return null;
-    return JSON.parse(response.text) as T;
-  } catch {
-    return null;
-  }
-}
-
-export const callCuratorLlm = generateAgentLlmContent;
-
-export async function agenticDecidePokerAction(
-  player: PlayerState,
-  gameState: PokerGameState
-): Promise<PlayerAction> {
-  const toCall = Math.max(0, gameState.currentBet - player.streetBet);
-  const canCheck = toCall === 0;
-  const handEval = evaluateBestHand(player.holeCards, gameState.board);
-  const chips = player.chips;
-  const minRaise = gameState.minRaise || 20;
-
-  const { systemPrompt, userPrompt } = buildAgentPrompt({
-    player,
-    gameState,
-    handDesc: handEval.description,
-    cardsStr: formatCards(player.holeCards),
-    boardStr: formatCards(gameState.board) || 'None',
-  });
-
-  const res = await generateAgentLlmContent<{
-    action: string;
-    amount?: number;
-    speech?: string;
-    speechAct?: SpeechAct;
-    innerMonologue?: string;
-  }>(systemPrompt, userPrompt, { model: player.model, provider: player.provider });
-
-  const sanitized = sanitizeAction(res, toCall, chips, minRaise);
-  return {
-    type: sanitized.type as ActionType,
-    amount: sanitized.amount,
-  };
-}
-
 export function initPokerLobby(args?: any): { gameState: PokerGameState } {
   const rules = getTableRules();
   const startingChips = (args?.startingChips as number) || rules.startingChips || 1000;
@@ -238,6 +124,7 @@ export function initPokerLobby(args?: any): { gameState: PokerGameState } {
         holeCards: [],
         folded: false,
         allIn: false,
+        hasActedThisStreet: false,
         seatIdx: p.seatIdx !== undefined ? p.seatIdx : idx,
       };
     });
@@ -256,6 +143,7 @@ export function initPokerLobby(args?: any): { gameState: PokerGameState } {
       holeCards: [],
       folded: false,
       allIn: false,
+      hasActedThisStreet: false,
       seatIdx: idx,
     }));
   }
@@ -387,10 +275,21 @@ export function startPokerHand(rawState: PokerGameState): { gameState: PokerGame
   const handNumber = (rawState.handNumber || 0) + 1;
   const numPlayers = rawState.players.length;
 
-  const buttonIdx = (rawState.buttonIdx + (handNumber === 1 ? 0 : 1)) % numPlayers;
-  const sbIdx = (buttonIdx + 1) % numPlayers;
-  const bbIdx = (buttonIdx + 2) % numPlayers;
-  const utgIdx = (buttonIdx + 3) % numPlayers;
+  const buttonIdx = (rawState.buttonIdx || 0) % numPlayers;
+
+  const getNextSeated = (fromIdx: number): number => {
+    for (let offset = 1; offset <= numPlayers; offset++) {
+      const next = (fromIdx + offset) % numPlayers;
+      if (rawState.players[next].chips > 0) {
+        return next;
+      }
+    }
+    return fromIdx;
+  };
+
+  const sbIdx = getNextSeated(buttonIdx);
+  const bbIdx = getNextSeated(sbIdx);
+  const utgIdx = getNextSeated(bbIdx);
 
   const players = rawState.players.map((p, idx) => ({
     ...p,
@@ -399,6 +298,7 @@ export function startPokerHand(rawState: PokerGameState): { gameState: PokerGame
     holeCards: [deck.pop()!, deck.pop()!],
     folded: p.chips <= 0,
     allIn: false,
+    hasActedThisStreet: false,
     seatIdx: idx,
   }));
 
@@ -462,6 +362,9 @@ export function applyPokerAction(rawState: PokerGameState, action: PlayerAction)
   let pot = rawState.pot;
   let currentBet = rawState.currentBet;
   let minRaise = rawState.minRaise;
+  const oldBet = currentBet;
+
+  player.hasActedThisStreet = true;
 
   const toCall = Math.max(0, currentBet - player.streetBet);
 
@@ -504,13 +407,31 @@ export function applyPokerAction(rawState: PokerGameState, action: PlayerAction)
 
   const actionDesc = (ACTIONS[action.type] ?? (() => `${player.name} acts (${action.type}).`))();
 
+  // If a bet or raise occurred, reset hasActedThisStreet for all other active non-all-in players
+  if (currentBet > oldBet) {
+    for (let i = 0; i < players.length; i++) {
+      if (i !== idx && !players[i].folded && !players[i].allIn) {
+        players[i].hasActedThisStreet = false;
+      }
+    }
+  }
+
   const activeSurvivors = players.filter((p) => !p.folded);
   const singleSurvivor = activeSurvivors.length === 1;
   const handOver = activeSurvivors.length <= 1;
 
   const nonAllIn = activeSurvivors.filter((p) => !p.allIn);
   const allBetsMatched = nonAllIn.every((p) => p.streetBet === currentBet);
-  const allActed = nonAllIn.length <= 1 || allBetsMatched;
+  const allActed = nonAllIn.every((p) => Boolean(p.hasActedThisStreet));
+
+  let streetComplete = false;
+  if (handOver) {
+    streetComplete = true;
+  } else if (nonAllIn.length <= 1) {
+    streetComplete = allBetsMatched && (nonAllIn.length === 0 || allActed);
+  } else {
+    streetComplete = allActed && allBetsMatched;
+  }
 
   const nextState: PokerGameState = {
     ...rawState,
@@ -518,11 +439,15 @@ export function applyPokerAction(rawState: PokerGameState, action: PlayerAction)
     currentBet,
     minRaise,
     activePlayerIdx: getNextActivePlayerIdx(players, idx),
-    streetComplete: allActed && !handOver,
+    streetComplete,
     handOver,
     singleSurvivor,
     winnerIds: singleSurvivor ? [activeSurvivors[0].id] : [],
     players,
+    lastActorId: player.id,
+    lastActorName: player.name,
+    lastActionType: action.type,
+    lastActionAmount: action.amount,
     lastActionSummary: actionDesc,
   };
 
@@ -550,7 +475,11 @@ export function dealPokerStreet(rawState: PokerGameState): { gameState: PokerGam
     }
   }
 
-  const players = rawState.players.map((p) => ({ ...p, streetBet: 0 }));
+  const players = rawState.players.map((p) => ({
+    ...p,
+    streetBet: 0,
+    hasActedThisStreet: false,
+  }));
 
   const nextState: PokerGameState = {
     ...rawState,
@@ -638,28 +567,6 @@ export function rotatePokerDealer(rawState: PokerGameState): { gameState: PokerG
   return { gameState: { ...rawState, buttonIdx: nextBtn } };
 }
 
-export function processTableSpeech(
-  rawState: PokerGameState,
-  args: {
-    speechAct?: string;
-    text?: string;
-    targetId?: string;
-    speakerId?: string;
-    speakerName?: string;
-  }
-): { gameState: PokerGameState; remark: AmbientRemark; aiResponse?: AmbientRemark | null } {
-  const remark: AmbientRemark = {
-    speakerId: args.speakerId || 'hero',
-    speakerName: args.speakerName || args.speakerId || 'Hero',
-    speechAct: args.speechAct || (args.targetId ? PokerSpeechAct.WHISPER : PokerSpeechAct.TABLE_TALK),
-    recipientId: args.targetId ? String(args.targetId) : undefined,
-    text: String(args.text || ''),
-    timestamp: Date.now(),
-  };
-
-  return { gameState: rawState, remark, aiResponse: null };
-}
-
 export function calculateStandings(rawState: PokerGameState, winnerId?: string): PlayerStanding[] {
   const startingWallets = rawState.startingWallets || {};
   const standings: PlayerStanding[] = rawState.players.map((p) => {
@@ -728,77 +635,4 @@ export function checkPokerGameOver(rawState: PokerGameState): {
 export function getPokerStandings(rawState: PokerGameState): { standings: PlayerStanding[] } {
   if (!rawState) throw new Error('getPokerStandings: Game state not found.');
   return { standings: calculateStandings(rawState) };
-}
-
-export interface UnfinishedGameUserQuery {
-  playerName?: string;
-  playerId?: string;
-  userId?: string;
-}
-
-/**
- * Pure predicate checking whether a conversation represents an unfinished poker game
- * for a specific human user (non-terminal request, session active, >= 2 seated players, not game over, user is seated/participant).
- */
-export function isTableUnfinishedForUser(
-  conv: any,
-  latestReq: any,
-  user: UnfinishedGameUserQuery
-): boolean {
-  if (!latestReq) return false;
-
-  // 1. Exclude terminal request statuses
-  const terminalStatuses = ['COMPLETED', 'CANCELLED', 'FAILED', 'SKIPPED'];
-  if (terminalStatuses.includes(latestReq.status)) return false;
-
-  // 2. Check context and game state
-  const reqCtx = typeof latestReq.context === 'string'
-    ? (() => { try { return JSON.parse(latestReq.context); } catch (_) { return {}; } })()
-    : (latestReq.context || {});
-
-  if (reqCtx.sessionEnded === true) return false;
-
-  const gameState = reqCtx.gameState || reqCtx.state?.gameState;
-  if (!gameState || !Array.isArray(gameState.players) || gameState.players.length < 2) {
-    return false;
-  }
-
-  // 3. Game must not be over
-  if (gameState.gameOver === true) return false;
-
-  // 4. Must involve the same user
-  const normName = user.playerName?.trim().toLowerCase();
-  const normPlayerId = user.playerId?.trim().toLowerCase();
-  const normUserId = user.userId?.trim().toLowerCase();
-
-  // If no user identity is known at all, can't attribute to same user
-  if (!normName && !normPlayerId && !normUserId) return false;
-
-  const matchesUser = (id?: string | null, name?: string | null) => {
-    const idNorm = id?.trim().toLowerCase();
-    const nameNorm = name?.trim().toLowerCase();
-    if (normPlayerId && (idNorm === normPlayerId || idNorm === `user_${normPlayerId}`)) return true;
-    if (normUserId && idNorm === normUserId) return true;
-    if (normName && (nameNorm === normName || idNorm === `user_${normName}`)) return true;
-    return false;
-  };
-
-  // Check players seated at table
-  const hasUserInPlayers = gameState.players.some((p: any) =>
-    matchesUser(p.id, p.name) || (p.isHuman && normName && p.name?.trim().toLowerCase() === normName)
-  );
-  if (hasUserInPlayers) return true;
-
-  // Check conversation participants metadata
-  const meta = typeof conv.metadata === 'object' && conv.metadata ? conv.metadata : {};
-  const participants = Array.isArray(meta.participants) ? meta.participants : [];
-  const hasUserInParticipants = participants.some((p: any) => matchesUser(p.id, p.name));
-  if (hasUserInParticipants) return true;
-
-  // Check conversation owner
-  if (normUserId && conv.userId && conv.userId.trim().toLowerCase() === normUserId) {
-    return true;
-  }
-
-  return false;
 }
