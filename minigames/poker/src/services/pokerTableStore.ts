@@ -3,7 +3,7 @@ import {
   POKER_TABLE_STATUS,
   type PokerTableStatusType,
 } from '../models/pokerShapes.ts';
-import { PokerEvent } from '../models/pokerEvents.ts';
+import { PokerEvent } from '../models/pokerContracts.ts';
 import { PokerLobbyAction, type PokerTableChoice } from '../workflows/pokerLobby.ts';
 
 export interface SyncPokerTableParams {

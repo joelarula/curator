@@ -7,8 +7,8 @@ import {
   PokerActionType,
   PokerStreet,
   type PokerActionTypeValue,
-} from '../models/pokerConstants.ts';
-import { PokerTool } from '../models/pokerTools.ts';
+  PokerTool,
+} from '../models/pokerContracts.ts';
 import type { Suit, Rank } from '../types.ts';
 import { SUITS, RANKS } from '../types.ts';
 
