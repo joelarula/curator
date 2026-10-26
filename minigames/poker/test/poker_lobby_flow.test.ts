@@ -12,7 +12,7 @@ import {
   type PokerLobbyChoice,
   type PokerTableChoice,
 } from '../src/workflows/pokerLobby.ts';
-import { formatTableChoices } from '../src/engine/pokerEngine.ts';
+import { formatTableChoices } from '../src/services/pokerTableStore.ts';
 import { POKER_SHAPE_URIS } from '../src/models/pokerShapes.ts';
 import { createPokerHost } from '../src/host.ts';
 import {
@@ -25,7 +25,7 @@ import {
   closePokerGameTable,
   enqueueTableASTRequest,
   ensureHumanActorInDatabase,
-} from '../src/engine/pokerSession.ts';
+} from '../src/session/pokerSession.ts';
 
 test('Lobby Models: getLobbyChoices returns typesafe PokerLobbyChoice array without any', () => {
   // 1. Without unfinished games: Only New Game and Exit

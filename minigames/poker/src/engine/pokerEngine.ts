@@ -14,34 +14,12 @@ import { evaluateBestHand } from './pokerEvaluator.ts';
 import { createStandardDeck } from '../deck/index.ts';
 
 import {
-  getPokerRules,
-  sanitizeAction,
   tableRules,
   getLegalChoices as calculateLegalChoices,
   type TableRulesDefinition,
 } from './pokerRules.ts';
-import {
-  buildAgentPrompt,
-  formatAgentPrompt,
-  formatConversationHistory,
-  getAgentInstruction,
-} from './agentPrompt.ts';
-import { DEFAULT_TABLE_PLAYERS } from './agentProfiles.ts';
+import { DEFAULT_TABLE_PLAYERS } from '../workflows/agentProfiles.ts';
 import { PokerActionType, PokerStreet } from '../models/pokerConstants.ts';
-
-// Re-export domain rules, prompts, and agent profiles
-export { getPokerRules, sanitizeAction, tableRules };
-export { buildAgentPrompt, formatAgentPrompt, formatConversationHistory, getAgentInstruction };
-export const buildAgentSystemPrompt = buildAgentPrompt;
-export * from './agentProfiles.ts';
-
-
-// Re-export table choices & storage querying from dedicated pokerTableStore layer
-export {
-  formatTableChoices,
-  isTableUnfinishedForUser,
-  type UnfinishedGameUserQuery,
-} from '../services/pokerTableStore.ts';
 
 export function getTableRules(): TableRulesDefinition {
   return tableRules;

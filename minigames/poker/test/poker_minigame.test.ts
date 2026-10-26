@@ -18,7 +18,7 @@ import {
   provisionSqliteDb,
   LlmFactory,
 } from '@curator/agent-server';
-import { POKER_WORKFLOW_ASTS } from '../src/engine/pokerSession.ts';
+import { POKER_WORKFLOW_ASTS } from '../src/session/pokerSession.ts';
 
 function getPokerScriptAST(scriptId: string) {
   return POKER_WORKFLOW_ASTS[scriptId];
@@ -687,7 +687,7 @@ test('Dynamic Lobby: Agents & Human join open table dynamically and play', async
 });
 
 test('Curator Agent System Prompt: Integrates persona instructions, Texas Hold\'em rules, and speech protocol', async () => {
-  const { buildAgentSystemPrompt, getAgentInstruction } = await import('../src/engine/pokerEngine.ts');
+  const { buildAgentSystemPrompt, getAgentInstruction } = await import('../src/workflows/agentTurn.ts');
 
   const customAgent: PlayerState = {
     id: 'fbi_profiler',
@@ -929,7 +929,7 @@ test('Poker Client-Server Architecture: Server boots, accepts WebSocket client, 
 
 test('Poker Direct Synchronous Execution: Runs AST workflow step-by-step from human turn to human turn (Zero Outer APIs)', async () => {
   const { createPokerHost } = await import('../src/host.ts');
-  const { createPokerGameSession } = await import('../src/engine/pokerSession.ts');
+  const { createPokerGameSession } = await import('../src/session/pokerSession.ts');
   const testDb = path.join(process.env.TEMP || os.tmpdir(), `curator_test_direct_${Date.now()}.db`);
 
   const host = await createPokerHost({

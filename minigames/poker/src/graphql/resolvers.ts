@@ -1,28 +1,13 @@
 import { graphql, type ExecutionResult } from 'graphql';
 import { pokerGraphQLSchema } from './schema.ts';
-import type { PokerGameSession, PokerTableInfo, HumanTurnPromptInfo } from '../engine/pokerSession.ts';
-import type { PlayerAction } from '../types.ts';
-
-function formatChoices(rawChoices: any[] | undefined): Array<{ action: string; amount?: number; min?: number; max?: number }> {
-  if (!rawChoices || !Array.isArray(rawChoices)) return [];
-  return rawChoices.map((c) => {
-    if (typeof c === 'string') {
-      return { action: c };
-    }
-    return {
-      action: c.action || c.type || 'check',
-      amount: c.amount,
-      min: c.min,
-      max: c.max,
-    };
-  });
-}
+import type { PokerGameSession, PokerTableInfo, HumanTurnPromptInfo } from '../session/pokerSession.ts';
+import { normalizeChoices } from '../models/pokerContracts.ts';
 
 function formatHumanTurn(turn: HumanTurnPromptInfo | null | undefined): any {
   if (!turn) return null;
   return {
     ...turn,
-    choices: formatChoices(turn.choices),
+    choices: normalizeChoices(turn.choices),
   };
 }
 
@@ -65,22 +50,7 @@ export function createPokerResolvers(session: PokerGameSession) {
     },
 
     async submitAction({ tableId, action, sessionId }: { tableId?: string; action: { action: string; amount?: number }; sessionId?: string }) {
-      const targetTableId = tableId || session.tableId;
-      const playerAction: PlayerAction = {
-        type: action.action as any,
-        amount: action.amount,
-      };
-      const woken = await session.send('poker:human_action', playerAction, targetTableId, sessionId);
-      if (woken) {
-        await session.step(targetTableId);
-      }
-      return {
-        success: true,
-        tableId: String(targetTableId),
-        woken,
-        action: action.action,
-        sessionId: sessionId || null,
-      };
+      return await session.submitAction(action, { tableId, sessionId });
     },
 
     async submitSpeech({
@@ -96,21 +66,7 @@ export function createPokerResolvers(session: PokerGameSession) {
       targetId?: string;
       sessionId?: string;
     }) {
-      const targetTableId = tableId || session.tableId;
-      const result = await session.send(
-        'poker:speech',
-        { text, speechAct, targetId },
-        targetTableId,
-        sessionId
-      );
-
-      return {
-        success: true,
-        tableId: String(targetTableId),
-        text,
-        aiReply: result?.aiResponse?.text || null,
-        sessionId: sessionId || null,
-      };
+      return await session.submitSpeech({ text, speechAct, targetId }, { tableId, sessionId });
     },
   };
 }

@@ -11,7 +11,7 @@ import {
   saveScript,
   snapshotDb,
 } from '../../../curator/test/helpers/harness.ts';
-import { POKER_WORKFLOW_ASTS } from '../src/engine/pokerSession.ts';
+import { POKER_WORKFLOW_ASTS } from '../src/session/pokerSession.ts';
 import '../src/composables/pokerComposables.ts';
 
 const __filename = fileURLToPath(import.meta.url);

@@ -11,7 +11,7 @@ import {
   resolvePlayerIdentity,
 } from '../src/client/pokerProfile.ts';
 import { createPokerHost } from '../src/host.ts';
-import { ensureHumanActorInDatabase, ensureTableConversation } from '../src/engine/pokerSession.ts';
+import { ensureHumanActorInDatabase, ensureTableConversation } from '../src/session/pokerSession.ts';
 
 test('Player Profile: derivePlayerId formats slugs deterministically', () => {
   assert.equal(derivePlayerId('Alice'), 'user_alice');

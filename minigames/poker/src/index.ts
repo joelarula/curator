@@ -6,7 +6,7 @@ export * from './plugins/pokerPlugin.ts';
 export * from './ui/tableRenderer.ts';
 export * from './db/seed.ts';
 export * from './host.ts';
-export * from './engine/pokerSession.ts';
+export * from './session/pokerSession.ts';
 export * from './server/pokerServer.ts';
 export * from './client/pokerClient.ts';
 export * from './client/pokerClientShell.ts';
@@ -15,4 +15,9 @@ export * from './graphql/index.ts';
 export * from './composables/pokerComposables.ts';
 export * from './models/index.ts';
 export * from './workflows/index.ts';
+export * from './engine/pokerRules.ts';
+export * from './workflows/agentProfiles.ts';
+export * from './services/pokerTableStore.ts';
+export { getLegalChoices } from './engine/pokerEngine.ts';
 export { ctx, gameState, state, params } from './composables/pokerComposables.ts';
+

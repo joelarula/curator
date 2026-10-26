@@ -272,3 +272,67 @@ export const CuratorCoreEvent = {
   CHOICE: 'curator:choice',
   EXIT: 'curator:exit',
 } as const;
+
+// ==========================================
+// 7. Domain Payload Normalization Helpers
+// ==========================================
+export interface ChoiceOption {
+  action: string;
+  amount?: number;
+  min?: number;
+  max?: number;
+  label?: string;
+  [key: string]: any;
+}
+
+/**
+ * Normalizes legal choice options from any AST event payload,
+ * accommodating string arrays, nested objects, or options dictionaries.
+ */
+export function normalizeChoices(rawChoices: any[] | undefined): ChoiceOption[] {
+  if (!rawChoices) return [];
+  const list = Array.isArray(rawChoices)
+    ? rawChoices
+    : Array.isArray((rawChoices as any)?.choices)
+      ? (rawChoices as any).choices
+      : Array.isArray((rawChoices as any)?.options)
+        ? (rawChoices as any).options
+        : [];
+
+  return list.map((c) => {
+    if (typeof c === 'string') {
+      return { action: c, label: c };
+    }
+    const action = c.action || c.type || 'check';
+    return {
+      ...c,
+      action,
+      amount: c.amount,
+      min: c.min,
+      max: c.max,
+      label: c.label || (c.amount !== undefined ? `${action} $${c.amount}` : action),
+    };
+  });
+}
+
+/**
+ * Robustly extracts PokerGameState from event payloads or table metadata,
+ * handling serialized JSON strings (common with SQLite) and direct objects.
+ */
+export function extractGameState<T = any>(payload: any): T | null {
+  if (!payload) return null;
+  const raw = payload.gameState !== undefined ? payload.gameState : payload.state;
+  if (!raw) return null;
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith('{')) {
+      try {
+        return JSON.parse(trimmed) as T;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+  return typeof raw === 'object' ? (raw as T) : null;
+}

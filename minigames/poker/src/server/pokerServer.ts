@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { WebSocket } from 'ws';
-import { createPokerGameSession, type PokerGameSession, type PokerSessionOptions } from '../engine/pokerSession.ts';
+import { createPokerGameSession, type PokerGameSession, type PokerSessionOptions } from '../session/pokerSession.ts';
 import { executePokerGraphQL, POKER_SCHEMA_SDL } from '../graphql/index.ts';
 import { createPokerHost } from '../host.ts';
 import type { CuratorHost } from '../curatorHost.ts';
@@ -163,8 +163,8 @@ export async function createPokerServer(options: PokerServerOptions = {}): Promi
       return;
     }
 
-    // Table-specific matching: /api/tables/:tableId[/action|/speech|/waiting]
-    const tableRouteMatch = url.pathname.match(/^\/api\/tables\/([^/]+)(?:\/(action|speech|waiting))?$/);
+    // Table-specific matching: /api/tables/:tableId[/action|/speech|/waiting|/standings]
+    const tableRouteMatch = url.pathname.match(/^\/api\/tables\/([^/]+)(?:\/(action|speech|waiting|standings))?$/);
     if (tableRouteMatch) {
       const tableId = tableRouteMatch[1];
       const subRoute = tableRouteMatch[2];
@@ -188,17 +188,20 @@ export async function createPokerServer(options: PokerServerOptions = {}): Promi
         return;
       }
 
+      if (req.method === 'GET' && subRoute === 'standings') {
+        const standings = await session.getStandings(tableId);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, tableId, standings }));
+        return;
+      }
+
       if (req.method === 'POST' && subRoute === 'action') {
         try {
           const body = await parseJsonBody(req);
-          const action = body.action || body;
           const sessionId = (req.headers['x-session-id'] as string) || body.sessionId || undefined;
-          const woken = await session.send('poker:human_action', action, tableId, sessionId);
-          if (woken) {
-            await session.step(tableId);
-          }
+          const result = await session.submitAction(body.action || body, { tableId, sessionId });
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: true, tableId, woken, action, sessionId }));
+          res.end(JSON.stringify(result));
         } catch (err: any) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: err.message }));
@@ -210,15 +213,9 @@ export async function createPokerServer(options: PokerServerOptions = {}): Promi
         try {
           const body = await parseJsonBody(req);
           const sessionId = (req.headers['x-session-id'] as string) || body.sessionId || undefined;
-          const result = await session.send('poker:speech', {
-            text: body.text,
-            speechAct: body.speechAct,
-            targetId: body.targetId,
-            speakerName: body.speakerName,
-            speakerId: body.speakerId,
-          }, tableId, sessionId);
+          const result = await session.submitSpeech(body, { tableId, sessionId });
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: true, tableId, result, sessionId }));
+          res.end(JSON.stringify(result));
         } catch (err: any) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: err.message }));
@@ -231,12 +228,11 @@ export async function createPokerServer(options: PokerServerOptions = {}): Promi
     if (req.method === 'POST' && url.pathname === '/api/poker/action') {
       try {
         const parsed = await parseJsonBody(req);
-        const action = parsed.action || parsed;
         const targetTableId = parsed.tableId || session.tableId;
         const sessionId = (req.headers['x-session-id'] as string) || parsed.sessionId || undefined;
-        const woken = await session.send('poker:human_action', action, targetTableId, sessionId);
+        const result = await session.submitAction(parsed.action || parsed, { tableId: targetTableId, sessionId });
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, tableId: targetTableId, woken, action, sessionId }));
+        res.end(JSON.stringify(result));
       } catch (err: any) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: err.message }));
@@ -296,7 +292,7 @@ export async function createPokerServer(options: PokerServerOptions = {}): Promi
         const playerName = parsedUrl.searchParams.get('playerName');
         const playerId = parsedUrl.searchParams.get('playerId');
         if (playerName) {
-          const { ensureHumanActorInDatabase } = await import('../engine/pokerSession.ts');
+          const { ensureHumanActorInDatabase } = await import('../session/pokerSession.ts');
           await ensureHumanActorInDatabase(host, session.conversation.id, {
             playerName,
             playerId: playerId || undefined,
@@ -312,7 +308,7 @@ export async function createPokerServer(options: PokerServerOptions = {}): Promi
         const sessionId = msg.sessionId || (ws as any).sessionId;
 
         if (msg.playerName) {
-          const { ensureHumanActorInDatabase } = await import('../engine/pokerSession.ts');
+          const { ensureHumanActorInDatabase } = await import('../session/pokerSession.ts');
           await ensureHumanActorInDatabase(host, session.conversation.id, {
             playerName: msg.playerName,
             playerId: msg.playerId,
@@ -372,6 +368,16 @@ export async function createPokerServer(options: PokerServerOptions = {}): Promi
             context: { sessionId },
           });
           ws.send(JSON.stringify({ id: msg.id, type: 'result', sessionId, ...result }));
+          return;
+        }
+
+        if (msg.type === 'poker:human_action') {
+          await session.submitAction(msg.payload || msg.action, { tableId, sessionId });
+          return;
+        }
+
+        if (msg.type === 'poker:speech') {
+          await session.submitSpeech(msg.payload || msg, { tableId, sessionId });
           return;
         }
 

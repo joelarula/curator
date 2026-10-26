@@ -13,13 +13,19 @@ import {
   PokerTool,
   PokerModule,
   PokerConversationType,
+  ChoiceOption,
+  normalizeChoices,
+  extractGameState,
 } from '../models/index.ts';
 import {
   DEFAULT_LOBBY_CHOICES,
   DEFAULT_LOBBY_OPTIONS,
 } from '../workflows/pokerLobby.ts';
-import { formatTableChoices } from './pokerEngine.ts';
-import { syncPokerTableResource, closePokerTableResource } from '../services/pokerTableStore.ts';
+import {
+  formatTableChoices,
+  syncPokerTableResource,
+  closePokerTableResource,
+} from '../services/pokerTableStore.ts';
 
 export interface PokerSessionOptions {
   databasePath?: string;
@@ -51,10 +57,40 @@ export interface HumanTurnPromptInfo {
   pot: number;
   toCall: number;
   street: string;
-  choices: any[];
+  choices: ChoiceOption[];
 }
 
 export type PlayerTurnPromptInfo = HumanTurnPromptInfo;
+
+export interface PlayerActionInput {
+  type?: string;
+  action?: string;
+  amount?: number;
+}
+
+export interface ActionResult {
+  success: boolean;
+  tableId: string;
+  woken: boolean;
+  action: string;
+  sessionId: string | null;
+}
+
+export interface SpeechInput {
+  text: string;
+  speechAct?: string;
+  targetId?: string;
+  speakerName?: string;
+  speakerId?: string;
+}
+
+export interface SpeechResult {
+  success: boolean;
+  tableId: string;
+  text: string;
+  aiReply: string | null;
+  sessionId: string | null;
+}
 
 export interface CreateTableOptions {
   title?: string;
@@ -104,6 +140,16 @@ export interface PokerGameSession {
   runTool(toolName: string, args?: Record<string, any>, tableId?: string | number, sessionId?: string): Promise<any>;
   send(type: string, payload?: any, tableId?: string | number, sessionId?: string): Promise<any>;
   step(tableId?: string | number, maxSteps?: number): Promise<DirectStepResult>;
+  submitAction(
+    action: PlayerActionInput | string,
+    options?: { tableId?: string | number; sessionId?: string; step?: boolean }
+  ): Promise<ActionResult>;
+  submitSpeech(
+    params: SpeechInput,
+    options?: { tableId?: string | number; sessionId?: string }
+  ): Promise<SpeechResult>;
+  getBankroll(playerName?: string): Promise<{ balance: number; currency: string } | null>;
+  getStandings(tableId?: string | number): Promise<any[]>;
   close(): Promise<void>;
 }
 
@@ -816,7 +862,7 @@ export async function createPokerGameSession(
     });
 
     const ctx = latestReq?.context as any;
-    return ctx?.gameState || ctx?.state?.gameState || null;
+    return extractGameState(ctx) || extractGameState(ctx?.state) || null;
   };
 
   const getWaitingHumanTurn = async (tableId?: string | number): Promise<HumanTurnPromptInfo | null> => {
@@ -838,7 +884,7 @@ export async function createPokerGameSession(
       pot: gameState?.pot ?? 0,
       toCall: (gameState?.currentBet ?? 0) - (activePlayer?.streetBet ?? 0),
       street: gameState?.currentStreet || PokerStreet.PREFLOP,
-      choices: choiceInfo.choices,
+      choices: normalizeChoices(choiceInfo.choices),
     };
   };
 
@@ -1095,6 +1141,88 @@ export async function createPokerGameSession(
     };
   };
 
+  const submitAction = async (
+    action: PlayerActionInput | string,
+    options?: { tableId?: string | number; sessionId?: string; step?: boolean }
+  ): Promise<ActionResult> => {
+    const targetTableId = options?.tableId !== undefined ? options.tableId : defaultTableId;
+    let normalizedAction: PlayerAction;
+    if (typeof action === 'string') {
+      normalizedAction = { type: action.toUpperCase() as any };
+    } else {
+      normalizedAction = {
+        type: ((action.type || action.action || 'CHECK') as string).toUpperCase() as any,
+        amount: action.amount,
+      };
+    }
+
+    const woken = await send(PokerEvent.HUMAN_ACTION, normalizedAction, targetTableId, options?.sessionId);
+    if (woken && options?.step !== false) {
+      await step(targetTableId);
+    }
+
+    return {
+      success: true,
+      tableId: String(targetTableId),
+      woken,
+      action: normalizedAction.type,
+      sessionId: options?.sessionId || null,
+    };
+  };
+
+  const submitSpeech = async (
+    speech: SpeechInput,
+    options?: { tableId?: string | number; sessionId?: string }
+  ): Promise<SpeechResult> => {
+    const targetTableId = options?.tableId !== undefined ? options.tableId : defaultTableId;
+    const result = await send(
+      PokerEvent.SPEECH,
+      {
+        text: speech.text,
+        speechAct: speech.speechAct || (speech.targetId ? 'WHISPER' : 'TABLE_TALK'),
+        targetId: speech.targetId,
+        speakerName: speech.speakerName || user?.name || host.user?.name || 'You',
+        speakerId: speech.speakerId || options?.sessionId || user?.id || host.user?.id || 'player',
+      },
+      targetTableId,
+      options?.sessionId
+    );
+
+    return {
+      success: true,
+      tableId: String(targetTableId),
+      text: speech.text,
+      aiReply: result?.aiResponse?.text || null,
+      sessionId: options?.sessionId || null,
+    };
+  };
+
+  const getBankroll = async (playerName?: string): Promise<{ balance: number; currency: string } | null> => {
+    try {
+      const res = await runTool(PokerTool.GET_BANKROLL, { playerName: playerName || user?.name || 'You' });
+      if (res?.balance !== undefined) {
+        return {
+          balance: Number(res.balance),
+          currency: res.currency || 'CHIPS',
+        };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
+  const getStandings = async (tableId?: string | number): Promise<any[]> => {
+    const state = await getGameState(tableId);
+    if (!state) return [];
+    try {
+      const res = await runTool(PokerTool.GET_STANDINGS, { state }, tableId);
+      return res?.standings || [];
+    } catch {
+      return [];
+    }
+  };
+
   const close = async (): Promise<void> => {
     const meta = parseConversationMetadata(conversation.metadata);
     if (meta.isLobby) {
@@ -1120,6 +1248,10 @@ export async function createPokerGameSession(
     getActors: (convId?: string | number) => getConversationActors(host, convId !== undefined ? convId : conversation.id),
     send,
     step,
+    submitAction,
+    submitSpeech,
+    getBankroll,
+    getStandings,
     runTool,
     resetLight,
     close,

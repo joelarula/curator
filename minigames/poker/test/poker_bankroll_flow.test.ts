@@ -14,7 +14,7 @@ import {
   createPokerGameSession,
   createPokerGameTable,
   closePokerGameTable,
-} from '../src/engine/pokerSession.ts';
+} from '../src/session/pokerSession.ts';
 import { POKER_SHAPE_URIS } from '../src/models/pokerShapes.ts';
 
 test('Cashier Bankroll Service: Manages player balance, presets, and deposits', async () => {

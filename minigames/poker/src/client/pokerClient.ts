@@ -3,7 +3,7 @@ import {
   createPokerGameSession,
   type PokerGameSession,
   type PokerSessionOptions,
-} from '../engine/pokerSession.ts';
+} from '../session/pokerSession.ts';
 import { renderPokerEvent } from '../ui/pokerUiEvents.ts';
 import {
   createPokerClientShell,
@@ -24,6 +24,8 @@ import {
   PokerEvent,
   PokerClientConstant,
   CuratorCoreEvent,
+  extractGameState,
+  normalizeChoices,
 } from '../models/pokerContracts.ts';
 
 export { resolvePlayerIdentity, type PlayerProfile };
@@ -159,14 +161,9 @@ export async function runPokerClientUi(
     const unsubscribe = channel.on(async (event: any) => {
       const { type, payload } = event;
 
-      if (payload?.gameState) {
-        currentGameState = typeof payload.gameState === 'string'
-          ? (payload.gameState.startsWith('{') ? JSON.parse(payload.gameState) : currentGameState)
-          : payload.gameState;
-      } else if (payload?.state) {
-        currentGameState = typeof payload.state === 'string'
-          ? (payload.state.startsWith('{') ? JSON.parse(payload.state) : currentGameState)
-          : payload.state;
+      const extractedState = extractGameState(payload);
+      if (extractedState) {
+        currentGameState = extractedState;
       }
 
       renderPokerEvent(event, currentGameState);
@@ -241,11 +238,7 @@ export async function runPokerClientUi(
 
       // Awaiting human player action (non-blocking by default)
       if (type === PokerEvent.AWAITING_HUMAN_ACTION) {
-        const rawChoices: any[] = Array.isArray(payload?.choices)
-          ? payload.choices
-          : Array.isArray(payload?.choices?.choices)
-            ? payload.choices.choices
-            : [];
+        const rawChoices = normalizeChoices(payload?.choices);
         shell.setChoices(rawChoices, {
           blocking: Boolean(payload?.blocking),
           as: payload?.as || PokerClientConstant.ACTION_CONTEXT_KEY,

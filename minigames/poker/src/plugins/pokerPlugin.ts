@@ -66,7 +66,7 @@ import {
   getBuyInPresets,
   parseBuyInAmount,
 } from '../services/pokerBankrollStore.ts';
-import { POKER_AGENT_PROFILES } from '../engine/agentProfiles.ts';
+import { POKER_AGENT_PROFILES } from '../workflows/agentProfiles.ts';
 
 const SCRIPT_DESCRIPTIONS: Record<string, string> = {
   [PokerModule.WORKFLOW]: 'Texas Holdem master game loop and table manager AST workflow',
@@ -387,7 +387,7 @@ export const pokerCreateTableTool = defineTool<PokerCreateTableParams>({
   execute: async (args: PokerCreateTableParams, ctx: any) => {
     const host = ctx?.toolContext?.host || ctx?.host;
     if (host) {
-      const { createPokerGameTable } = await import('../engine/pokerSession.ts');
+      const { createPokerGameTable } = await import('../session/pokerSession.ts');
       const tableInfo = await createPokerGameTable(host, args as any);
       return { success: true, table: tableInfo, tableId: tableInfo.tableId };
     }
@@ -621,14 +621,16 @@ export const pokerPlugin: CuratorPlugin = {
   models: [PokerTableShape, PokerBankrollShape],
   scripts: pokerScripts,
   agents: Object.fromEntries(
-    Object.entries(POKER_AGENT_PROFILES).map(([key, profile]) => [
-      key,
-      {
-        ...profile,
-        ...(profile.scriptName && POKER_WORKFLOW_ASTS[profile.scriptName]
-          ? { ast: POKER_WORKFLOW_ASTS[profile.scriptName] }
-          : {}),
-      },
-    ])
+    Object.entries(POKER_AGENT_PROFILES)
+      .filter(([_, profile]) => !profile.isHuman)
+      .map(([key, profile]) => [
+        key,
+        {
+          ...profile,
+          ...(profile.scriptName && POKER_WORKFLOW_ASTS[profile.scriptName]
+            ? { ast: POKER_WORKFLOW_ASTS[profile.scriptName] }
+            : {}),
+        },
+      ])
   ) as any,
 };
