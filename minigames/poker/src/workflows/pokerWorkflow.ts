@@ -9,17 +9,15 @@ import {
   defineModule,
   defineSubroutine,
   seq,
-  choice,
   ifElse,
   whileLoop,
-  setState,
   emitEvent,
   waitEvent,
   type CuratorModuleNode,
 } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
-import { handlePause } from './playerTurn.ts';
-import { aiAgentFlow, buildAgentDecisionSteps } from './agentTurn.ts';
+import { buildPlayerTurnStep, handlePause } from './playerTurn.ts';
+import { aiAgentFlow } from './agentTurn.ts';
 
 const {
   ctx,
@@ -27,78 +25,21 @@ const {
   is_game_active,
   is_hand_active,
   is_street_active,
-  active_player_is_interactive,
-  is_table_paused,
   table_has_no_state,
   table_needs_players,
-  is_session_unpaused,
-  is_turn_action_pause,
-  is_turn_action_exit,
-  is_resume_cmd,
   start_poker_hand,
   deal_next_street,
   settle_showdown,
   check_game_over,
   rotate_dealer,
-  apply_player_action,
-  get_legal_choices,
   boot_table,
   join_lobby,
   events,
   modules,
   steps,
-  reasons,
 } = pokerComposables;
 
 export { aiAgentFlow };
-
-/**
- * Composable sequence for universal player turn handling (interactive choices and autonomous agent deliberation).
- */
-export function buildPlayerTurnStep() {
-  return seq(steps.TURN_STEP, [
-    ifElse(
-      active_player_is_interactive,
-      seq(steps.HUMAN_AGENT_FLOW, [
-        get_legal_choices(),
-        emitEvent(events.AWAITING_HUMAN_ACTION, {
-          gameState: String(gameState),
-        }),
-        choice(
-          'Your turn:',
-          String(ctx.poker_get_choices.choices),
-          { as: ctx.turnAction },
-        ),
-        ifElse(
-          is_turn_action_pause,
-          handlePause(),
-          ifElse(
-            is_turn_action_exit,
-            seq(steps.HANDLE_EXIT, [
-              setState({ sessionEnded: true }),
-              emitEvent(events.SESSION_EXITED, {
-                reason: reasons.USER_EXIT,
-              }),
-            ]),
-          ),
-        ),
-      ]),
-      seq(steps.AI_AGENT_FLOW, buildAgentDecisionSteps()),
-    ),
-    ifElse(
-      is_session_unpaused,
-      seq(steps.APPLY_ACTION, [
-        apply_player_action(ctx.turnAction),
-        emitEvent(events.ACTION_TAKEN, {
-          summary: String(gameState.lastActionSummary),
-          player: `${gameState.lastActorName} || ${gameState.players}[${gameState.activePlayerIdx}].name`,
-          action: String(ctx.turnAction),
-          gameState: String(gameState),
-        }),
-      ]),
-    ),
-  ]);
-}
 
 /**
  * Subroutine for dealing the next street community cards.

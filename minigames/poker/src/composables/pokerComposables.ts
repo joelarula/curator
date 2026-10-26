@@ -1,6 +1,9 @@
 import {
   CuratorBuilder,
   createContextProxy,
+  seq,
+  setState,
+  emitEvent,
   type TypedPathProxy,
   type CuratorToolNode,
   type CuratorAgentNode,
@@ -235,6 +238,14 @@ export const pokerComposables = {
 
   reload_bankroll: (args: Partial<PokerReloadBankrollParams> = {}): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.RELOAD_BANKROLL, args),
+
+  handle_user_exit: () =>
+    seq(PokerStep.HANDLE_EXIT, [
+      setState({ sessionEnded: true }),
+      emitEvent(PokerEvent.SESSION_EXITED, {
+        reason: PokerSessionReason.USER_EXIT,
+      }),
+    ]),
 
   // Typed Poker Domain Constants
   events: PokerEvent,

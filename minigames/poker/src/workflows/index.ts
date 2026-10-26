@@ -13,6 +13,7 @@ export * from './humanTurn.ts';
 export * from './agentTurn.ts';
 export * from './pokerAction.ts';
 export * from './ambientReaction.ts';
+export * from './agentProfiles.ts';
 
 export const POKER_WORKFLOW_ASTS: Record<string, any> = {
   poker_workflow: pokerWorkflowAst,

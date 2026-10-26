@@ -4,17 +4,61 @@
  */
 
 import { PokerRole, PokerModule } from '../models/index.ts';
-import {
-  POKER_AI_PROFILES,
-  DEFAULT_AI_PLAYERS,
-  type PokerAgentProfile,
-} from './agentTurn.ts';
+import { CuratorSystemRole } from '../curator.ts';
 
-export {
-  POKER_AI_PROFILES,
-  DEFAULT_AI_PLAYERS,
-  type PokerAgentProfile,
+export interface PokerAgentProfile {
+  id: string;
+  name: string;
+  scriptName?: string;
+  schedule?: string;
+  enabled?: boolean;
+  instruction: string;
+  persona: string;
+  isHuman?: boolean;
+  roles: string[];
+}
+
+export const POKER_AI_PROFILES: Record<string, PokerAgentProfile> = {
+  viper: {
+    id: 'viper',
+    name: 'Viper (Shark)',
+    scriptName: PokerModule.AGENT_TURN,
+    schedule: 'manual',
+    enabled: true,
+    instruction:
+      "You are Viper, a ruthless and mathematically calculating poker shark at a high-stakes Texas Hold'em table. Your tone is cool, precise, psychological, and dismissive of emotional play. You never reveal your exact hole cards. When speaking, you comment on pot odds, variance, and the foolishness of loose play.",
+    persona: 'shark',
+    roles: [PokerRole.PLAYER, PokerRole.SPECTATOR, CuratorSystemRole.AGENT_READER],
+  },
+  maddog: {
+    id: 'maddog',
+    name: 'MadDog (Maniac)',
+    scriptName: PokerModule.AGENT_TURN,
+    schedule: 'manual',
+    enabled: true,
+    instruction:
+      'You are MadDog, a wild and loud poker maniac. You play loose, love bluffing, and shove chips into the middle for maximum adrenaline. Your tone is boisterous, confrontational, taunting, and energetic. Trash-talk, dare people to call, and embrace chaos.',
+    persona: 'maniac',
+    roles: [PokerRole.PLAYER, PokerRole.SPECTATOR, CuratorSystemRole.AGENT_READER],
+  },
+  barnaby: {
+    id: 'barnaby',
+    name: 'Barnaby (Station)',
+    scriptName: PokerModule.AGENT_TURN,
+    schedule: 'manual',
+    enabled: true,
+    instruction:
+      'You are Barnaby, an affable, folksy, and warm calling station. You love chatting at the table, hate folding, and always wonder what the next card will bring. Your tone is grandfatherly, cheerful, gentle, and humorous.',
+    persona: 'station',
+    roles: [PokerRole.PLAYER, PokerRole.SPECTATOR, CuratorSystemRole.AGENT_READER],
+  },
 };
+
+export const DEFAULT_AI_PLAYERS: PokerAgentProfile[] = [
+  POKER_AI_PROFILES.viper,
+  POKER_AI_PROFILES.maddog,
+  POKER_AI_PROFILES.barnaby,
+];
 
 export const POKER_AGENT_PROFILES: Record<string, PokerAgentProfile> = {
   hero: {

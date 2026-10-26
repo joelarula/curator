@@ -7,105 +7,59 @@
  */
 import {
   defineModule,
-  defineSubroutine,
-  choice,
+  seq,
   ifElse,
-  whileLoop,
-  waitEvent,
-  setState,
   emitEvent,
   type CuratorModuleNode,
 } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
-import { buildAgentTurnSteps } from './agentTurn.ts';
+import { buildAgentDecisionSteps, buildAgentTurnSteps } from './agentTurn.ts';
+import { buildHumanChoiceSteps, buildHumanTurnSteps, handlePause } from './humanTurn.ts';
 
 const {
   ctx,
   gameState,
   active_player_is_interactive,
-  is_table_paused,
-  is_turn_action_pause,
-  is_turn_action_exit,
-  is_resume_cmd,
-  is_exit_cmd,
-  get_legal_choices,
+  is_session_unpaused,
   apply_player_action,
   events,
   modules,
-  reasons,
+  steps,
 } = pokerComposables;
 
 /**
- * Universal subroutine for pausing the table session.
+ * Composable sequence for universal player turn handling (interactive choices and autonomous agent deliberation).
  */
-export const handlePause = defineSubroutine('handle_pause', () => [
-  setState({ isPaused: true }),
-  emitEvent(events.TABLE_PAUSED, {
-    tableId: String(gameState.tableId),
-  }),
-  whileLoop(
-    is_table_paused,
-    [
-      waitEvent(events.RESUME_ACTION, ctx.resumeCmd),
-      ifElse(
-        is_resume_cmd,
-        [
-          setState({ isPaused: false }),
-          emitEvent(events.TABLE_RESUMED, {
-            tableId: String(gameState.tableId),
-          }),
-        ],
-        ifElse(
-          is_exit_cmd,
-          [
-            setState({ sessionEnded: true, isPaused: false }),
-            emitEvent(events.SESSION_EXITED, { reason: reasons.USER_EXIT }),
-          ],
-        ),
-      ),
-    ],
-  ),
-]);
-
-export function buildHumanTurnSteps() {
-  const can_check = `(${gameState.currentBet} - ${gameState.players}[${gameState.activePlayerIdx}].streetBet) == 0`;
-  return [
-    get_legal_choices(),
+export function buildPlayerTurnStep() {
+  return seq(steps.TURN_STEP, [
     ifElse(
-      can_check,
-      choice('Your turn (Check or Bet):', String(ctx.poker_get_choices.choices), { as: ctx.turnAction }),
-      choice('Your turn (Call, Raise, or Fold):', String(ctx.poker_get_choices.choices), { as: ctx.turnAction }),
+      active_player_is_interactive,
+      seq(steps.HUMAN_AGENT_FLOW, buildHumanChoiceSteps()),
+      seq(steps.AI_AGENT_FLOW, buildAgentDecisionSteps()),
     ),
     ifElse(
-      is_turn_action_pause,
-      handlePause(),
-      ifElse(
-        is_turn_action_exit,
-        [
-          setState({ sessionEnded: true }),
-          emitEvent(events.SESSION_EXITED, { reason: reasons.USER_EXIT }),
-        ],
-        [
-          apply_player_action(ctx.turnAction),
-        ],
-      ),
+      is_session_unpaused,
+      seq(steps.APPLY_ACTION, [
+        apply_player_action(ctx.turnAction),
+        emitEvent(events.ACTION_TAKEN, {
+          summary: String(gameState.lastActionSummary),
+          player: `${gameState.lastActorName} || ${gameState.players}[${gameState.activePlayerIdx}].name`,
+          action: String(ctx.turnAction),
+          gameState: String(gameState),
+        }),
+      ]),
     ),
-  ];
+  ]);
 }
-
-export { buildAgentTurnSteps };
 
 export function buildPlayerTurnModule(): CuratorModuleNode {
   return defineModule(modules.PLAYER_TURN, {
     description: 'Universal Texas Hold\'em player turn module handling interactive choices and autonomous agent decisions',
     subroutines: [handlePause],
   }, () => [
-    ifElse(
-      active_player_is_interactive,
-      buildHumanTurnSteps(),
-      buildAgentTurnSteps(),
-    ),
+    buildPlayerTurnStep(),
   ]);
 }
 
 export const playerTurnAst = buildPlayerTurnModule();
+export { handlePause, buildHumanTurnSteps, buildAgentTurnSteps };

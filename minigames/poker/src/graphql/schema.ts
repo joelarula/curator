@@ -1,6 +1,58 @@
 import { buildSchema, type GraphQLSchema } from 'graphql';
 
 export const POKER_SCHEMA_SDL = /* GraphQL */ `
+  type PokerPlayer {
+    id: String!
+    name: String!
+    chips: Int!
+    isHuman: Boolean
+    isFolded: Boolean
+    isAllIn: Boolean
+    streetBet: Int!
+    cards: [String!]
+  }
+
+  type PokerGameState {
+    currentStreet: String!
+    pot: Int!
+    currentBet: Int!
+    activePlayerIdx: Int!
+    dealerIdx: Int!
+    sbIdx: Int
+    bbIdx: Int
+    players: [PokerPlayer!]!
+    communityCards: [String!]!
+    minRaise: Int
+    gameOver: Boolean
+  }
+
+  type ChoiceOption {
+    action: String!
+    amount: Int
+    min: Int
+    max: Int
+  }
+
+  type HumanTurnPromptInfo {
+    requestId: Int!
+    player: String!
+    name: String!
+    chips: Int!
+    pot: Int!
+    toCall: Int!
+    street: String!
+    choices: [ChoiceOption!]
+  }
+
+  type PokerTableInfo {
+    tableId: ID!
+    conversationId: Int!
+    title: String!
+    createdAt: String
+    gameState: PokerGameState
+    waitingForHuman: Boolean!
+    humanTurn: HumanTurnPromptInfo
+  }
 
 
   input ActionInput {

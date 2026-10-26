@@ -31,63 +31,11 @@ import {
   gameState,
 } from '../models/pokerContext.ts';
 import { getRulesDescription } from '../engine/pokerRules.ts';
-
-export interface PokerAgentProfile {
-  id: string;
-  name: string;
-  scriptName?: string;
-  schedule?: string;
-  enabled?: boolean;
-  instruction: string;
-  persona: string;
-  isHuman?: boolean;
-  roles: string[];
-}
-
-export const POKER_AI_PROFILES: Record<string, PokerAgentProfile> = {
-  viper: {
-    id: 'viper',
-    name: 'Viper (Shark)',
-    scriptName: PokerModule.AGENT_TURN,
-    schedule: 'manual',
-    enabled: true,
-    instruction:
-      "You are Viper, a ruthless and mathematically calculating poker shark at a high-stakes Texas Hold'em table. Your tone is cool, precise, psychological, and dismissive of emotional play. You never reveal your exact hole cards. When speaking, you comment on pot odds, variance, and the foolishness of loose play.",
-    persona: 'shark',
-    roles: [PokerRole.PLAYER, PokerRole.SPECTATOR, CuratorSystemRole.AGENT_READER],
-  },
-  maddog: {
-    id: 'maddog',
-    name: 'MadDog (Maniac)',
-    scriptName: PokerModule.AGENT_TURN,
-    schedule: 'manual',
-    enabled: true,
-    instruction:
-      'You are MadDog, a wild and loud poker maniac. You play loose, love bluffing, and shove chips into the middle for maximum adrenaline. Your tone is boisterous, confrontational, taunting, and energetic. Trash-talk, dare people to call, and embrace chaos.',
-    persona: 'maniac',
-    roles: [PokerRole.PLAYER, PokerRole.SPECTATOR, CuratorSystemRole.AGENT_READER],
-  },
-  barnaby: {
-    id: 'barnaby',
-    name: 'Barnaby (Station)',
-    scriptName: PokerModule.AGENT_TURN,
-    schedule: 'manual',
-    enabled: true,
-    instruction:
-      'You are Barnaby, an affable, folksy, and warm calling station. You love chatting at the table, hate folding, and always wonder what the next card will bring. Your tone is grandfatherly, cheerful, gentle, and humorous.',
-    persona: 'station',
-    roles: [PokerRole.PLAYER, PokerRole.SPECTATOR, CuratorSystemRole.AGENT_READER],
-  },
-};
-
-/**
- * Default autonomous AI opponents seated at Texas Hold'em tables.
- */
-export const DEFAULT_AI_PLAYERS: PokerAgentProfile[] = [
-  POKER_AI_PROFILES.viper,
-  POKER_AI_PROFILES.maddog,
-  POKER_AI_PROFILES.barnaby,
-];
+export {
+  POKER_AI_PROFILES,
+  DEFAULT_AI_PLAYERS,
+  type PokerAgentProfile,
+} from './agentProfiles.ts';
 
 export interface PokerAgentDecisionOptions {
   agentName?: string;
@@ -195,16 +143,7 @@ export function buildAgentDecisionSteps(options: PokerAgentDecisionOptions = {})
  */
 export function buildAgentTurnSteps(options: PokerAgentDecisionOptions = {}) {
   return [
-    agent_decision(options),
-    ifElse(
-      `${ctx.speech} && ${ctx.speech}.length > 0`,
-      emitEvent(PokerEvent.SPEECH, {
-        speakerId: `${gameState.players}[${gameState.activePlayerIdx}].id`,
-        speakerName: `${gameState.players}[${gameState.activePlayerIdx}].name`,
-        text: String(ctx.speech),
-        speechAct: 'TABLE_TALK',
-      }),
-    ),
+    ...buildAgentDecisionSteps(options),
     apply_player_action(`${ctx.action} || ${ctx.turnAction} || ${ctx.lastAiAction}`),
   ];
 }

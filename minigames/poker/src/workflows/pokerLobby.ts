@@ -123,6 +123,7 @@ const {
   get_bankroll,
   deposit_buy_in,
   reload_bankroll,
+  handle_user_exit,
 } = pokerComposables;
 
 function buildBuyInSequence() {
@@ -161,6 +162,16 @@ function buildBuyInSequence() {
   ];
 }
 
+function buildTableSelectedFlow() {
+  return [
+    ...buildBuyInSequence(),
+    emitEvent(events.TABLE_SELECTED, {
+      tableId: String(ctx.tableId),
+      buyIn: ctx.selectedBuyIn,
+    }),
+  ];
+}
+
 export function buildPokerLobbyModule(): CuratorModuleNode {
   return defineModule(modules.LOBBY, {
     description: "Texas Hold'em Lounge Concierge for table selection and dynamic player seating",
@@ -182,8 +193,7 @@ export function buildPokerLobbyModule(): CuratorModuleNode {
         input('Lobby Options:', String(ctx.lobbyChoices), { as: ctx.lobbyChoice }),
         match(ctx.lobbyChoice, {
           [lobbyActions.EXIT]: [
-            setState({ sessionEnded: true }),
-            emitEvent(events.SESSION_EXITED, { reason: reasons.USER_EXIT }),
+            handle_user_exit(),
           ],
           [lobbyActions.RESUME]: [
             input('Select Table:', String(ctx.poker_list_tables.choices), { as: ctx.selectedTable }),
@@ -198,11 +208,7 @@ export function buildPokerLobbyModule(): CuratorModuleNode {
                 setState({
                   tableId: `${ctx.selectedTable.id} || ${ctx.selectedTable.tableId} || ${ctx.selectedTable}`,
                 }),
-                ...buildBuyInSequence(),
-                emitEvent(events.TABLE_SELECTED, {
-                  tableId: String(ctx.tableId),
-                  buyIn: ctx.selectedBuyIn,
-                }),
+                ...buildTableSelectedFlow(),
               ],
             }),
           ],
@@ -213,11 +219,7 @@ export function buildPokerLobbyModule(): CuratorModuleNode {
             setState({
               tableId: `${ctx.poker_create_table.tableId} || ${ctx.tableId} || 'poker:high_roller_lounge'`,
             }),
-            ...buildBuyInSequence(),
-            emitEvent(events.TABLE_SELECTED, {
-              tableId: String(ctx.tableId),
-              buyIn: ctx.selectedBuyIn,
-            }),
+            ...buildTableSelectedFlow(),
           ],
           _: [
             setState({

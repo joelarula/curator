@@ -36,6 +36,13 @@ export function buildPokerActionModule(): CuratorModuleNode {
       action: `${params.action} || ${ctx.action}`,
       pot: gameState.pot,
     }),
+    emitEvent(events.ACTION_TAKEN, {
+      summary: String(gameState.lastActionSummary),
+      player: `${gameState.players}[${gameState.activePlayerIdx}].name`,
+      action: `${params.action} || ${ctx.action}`,
+      pot: gameState.pot,
+      gameState: String(gameState),
+    }),
   ]);
 }
 
