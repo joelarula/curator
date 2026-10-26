@@ -13,7 +13,7 @@ import {
   PokerTool,
   PokerModule,
   PokerConversationType,
-  ChoiceOption,
+  type ChoiceOption,
   normalizeChoices,
   extractGameState,
 } from '../models/index.ts';

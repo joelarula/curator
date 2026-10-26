@@ -88,6 +88,40 @@ export function getRulesDescription(): string {
 - Table Discourse: You autonomously choose when to speak (TABLE_TALK, BANTER, WHISPER, PROVOKE, GOSSIP) or stay silent based on your persona.`;
 }
 
+function extractRawAction(raw: any): { type: string; amount?: number } {
+  if (!raw) return { type: '' };
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      try {
+        return extractRawAction(JSON.parse(trimmed));
+      } catch (_) {}
+    }
+    return { type: trimmed.toUpperCase() };
+  }
+  if (typeof raw === 'object') {
+    if (raw.turnAction) {
+      const nested = extractRawAction(raw.turnAction);
+      if (nested.type) {
+        return { type: nested.type, amount: typeof raw.amount === 'number' ? raw.amount : nested.amount };
+      }
+    }
+    if (raw.action) {
+      const nested = extractRawAction(raw.action);
+      if (nested.type) {
+        return { type: nested.type, amount: typeof raw.amount === 'number' ? raw.amount : nested.amount };
+      }
+    }
+    if (typeof raw.type === 'string') {
+      return {
+        type: raw.type.trim().toUpperCase(),
+        amount: typeof raw.amount === 'number' ? raw.amount : undefined,
+      };
+    }
+  }
+  return { type: '' };
+}
+
 export function sanitizeAction(
   rawAction: any,
   toCall = 0,
@@ -95,16 +129,23 @@ export function sanitizeAction(
   minRaise = 20,
 ): { type: string; amount?: number } {
   const canCheck = toCall === 0;
-  let actionType = (rawAction?.action || rawAction?.type || (canCheck ? PokerActionType.CHECK : PokerActionType.FOLD)).toUpperCase();
+  const extracted = extractRawAction(rawAction);
+  let actionType = extracted.type || (canCheck ? PokerActionType.CHECK : PokerActionType.FOLD);
+
+  if (actionType === 'BET') {
+    actionType = PokerActionType.RAISE;
+  } else if (actionType === 'SHOVE' || actionType === 'ALLIN' || actionType === 'ALL-IN') {
+    actionType = PokerActionType.ALL_IN;
+  }
 
   if (canCheck && (actionType === PokerActionType.FOLD || actionType === PokerActionType.CALL)) {
     actionType = PokerActionType.CHECK;
   }
   if (!canCheck && actionType === PokerActionType.CHECK) {
-    actionType = PokerActionType.CALL;
+    actionType = chips > 0 ? PokerActionType.CALL : PokerActionType.FOLD;
   }
 
-  let amount = rawAction?.amount;
+  let amount = extracted.amount;
   if (actionType === PokerActionType.CALL) {
     amount = Math.min(chips, toCall);
   } else if (actionType === PokerActionType.RAISE) {

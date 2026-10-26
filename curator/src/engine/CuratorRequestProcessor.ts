@@ -2696,15 +2696,26 @@ export class CuratorRequestProcessor {
                 : String(state[varName]));
         } else if (varName in ctx && ctx[varName] !== undefined && ctx[varName] !== null) {
           replacementValue = typeof ctx[varName] === 'string' ? ctx[varName] : JSON.stringify(ctx[varName]);
-        } else if (!isOptional) {
+        } else if (varName.startsWith('$') || varName.includes('.') || varName.includes('[')) {
+          try {
+            const evaluated = await this.evaluateExpressionAsync(varName.startsWith('$') ? varName : `$context.${varName}`, req);
+            if (evaluated !== undefined && evaluated !== null) {
+              replacementValue = typeof evaluated === 'string'
+                ? evaluated
+                : (typeof evaluated === 'object' ? JSON.stringify(evaluated) : String(evaluated));
+            }
+          } catch (_) {}
+        }
+        
+        if (replacementValue === undefined && !isOptional) {
           throw new Error(`Template Error: State variable '${varName}' is not defined`);
         }
       }
 
       if (replacementValue !== undefined) {
-        result = result.replace(fullMatch, replacementValue);
+        result = result.replace(fullMatch, () => replacementValue!);
       } else if (isOptional) {
-        result = result.replace(fullMatch, ''); // Replace with empty string if optional and missing
+        result = result.replace(fullMatch, () => ''); // Replace with empty string if optional and missing
       }
     }
     

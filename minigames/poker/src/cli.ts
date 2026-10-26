@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import './env.ts';
 
 // 1. Immediate bootstrap log executed on millisecond 0 (before heavy imports)
 const isQuietBoot = process.argv.includes('-q') || process.argv.includes('--quiet') || process.env.LOG_LEVEL === 'silent' || process.env.LOG_LEVEL === 'none';

@@ -9,6 +9,7 @@ import {
   defineModule,
   seq,
   ifElse,
+  setState,
   emitEvent,
   type CuratorModuleNode,
 } from '../curator.ts';
@@ -32,22 +33,36 @@ const {
  */
 export function buildPlayerTurnStep() {
   return seq(steps.TURN_STEP, [
+    setState({ speech: '', turnAction: null, action: null }),
     ifElse(
       active_player_is_interactive,
-      seq(steps.HUMAN_AGENT_FLOW, buildHumanChoiceSteps()),
+      seq(steps.HUMAN_AGENT_FLOW, [
+        ...buildHumanChoiceSteps(),
+      ]),
       seq(steps.AI_AGENT_FLOW, buildAgentDecisionSteps()),
     ),
     ifElse(
       is_session_unpaused,
       seq(steps.APPLY_ACTION, [
         apply_player_action(ctx.turnAction),
-        emitEvent(events.ACTION_TAKEN, {
-          summary: String(gameState.lastActionSummary),
-          player: `${gameState.lastActorName} || ${gameState.players}[${gameState.activePlayerIdx}].name`,
-          action: String(ctx.turnAction),
-          speech: `${ctx.speech} || ${ctx.turnAction}.speech || ''`,
-          gameState: String(gameState),
-        }),
+        ifElse(
+          active_player_is_interactive,
+          emitEvent(events.ACTION_TAKEN, {
+            summary: String(gameState.lastActionSummary),
+            player: `${gameState.lastActorName} || ${gameState.players}[${gameState.activePlayerIdx}].name`,
+            action: String(ctx.turnAction),
+            speech: '',
+            gameState: String(gameState),
+          }),
+          emitEvent(events.ACTION_TAKEN, {
+            summary: String(gameState.lastActionSummary),
+            player: `${gameState.lastActorName} || ${gameState.players}[${gameState.activePlayerIdx}].name`,
+            action: String(ctx.turnAction),
+            speech: `${ctx.speech} || ${ctx.turnAction}.speech || ''`,
+            gameState: String(gameState),
+          }),
+        ),
+        setState({ speech: '', turnAction: null, action: null }),
       ]),
     ),
   ]);

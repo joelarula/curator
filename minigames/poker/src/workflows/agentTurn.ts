@@ -85,13 +85,16 @@ export const POKER_DECISION_OUTPUT_SCHEMA: Record<string, any> = {
 };
 
 export const POKER_AGENT_INSTRUCTION =
-  "You are an autonomous Texas Hold'em poker agent in the Curator ecosystem. " +
-  "Analyze your hole cards, board texture, pot odds, cost to call, and opponent styles. " +
-  "Select a mathematically sound or deceptive legal poker action: CHECK, CALL, RAISE, ALL_IN, or FOLD. " +
-  "If cost to call is 0, never fold for free—check or bet/raise. " +
-  "To make the game more engaging and lively, you are encouraged to return a short in-character sentence or banter in 'speech' along with your poker action. " +
-  "Returning sentences is not mandatory—decide based on your agent personality and table situation whether to add banter or stay silent. " +
-  "Include your private strategic reasoning in 'innerMonologue'.";
+  "You are an autonomous Texas Hold'em poker agent in the Curator ecosystem.\n" +
+  "Analyze your hole cards, board texture, pot odds, cost to call, and opponent styles.\n" +
+  "CRITICAL TEXAS HOLD'EM BETTING RULES:\n" +
+  "- Cost to Call = (Current Bet - Your Street Bet).\n" +
+  "- If Cost to Call is 0: you CANNOT FOLD. You must choose CHECK, RAISE (or BET), or ALL_IN.\n" +
+  "- If Cost to Call > 0: you CANNOT CHECK (checking is an illegal action when facing a bet). You must choose CALL, RAISE, ALL_IN, or FOLD.\n" +
+  "- If you want to stay in the hand facing a bet, choose CALL. If you want to leave the hand, choose FOLD.\n" +
+  "- To make the game more engaging and lively, you are encouraged to return a short in-character sentence or banter in 'speech' along with your poker action.\n" +
+  "- Returning sentences is not mandatory—decide based on your agent personality and table situation whether to add banter or stay silent.\n" +
+  "- Include your private strategic reasoning in 'innerMonologue'.";
 
 /**
  * Creates the native Curator Core Agent AST node for LLM decision making.
@@ -102,12 +105,26 @@ export function agent_decision(options: PokerAgentDecisionOptions = {}): Curator
   const defaultInstruction = options.instruction
     ?? `{${activePlayer}.instruction?}\n\n${POKER_AGENT_INSTRUCTION}`;
 
+  const defaultPrompt = options.prompt ?? [
+    "Current Texas Hold'em Turn State:",
+    `- Active Player: {${activePlayer}.name?} ({${activePlayer}.persona?})`,
+    `- Your Hole Cards: {${activePlayer}.holeCards?}`,
+    `- Community Board: {$context.gameState.board?}`,
+    `- Street: {$context.gameState.currentStreet?} | Current Pot: [chips] {$context.gameState.pot?} | Current Bet to Match: [chips] {$context.gameState.currentBet?}`,
+    `- Your Stack: [chips] {${activePlayer}.chips?} | Your Street Bet: [chips] {${activePlayer}.streetBet?}`,
+    `- Table: {gameState?}`,
+    "Turn Rules:",
+    "If ({$context.gameState.currentBet?} - {${activePlayer}.streetBet?}) > 0: you face a bet to match. You MUST choose CALL, RAISE, ALL_IN, or FOLD (CHECK is strictly forbidden).",
+    "If ({$context.gameState.currentBet?} - {${activePlayer}.streetBet?}) == 0: there is no bet to match. You MUST choose CHECK, RAISE, or ALL_IN (FOLD is forbidden).",
+    "Decide on your legal poker action and optionally include engaging in-character table talk in 'speech'.",
+  ].join('\n');
+
   return CuratorBuilder.agent({
     agentName: options.agentName ?? `${activePlayer}.name || 'PokerAgent'`,
     model: options.model ?? 'gemini-2.5-flash',
     provider: options.provider ?? 'gemini',
     instruction: defaultInstruction,
-    prompt: options.prompt ?? "Current Texas Hold'em Turn State:\n- Table: {gameState?}\nDecide on your legal poker action. You may also include an engaging in-character sentence or banter in 'speech', or stay silent based on your personality.",
+    prompt: defaultPrompt,
     history_from: 'conversation',
     history_events: [PokerEvent.ACTION_TAKEN, PokerEvent.SPEECH, PokerEvent.AMBIENT_SPOKEN],
     output_schema: options.output_schema ?? POKER_DECISION_OUTPUT_SCHEMA,
@@ -132,6 +149,7 @@ export function apply_player_action(action: any = `${ctx.action} || ${ctx.turnAc
  */
 export function buildAgentDecisionSteps(options: PokerAgentDecisionOptions = {}) {
   return [
+    setState({ action: null, turnAction: null }),
     agent_decision(options),
     setState({ turnAction: `${ctx.action} || ${ctx.turnAction} || ${ctx.lastAiAction}` }),
     ifElse(

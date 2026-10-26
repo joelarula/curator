@@ -1,8 +1,10 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createCuratorHost, type CuratorHost } from './curatorHost.ts';
-import { curatorEngine } from './curator.ts';
+import { curatorEngine, LlmFactory } from './curator.ts';
 import { pokerPlugin } from './plugins/pokerPlugin.ts';
+import { geminiPlugin } from '@curator/plugin-llm-gemini';
+import { getGeminiApiKey } from './env.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,6 +24,9 @@ export interface PokerHostOptions {
   userId?: string;
   userName?: string;
   userEmail?: string;
+  enableGemini?: boolean;
+  apiKey?: string;
+  llmProvider?: any;
 }
 
 /**
@@ -59,6 +64,15 @@ export async function createPokerHost(options: PokerHostOptions = {}): Promise<C
         error: console.error,
       },
     registerPlugins: async () => {
+      if (options.llmProvider) {
+        curatorEngine.registerLlmProvider('gemini', options.llmProvider);
+      } else if (options.enableGemini !== false) {
+        const apiKey = options.apiKey || getGeminiApiKey();
+        const currentProvider = LlmFactory.getProvider('gemini');
+        if (apiKey && (!currentProvider || currentProvider.providerName !== 'gemini')) {
+          curatorEngine.registerPlugin(geminiPlugin({ apiKey }));
+        }
+      }
       curatorEngine.registerPlugin(pokerPlugin);
       return curatorEngine;
     },

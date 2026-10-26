@@ -15,6 +15,7 @@ import { createStandardDeck } from '../deck/index.ts';
 
 import {
   tableRules,
+  sanitizeAction,
   getLegalChoices as calculateLegalChoices,
   type TableRulesDefinition,
 } from './pokerRules.ts';
@@ -345,6 +346,9 @@ export function applyPokerAction(rawState: PokerGameState, action: PlayerAction)
   player.hasActedThisStreet = true;
 
   const toCall = Math.max(0, currentBet - player.streetBet);
+  const sanitized = sanitizeAction(action, toCall, player.chips, minRaise);
+  const actionType = sanitized.type;
+  const actionAmount = sanitized.amount;
 
   const commitWager = (amount: number): number => {
     const commit = Math.min(player.chips, Math.max(0, amount));
@@ -368,13 +372,23 @@ export function applyPokerAction(rawState: PokerGameState, action: PlayerAction)
       player.folded = true;
       return `${player.name} folds.`;
     },
-    [PokerActionType.CHECK]: () => `${player.name} checks.`,
+    [PokerActionType.CHECK]: () => {
+      if (toCall > 0) {
+        const commit = commitWager(toCall);
+        return commit === 0 ? `${player.name} checks.` : `${player.name} calls $${commit}.`;
+      }
+      return `${player.name} checks.`;
+    },
     [PokerActionType.CALL]: () => {
       const commit = commitWager(toCall);
       return commit === 0 ? `${player.name} checks.` : `${player.name} calls $${commit}.`;
     },
     [PokerActionType.RAISE]: () => {
-      commitWager(action.amount ?? (toCall + minRaise));
+      let raiseAmt = actionAmount ?? (toCall + minRaise);
+      if (raiseAmt > player.streetBet && raiseAmt >= currentBet + minRaise) {
+        raiseAmt = raiseAmt - player.streetBet;
+      }
+      commitWager(raiseAmt);
       return `${player.name} raises to $${currentBet}.`;
     },
     [PokerActionType.ALL_IN]: () => {
@@ -383,7 +397,7 @@ export function applyPokerAction(rawState: PokerGameState, action: PlayerAction)
     },
   };
 
-  const actionDesc = (ACTIONS[action.type] ?? (() => `${player.name} acts (${action.type}).`))();
+  const actionDesc = (ACTIONS[actionType] ?? (() => `${player.name} acts (${actionType}).`))();
 
   // If a bet or raise occurred, reset hasActedThisStreet for all other active non-all-in players
   if (currentBet > oldBet) {
@@ -424,8 +438,8 @@ export function applyPokerAction(rawState: PokerGameState, action: PlayerAction)
     players,
     lastActorId: player.id,
     lastActorName: player.name,
-    lastActionType: action.type,
-    lastActionAmount: action.amount,
+    lastActionType: actionType,
+    lastActionAmount: actionAmount,
     lastActionSummary: actionDesc,
   };
 

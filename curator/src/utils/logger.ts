@@ -32,3 +32,14 @@ export function setLogLevel(level: string): void {
     }
   }
 }
+
+// Redirect library warnings (such as @google/genai dual key notice) to debug level
+const origConsoleWarn = console.warn;
+console.warn = (...args: any[]) => {
+  if (typeof args[0] === 'string' && args[0].includes('Both GOOGLE_API_KEY and GEMINI_API_KEY are set')) {
+    logger.debug(args.join(' '));
+    return;
+  }
+  origConsoleWarn(...args);
+};
+
