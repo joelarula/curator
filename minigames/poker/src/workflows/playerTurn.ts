@@ -45,6 +45,7 @@ export function buildPlayerTurnStep() {
           summary: String(gameState.lastActionSummary),
           player: `${gameState.lastActorName} || ${gameState.players}[${gameState.activePlayerIdx}].name`,
           action: String(ctx.turnAction),
+          speech: `${ctx.speech} || ${ctx.turnAction}.speech || ''`,
           gameState: String(gameState),
         }),
       ]),

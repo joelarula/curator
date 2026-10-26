@@ -60,8 +60,11 @@ export function renderPokerEvent(
     }
 
     case PokerEvent.ACTION_TAKEN: {
+      const speechNote = (payload?.speech && typeof payload.speech === 'string' && payload.speech.trim().length > 0)
+        ? ` — "${payload.speech.trim()}"`
+        : '';
       if (payload?.summary) {
-        console.log(`\x1b[33m▶ ${payload.summary}\x1b[0m`);
+        console.log(`\x1b[33m▶ ${payload.summary}${speechNote}\x1b[0m`);
         break;
       }
       const pName = payload?.player || 'Player';
@@ -71,12 +74,16 @@ export function renderPokerEvent(
       }
       const act = actObj?.type || actObj || 'ACT';
       const amt = actObj?.amount ? ` $${actObj.amount}` : '';
-      console.log(`\x1b[33m▶ ${pName}: ${act}${amt}\x1b[0m`);
+      const actSpeech = (!speechNote && actObj?.speech && typeof actObj.speech === 'string')
+        ? ` — "${actObj.speech.trim()}"`
+        : '';
+      console.log(`\x1b[33m▶ ${pName}: ${act}${amt}${speechNote || actSpeech}\x1b[0m`);
       break;
     }
 
+    case PokerEvent.SPEECH:
     case PokerEvent.SPEECH_RESPONSE: {
-      const spk = payload?.speaker || 'Player';
+      const spk = payload?.speakerName || payload?.speaker || 'Player';
       const to = payload?.targetId ? ` -> @${payload.targetId}` : '';
       const tag = payload?.targetId ? `[${PokerSpeechAct.WHISPER}]` : (payload?.speechAct ? `[${payload.speechAct}]` : `[${PokerSpeechAct.TABLE_TALK}]`);
       console.log(`\x1b[35m${tag} ${spk}${to}: "${payload?.text}"\x1b[0m`);

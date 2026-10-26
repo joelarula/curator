@@ -286,6 +286,10 @@ test('Agent Discourse: Autonomous agents attach in-character dialogue and speech
   });
   const action = JSON.parse(maddogRes.text || '{}');
   assert(['RAISE', 'CALL', 'CHECK', 'FOLD', 'ALL_IN'].includes(action.action));
+  assert(maddogAgentNode.instruction?.includes('banter') || maddogAgentNode.instruction?.includes('speech'));
+  if (action.speech) {
+    assert.equal(typeof action.speech, 'string');
+  }
 });
 
 test('Reactive Poker Workflow AST: Validates dynamic poker state machine workflow', async () => {

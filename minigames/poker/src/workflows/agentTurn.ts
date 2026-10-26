@@ -72,8 +72,14 @@ export const POKER_DECISION_OUTPUT_SCHEMA: Record<string, any> = {
       },
       required: ['type'],
     },
-    speech: { type: 'string' },
-    innerMonologue: { type: 'string' },
+    speech: {
+      type: 'string',
+      description: 'Optional in-character dialogue or table banter (1-2 sentences) along with your poker action to make the game more engaging. Sentences are not mandatory; decide based on your character personality and situation whether to add banter or remain silent.',
+    },
+    innerMonologue: {
+      type: 'string',
+      description: 'Private strategic reasoning about this turn (1 sentence).',
+    },
   },
   required: ['action'],
 };
@@ -83,7 +89,9 @@ export const POKER_AGENT_INSTRUCTION =
   "Analyze your hole cards, board texture, pot odds, cost to call, and opponent styles. " +
   "Select a mathematically sound or deceptive legal poker action: CHECK, CALL, RAISE, ALL_IN, or FOLD. " +
   "If cost to call is 0, never fold for free—check or bet/raise. " +
-  "You may also optionally include in-character table talk dialogue in 'speech' and your strategic reasoning in 'innerMonologue'.";
+  "To make the game more engaging and lively, you are encouraged to return a short in-character sentence or banter in 'speech' along with your poker action. " +
+  "Returning sentences is not mandatory—decide based on your agent personality and table situation whether to add banter or stay silent. " +
+  "Include your private strategic reasoning in 'innerMonologue'.";
 
 /**
  * Creates the native Curator Core Agent AST node for LLM decision making.
@@ -99,7 +107,7 @@ export function agent_decision(options: PokerAgentDecisionOptions = {}): Curator
     model: options.model ?? 'gemini-2.5-flash',
     provider: options.provider ?? 'gemini',
     instruction: defaultInstruction,
-    prompt: options.prompt ?? "Current Texas Hold'em Turn State:\n- Table: {gameState?}",
+    prompt: options.prompt ?? "Current Texas Hold'em Turn State:\n- Table: {gameState?}\nDecide on your legal poker action. You may also include an engaging in-character sentence or banter in 'speech', or stay silent based on your personality.",
     history_from: 'conversation',
     history_events: [PokerEvent.ACTION_TAKEN, PokerEvent.SPEECH, PokerEvent.AMBIENT_SPOKEN],
     output_schema: options.output_schema ?? POKER_DECISION_OUTPUT_SCHEMA,
@@ -127,11 +135,11 @@ export function buildAgentDecisionSteps(options: PokerAgentDecisionOptions = {})
     agent_decision(options),
     setState({ turnAction: `${ctx.action} || ${ctx.turnAction} || ${ctx.lastAiAction}` }),
     ifElse(
-      `${ctx.speech} && ${ctx.speech}.length > 0`,
+      `(${ctx.speech} && ${ctx.speech}.length > 0) || (${ctx.action} && ${ctx.action}.speech) || (${ctx.turnAction} && ${ctx.turnAction}.speech)`,
       emitEvent(PokerEvent.SPEECH, {
         speakerId: `${gameState.players}[${gameState.activePlayerIdx}].id`,
         speakerName: `${gameState.players}[${gameState.activePlayerIdx}].name`,
-        text: String(ctx.speech),
+        text: `${ctx.speech} || ${ctx.action}.speech || ${ctx.turnAction}.speech`,
         speechAct: 'TABLE_TALK',
       }),
     ),
@@ -251,7 +259,7 @@ ${rulesBlock}
 {
   "action": "CHECK" | "CALL" | "RAISE" | "ALL_IN" | "FOLD",
   "amount": number (required if RAISE or CALL; for RAISE, specify total street bet or raise amount),
-  "speech": "dialogue spoken out loud to the table (optional, 1 sentence in character)",
+  "speech": "in-character dialogue or table banter accompanying your action to make the game more engaging (optional/not mandatory: 1-2 sentences; decide based on your personality whether to add banter or stay silent)",
   "innerMonologue": "private strategic reasoning about this turn (1 sentence)"
 }`;
 
