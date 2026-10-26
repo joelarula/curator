@@ -18,5 +18,4 @@ export * from './workflows/index.ts';
 export * from './engine/pokerRules.ts';
 export * from './services/pokerTableStore.ts';
 export { getLegalChoices } from './engine/pokerEngine.ts';
-export { ctx, gameState, state, params } from './composables/pokerComposables.ts';
 

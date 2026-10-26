@@ -12,10 +12,13 @@ import {
   ifElse,
   whileLoop,
   emitEvent,
-  waitEvent,
   type CuratorModuleNode,
 } from '../curator.ts';
-import { pokerComposables } from '../composables/pokerComposables.ts';
+import {
+  pokerComposables,
+  bootTableSub,
+  buildTableBootStep,
+} from '../composables/pokerComposables.ts';
 import { buildPlayerTurnStep, handlePause } from './playerTurn.ts';
 import { aiAgentFlow } from './agentTurn.ts';
 
@@ -25,15 +28,11 @@ const {
   is_game_active,
   is_hand_active,
   is_street_active,
-  table_has_no_state,
-  table_needs_players,
   start_poker_hand,
   deal_next_street,
   settle_showdown,
   check_game_over,
   rotate_dealer,
-  boot_table,
-  join_lobby,
   events,
   modules,
   steps,
@@ -78,34 +77,11 @@ export function buildPokerWorkflowModule(): CuratorModuleNode {
     modules.WORKFLOW,
     {
       description: "Curator Texas Hold'em autonomous event-driven 5-phase game loop engine",
-      subroutines: [handlePause, aiAgentFlow, dealNextStreetSub, settleShowdownSub],
+      subroutines: [handlePause, aiAgentFlow, bootTableSub, dealNextStreetSub, settleShowdownSub],
     },
     () => seq(steps.DYNAMIC_ENGINE, [
       // 1. Initialize open table if state not yet booted
-      ifElse(
-        `${table_has_no_state} and not ${ctx.sessionEnded}`,
-        seq(steps.BOOT_TABLE, [
-          boot_table(),
-          emitEvent(events.LOBBY_READY, {
-            tableId: String(gameState.tableId),
-          }),
-          whileLoop(
-            table_needs_players,
-            seq(steps.WAIT_FOR_PLAYERS, [
-              emitEvent(events.AWAITING_PLAYERS, {
-                tableId: String(gameState.tableId),
-                seatedCount: String(gameState.players.length),
-              }),
-              waitEvent(events.PLAYER_JOINED, ctx.joinRequest),
-              join_lobby(ctx.joinRequest),
-            ]),
-          ),
-          emitEvent(events.TABLE_READY, {
-            tableId: String(gameState.tableId),
-            playerCount: String(gameState.players.length),
-          }),
-        ]),
-      ),
+      buildTableBootStep(),
 
       // 3. Main Game Session Loop
       whileLoop(

@@ -14,10 +14,13 @@ import {
   whileLoop,
   setState,
   emitEvent,
-  waitEvent,
   type CuratorModuleNode,
 } from '../curator.ts';
-import { pokerComposables } from '../composables/pokerComposables.ts';
+import {
+  pokerComposables,
+  bootTableSub,
+  buildTableBootStep,
+} from '../composables/pokerComposables.ts';
 import type { PokerWorkflowContext } from '../models/pokerContext.ts';
 
 import { PokerEvent, type PokerEventType } from '../models/pokerContracts.ts';
@@ -110,16 +113,10 @@ export const DEFAULT_LOBBY_OPTIONS = DEFAULT_LOBBY_CHOICES;
 
 const {
   ctx,
-  gameState,
-  boot_table,
   list_tables,
   create_table,
-  join_lobby,
   events,
   modules,
-  reasons,
-  steps,
-  table_has_no_state,
   get_bankroll,
   deposit_buy_in,
   reload_bankroll,
@@ -175,6 +172,7 @@ function buildTableSelectedFlow() {
 export function buildPokerLobbyModule(): CuratorModuleNode {
   return defineModule(modules.LOBBY, {
     description: "Texas Hold'em Lounge Concierge for table selection and dynamic player seating",
+    subroutines: [bootTableSub],
   }, () => [
     // 1. Interactive Lobby Selection Gate (New Game, Resume Game, Exit)
     whileLoop<PokerWorkflowContext>(
@@ -231,19 +229,7 @@ export function buildPokerLobbyModule(): CuratorModuleNode {
     ),
 
     // 2. Fallback Table Booting: Initializes table if tableId was provided directly without state
-    ifElse(
-      `${table_has_no_state} and not ${ctx.sessionEnded}`,
-      seq(steps.BOOT_TABLE, [
-        boot_table(),
-        emitEvent(events.LOBBY_READY, {
-          tableId: String(gameState.tableId),
-        }),
-        emitEvent(events.TABLE_READY, {
-          tableId: String(gameState.tableId),
-          playerCount: String(gameState.players.length),
-        }),
-      ]),
-    ),
+    buildTableBootStep(),
   ]);
 }
 

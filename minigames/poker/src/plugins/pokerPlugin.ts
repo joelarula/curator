@@ -34,7 +34,7 @@ import {
   type PokerDepositBuyInParams,
   type PokerCashOutParams,
   type PokerReloadBankrollParams,
-} from '../composables/pokerComposables.ts';
+} from '../models/index.ts';
 import { POKER_WORKFLOW_ASTS } from '../workflows/index.ts';
 import type { PokerGameState, PlayerAction } from '../types.ts';
 import {
