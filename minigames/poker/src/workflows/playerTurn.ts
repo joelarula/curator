@@ -28,12 +28,13 @@ const {
   steps,
 } = pokerComposables;
 
+import { type PokerWorkflowContext } from '../models/pokerContext.ts';
+
 /**
  * Composable sequence for universal player turn handling (interactive choices and autonomous agent deliberation).
  */
 export function buildPlayerTurnStep() {
   return seq(steps.TURN_STEP, [
-    setState({ turnAction: null, action: null }),
     ifElse(
       active_player_is_interactive,
       seq(steps.HUMAN_AGENT_FLOW, buildHumanChoiceSteps()),
@@ -42,14 +43,18 @@ export function buildPlayerTurnStep() {
     ifElse(
       is_session_unpaused,
       seq(steps.APPLY_ACTION, [
-        apply_player_action(`${ctx.turnAction} || ${ctx.action}`),
-        emitEvent(events.ACTION_TAKEN, {
-          summary: String(gameState.lastActionSummary),
-          player: `${gameState.lastActorName} || ${gameState.players}[${gameState.activePlayerIdx}].name`,
-          action: `${ctx.turnAction} || ${ctx.action}`,
-          gameState: String(gameState),
+        apply_player_action((c: PokerWorkflowContext) => c.decision?.action || c.turnAction || c.action),
+        emitEvent(events.ACTION_TAKEN, (c: PokerWorkflowContext) => {
+          const action = c.decision?.action || c.turnAction || c.action;
+          const gs = c.gameState;
+          const player = gs?.players?.[gs?.activePlayerIdx];
+          return {
+            summary: String(gameState.lastActionSummary),
+            player: `${gameState.lastActorName} || ${player?.name || 'Player'}`,
+            action,
+            gameState: String(gameState),
+          };
         }),
-        setState({ turnAction: null, action: null }),
       ]),
     ),
   ]);

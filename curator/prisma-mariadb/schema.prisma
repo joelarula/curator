@@ -382,6 +382,7 @@ model EventLog {
   @@index([conversationId, eventName, id])
 }
 
+
 model Agent {
   id           String      @id @default(cuid())
   name         String

@@ -152,7 +152,6 @@ export function apply_player_action(action: any = (c: PokerWorkflowContext) => c
  */
 export function buildAgentDecisionSteps(options: PokerAgentDecisionOptions = {}) {
   return [
-    setState({ decision: null, action: null }),
     agent_decision(options),
     ifElse<PokerWorkflowContext>(
       (c) => Boolean(c.decision?.speech && c.decision.speech.trim().length > 0),
@@ -166,7 +165,6 @@ export function buildAgentDecisionSteps(options: PokerAgentDecisionOptions = {})
             speechAct: 'TABLE_TALK',
           };
         }),
-        setState({ speech: '' }),
       ]),
     ),
   ];

@@ -142,7 +142,8 @@ export function entriesFromResponses(rows: StoredResponseRow[], opts: EntryAdapt
 }
 
 export function entriesFromEvents(rows: StoredEventRow[], opts: EntryAdapterOptions = {}): ConversationEntry[] {
-  return rows.map((row) => {
+  // Reserved `__state.*` events are the event-sourced state, not conversation: never part of a prompt.
+  return rows.filter((row) => !row.eventName.startsWith('__state.')).map((row) => {
     const p = row.payload;
     const text = typeof p === 'string' ? p : (p?.text ?? JSON.stringify(p ?? {}));
     const speaker = String(p?.from ?? 'unknown');

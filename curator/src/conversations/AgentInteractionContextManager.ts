@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import { appendStatePatch } from '../engine/ConversationStateLog.js';
 
 export interface InteractionEvent {
   id: string;
@@ -242,17 +243,8 @@ export class AgentInteractionContextManager extends EventEmitter {
       const convIdNum = parseInt(this.conversationId, 10);
       const where = !isNaN(convIdNum) ? { id: convIdNum } : { externalId: this.conversationId };
       const current = await this.prisma.conversation.findUnique({ where });
-      const currentMeta = typeof current?.metadata === 'object' && current?.metadata ? current.metadata : {};
-
-      await this.prisma.conversation.update({
-        where,
-        data: {
-          metadata: {
-            ...currentMeta,
-            lastCheckpoint: cp,
-          },
-        },
-      });
+      if (!current) return;
+      await appendStatePatch(this.prisma, current.id, { set: { lastCheckpoint: cp } });
       this.emit('checkpoint:persisted', { checkpointId: cp.id });
     } catch {
       // Non-blocking persistence

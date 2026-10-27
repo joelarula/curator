@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import { appendStatePatch } from '../engine/ConversationStateLog.js';
 import type {
   AgentEndpoint,
   AgentMessageEnvelope,
@@ -128,14 +129,14 @@ export class ConversationSessionManager extends EventEmitter {
     // Persist to Prisma if available
     if (this.prisma?.conversation?.create) {
       try {
-        await this.prisma.conversation.create({
+        const created = await this.prisma.conversation.create({
           data: {
             externalId: conversationId,
             projectId: options.projectId || this.localProjectId,
             userId: options.userId || '1',
-            metadata,
           },
         });
+        await appendStatePatch(this.prisma, created.id, { set: metadata as Record<string, any> });
       } catch (err) {
         this.emit('warn', `Failed to persist conversation '${conversationId}' to DB: ${err}`);
       }

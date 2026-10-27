@@ -1,4 +1,5 @@
 import type { AgentMessageEnvelope, ConversationRoomMetadata } from './types.js';
+import { appendStatePatch } from '../engine/ConversationStateLog.js';
 
 export interface ConversationManagerConfig {
   prisma: any;
@@ -81,10 +82,8 @@ export class ConversationManager {
         },
       };
 
-      return this.prisma.conversation.update({
-        where: { id: existing.id },
-        data: { metadata: updatedMeta },
-      });
+      await appendStatePatch(this.prisma, existing.id, { set: updatedMeta as Record<string, any> });
+      return this.prisma.conversation.findUnique({ where: { id: existing.id } });
     }
 
     // Aggregate participating projects for new room
@@ -115,14 +114,15 @@ export class ConversationManager {
       },
     };
 
-    return this.prisma.conversation.create({
+    const created = await this.prisma.conversation.create({
       data: {
         externalId,
         userId,
         projectId,
-        metadata: initialMeta,
       },
     });
+    await appendStatePatch(this.prisma, created.id, { set: initialMeta as Record<string, any> });
+    return this.prisma.conversation.findUnique({ where: { id: created.id } });
   }
 
   /**
@@ -172,18 +172,13 @@ export class ConversationManager {
       ? JSON.parse(conv.metadata)
       : (conv.metadata || {});
 
-    const updatedMeta = {
-      ...currentMeta,
-      customState: {
-        ...(currentMeta.customState || {}),
-        ...stateUpdates,
-      },
+    const customState = {
+      ...(currentMeta.customState || {}),
+      ...stateUpdates,
     };
 
-    return this.prisma.conversation.update({
-      where: { id: conversationId },
-      data: { metadata: updatedMeta },
-    });
+    await appendStatePatch(this.prisma, conversationId, { set: { customState } });
+    return this.prisma.conversation.findUnique({ where: { id: conversationId } });
   }
 
   /**

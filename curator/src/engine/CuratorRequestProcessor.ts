@@ -18,6 +18,8 @@ import type { Prisma } from '@prisma/client';
 import { LlmFactory } from './llm/LlmFactory.js';
 import type { LlmMessage, LlmToolDefinition, LlmRequest } from './llm/ILlmProvider.js';
 import { buildContext } from './llm/ConversationFold.js';
+import { appendStatePatch, STATE_SEQ_KEY } from './ConversationStateLog.js';
+import { recordDeadLetter, TERMINAL_STATUSES } from './DeadLetters.js';
 import { AgentRoleService } from '../services/AgentRoleService.js';
 import { ApprovalService } from '../services/ApprovalService.js';
 // Audit trail = Request/Response rows (see AuditService for the derived read view).
@@ -205,24 +207,14 @@ export class CuratorRequestProcessor {
     if (!conv) return {};
     const raw = conv.state ?? conv.metadata;
     if (!raw) return {};
+    let parsed: any = raw;
     if (typeof raw === 'string') {
-      try { return JSON.parse(raw); } catch { return {}; }
+      try { parsed = JSON.parse(raw); } catch { return {}; }
     }
-    return typeof raw === 'object' ? raw : {};
-  }
-
-  private async updateConversationState(conversationId: any, newState: Record<string, any>) {
-    const conv = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
-    const updateData: any = {};
-    if (conv && 'state' in conv) {
-      updateData.state = newState;
-    } else {
-      updateData.metadata = newState;
-    }
-    return this.prisma.conversation.update({
-      where: { id: conversationId },
-      data: updateData
-    });
+    if (!parsed || typeof parsed !== 'object') return {};
+    // The snapshot cursor of the event-sourced view is bookkeeping, not conversation state.
+    const { [STATE_SEQ_KEY]: _seq, ...state } = parsed;
+    return state;
   }
 
   /**
@@ -235,16 +227,8 @@ export class CuratorRequestProcessor {
   }
 
   private async writeState(conversationId: any, scope: string | null | undefined, updates: Record<string, any>) {
-    const conv = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
-    const raw: Record<string, any> = { ...this.getConversationState(conv) };
-    if (scope != null) {
-      const scopes = { ...(raw.__scopes || {}) };
-      scopes[scope] = { ...(scopes[scope] || {}), ...updates };
-      raw.__scopes = scopes;
-    } else {
-      Object.assign(raw, updates);
-    }
-    return this.updateConversationState(conversationId, raw);
+    // Event-sourced: append a patch to the EventLog and refresh the materialized view (no read-modify-write race).
+    return appendStatePatch(this.prisma, conversationId, { scope: scope ?? null, set: updates });
   }
 
   private parseContext(ctx: any): any {
@@ -851,11 +835,8 @@ export class CuratorRequestProcessor {
         const enabledCount = await this.prisma.agent.count({ where: { enabled: true } });
         if (totalAgents > 0 && enabledCount === 0) {
           logger.debug(`[CuratorRequestProcessor] Cancelling request ${req.id}: all agents are disabled.`);
-          await this.prisma.request.update({
-            where: { id: req.id },
-            data: { status: 'CANCELLED', lockedBy: null, lockedAt: null }
-          });
-          this.emit('request_done', { requestId: req.id, success: false, status: 'CANCELLED' });
+          await this.saveResponse(req, 'ERROR: cancelled, all agents are disabled');
+          await this.completeRequest(req.id, 'CANCELLED');
           return;
         }
 
@@ -892,11 +873,8 @@ export class CuratorRequestProcessor {
 
         if (agent && agent.enabled === false) {
           logger.debug(`[CuratorRequestProcessor] Cancelling request ${req.id}: associated agent '${agent.name}' is disabled.`);
-          await this.prisma.request.update({
-            where: { id: req.id },
-            data: { status: 'CANCELLED', lockedBy: null, lockedAt: null }
-          });
-          this.emit('request_done', { requestId: req.id, success: false, status: 'CANCELLED' });
+          await this.saveResponse(req, `ERROR: cancelled, associated agent '${agent.name}' is disabled`);
+          await this.completeRequest(req.id, 'CANCELLED');
           return;
         }
       } catch (_) {}
@@ -909,8 +887,7 @@ export class CuratorRequestProcessor {
         const message = `Cannot resolve AST: ${resolveErr.message}`;
         logger.error(`[CuratorRequestProcessor] Request ${request.id} rejected: ${message}`);
         await this.saveResponse(req, `ERROR: ${message}`);
-        await this.prisma.request.update({ where: { id: request.id }, data: { status: 'FAILED', lockedBy: null, lockedAt: null } });
-        this.emit('request_done', { requestId: request.id, success: false, error: message });
+        await this.completeRequest(request.id, 'FAILED');
         return;
       }
       const validation = validateCuratorAst(resolvedNode);
@@ -918,8 +895,7 @@ export class CuratorRequestProcessor {
         const message = `Invalid Curator AST: ${validation.errors.join('; ')}`;
         logger.error(`[CuratorRequestProcessor] Request ${request.id} rejected: ${message}`);
         await this.saveResponse(req, `ERROR: ${message}`);
-        await this.prisma.request.update({ where: { id: request.id }, data: { status: 'FAILED', lockedBy: null, lockedAt: null } });
-        this.emit('request_done', { requestId: request.id, success: false, error: message });
+        await this.completeRequest(request.id, 'FAILED');
         return;
       }
       const ast: CuratorAstNode = validation.node!;
@@ -969,7 +945,8 @@ export class CuratorRequestProcessor {
           }
         } else {
           logger.warn(`[CuratorRequestProcessor] Request ${req.id} has unknown AST type: ${(ast as any).type}. Skipping.`);
-          await this.prisma.request.update({ where: { id: req.id }, data: { status: 'SKIPPED', lockedBy: null, lockedAt: null } });
+          await this.saveResponse(req, `ERROR: unknown AST type '${(ast as any).type}'`);
+          await this.completeRequest(req.id, 'SKIPPED');
         }
       }));
     } catch (error: any) {
@@ -994,7 +971,7 @@ export class CuratorRequestProcessor {
       } catch (dbErr) {
         logger.error(`[CuratorRequestProcessor] Failed to write error response:`, dbErr);
       }
-      await this.prisma.request.update({ where: { id: request.id }, data: { status: 'FAILED', lockedBy: null, lockedAt: null } });
+      await this.completeRequest(request.id, 'FAILED');
     }
   }
 
@@ -1895,10 +1872,9 @@ export class CuratorRequestProcessor {
       const newContext: any = { ...rest };
       if (as) {
         newContext[as] = result;
+        await this.writeState(req.conversationId, null, { [as]: result });
         const conv = await this.prisma.conversation.findUnique({ where: { id: req.conversationId } });
-        const newState = { ...this.getConversationState(conv), [as]: result };
-        await this.updateConversationState(req.conversationId, newState);
-        newContext.state = newState;
+        newContext.state = this.getConversationState(conv);
       }
       await this.prisma.request.update({ where: { id: req.id }, data: { context: newContext } });
       await this.saveResponse(req, typeof result === 'string' ? result : JSON.stringify(result ?? null));
@@ -2615,14 +2591,19 @@ export class CuratorRequestProcessor {
     }
 
     // mode === 'stop': cancel all pending requests below threshold
-    const cancelled = await this.prisma.request.updateMany({
+    // Each victim ends through completeRequest, so whatever waits on it is poisoned rather than parked forever.
+    const victims = await this.prisma.request.findMany({
       where: {
         conversationId: req.conversationId,
         status: 'NEW',
         priority: { lt: cancelThreshold }
-      },
-      data: { status: 'FAILED' }
+      }
     });
+    for (const victim of victims) {
+      await this.saveResponse(victim, `ERROR: cancelled by interrupt ${req.id}`);
+      await this.completeRequest(victim.id, 'FAILED');
+    }
+    const cancelled = { count: victims.length };
     logger.debug(`[CuratorRequestProcessor] Cancelled ${cancelled.count} lower-priority requests.`);
 
     // Run the interrupt handler at high priority
@@ -3093,6 +3074,52 @@ export class CuratorRequestProcessor {
     return typeof value?.type === 'string' && CuratorRequestProcessor.STRUCTURED_RECORD_TYPES.has(value.type) && 'ok' in value;
   }
 
+  /**
+   * The one exit for every unsuccessful end (FAILED / SKIPPED / CANCELLED), so none can leave a waiter parked:
+   * the request is dead-lettered, its live children are cancelled (poison pill), and whatever waits on it is
+   * poisoned (a Join just counts it as arrived, tolerating failed branches).
+   */
+  private async handleUnsuccessful(req: any, status: string, skipNotify: boolean) {
+    const last = await this.prisma.response.findFirst({ where: { requestId: req.id }, orderBy: { id: 'desc' } });
+    await recordDeadLetter(this.prisma, req, status, last?.content ?? `Request ended ${status} without a recorded reason`);
+    await this.cancelOrphans(req.id);
+    if (req.notifyId && !skipNotify) await this.poisonDownstream(req, status);
+  }
+
+  /** Poison pill downwards: children of a dead request are cancelled; their own children follow recursively. */
+  private async cancelOrphans(parentId: number) {
+    const orphans = await this.prisma.request.findMany({
+      where: { parentId, status: { in: ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT', 'PAUSED'] } },
+    });
+    for (const orphan of orphans) {
+      await this.saveResponse(orphan, `ERROR: cancelled, parent request ${parentId} ended without completing`);
+      await this.completeRequest(orphan.id, 'CANCELLED', true);
+    }
+  }
+
+  /** Tells the request waiting on a dead one: a Join counts it, anything else fails with the cause. */
+  private async poisonDownstream(req: any, status: string) {
+    const target = await this.prisma.request.findUnique({ where: { id: req.notifyId } });
+    if (!target || TERMINAL_STATUSES.has(target.status)) return;
+    if ((target.ast as any)?.type === 'Curator_Join') {
+      const pending = Math.max(0, (target.pendingDependencies || 0) - 1);
+      const data: any = { pendingDependencies: pending };
+      if (pending === 0 && (target.status === 'WAITING' || target.status === 'NEW')) {
+        data.status = 'NEW';
+        data.lockedBy = null;
+        data.lockedAt = null;
+      }
+      await this.prisma.request.update({
+        where: { id: target.id },
+        data,
+      });
+      return;
+    }
+    this.emit('request_poisoned', { requestId: target.id, source: req.id, status });
+    await this.saveResponse(target, `ERROR: upstream request ${req.id} ${status}`);
+    await this.completeRequest(target.id, 'FAILED');
+  }
+
   private async completeRequest(requestId: number, status: string = 'COMPLETED', skipNotify: boolean = false) {
     let req: any;
     try {
@@ -3108,6 +3135,11 @@ export class CuratorRequestProcessor {
       throw err;
     }
     this.emit('request_done', { requestId, success: status === 'COMPLETED', status });
+
+    if (status !== 'COMPLETED') {
+      await this.handleUnsuccessful(req, status, skipNotify);
+      return;
+    }
 
     if (req.notifyId && !skipNotify) {
       try {
@@ -3134,9 +3166,10 @@ export class CuratorRequestProcessor {
           let currentConvState = this.getConversationState(conv);
           let newUpdates: any = {};
 
+          let parsed: any = null;
           if (lastContent) {
             try {
-              const parsed = JSON.parse(lastContent);
+              parsed = JSON.parse(lastContent);
               if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) && CuratorRequestProcessor.isStructuredRecord(parsed)) {
                 // Structured audit records (EVENT_EMITTED, CALL_STARTED, ...) are not workflow data.
                 newUpdates = {};
@@ -3167,7 +3200,10 @@ export class CuratorRequestProcessor {
 
           const sourceScope = this.parseContext(req.context).__scope;
           const targetIsJoin = (targetReq.ast as any)?.type === 'Curator_Join';
-          await this.writeState(targetReq.conversationId, sourceScope, newUpdates);
+          const shouldPersistInState = req.ast?.type !== 'Curator_Agent' && !req.ast?.ephemeral;
+          if (shouldPersistInState && Object.keys(newUpdates).length > 0) {
+            await this.writeState(targetReq.conversationId, sourceScope, newUpdates);
+          }
           const afterConv = await this.prisma.conversation.findUnique({ where: { id: targetReq.conversationId } });
           // A private flow's output stays in its scope; its Join sees only shared state.
           const mergedState = this.stateView(this.getConversationState(afterConv), targetIsJoin ? null : sourceScope);
@@ -3181,6 +3217,14 @@ export class CuratorRequestProcessor {
           let sourceContext = (req.context ?? {}) as any;
           if (typeof sourceContext === 'string') {
             try { sourceContext = JSON.parse(sourceContext); } catch (_) {}
+          }
+
+          if (req.ast?.type === 'Curator_Agent') {
+            const targetKey = req.ast.as || (req.ast.agentName ? req.ast.agentName.charAt(0).toLowerCase() + req.ast.agentName.slice(1) : 'decision');
+            const agentOutput = newUpdates[targetKey] ?? (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : lastContent);
+            targetContext[targetKey] = agentOutput;
+            targetContext.$response = agentOutput;
+            targetContext.$last = agentOutput;
           }
           const skipKeys = new Set(['forEachIndex', 'forEachCollection', 'ifElseEvaluated',
             'spawnedChild', 'routeDecided', 'pendingToolCall', 'waitEvent', 'payloadAlias', 'astPath',
@@ -3276,6 +3320,8 @@ export class CuratorRequestProcessor {
     safeSandbox.$context = mergedContext;
     safeSandbox.$state = convState;
     safeSandbox.$params = req.context.params ?? {};
+    safeSandbox.$response = req.context?.$response;
+    safeSandbox.$last = req.context?.$last ?? req.context?.$response;
 
     const vmContext = vm.createContext(safeSandbox);
     try {
