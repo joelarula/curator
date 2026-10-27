@@ -2350,30 +2350,35 @@ export class CuratorRequestProcessor {
     const tool = this.engine.tools.get(ast.toolName);
     if (!tool) throw new Error(`Tool ${ast.toolName} not found in dynamic registry.`);
 
-    const toolArgs = ast.args || { url: req.context?.input || '' };
+    let toolArgs = ast.args || { url: req.context?.input || '' };
     // Direct calls (REPL/CLI/API) carry literal args: a value like "$100" must not be evaluated.
     const literalArgs = req.context?.literalArgs === true;
     const inflight = this.inflight.get(req.id);
     
     // Evaluate string expressions in toolArgs — supports both {{expr}} templates and (fn)(context) patterns
-    const evaluatedArgs: Record<string, any> = {};
-    for (const [k, v] of Object.entries(toolArgs)) {
-      if (literalArgs) { evaluatedArgs[k] = v; continue; }
-      if (typeof v === 'string' && (v.startsWith('{{') || v.startsWith('$') || (v.startsWith('(') && v.endsWith('(context)')))) {
-        evaluatedArgs[k] = await this.evaluateExpressionAsync(v, req);
-      } else if (typeof v === 'object' && v !== null) {
-        // Recursively resolve template strings inside nested arg objects
-        const resolved: Record<string, any> = {};
-        for (const [ik, iv] of Object.entries(v as Record<string, any>)) {
-          if (typeof iv === 'string' && (iv.startsWith('{{') || iv.startsWith('$'))) {
-            resolved[ik] = await this.evaluateExpressionAsync(iv, req);
-          } else {
-            resolved[ik] = iv;
+    let evaluatedArgs: Record<string, any> = {};
+    if (typeof toolArgs === 'string' && (toolArgs.startsWith('{{') || toolArgs.startsWith('$') || (toolArgs.startsWith('(') && toolArgs.endsWith('(context)')))) {
+      const resolved = await this.evaluateExpressionAsync(toolArgs, req);
+      evaluatedArgs = (resolved && typeof resolved === 'object' && !Array.isArray(resolved)) ? resolved : { input: resolved };
+    } else if (toolArgs && typeof toolArgs === 'object') {
+      for (const [k, v] of Object.entries(toolArgs)) {
+        if (literalArgs) { evaluatedArgs[k] = v; continue; }
+        if (typeof v === 'string' && (v.startsWith('{{') || v.startsWith('$') || (v.startsWith('(') && v.endsWith('(context)')))) {
+          evaluatedArgs[k] = await this.evaluateExpressionAsync(v, req);
+        } else if (typeof v === 'object' && v !== null) {
+          // Recursively resolve template strings inside nested arg objects
+          const resolved: Record<string, any> = {};
+          for (const [ik, iv] of Object.entries(v as Record<string, any>)) {
+            if (typeof iv === 'string' && (iv.startsWith('{{') || iv.startsWith('$') || (iv.startsWith('(') && iv.endsWith('(context)')))) {
+              resolved[ik] = await this.evaluateExpressionAsync(iv, req);
+            } else {
+              resolved[ik] = iv;
+            }
           }
+          evaluatedArgs[k] = resolved;
+        } else {
+          evaluatedArgs[k] = v;
         }
-        evaluatedArgs[k] = resolved;
-      } else {
-        evaluatedArgs[k] = v;
       }
     }
 
@@ -2510,8 +2515,13 @@ export class CuratorRequestProcessor {
 
   private async handleSetState(ast: any, req: any) {
     logger.debug(`[CuratorRequestProcessor] Setting state for request ${req.id}`);
-    if (ast.state && typeof ast.state === 'object') {
-      const evaluatedState: Record<string, any> = {};
+    let evaluatedState: Record<string, any> = {};
+    if (typeof ast.state === 'string' && (ast.state.startsWith('{{') || ast.state.startsWith('$') || (ast.state.startsWith('(') && ast.state.endsWith('(context)')))) {
+      const res = await this.evaluateExpressionAsync(ast.state, req);
+      if (res && typeof res === 'object' && !Array.isArray(res)) {
+        evaluatedState = res;
+      }
+    } else if (ast.state && typeof ast.state === 'object') {
       for (const [k, v] of Object.entries(ast.state)) {
         if (typeof v === 'string' && (v.startsWith('{{') || v.startsWith('$') || (v.startsWith('(') && v.endsWith('(context)')))) {
           evaluatedState[k] = await this.evaluateExpressionAsync(v, req);
@@ -2519,6 +2529,9 @@ export class CuratorRequestProcessor {
           evaluatedState[k] = v;
         }
       }
+    }
+
+    if (Object.keys(evaluatedState).length > 0) {
       await this.writeState(req.conversationId, this.parseContext(req.context).__scope, evaluatedState);
       await this.saveResponse(req, JSON.stringify({ status: 'State updated', state: evaluatedState }));
     } else {
@@ -3034,6 +3047,17 @@ export class CuratorRequestProcessor {
     }
 
     logger.debug(`[CuratorRequestProcessor] Agent '${ast.agentName}' completed in ${iterations} turn(s). Output length: ${finalOutput.length}`);
+    const targetKey = ast.as || (ast.agentName ? ast.agentName.charAt(0).toLowerCase() + ast.agentName.slice(1) : 'decision');
+    try {
+      const parsed = JSON.parse(finalOutput);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        req.context = { ...(req.context || {}), [targetKey]: parsed };
+      } else {
+        req.context = { ...(req.context || {}), [targetKey]: finalOutput };
+      }
+    } catch (_) {
+      req.context = { ...(req.context || {}), [targetKey]: finalOutput };
+    }
     await this.saveResponse(req, finalOutput);
     await this.completeRequest(req.id, 'COMPLETED');
   }
@@ -3117,12 +3141,27 @@ export class CuratorRequestProcessor {
                 // Structured audit records (EVENT_EMITTED, CALL_STARTED, ...) are not workflow data.
                 newUpdates = {};
               } else if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
-                newUpdates = parsed;
+                if (req.ast?.type === 'Curator_Agent') {
+                  const targetKey = req.ast.as || (req.ast.agentName ? req.ast.agentName.charAt(0).toLowerCase() + req.ast.agentName.slice(1) : 'decision');
+                  newUpdates = { [targetKey]: parsed };
+                } else {
+                  newUpdates = parsed;
+                }
+              } else {
+                if (req.ast?.type === 'Curator_Agent') {
+                  const targetKey = req.ast.as || (req.ast.agentName ? req.ast.agentName.charAt(0).toLowerCase() + req.ast.agentName.slice(1) : 'decision');
+                  newUpdates = { [targetKey]: lastContent };
+                } else {
+                  newUpdates = { output: lastContent };
+                }
+              }
+            } catch (e) {
+              if (req.ast?.type === 'Curator_Agent') {
+                const targetKey = req.ast.as || (req.ast.agentName ? req.ast.agentName.charAt(0).toLowerCase() + req.ast.agentName.slice(1) : 'decision');
+                newUpdates = { [targetKey]: lastContent };
               } else {
                 newUpdates = { output: lastContent };
               }
-            } catch (e) {
-              newUpdates = { output: lastContent };
             }
           }
 

@@ -31,19 +31,28 @@ export function toVarName(target: unknown): string | undefined {
 }
 
 /**
+ * Detects if a value is a TypedPathProxy created by createContextProxy.
+ */
+export function isPathProxy(val: unknown): boolean {
+  return Boolean(val && typeof val === 'function' && (val as any).__isPathProxy === true);
+}
+
+/**
  * Creates a typed recursive proxy that resolves property paths to AST expressions.
  * e.g. ctx.gameState.currentStreet => "$context.gameState.currentStreet"
  */
 export function createContextProxy<T = any>(root = '$context'): TypedPathProxy<T> {
-  const targetObj = {
+  const targetObj = Object.assign(() => root, {
     toJSON: () => root,
     toString: () => root,
     valueOf: () => root,
-  };
+    __isPathProxy: true,
+  });
   const handler: ProxyHandler<any> = {
     get(_target, prop: string | symbol) {
       if (typeof prop === 'symbol') return undefined;
       const strProp = String(prop);
+      if (strProp === '__isPathProxy') return true;
       if (strProp === 'toString' || strProp === 'valueOf' || strProp === 'toJSON') {
         return () => root;
       }

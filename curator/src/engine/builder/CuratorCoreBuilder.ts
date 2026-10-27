@@ -23,9 +23,40 @@ import {
   type CuratorSubscribeNode,
   type CuratorUnsubscribeNode,
 } from '../CuratorAst.js';
-import { toVarName, type TypedPathProxy, createContextProxy, not, and, or, eq } from './CuratorProxy.js';
+import { toVarName, type TypedPathProxy, createContextProxy, isPathProxy, not, and, or, eq } from './CuratorProxy.js';
 
-export { CuratorNodeType, toVarName, createContextProxy, type TypedPathProxy };
+export { CuratorNodeType, toVarName, createContextProxy, isPathProxy, type TypedPathProxy };
+
+/**
+ * Converts a string (e.g. 'PokerAgent', 'poker-agent', 'poker_agent') to camelCase.
+ */
+export function toCamelCase(str?: string): string {
+  if (!str) return '';
+  return str
+    .replace(/[-_]+(.)?/g, (_, c) => (c ? c.toUpperCase() : ''))
+    .replace(/^(.)/, (c) => c.toLowerCase());
+}
+
+/**
+ * Recursively serializes JavaScript functions to `(${fn.toString()})(context)` for AST runtime evaluation.
+ * If the value is a TypedPathProxy, returns its expression path string directly.
+ */
+export function serializeClosure(val: any): any {
+  if (isPathProxy(val)) {
+    return String(val);
+  }
+  if (typeof val === 'function') {
+    return `(${val.toString()})(context)`;
+  }
+  if (val && typeof val === 'object' && !Array.isArray(val) && !(val instanceof RegExp) && !(val instanceof Date)) {
+    const res: Record<string, any> = {};
+    for (const [k, v] of Object.entries(val)) {
+      res[k] = serializeClosure(v);
+    }
+    return res;
+  }
+  return val;
+}
 
 export interface ActiveModuleScope {
   name: string;
@@ -265,9 +296,10 @@ export class CuratorCoreBuilder {
 
   /**
    * Emit a Pub/Sub event to awaken listening AgentWorkflows.
+   * Supports whole-payload closure (ctx) => ({ ... }) or object with closure properties.
    */
   static emitEvent(eventName: string, payload?: any | ((ctx: any) => any), targetAgentId?: number | string | ((ctx: any) => number | string)): CuratorEmitEventNode {
-    const payloadVal = typeof payload === 'function' ? `(${payload.toString()})(context)` : payload;
+    const payloadVal = serializeClosure(payload);
     const targetAgentIdVal = typeof targetAgentId === 'function' ? `(${targetAgentId.toString()})(context)` : targetAgentId;
     return { type: CuratorNodeType.EmitEvent, eventName, payload: payloadVal, targetAgentId: targetAgentIdVal };
   }
@@ -485,10 +517,14 @@ export class CuratorCoreBuilder {
   }
 
   /**
-   * Merge state with the provided record.
+   * Merge state with the provided record or closure.
+   * Supports whole-object closure (ctx) => ({ ... }) or object with closure properties.
    */
-  static setState(state: Record<string, any>): CuratorSetStateNode {
-    return { type: CuratorNodeType.SetState, state };
+  static setState<T = any>(stateOrFn: Record<string, any> | ((ctx: T) => Partial<T> | Record<string, any>)): CuratorSetStateNode {
+    if (typeof stateOrFn === 'function') {
+      return { type: CuratorNodeType.SetState, state: `(${stateOrFn.toString()})(context)` };
+    }
+    return { type: CuratorNodeType.SetState, state: serializeClosure(stateOrFn) };
   }
 
   /**
@@ -542,9 +578,11 @@ export class CuratorCoreBuilder {
 
   /**
    * Call an LLM agent with tools.
+   * Strict scoping: ensures output is stored under `as` (defaulting to camelCase(agentName) or 'decision').
    */
   static agent(options: Omit<CuratorAgentNode, 'type'>): CuratorAgentNode {
-    return { type: CuratorNodeType.Agent, ...options };
+    const cleanAs = toVarName(options.as) || toCamelCase(options.agentName) || 'decision';
+    return { type: CuratorNodeType.Agent, ...options, as: cleanAs };
   }
 
   /**
@@ -558,16 +596,12 @@ export class CuratorCoreBuilder {
 
   /**
    * Execute a registered tool.
+   * Accepts record arguments, closure returning arguments (ctx) => ({ ... }), or arguments containing closures.
    */
-  static tool(toolName: string, args?: Record<string, any>, as?: string | TypedPathProxy<any> | any): CuratorToolNode {
-    const evaluatedArgs: Record<string, any> = {};
-    if (args) {
-      for (const [k, v] of Object.entries(args)) {
-        evaluatedArgs[k] = typeof v === 'function' ? `(${v.toString()})(context)` : v;
-      }
-    }
+  static tool(toolName: string, args?: Record<string, any> | ((ctx: any) => Record<string, any>), as?: string | TypedPathProxy<any> | any): CuratorToolNode {
+    const evaluatedArgs = typeof args === 'function' ? `(${args.toString()})(context)` : (args ? serializeClosure(args) : {});
     const cleanAs = toVarName(as);
-    const node: CuratorToolNode = { type: CuratorNodeType.Tool, toolName, args: evaluatedArgs };
+    const node: CuratorToolNode = { type: CuratorNodeType.Tool, toolName, args: evaluatedArgs as any };
     if (cleanAs) node.as = cleanAs;
     return node;
   }

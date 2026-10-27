@@ -112,11 +112,13 @@ export interface CuratorAgentNode extends CuratorBaseNode {
   baseUrl?: string;
   input_schema?: Record<string, any>;
   output_schema?: Record<string, any>;
+  /** Key under which agent structured output is stored in context and state. Default: camelCase(agentName) or 'decision'. */
+  as?: string;
 }
 
 export interface CuratorSetStateNode extends CuratorBaseNode {
   type: typeof CuratorNodeType.SetState;
-  state: Record<string, any>;
+  state: Record<string, any> | string;
 }
 
 export interface CuratorEmitEventNode extends CuratorBaseNode {
@@ -231,7 +233,7 @@ export interface CuratorLoopNode extends CuratorBaseNode {
 export interface CuratorToolNode extends CuratorBaseNode {
   type: typeof CuratorNodeType.Tool;
   toolName: string;
-  args?: Record<string, any>;
+  args?: Record<string, any> | string;
   /** Optional context key to store tool output under in request context */
   as?: string;
   outputKey?: string;

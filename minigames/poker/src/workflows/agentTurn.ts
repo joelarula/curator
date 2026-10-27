@@ -29,6 +29,7 @@ import {
 import {
   ctx,
   gameState,
+  type PokerWorkflowContext,
 } from '../models/pokerContext.ts';
 import { getRulesDescription } from '../engine/pokerRules.ts';
 export {
@@ -39,6 +40,7 @@ export {
 
 export interface PokerAgentDecisionOptions {
   agentName?: string;
+  as?: string;
   model?: string;
   provider?: 'gemini' | 'local';
   instruction?: string;
@@ -121,6 +123,7 @@ export function agent_decision(options: PokerAgentDecisionOptions = {}): Curator
 
   return CuratorBuilder.agent({
     agentName: options.agentName ?? 'PokerAgent',
+    as: options.as ?? 'decision',
     model: options.model ?? 'gemini-2.5-flash',
     provider: options.provider ?? 'gemini',
     instruction: defaultInstruction,
@@ -137,10 +140,10 @@ export const ai_decision = agent_decision;
 /**
  * Tool helper applying a player's action to game state.
  */
-export function apply_player_action(action: any = `${ctx.action} || ${ctx.turnAction} || ${ctx.lastAiAction}`): CuratorToolNode {
+export function apply_player_action(action: any = (c: PokerWorkflowContext) => c.decision?.action || c.turnAction || c.action): CuratorToolNode {
   return CuratorBuilder.tool(PokerTool.APPLY_ACTION, {
     state: String(gameState),
-    action: typeof action === 'string' ? action : String(action),
+    action: typeof action === 'string' ? action : action,
   });
 }
 
@@ -149,17 +152,19 @@ export function apply_player_action(action: any = `${ctx.action} || ${ctx.turnAc
  */
 export function buildAgentDecisionSteps(options: PokerAgentDecisionOptions = {}) {
   return [
-    setState({ action: null, turnAction: null }),
+    setState({ decision: null, action: null }),
     agent_decision(options),
-    setState({ turnAction: `${ctx.action} || ${ctx.turnAction} || ${ctx.lastAiAction}` }),
-    ifElse(
-      `(${ctx.speech} && ${ctx.speech}.length > 0) || (${ctx.action} && ${ctx.action}.speech) || (${ctx.turnAction} && ${ctx.turnAction}.speech)`,
+    ifElse<PokerWorkflowContext>(
+      (c) => Boolean(c.decision?.speech && c.decision.speech.trim().length > 0),
       seq('emit_ai_speech', [
-        emitEvent(PokerEvent.SPEECH, {
-          speakerId: `${gameState.players}[${gameState.activePlayerIdx}].id`,
-          speakerName: `${gameState.players}[${gameState.activePlayerIdx}].name`,
-          text: `${ctx.speech} || ${ctx.action}.speech || ${ctx.turnAction}.speech`,
-          speechAct: 'TABLE_TALK',
+        emitEvent(PokerEvent.SPEECH, (c: PokerWorkflowContext) => {
+          const player = c.gameState?.players?.[c.gameState.activePlayerIdx];
+          return {
+            speakerId: player?.id,
+            speakerName: player?.name,
+            text: c.decision?.speech,
+            speechAct: 'TABLE_TALK',
+          };
         }),
         setState({ speech: '' }),
       ]),
@@ -173,7 +178,7 @@ export function buildAgentDecisionSteps(options: PokerAgentDecisionOptions = {})
 export function buildAgentTurnSteps(options: PokerAgentDecisionOptions = {}) {
   return [
     ...buildAgentDecisionSteps(options),
-    apply_player_action(`${ctx.action} || ${ctx.turnAction} || ${ctx.lastAiAction}`),
+    apply_player_action((c: PokerWorkflowContext) => c.decision?.action || c.turnAction || c.action),
   ];
 }
 

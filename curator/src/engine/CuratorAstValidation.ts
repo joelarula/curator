@@ -55,7 +55,7 @@ const schema: Record<string, any> = {
   oneOf: [
     {
       type: 'object',
-      properties: { ...baseProperties, type: { const: 'Curator_Agent' }, agentName: { type: 'string', minLength: 1 }, model: { type: 'string', minLength: 1 }, instruction: { type: 'string' }, prompt: { type: 'string' }, include_contents: { type: 'string', enum: ['default', 'none'] }, history_from: { type: 'string', enum: ['default', 'conversation'] }, history_events: { type: 'array', items: { type: 'string', minLength: 1 } }, tools: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'object' }] } }] }, provider: { type: 'string', enum: ['gemini', 'local'] }, baseUrl: { type: 'string', minLength: 1 }, input_schema: { type: 'object' }, output_schema: { type: 'object' } },
+      properties: { ...baseProperties, type: { const: 'Curator_Agent' }, agentName: { type: 'string', minLength: 1 }, model: { type: 'string', minLength: 1 }, instruction: { type: 'string' }, prompt: { type: 'string' }, include_contents: { type: 'string', enum: ['default', 'none'] }, history_from: { type: 'string', enum: ['default', 'conversation'] }, history_events: { type: 'array', items: { type: 'string', minLength: 1 } }, tools: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'object' }] } }] }, provider: { type: 'string', enum: ['gemini', 'local'] }, baseUrl: { type: 'string', minLength: 1 }, input_schema: { type: 'object' }, output_schema: { type: 'object' }, as: { type: 'string' } },
       required: ['type'],
       anyOf: [{ required: ['agentName'] }, { required: ['prompt'] }],
       additionalProperties: false,
@@ -92,7 +92,7 @@ const schema: Record<string, any> = {
     },
     {
       type: 'object',
-      properties: { ...baseProperties, type: { const: 'Curator_Tool' }, toolName: { type: 'string', minLength: 1 }, args: { type: 'object' }, parameters: { type: 'object' }, as: { type: 'string' }, outputKey: { type: 'string' }, approvalTtlMs: { type: 'integer', minimum: 0 }, onApprovalExpired: { type: 'string', enum: ['fail', 'continue'] } },
+      properties: { ...baseProperties, type: { const: 'Curator_Tool' }, toolName: { type: 'string', minLength: 1 }, args: { anyOf: [{ type: 'object' }, { type: 'string' }] }, parameters: { type: 'object' }, as: { type: 'string' }, outputKey: { type: 'string' }, approvalTtlMs: { type: 'integer', minimum: 0 }, onApprovalExpired: { type: 'string', enum: ['fail', 'continue'] } },
       required: ['type', 'toolName'],
       additionalProperties: false,
       anyOf: [{ required: ['args'] }, { required: ['parameters'] }, { not: { anyOf: [{ required: ['args'] }, { required: ['parameters'] }] } }],
@@ -133,7 +133,7 @@ const schema: Record<string, any> = {
     },
     {
       type: 'object',
-      properties: { ...baseProperties, type: { const: 'Curator_SetState' }, state: { type: 'object' } },
+      properties: { ...baseProperties, type: { const: 'Curator_SetState' }, state: { anyOf: [{ type: 'object' }, { type: 'string' }] } },
       required: ['type', 'state'],
       additionalProperties: false,
     },
