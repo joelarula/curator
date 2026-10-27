@@ -3,7 +3,6 @@ import {
   POKER_TABLE_STATUS,
   type PokerTableStatusType,
 } from '../models/pokerShapes.ts';
-import { PokerEvent } from '../models/pokerContracts.ts';
 import { PokerLobbyAction, type PokerTableChoice } from '../workflows/pokerLobby.ts';
 
 export interface SyncPokerTableParams {
@@ -349,9 +348,6 @@ export function formatTableChoices(
       title,
       label: `Table #${tableId} (${title})`,
       aliases,
-      event: PokerEvent.TABLE_SELECTED,
-      payload: { id: tableId },
-      value: { id: tableId },
     };
   });
 
@@ -363,9 +359,6 @@ export function formatTableChoices(
       title: 'Back to Lounge Options',
       label: '« Back to Lounge Options',
       aliases: [String(backIdx), 'back', 'b', 'cancel'],
-      event: PokerEvent.TABLE_SELECTED,
-      payload: { id: PokerLobbyAction.BACK },
-      value: { id: PokerLobbyAction.BACK },
     });
   }
 

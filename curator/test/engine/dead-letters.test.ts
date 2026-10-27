@@ -109,3 +109,93 @@ test('dead letters: replay resubmits the request and marks the letter replayed',
     await env.cleanup();
   }
 });
+
+test('parallel flow: one failing branch does not poison the flow when other branches succeed', async () => {
+  const env = await createEnv('dl_par_continue', {
+    fine: () => 'branch ok',
+    after: () => 'flow completed',
+  });
+  try {
+    const { requestId, result } = await runAst(
+      env,
+      seq('flow', [
+        { type: 'Curator_Parallel', name: 'fan', subAgents: [tool('missing_tool'), tool('fine')] },
+        tool('after'),
+      ])
+    );
+    const all = await env.prisma.request.findMany({ where: { conversationId: env.conversationId } });
+    const afterReq = all.find((r: any) => r.ast?.type === 'Curator_Tool' && r.ast?.toolName === 'after');
+    assert.ok(afterReq, 'after request exists');
+    assert.equal(afterReq.status, 'COMPLETED', 'downstream node ran and completed despite branch failure');
+    const afterResp = await env.prisma.response.findFirst({ where: { requestId: afterReq.id } });
+    assert.equal(afterResp?.content, 'flow completed');
+
+    const dead = await listDeadLetters(env.prisma, { conversationId: env.conversationId });
+    assert.equal(dead.length, 1, 'only the failing branch was dead-lettered');
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('parallel flow: failure in a nested sequential branch does not poison sibling branches', async () => {
+  const env = await createEnv('dl_par_nested', {
+    step2: () => 'should not run',
+    sibling: () => 'sibling success',
+    after: () => 'all done',
+  });
+  try {
+    const { requestId } = await runAst(
+      env,
+      seq('main', [
+        {
+          type: 'Curator_Parallel',
+          name: 'parallel_block',
+          subAgents: [
+            seq('b1', [tool('missing_tool'), tool('step2')]),
+            tool('sibling'),
+          ],
+        },
+        tool('after'),
+      ])
+    );
+    const all = await env.prisma.request.findMany({ where: { conversationId: env.conversationId } });
+    const siblingReq = all.find((r: any) => r.ast?.type === 'Curator_Tool' && r.ast?.toolName === 'sibling');
+    assert.ok(siblingReq, 'sibling request exists');
+    assert.equal(siblingReq.status, 'COMPLETED', 'sibling branch completed successfully');
+
+    const step2Req = all.find((r: any) => r.ast?.type === 'Curator_Tool' && r.ast?.toolName === 'step2');
+    assert.ok(step2Req, 'step2 request exists');
+    assert.equal(step2Req.status, 'FAILED', 'step2 was poisoned by missing_tool');
+
+    const afterReq = all.find((r: any) => r.ast?.type === 'Curator_Tool' && r.ast?.toolName === 'after');
+    assert.ok(afterReq, 'after request exists');
+    assert.equal(afterReq.status, 'COMPLETED', 'continuation after parallel block executed');
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('parallel flow: when all branches fail, the flow fails and does not execute downstream', async () => {
+  const env = await createEnv('dl_all_fail', {
+    after: () => 'should not run',
+  });
+  try {
+    await runAst(
+      env,
+      seq('fail_flow', [
+        { type: 'Curator_Parallel', name: 'fan', subAgents: [tool('missing_1'), tool('missing_2')] },
+        tool('after'),
+      ])
+    );
+    const all = await env.prisma.request.findMany({ where: { conversationId: env.conversationId } });
+    const joinReq = all.find((r: any) => r.ast?.type === 'Curator_Join');
+    assert.ok(joinReq, 'join request exists');
+    assert.equal(joinReq.status, 'FAILED', 'join failed because all parallel branches failed');
+
+    const afterReq = all.find((r: any) => r.ast?.type === 'Curator_Tool' && r.ast?.toolName === 'after');
+    assert.ok(afterReq, 'after request exists');
+    assert.equal(afterReq.status, 'FAILED', 'after node was poisoned by failed join');
+  } finally {
+    await env.cleanup();
+  }
+});

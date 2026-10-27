@@ -23,8 +23,6 @@ import {
 } from '../composables/pokerComposables.ts';
 import type { PokerWorkflowContext } from '../models/pokerContext.ts';
 
-import { PokerEvent, type PokerEventType } from '../models/pokerContracts.ts';
-
 /**
  * Poker Lobby Actions, Options, and Choices
  */
@@ -43,12 +41,7 @@ export interface PokerLobbyChoice {
   label: string;
   description?: string;
   aliases: string[];
-  event: PokerEventType;
-  payload: { id: PokerLobbyActionType };
-  value: { id: PokerLobbyActionType };
 }
-
-export type PokerLobbyOption = PokerLobbyChoice;
 
 export interface PokerTableChoice {
   id: string;
@@ -56,57 +49,47 @@ export interface PokerTableChoice {
   title: string;
   label: string;
   aliases: string[];
-  event: PokerEventType;
-  payload: { id: string };
-  value: { id: string };
 }
 
 export type PokerChoice = PokerLobbyChoice | PokerTableChoice;
 
+function lobbyChoice(
+  id: PokerLobbyActionType,
+  label: string,
+  description: string,
+  aliases: string[],
+): PokerLobbyChoice {
+  return { id, label, description, aliases };
+}
+
 export function getLobbyChoices(hasUnfinishedGames: boolean = false, count?: number): PokerLobbyChoice[] {
   const choices: PokerLobbyChoice[] = [
-    {
-      id: PokerLobbyAction.NEW,
-      label: 'New Game - Start fresh table',
-      description: 'Start fresh table',
-      aliases: ['1', 'n', 'new'],
-      event: PokerEvent.LOBBY_CHOICE,
-      payload: { id: PokerLobbyAction.NEW },
-      value: { id: PokerLobbyAction.NEW },
-    },
+    lobbyChoice(PokerLobbyAction.NEW, 'New Game - Start fresh table', 'Start fresh table', ['1', 'n', 'new']),
   ];
 
   if (hasUnfinishedGames) {
     const label = count !== undefined && count > 0
       ? `Resume Game - Select from active/paused tables (${count} available)`
       : 'Resume Game - Select from active/paused tables';
-    choices.push({
-      id: PokerLobbyAction.RESUME,
+    choices.push(lobbyChoice(
+      PokerLobbyAction.RESUME,
       label,
-      description: 'Select from active/paused tables',
-      aliases: [String(choices.length + 1), 'r', 'resume', 'continue'],
-      event: PokerEvent.LOBBY_CHOICE,
-      payload: { id: PokerLobbyAction.RESUME },
-      value: { id: PokerLobbyAction.RESUME },
-    });
+      'Select from active/paused tables',
+      [String(choices.length + 1), 'r', 'resume', 'continue'],
+    ));
   }
 
-  choices.push({
-    id: PokerLobbyAction.EXIT,
-    label: 'Exit - Quit session',
-    description: 'Quit session',
-    aliases: [String(choices.length + 1), 'q', 'exit', 'quit'],
-    event: PokerEvent.LOBBY_CHOICE,
-    payload: { id: PokerLobbyAction.EXIT },
-    value: { id: PokerLobbyAction.EXIT },
-  });
+  choices.push(lobbyChoice(
+    PokerLobbyAction.EXIT,
+    'Exit - Quit session',
+    'Quit session',
+    [String(choices.length + 1), 'q', 'exit', 'quit'],
+  ));
 
   return choices;
 }
 
-export const getLobbyOptions = getLobbyChoices;
 export const DEFAULT_LOBBY_CHOICES = getLobbyChoices(false);
-export const DEFAULT_LOBBY_OPTIONS = DEFAULT_LOBBY_CHOICES;
 
 
 

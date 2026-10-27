@@ -236,6 +236,13 @@ export class CuratorRequestProcessor {
     return ctx || {};
   }
 
+  private parseAst(ast: any): any {
+    if (typeof ast === 'string') {
+      try { return JSON.parse(ast); } catch { return null; }
+    }
+    return ast || null;
+  }
+
   /** Identity used to address events: the private scope, else the request's agent. */
   private identityOf(req: any): string | null {
     const scope = this.parseContext(req.context).__scope;
@@ -1168,7 +1175,7 @@ export class CuratorRequestProcessor {
     let id = reqId ?? null;
     for (let depth = 0; id != null && depth < 500; depth++) {
       const r: any = await this.prisma.request.findUnique({ where: { id }, select: { ast: true, notifyId: true } });
-      if (!r || (r.ast as any)?.type === 'Curator_Join') break;
+      if (!r || this.parseAst(r.ast)?.type === 'Curator_Join') break;
       ids.add(id);
       id = r.notifyId;
     }
@@ -1189,7 +1196,7 @@ export class CuratorRequestProcessor {
     let id: number | null = reqId;
     for (let depth = 0; id != null && depth < 500; depth++) {
       const r: any = await this.prisma.request.findUnique({ where: { id }, select: { ast: true, notifyId: true } });
-      if (!r || (r.ast as any)?.type === 'Curator_Join') return;
+      if (!r || this.parseAst(r.ast)?.type === 'Curator_Join') return;
       await this.prisma.request.updateMany({
         where: { id, OR: [{ eventCursor: null }, { eventCursor: { lt: seq } }] },
         data: { eventCursor: seq },
@@ -1210,7 +1217,7 @@ export class CuratorRequestProcessor {
       const r: any = await this.prisma.request.findUnique({ where: { id }, select: { ast: true, notifyId: true, eventCursor: true, createdAt: true } });
       if (!r) break;
       anchor = r.createdAt;
-      if ((r.ast as any)?.type === 'Curator_Join') break;
+      if (this.parseAst(r.ast)?.type === 'Curator_Join') break;
       if (r.eventCursor != null) return r.eventCursor;
       id = r.notifyId;
     }
@@ -1335,6 +1342,7 @@ export class CuratorRequestProcessor {
       currentNotifyId = newReq.id;
     }
     // The last child spawned assumes responsibility for notifying our parent.
+    await this.prisma.request.update({ where: { id: req.id }, data: { notifyId: null } });
     await this.completeRequest(req.id, 'COMPLETED', true);
   }
 
@@ -1383,6 +1391,7 @@ export class CuratorRequestProcessor {
       });
     }
     // The join node assumes responsibility for notifying our parent.
+    await this.prisma.request.update({ where: { id: req.id }, data: { notifyId: null } });
     await this.completeRequest(req.id, 'COMPLETED', true);
   }
 
@@ -1392,6 +1401,11 @@ export class CuratorRequestProcessor {
       where: { notifyId: req.id, status: 'COMPLETED' },
       include: { responses: { orderBy: { createdAt: 'desc' }, take: 1 } }
     });
+    if (children.length === 0) {
+      await this.saveResponse(req, `ERROR: all parallel branches failed`);
+      await this.completeRequest(req.id, 'FAILED');
+      return;
+    }
     const combinedTexts = children.map((c: any) => c.responses[0]?.content || '').join('\n\n---\n\n');
     await this.saveResponse(req, `[Joined Output]\n${combinedTexts}`);
     await this.completeRequest(req.id, 'COMPLETED');
@@ -2591,19 +2605,14 @@ export class CuratorRequestProcessor {
     }
 
     // mode === 'stop': cancel all pending requests below threshold
-    // Each victim ends through completeRequest, so whatever waits on it is poisoned rather than parked forever.
-    const victims = await this.prisma.request.findMany({
+    const cancelled = await this.prisma.request.updateMany({
       where: {
         conversationId: req.conversationId,
         status: 'NEW',
         priority: { lt: cancelThreshold }
-      }
+      },
+      data: { status: 'FAILED' }
     });
-    for (const victim of victims) {
-      await this.saveResponse(victim, `ERROR: cancelled by interrupt ${req.id}`);
-      await this.completeRequest(victim.id, 'FAILED');
-    }
-    const cancelled = { count: victims.length };
     logger.debug(`[CuratorRequestProcessor] Cancelled ${cancelled.count} lower-priority requests.`);
 
     // Run the interrupt handler at high priority
@@ -3097,24 +3106,62 @@ export class CuratorRequestProcessor {
     }
   }
 
-  /** Tells the request waiting on a dead one: a Join counts it, anything else fails with the cause. */
+  /**
+   * Tells the request waiting on a dead one:
+   * In parallel flows (or any fan-in / Join barrier), one failing branch must not poison the entire flow
+   * when other branches are successful or still running.
+   */
   private async poisonDownstream(req: any, status: string) {
     const target = await this.prisma.request.findUnique({ where: { id: req.notifyId } });
     if (!target || TERMINAL_STATUSES.has(target.status)) return;
-    if ((target.ast as any)?.type === 'Curator_Join') {
+
+    const targetAst = this.parseAst(target.ast);
+    const siblings = await this.prisma.request.findMany({ where: { notifyId: target.id } });
+    const isFanIn = siblings.length > 1 || (target.pendingDependencies || 0) > 1 || targetAst?.type === 'Curator_Join';
+
+    if (isFanIn) {
       const pending = Math.max(0, (target.pendingDependencies || 0) - 1);
       const data: any = { pendingDependencies: pending };
-      if (pending === 0 && (target.status === 'WAITING' || target.status === 'NEW')) {
-        data.status = 'NEW';
-        data.lockedBy = null;
-        data.lockedAt = null;
+
+      const otherBranches = siblings.filter((s: any) => s.id !== req.id);
+      const hasLiveBranches = otherBranches.some((s: any) => !TERMINAL_STATUSES.has(s.status));
+      const hasSuccessfulBranches = otherBranches.some((s: any) => s.status === 'COMPLETED');
+
+      if (pending === 0) {
+        if (hasSuccessfulBranches || targetAst?.type === 'Curator_Join') {
+          // At least one branch succeeded (or Join will aggregate completed responses)
+          if (target.status === 'WAITING' || target.status === 'NEW') {
+            data.status = 'NEW';
+            data.lockedBy = null;
+            data.lockedAt = null;
+          }
+          await this.prisma.request.update({
+            where: { id: target.id },
+            data,
+          });
+          return;
+        } else if (!hasLiveBranches) {
+          // All branches finished and NONE were successful: poison the target
+          await this.prisma.request.update({
+            where: { id: target.id },
+            data,
+          });
+          this.emit('request_poisoned', { requestId: target.id, source: req.id, status });
+          await this.saveResponse(target, `ERROR: all upstream parallel branches failed`);
+          await this.completeRequest(target.id, 'FAILED');
+          return;
+        }
       }
+
+      // Other branches are still running or pending > 0: do not poison target yet
       await this.prisma.request.update({
         where: { id: target.id },
         data,
       });
       return;
     }
+
+    // Direct 1-to-1 sequential dependency: upstream death poisons target
     this.emit('request_poisoned', { requestId: target.id, source: req.id, status });
     await this.saveResponse(target, `ERROR: upstream request ${req.id} ${status}`);
     await this.completeRequest(target.id, 'FAILED');
@@ -3147,12 +3194,12 @@ export class CuratorRequestProcessor {
         const lastContent = responses[0]?.content;
 
         const targetReq = await this.prisma.request.findUnique({ where: { id: req.notifyId } });
-        if (targetReq) {
+        if (targetReq && !TERMINAL_STATUSES.has(targetReq.status)) {
           const newPendingDeps = Math.max(0, (targetReq.pendingDependencies || 0) - 1);
           let updatedData: any = {
             pendingDependencies: newPendingDeps
           };
-          if (newPendingDeps === 0 && targetReq.status === 'WAITING') {
+          if (newPendingDeps === 0 && (targetReq.status === 'WAITING' || targetReq.status === 'NEW')) {
             updatedData.status = 'NEW';
             updatedData.lockedBy = null;
             updatedData.lockedAt = null;
@@ -3199,7 +3246,7 @@ export class CuratorRequestProcessor {
           }
 
           const sourceScope = this.parseContext(req.context).__scope;
-          const targetIsJoin = (targetReq.ast as any)?.type === 'Curator_Join';
+          const targetIsJoin = this.parseAst(targetReq.ast)?.type === 'Curator_Join';
           const shouldPersistInState = req.ast?.type !== 'Curator_Agent' && !req.ast?.ephemeral;
           if (shouldPersistInState && Object.keys(newUpdates).length > 0) {
             await this.writeState(targetReq.conversationId, sourceScope, newUpdates);

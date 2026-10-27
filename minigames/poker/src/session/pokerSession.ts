@@ -19,7 +19,6 @@ import {
 } from '../models/index.ts';
 import {
   DEFAULT_LOBBY_CHOICES,
-  DEFAULT_LOBBY_OPTIONS,
 } from '../workflows/pokerLobby.ts';
 import {
   formatTableChoices,
@@ -1033,7 +1032,6 @@ export async function createPokerGameSession(
       bypassLobby: false,
     });
     host.events.broadcast(PokerEvent.LOBBY_PROMPT, {
-      options: DEFAULT_LOBBY_OPTIONS,
       choices: DEFAULT_LOBBY_CHOICES,
     });
     return res;

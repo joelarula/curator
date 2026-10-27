@@ -7,7 +7,6 @@ import {
 } from '../src/models/pokerContracts.ts';
 import {
   PokerLobbyAction,
-  getLobbyOptions,
   getLobbyChoices,
   type PokerLobbyChoice,
   type PokerTableChoice,
@@ -43,11 +42,8 @@ test('Lobby Models: getLobbyChoices returns typesafe PokerLobbyChoice array with
   assert.equal(resumeChoices[2].id, PokerLobbyAction.EXIT);
   assert.ok(resumeChoices[1].label.includes('3 available'), 'Label should show table count');
 
-  // 3. getLobbyOptions returns typesafe PokerLobbyOption array
-  const freshOptions = getLobbyOptions(false);
-  assert.equal(freshOptions.length, 2);
-  const withGamesOptions = getLobbyOptions(true);
-  assert.equal(withGamesOptions.length, 3);
+  // 3. Choices carry only id/label/description/aliases (no per-choice event/payload/value)
+  assert.deepEqual(Object.keys(freshChoices[0]).sort(), ['aliases', 'description', 'id', 'label']);
 });
 
 test('Table Selection: formatTableChoices returns typesafe PokerTableChoice array with Back action', () => {
