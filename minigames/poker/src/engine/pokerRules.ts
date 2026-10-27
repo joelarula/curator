@@ -138,6 +138,17 @@ export function sanitizeAction(
     actionType = PokerActionType.ALL_IN;
   }
 
+  const VALID_ACTIONS: string[] = [
+    PokerActionType.CHECK,
+    PokerActionType.CALL,
+    PokerActionType.RAISE,
+    PokerActionType.ALL_IN,
+    PokerActionType.FOLD,
+  ];
+  if (!VALID_ACTIONS.includes(actionType)) {
+    actionType = canCheck ? PokerActionType.CHECK : (chips >= toCall ? PokerActionType.CALL : PokerActionType.ALL_IN);
+  }
+
   if (canCheck && (actionType === PokerActionType.FOLD || actionType === PokerActionType.CALL)) {
     actionType = PokerActionType.CHECK;
   }

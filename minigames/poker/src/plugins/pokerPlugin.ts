@@ -232,7 +232,10 @@ export const pokerApplyActionTool = defineStateTool<PokerApplyActionParams>(
   'Applies player action (FOLD, CHECK, CALL, RAISE <amount>, ALL_IN) to table state.',
   PokerRole.PLAYER,
   (s, args, ctx) => {
-    const action = (args?.action || ctx?.context?.lastAction || { type: 'CHECK' }) as PlayerAction;
+    let action = (args?.action || ctx?.context?.turnAction || ctx?.context?.action || ctx?.context?.lastAction || { type: 'CHECK' }) as any;
+    if (typeof action === 'string' && (action.startsWith('$') || action.includes('$context'))) {
+      action = ctx?.context?.turnAction || ctx?.context?.action || ctx?.context?.lastAction || { type: 'CHECK' };
+    }
     return applyPokerAction(s, action);
   },
   {

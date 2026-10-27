@@ -114,13 +114,13 @@ export function agent_decision(options: PokerAgentDecisionOptions = {}): Curator
     `- Your Stack: [chips] {${activePlayer}.chips?} | Your Street Bet: [chips] {${activePlayer}.streetBet?}`,
     `- Table: {gameState?}`,
     "Turn Rules:",
-    "If ({$context.gameState.currentBet?} - {${activePlayer}.streetBet?}) > 0: you face a bet to match. You MUST choose CALL, RAISE, ALL_IN, or FOLD (CHECK is strictly forbidden).",
-    "If ({$context.gameState.currentBet?} - {${activePlayer}.streetBet?}) == 0: there is no bet to match. You MUST choose CHECK, RAISE, or ALL_IN (FOLD is forbidden).",
+    `If ({$context.gameState.currentBet?} - {${activePlayer}.streetBet?}) > 0: you face a bet to match. You MUST choose CALL, RAISE, ALL_IN, or FOLD (CHECK is strictly forbidden).`,
+    `If ({$context.gameState.currentBet?} - {${activePlayer}.streetBet?}) == 0: there is no bet to match. You MUST choose CHECK, RAISE, or ALL_IN (FOLD is forbidden).`,
     "Decide on your legal poker action and optionally include engaging in-character table talk in 'speech'.",
   ].join('\n');
 
   return CuratorBuilder.agent({
-    agentName: options.agentName ?? `${activePlayer}.name || 'PokerAgent'`,
+    agentName: options.agentName ?? 'PokerAgent',
     model: options.model ?? 'gemini-2.5-flash',
     provider: options.provider ?? 'gemini',
     instruction: defaultInstruction,
@@ -154,12 +154,15 @@ export function buildAgentDecisionSteps(options: PokerAgentDecisionOptions = {})
     setState({ turnAction: `${ctx.action} || ${ctx.turnAction} || ${ctx.lastAiAction}` }),
     ifElse(
       `(${ctx.speech} && ${ctx.speech}.length > 0) || (${ctx.action} && ${ctx.action}.speech) || (${ctx.turnAction} && ${ctx.turnAction}.speech)`,
-      emitEvent(PokerEvent.SPEECH, {
-        speakerId: `${gameState.players}[${gameState.activePlayerIdx}].id`,
-        speakerName: `${gameState.players}[${gameState.activePlayerIdx}].name`,
-        text: `${ctx.speech} || ${ctx.action}.speech || ${ctx.turnAction}.speech`,
-        speechAct: 'TABLE_TALK',
-      }),
+      seq('emit_ai_speech', [
+        emitEvent(PokerEvent.SPEECH, {
+          speakerId: `${gameState.players}[${gameState.activePlayerIdx}].id`,
+          speakerName: `${gameState.players}[${gameState.activePlayerIdx}].name`,
+          text: `${ctx.speech} || ${ctx.action}.speech || ${ctx.turnAction}.speech`,
+          speechAct: 'TABLE_TALK',
+        }),
+        setState({ speech: '' }),
+      ]),
     ),
   ];
 }

@@ -2511,8 +2511,16 @@ export class CuratorRequestProcessor {
   private async handleSetState(ast: any, req: any) {
     logger.debug(`[CuratorRequestProcessor] Setting state for request ${req.id}`);
     if (ast.state && typeof ast.state === 'object') {
-      await this.writeState(req.conversationId, this.parseContext(req.context).__scope, ast.state);
-      await this.saveResponse(req, JSON.stringify({ status: 'State updated', state: ast.state }));
+      const evaluatedState: Record<string, any> = {};
+      for (const [k, v] of Object.entries(ast.state)) {
+        if (typeof v === 'string' && (v.startsWith('{{') || v.startsWith('$') || (v.startsWith('(') && v.endsWith('(context)')))) {
+          evaluatedState[k] = await this.evaluateExpressionAsync(v, req);
+        } else {
+          evaluatedState[k] = v;
+        }
+      }
+      await this.writeState(req.conversationId, this.parseContext(req.context).__scope, evaluatedState);
+      await this.saveResponse(req, JSON.stringify({ status: 'State updated', state: evaluatedState }));
     } else {
       await this.saveResponse(req, JSON.stringify({ status: 'No state provided' }));
     }

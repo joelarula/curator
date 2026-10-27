@@ -100,7 +100,6 @@ export function buildHumanChoiceSteps() {
  */
 export function buildHumanTurnSteps() {
   return [
-    setState({ speech: '' }),
     ...buildHumanChoiceSteps(),
     ifElse(
       is_session_unpaused,
@@ -110,10 +109,8 @@ export function buildHumanTurnSteps() {
           summary: String(gameState.lastActionSummary),
           player: `${gameState.lastActorName} || ${gameState.players}[${gameState.activePlayerIdx}].name`,
           action: String(ctx.turnAction),
-          speech: '',
           gameState: String(gameState),
         }),
-        setState({ speech: '' }),
       ]),
     ),
   ];
