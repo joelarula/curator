@@ -4,7 +4,7 @@ import {
   setState,
   type CuratorToolNode,
 } from '../curator.ts';
-import { agent_decision, ai_decision } from '../workflows/agentTurn.ts';
+import { agent_decision } from '../workflows/agentTurn.ts';
 import { ctx, gameState, state, params } from '../models/pokerContext.ts';
 import { SessionExited } from '../models/pokerEvents.ts';
 import type {
@@ -60,20 +60,7 @@ export const pokerPredicates = {
   is_game_active: `not ${state.sessionEnded} and not ${state.gameState.gameOver}`,
   is_hand_active: `${state.gameState} and not ${state.gameState.handOver} and ${state.gameState.currentStreet} != "SHOWDOWN"`,
   is_street_active: `${state.gameState} and not ${state.gameState.streetComplete} and not ${state.gameState.handOver}`,
-  active_player_is_human: `${state.gameState.players}[${state.gameState.activePlayerIdx}].isHuman`,
-  active_player_is_interactive: `${state.gameState.players}[${state.gameState.activePlayerIdx}].isHuman or ${state.gameState.players}[${state.gameState.activePlayerIdx}].isInteractive`,
-  has_table_players: `${state.gameState} and ${state.gameState.players.length} >= 2`,
-  is_table_paused: `${state.isPaused} and not ${state.sessionEnded}`,
-  table_has_no_state: `not ${state.gameState}`,
   table_needs_players: `not ${state.gameState} or ${state.gameState.players.length} < 2`,
-  is_session_active: `not ${state.sessionEnded}`,
-  is_session_unpaused: `not ${state.sessionEnded} and not ${state.isPaused}`,
-  is_turn_action_pause: `(${ctx.turnAction} && ${ctx.turnAction}.type == '${PokerActionType.PAUSE}') || (${ctx.humanAction} && ${ctx.humanAction}.type == '${PokerActionType.PAUSE}')`,
-  is_turn_action_exit: `(${ctx.turnAction} && ${ctx.turnAction}.type == '${PokerActionType.EXIT}') || (${ctx.humanAction} && ${ctx.humanAction}.type == '${PokerActionType.EXIT}')`,
-  is_human_action_pause: `${ctx.humanAction} && ${ctx.humanAction}.type == '${PokerActionType.PAUSE}'`,
-  is_human_action_exit: `${ctx.humanAction} && ${ctx.humanAction}.type == '${PokerActionType.EXIT}'`,
-  is_resume_cmd: `(${ctx.resumeCmd} && ${ctx.resumeCmd}.type == '${PokerActionType.RESUME}') || ${ctx.resumeCmd} == '${PokerActionType.RESUME}'`,
-  is_exit_cmd: `(${ctx.resumeCmd} && ${ctx.resumeCmd}.type == '${PokerActionType.EXIT}') || ${ctx.resumeCmd} == '${PokerActionType.EXIT}'`,
 };
 
 /**
@@ -125,8 +112,6 @@ export const pokerComposables = {
 
   agent_decision,
 
-  ai_decision,
-
   boot_table: (args: Partial<PokerInitLobbyParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.INIT_LOBBY, {
       tableId: `${state.tableConfig.tableId} || 'poker:high_roller_lounge'`,
@@ -175,12 +160,11 @@ export const pokerComposables = {
   close_table: (args: Partial<PokerCloseTableParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.CLOSE_TABLE, args, ...bindResult(opts)),
 
+  /** Leaving is an announcement; the `close_on_exit` rule (tableRules) closes the conversation. */
   handle_user_exit: () =>
     seq(PokerStep.HANDLE_EXIT, [
       setState({ sessionEnded: true, isPaused: false }),
-      // Announce before closing: a closed conversation no longer logs events
       SessionExited.emit({ reason: PokerSessionReason.USER_EXIT }),
-      CuratorBuilder.tool(PokerTool.CLOSE_TABLE, { reason: PokerSessionReason.USER_EXIT }),
     ]),
 
   // Typed Poker Domain Constants

@@ -215,44 +215,16 @@ export const PokerModule = {
 export type PokerModuleType = (typeof PokerModule)[keyof typeof PokerModule];
 
 export const PokerStep = {
-  // Action Module Steps
-  APPLY_ACTION_STEP: 'poker:apply_action_step',
-  APPLY_ACTION: 'poker:apply_action',
-
-  // Lobby Module Steps
+  // Lobby
   LOBBY_MANAGER: 'poker:lobby_manager',
-  LOBBY_GATE: 'poker:lobby_gate',
-  EXIT_LOBBY: 'poker:exit_lobby',
-  RESUME_TABLE_FLOW: 'poker:resume_table_flow',
-  NEW_TABLE_FLOW: 'poker:new_table_flow',
   BOOT_TABLE: 'poker:boot_table',
   WAIT_FOR_PLAYERS: 'poker:wait_for_players',
-
-  // Player Turn Steps
-  PLAYER_TURN: 'poker:player_turn',
-  HUMAN_TURN: 'poker:human_turn',
-  HANDLE_PAUSE: 'poker:handle_pause',
-  WAIT_RESUME: 'poker:wait_resume',
-  UNPAUSE: 'poker:unpause',
-  PAUSE_EXIT: 'poker:pause_exit',
   HANDLE_EXIT: 'poker:handle_exit',
 
-  // Agent Turn Steps
-  AGENT_TURN: 'poker:agent_turn',
-
-  // Ambient Reaction Steps
-  AMBIENT_REACTION: 'poker:ambient_reaction',
-  HANDLE_SPEECH_EVENT: 'poker:handle_speech_event',
-  HANDLE_ACTION_EVENT: 'poker:handle_action_event',
-
-  // Master Workflow Engine Steps
+  // Table
   DYNAMIC_ENGINE: 'poker:dynamic_engine',
   TABLE_PHASES: 'poker:table_phases',
-  TURN_STEP: 'poker:turn_step',
-  HUMAN_AGENT_FLOW: 'poker:human_agent_flow',
-  AI_AGENT_FLOW: 'poker:ai_agent_flow',
   DEAL_NEXT_STREET: 'poker:deal_next_street',
-  SETTLE_SHOWDOWN: 'poker:settle_showdown',
   PHASE_SETTLE_STEP: 'poker:phase_settle_step',
 } as const;
 

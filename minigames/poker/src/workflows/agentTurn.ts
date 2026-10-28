@@ -2,36 +2,19 @@
  * ---
  * id: agent_turn
  * name: agent_turn
- * description: Autonomous Player Agent Turn Module using seated agent instruction & prompt
+ * description: LLM seat - persona deliberation for the active player
  * ---
  */
 import {
   defineModule,
   defineSubroutine,
-  seq,
   ifElse,
-  setState,
   CuratorBuilder,
-  CuratorSystemRole,
   type CuratorModuleNode,
   type CuratorAgentNode,
-  type CuratorToolNode,
 } from '../curator.ts';
-import {
-  PokerRole,
-  PokerEvent,
-  PokerModule,
-  PokerStep,
-  PokerTool,
-  PokerStreet,
-  PokerSpeechAct,
-} from '../models/index.ts';
-import {
-  ctx,
-  actor,
-  gameState,
-  type PokerTurnContext,
-} from '../models/pokerContext.ts';
+import { PokerEvent, PokerModule, PokerSpeechAct } from '../models/index.ts';
+import { ctx, actor, gameState, type PokerTurnContext } from '../models/pokerContext.ts';
 import { Speech } from '../models/pokerEvents.ts';
 import { getRulesDescription } from '../engine/pokerRules.ts';
 
@@ -92,38 +75,33 @@ export const POKER_DECISION_OUTPUT_SCHEMA: Record<string, any> = {
   required: ['action'],
 };
 
-export const POKER_AGENT_INSTRUCTION =
-  "You are an autonomous Texas Hold'em poker agent in the Curator ecosystem.\n" +
-  "Analyze your hole cards, board texture, pot odds, cost to call, and opponent styles.\n" +
-  "CRITICAL TEXAS HOLD'EM BETTING RULES:\n" +
-  "- Cost to Call = (Current Bet - Your Street Bet).\n" +
-  "- If Cost to Call is 0: you CANNOT FOLD. You must choose CHECK, RAISE (or BET), or ALL_IN.\n" +
-  "- If Cost to Call > 0: you CANNOT CHECK (checking is an illegal action when facing a bet). You must choose CALL, RAISE, ALL_IN, or FOLD.\n" +
-  "- If you want to stay in the hand facing a bet, choose CALL. If you want to leave the hand, choose FOLD.\n" +
-  "- To make the game more engaging and lively, you are encouraged to return a short in-character sentence or banter in 'speech' along with your poker action.\n" +
-  "- Returning sentences is not mandatory—decide based on your agent personality and table situation whether to add banter or stay silent.\n" +
-  "- Include your private strategic reasoning in 'innerMonologue'.";
+/** How an LLM seat plays: persona first, then the engine's table rules, then the answer protocol. */
+export const POKER_AGENT_PROTOCOL = [
+  "Analyze your hole cards, board texture, pot odds, cost to call, and opponent styles.",
+  "- You are encouraged to add a short in-character sentence or banter in 'speech' along with your action; stay silent when your persona would.",
+  "- Include your private strategic reasoning in 'innerMonologue'.",
+].join('\n');
 
 /**
- * Creates the native Curator Core Agent AST node for LLM decision making.
- * Injects the seated player's persona instruction dynamically while enforcing core rules and output schema.
+ * The LLM decision for the seat being played (`$params.actor`): persona instruction, the engine's
+ * rules, the turn's numbers, and the shared table conversation as history.
  */
 export function agent_decision(options: PokerAgentDecisionOptions = {}): CuratorAgentNode {
-  const defaultInstruction = options.instruction
-    ?? `{${actor}.instruction?}\n\n${POKER_AGENT_INSTRUCTION}`;
+  const instruction = options.instruction ?? [
+    `You are {${actor}.name?}, an autonomous Texas Hold'em poker agent. {${actor}.instruction?}`,
+    getRulesDescription(),
+    POKER_AGENT_PROTOCOL,
+  ].join('\n\n');
 
-  const defaultPrompt = options.prompt ?? [
+  const prompt = options.prompt ?? [
     "Current Texas Hold'em Turn State:",
-    `- Active Player: {${actor}.name?} ({${actor}.persona?})`,
     `- Your Hole Cards: {${actor}.holeCards?}`,
-    `- Community Board: {$state.gameState.board?}`,
-    `- Street: {$state.gameState.currentStreet?} | Current Pot: [chips] {$state.gameState.pot?} | Current Bet to Match: [chips] {$state.gameState.currentBet?}`,
+    `- Community Board: {${gameState.board}?}`,
+    `- Street: {${gameState.currentStreet}?} | Pot: [chips] {${gameState.pot}?} | Current Bet: [chips] {${gameState.currentBet}?}`,
     `- Your Stack: [chips] {${actor}.chips?} | Your Street Bet: [chips] {${actor}.streetBet?}`,
-    `- Table: {gameState?}`,
-    "Turn Rules:",
-    `If ({$state.gameState.currentBet?} - {${actor}.streetBet?}) > 0: you face a bet to match. You MUST choose CALL, RAISE, ALL_IN, or FOLD (CHECK is strictly forbidden).`,
-    `If ({$state.gameState.currentBet?} - {${actor}.streetBet?}) == 0: there is no bet to match. You MUST choose CHECK, RAISE, or ALL_IN (FOLD is forbidden).`,
-    "Decide on your legal poker action and optionally include engaging in-character table talk in 'speech'.",
+    `- Cost to Call: [chips] {${gameState.currentBet} - ${actor}.streetBet?} | Min Raise: [chips] {${gameState.minRaise}?}`,
+    `- Table: {${gameState}?}`,
+    "Decide on your legal poker action and optionally include in-character table talk in 'speech'.",
   ].join('\n');
 
   return CuratorBuilder.agent({
@@ -131,8 +109,8 @@ export function agent_decision(options: PokerAgentDecisionOptions = {}): Curator
     as: options.as ?? 'decision',
     model: options.model ?? 'gemini-2.5-flash',
     provider: options.provider ?? 'gemini',
-    instruction: defaultInstruction,
-    prompt: defaultPrompt,
+    instruction,
+    prompt,
     history_from: 'conversation',
     history_events: [PokerEvent.ACTION_TAKEN, PokerEvent.SPEECH, PokerEvent.AMBIENT_SPOKEN],
     output_schema: options.output_schema ?? POKER_DECISION_OUTPUT_SCHEMA,
@@ -140,7 +118,7 @@ export function agent_decision(options: PokerAgentDecisionOptions = {}): Curator
   });
 }
 
-export const ai_decision = agent_decision;
+
 
 /** LLM seat: persona deliberation with optional table talk; returns the decided action. */
 export const aiDecision = defineSubroutine('ai_decision', {
@@ -158,116 +136,3 @@ export const aiDecision = defineSubroutine('ai_decision', {
 export const agentTurnAst: CuratorModuleNode = defineModule(PokerModule.AGENT_TURN, {
   description: 'LLM seat: persona deliberation for the active player',
 }, () => [aiDecision({ actor: activePlayer })]);
-
-/**
- * Formats recent speech acts and whispers into text lines for agent context history.
- */
-export function formatConversationHistory(remarks: any[] = [], playerId?: string): string {
-  if (!remarks || remarks.length === 0) return 'None';
-
-  const lines = remarks.slice(-6).map((r) => {
-    const isWhisper = r.speechAct === 'WHISPER' || Boolean(r.recipientId);
-    if (isWhisper) {
-      if (r.speakerId === playerId) {
-        return `[YOU WHISPERED to ${r.recipientId}]: "${r.text}"`;
-      } else if (r.recipientId === playerId) {
-        return `[${r.speakerName} WHISPERED to you]: "${r.text}"`;
-      } else {
-        return `[OBSERVED]: ${r.speakerName} leaned over and whispered secretly to ${r.recipientId}.`;
-      }
-    } else {
-      return `${r.speakerName}: "${r.text}"`;
-    }
-  });
-
-  return lines.join('\n');
-}
-
-/**
- * Returns the agent's persona instruction, falling back to persona disposition or default text.
- */
-export function getAgentInstruction(agent: any): string {
-  if (agent?.instruction && typeof agent.instruction === 'string' && agent.instruction.trim().length > 0) {
-    return agent.instruction;
-  }
-  if (agent?.persona && typeof agent.persona === 'string') {
-    return `You are ${agent.name}, an autonomous poker agent. Character disposition: ${agent.persona}.`;
-  }
-  return `You are ${agent?.name || 'Player'}, an autonomous poker player aiming to maximize chips through strategic analysis and game theory.`;
-}
-
-/**
- * Formulates the Texas Hold'em agent prompt incorporating persona instruction, table state, rules, and conversation history.
- */
-export function buildAgentPrompt(args: any): any {
-  const ctxObj = args?.context || args || {};
-  const player = ctxObj.player || (args?.id || args?.name ? args : {});
-  const gs = ctxObj.gameState || args?.gameState || {};
-  const handDesc = ctxObj.handDesc || args?.handDesc || 'Evaluating hand strength';
-  const cardsStr = ctxObj.cardsStr || args?.cardsStr || 'Hidden';
-  const boardStr = ctxObj.boardStr || args?.boardStr || 'None';
-
-  // 1. Inject persona instruction from context
-  const instruction = getAgentInstruction(player);
-
-  // 2. Extract table dynamics
-  const toCall = Math.max(0, (gs.currentBet || 0) - (player.streetBet || 0));
-  const pot = gs.pot || 0;
-  const minRaise = gs.minRaise || 20;
-  const street = gs.currentStreet || PokerStreet.PREFLOP;
-
-  // 3. Form game conversation history from context
-  const remarks = ctxObj.recentRemarks || ctxObj.remarks || gs?.recentRemarks || [];
-  const conversationHistory = formatConversationHistory(remarks, player.id);
-
-  // 4. Active opponents at the table
-  const opponentsList = (gs.players || [])
-    .filter((p: any) => p.id !== player.id)
-    .map((p: any) => {
-      const status = p.folded ? 'FOLDED' : p.allIn ? 'ALL-IN' : 'ACTIVE';
-      return `${p.name} ($${p.chips}, ${status})`;
-    });
-  const opponentsStr = opponentsList.length > 0 ? opponentsList.join(', ') : 'None';
-
-  const rulesBlock = ctxObj.rulesDescription || getRulesDescription();
-
-  // 5. Formulate unified Agent System Prompt with Texas Hold'em Rules
-  const systemPrompt = `You are ${player.name}, an autonomous agent playing Texas Hold'em Poker in the Curator ecosystem.
-
-Agent Persona & Character Instruction:
-${instruction}
-
-${rulesBlock}
-- Output Format: You MUST strictly respond in valid JSON format:
-{
-  "action": "CHECK" | "CALL" | "RAISE" | "ALL_IN" | "FOLD",
-  "amount": number (required if RAISE or CALL; for RAISE, specify total street bet or raise amount),
-  "speech": "in-character dialogue or table banter accompanying your action to make the game more engaging (optional/not mandatory: 1-2 sentences; decide based on your personality whether to add banter or stay silent)",
-  "innerMonologue": "private strategic reasoning about this turn (1 sentence)"
-}`;
-
-  // 6. Formulate turn state & contextual dialogue prompt
-  const userPrompt = `Current Texas Hold'em Turn State:
-- Hole Cards: ${cardsStr} (${handDesc})
-- Community Cards: ${boardStr}
-- Street: ${street}
-- Pot: $${pot}
-- Bet to match: $${gs.currentBet || 0}
-- Your Stack: $${player.chips}
-- Cost to Call: $${toCall}
-- Min Raise: $${minRaise}
-- Opponents: ${opponentsStr}
-- Recent Table Dialogue & Conversation History:
-${conversationHistory}`;
-
-  // If called with single player object, return systemPrompt string for backward compatibility
-  if (!(ctxObj.gameState || args?.gameState)) {
-    return systemPrompt;
-  }
-
-  return { systemPrompt, userPrompt, conversationHistory };
-}
-
-export const formatAgentPrompt = buildAgentPrompt;
-export const buildAgentSystemPrompt = buildAgentPrompt;
-

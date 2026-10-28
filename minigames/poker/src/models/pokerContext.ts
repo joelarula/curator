@@ -340,24 +340,11 @@ export interface PokerTurnContext extends PokerSharedContext {
   legalChoices?: { choices: PokerLegalChoice[] };
 }
 
-/** Ambient table-talk reaction flow. */
-export interface PokerAmbientContext extends PokerSharedContext {
-  recentRemarks?: AmbientRemark[];
-  speech?: string;
-  speechAct?: SpeechAct;
-  text?: string;
-  speakerName?: string;
-  eventSpeechAct?: SpeechAct;
-  eventTargetId?: string;
-  eventText?: string;
-}
-
 /** Root context of the top-level poker workflow: union of all flow contexts. */
 export interface PokerWorkflowContext
   extends PokerLobbyContext,
   PokerTableContext,
-  PokerTurnContext,
-  PokerAmbientContext {
+  PokerTurnContext {
   [key: string]: any;
 }
 
@@ -409,35 +396,12 @@ export interface PokerWorkflowParams {
   [key: string]: any;
 }
 
-// ==========================================
-// 4. Event Map
-// ==========================================
-export interface PokerEventMap {
-  'poker:lobby_ready': { tableId: string };
-  'poker:table_ready': { tableId: string; playerCount: number };
-  'poker:awaiting_players': { tableId: string; seatedCount: number };
-  'poker:player_joined': PlayerJoinOptions;
-  'poker:new_round': { tableId: string; handNumber: number };
-  'poker:phase_deal': { tableId: string; handNumber: number; street: Street };
-  'poker:phase_street': { tableId: string; street: Street; board: Card[] };
-  'poker:action_taken': { tableId: string; playerId: string; action: PlayerAction };
-  'poker:action_applied': { tableId: string; action: PlayerAction };
-  'poker:phase_settle': { tableId: string; handNumber: number; pot: number };
-  'poker:ambient_evaluated': { tableId: string; speakerId?: string; remark?: AmbientRemark };
-  'poker:table_paused': { tableId: string };
-  'poker:table_resumed': { tableId: string };
-  'poker:resume_action': { type: 'RESUME' | 'EXIT' } | string;
-  'poker:session_exited': { reason: string };
-  'poker:game_over': { tableId: string; standings: PlayerStanding[] };
-}
-
 export const ctx: TypedPathProxy<PokerWorkflowContext> = createContextProxy<PokerWorkflowContext>('$context');
 export const lobbyCtx: TypedPathProxy<PokerLobbyContext> = createContextProxy<PokerLobbyContext>('$context');
 export const bankrollCtx: TypedPathProxy<PokerBankrollContext> = createContextProxy<PokerBankrollContext>('$context');
 export const bootCtx: TypedPathProxy<PokerBootContext> = createContextProxy<PokerBootContext>('$context');
 export const tableCtx: TypedPathProxy<PokerTableContext> = createContextProxy<PokerTableContext>('$context');
 export const turnCtx: TypedPathProxy<PokerTurnContext> = createContextProxy<PokerTurnContext>('$context');
-export const ambientCtx: TypedPathProxy<PokerAmbientContext> = createContextProxy<PokerAmbientContext>('$context');
 // Game and lifecycle state are read from the event-sourced conversation state, never from request-context copies
 export const gameState: TypedPathProxy<PokerGameState> = createContextProxy<PokerGameState>('$state.gameState');
 export const state: TypedPathProxy<PokerWorkflowState> = createContextProxy<PokerWorkflowState>('$state');

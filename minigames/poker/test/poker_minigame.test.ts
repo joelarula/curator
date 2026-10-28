@@ -691,42 +691,25 @@ test('Dynamic Lobby: Agents & Human join open table dynamically and play', async
 });
 
 test('Curator Agent System Prompt: Integrates persona instructions, Texas Hold\'em rules, and speech protocol', async () => {
-  const { buildAgentSystemPrompt, getAgentInstruction } = await import('../src/workflows/agentTurn.ts');
+  const { agent_decision } = await import('../src/workflows/agentTurn.ts');
+  const node: any = agent_decision();
 
-  const customAgent: PlayerState = {
-    id: 'fbi_profiler',
-    name: 'Special Agent Holden',
-    isHuman: false,
-    instruction: 'You are an FBI behavioral profiler playing poker. You analyze micro-tells and voice tremors.',
-    chips: 1500,
-    streetBet: 0,
-    totalHandBet: 0,
-    holeCards: [],
-    folded: false,
-    allIn: false,
-    seatIdx: 0,
-  };
+  // 1. The seat being played supplies identity and persona
+  assert(node.instruction.includes('{$params.actor.name?}'));
+  assert(node.instruction.includes('{$params.actor.instruction?}'));
 
-  const instruction = getAgentInstruction(customAgent);
-  assert(instruction.includes('FBI behavioral profiler'));
+  // 2. The engine's rules are the one rule text
+  assert(node.instruction.includes('CHECK, CALL, RAISE, ALL_IN, FOLD'));
+  assert(node.instruction.includes('If Cost to Call is 0: you CANNOT FOLD'));
+  assert(node.instruction.includes('Cost to Call + Min Raise'));
+  assert(node.prompt.includes('Cost to Call: [chips] {$state.gameState.currentBet - $params.actor.streetBet?}'));
 
-  const systemPrompt = buildAgentSystemPrompt(customAgent);
-  // 1. Contains agent identity
-  assert(systemPrompt.includes('Special Agent Holden'));
-  assert(systemPrompt.includes('micro-tells and voice tremors'));
+  // 3. Speech protocol, and table talk comes from the shared conversation
+  assert(node.instruction.includes('TABLE_TALK, BANTER, WHISPER, PROVOKE, GOSSIP'));
+  assert.equal(node.history_from, 'conversation');
 
-  // 2. Contains Texas Hold'em rules
-  assert(systemPrompt.includes('CHECK, CALL, RAISE, ALL_IN, FOLD'));
-  assert(systemPrompt.includes('If Cost to Call is 0: you CANNOT FOLD'));
-  assert(systemPrompt.includes('Cost to Call + Min Raise'));
-
-  // 3. Contains speech protocol
-  assert(systemPrompt.includes('TABLE_TALK, BANTER, WHISPER, PROVOKE, GOSSIP'));
-
-  // 4. Contains JSON schema
-  assert(systemPrompt.includes('"action"'));
-  assert(systemPrompt.includes('"speech"'));
-  assert(systemPrompt.includes('"innerMonologue"'));
+  // 4. Structured answer
+  assert.deepEqual(Object.keys(node.output_schema.properties).filter((k) => ['action', 'speech', 'innerMonologue'].includes(k)).sort(), ['action', 'innerMonologue', 'speech']);
 });
 
 test('Curator Bevy Parity: Standings, bankruptcy detection, and final leaderboard report', async () => {
@@ -884,7 +867,7 @@ test('Modular Workflow Architecture: Validates all decoupled workflows as Curato
   const rulesAst: any = await getPokerScriptAST('poker_rules');
   assert.equal(rulesAst.type, 'Curator_Module');
   assert.equal(rulesAst.name, 'poker_rules');
-  assert.deepEqual(rulesAst.subscriptions.map((s: any) => s.eventName), ['poker:action_intent', 'poker:action_validated']);
+  assert.deepEqual(rulesAst.subscriptions.map((s: any) => s.eventName), ['poker:action_intent', 'poker:action_validated', 'poker:session_exited']);
 
   const ambientAst: any = await getPokerScriptAST('ambient_reaction');
   assert.equal(ambientAst.type, 'Curator_Module');

@@ -2,22 +2,23 @@
  * ---
  * id: poker_rules
  * name: poker_rules
- * description: Table rules as systems - validate and apply seat action intents
+ * description: Table rules as systems - validate and apply seat action intents, close on exit
  * ---
  */
 /**
- * Table rules as systems (Bevy `add_systems`): a seat's ActionIntent is validated, then applied.
+ * Table rules as systems (Bevy `add_systems`): a seat's ActionIntent is validated, then applied, and a
+ * session that exits is closed.
  * They chain through events, so any submitter (seat handler, UI, bot) goes through the same rules.
  */
 import { defineModule, defineSubroutine, ifElse, setState, system, type CuratorModuleNode } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
 import { state, turnCtx } from '../models/pokerContext.ts';
-import { PokerTablePhase } from '../models/pokerContracts.ts';
+import { PokerTablePhase, PokerSessionReason } from '../models/pokerContracts.ts';
 import {
-  ActionIntent, ActionValidated, ActionRejected, ActionResolved, ActionTaken, TablePhase,
+  ActionIntent, ActionValidated, ActionRejected, ActionResolved, ActionTaken, SessionExited, TablePhase,
 } from '../models/pokerEvents.ts';
 
-const { gameState, get_legal_choices, apply_player_action, modules } = pokerComposables;
+const { gameState, get_legal_choices, apply_player_action, close_table, modules } = pokerComposables;
 
 const intent = ActionIntent.payload();
 const validated = ActionValidated.payload();
@@ -66,11 +67,19 @@ export const applyAction = defineSubroutine('apply_action', [
   ActionResolved.emit({ seatId: validated.seatId, accepted: true }),
 ]);
 
-/** The rules module holds only systems; they run beside every table, gated by its phase. */
+const exited = SessionExited.payload();
+
+/** Whoever leaves (lobby or table), their conversation is closed and table chips are cashed out. */
+export const closeOnExit = defineSubroutine('close_on_exit', [
+  close_table({ reason: `${exited.reason} || '${PokerSessionReason.USER_EXIT}'` }),
+]);
+
+/** The rules module holds only systems; they run beside every lobby and table, gated by phase. */
 export const pokerRulesAst: CuratorModuleNode = defineModule(modules.RULES, {
-  description: "Texas Hold'em table rules: validate and apply seat action intents",
+  description: "Texas Hold'em table rules: validate and apply seat action intents, close on exit",
 }, () => {
   system({ on: ActionIntent, runIf: TablePhase.in(PokerTablePhase.SUBMIT), run: validateAction });
   system({ on: ActionValidated, run: applyAction });
+  system({ on: SessionExited, run: closeOnExit });
   return undefined;
 });

@@ -19,9 +19,8 @@ const STARTING_CHIPS = 1000;
 const passiveLlm = () =>
   makeFakeLlm((req: any) => {
     const prompt = JSON.stringify(req.messages ?? req);
-    const toMatch = Number(prompt.match(/Current Bet to Match: \[chips\] (\d+)/)?.[1] ?? 0);
-    const myBet = Number(prompt.match(/Your Street Bet: \[chips\] (\d+)/)?.[1] ?? 0);
-    const type = toMatch - myBet > 0 ? 'CALL' : 'CHECK';
+    const toCall = Number(prompt.match(/Cost to Call: \[chips\] (\d+)/)?.[1] ?? 0);
+    const type = toCall > 0 ? 'CALL' : 'CHECK';
     return JSON.stringify({ action: { type }, innerMonologue: 'Passive line.' });
   });
 

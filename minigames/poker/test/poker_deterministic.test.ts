@@ -465,7 +465,7 @@ test('Poker TypeScript Context Models: Path proxies, type guards, and semantic s
   assert.equal(PokerTool.APPLY_ACTION, 'poker_apply_action');
   assert.equal(PokerTool.INIT_LOBBY, 'poker_init_lobby');
   assert.equal(PokerModule.WORKFLOW, 'poker_workflow');
-  assert.equal(PokerStep.HANDLE_PAUSE, 'poker:handle_pause');
+  assert.equal(PokerStep.TABLE_PHASES, 'poker:table_phases');
   assert.equal(PokerSessionReason.USER_EXIT, 'user_exit');
   assert.equal(PokerLobbyAction.NEW, 'new');
   assert.equal(PokerActionType.PAUSE, 'PAUSE');
