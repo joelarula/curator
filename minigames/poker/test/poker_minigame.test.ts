@@ -880,15 +880,15 @@ test('Modular Workflow Architecture: Validates all decoupled workflows as Curato
   assert.equal(agentAst.name, 'agent_turn');
   assert.equal(agentAst.main.type, 'Curator_Sequential');
 
-  const actionAst: any = await getPokerScriptAST('poker_action');
-  assert.equal(actionAst.type, 'Curator_Module');
-  assert.equal(actionAst.name, 'poker_action');
-  assert.equal(actionAst.main.type, 'Curator_Sequential');
+  // Systems-only modules: rules and ambient reactions run beside every table
+  const rulesAst: any = await getPokerScriptAST('poker_rules');
+  assert.equal(rulesAst.type, 'Curator_Module');
+  assert.equal(rulesAst.name, 'poker_rules');
+  assert.deepEqual(rulesAst.subscriptions.map((s: any) => s.eventName), ['poker:action_intent', 'poker:action_validated']);
 
   const ambientAst: any = await getPokerScriptAST('ambient_reaction');
   assert.equal(ambientAst.type, 'Curator_Module');
   assert.equal(ambientAst.name, 'ambient_reaction');
-  assert.equal(ambientAst.main.type, 'Curator_Sequential');
   assert.equal(ambientAst.subscriptions?.length, 2);
 
   // Verify all scripts are registered on pokerPlugin
@@ -897,7 +897,7 @@ test('Modular Workflow Architecture: Validates all decoupled workflows as Curato
   assert(pokerPlugin.scripts['poker_lobby']);
   assert(pokerPlugin.scripts['human_turn']);
   assert(pokerPlugin.scripts['agent_turn']);
-  assert(pokerPlugin.scripts['poker_action']);
+  assert(pokerPlugin.scripts['poker_rules']);
   assert(pokerPlugin.scripts['ambient_reaction']);
 });
 

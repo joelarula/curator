@@ -387,6 +387,10 @@ export interface PokerWorkflowState {
   lobbyPhase?: string;
   /** The current seat's decision, written by its actor handler. */
   turnAction?: PlayerAction;
+  /** Outcome of the submitted decision (ActionResolved payload). */
+  turnResolution?: { seatId: string; accepted: boolean; reason?: string };
+  /** Illegal intents sent back to the seat this turn. */
+  turnRejections?: number;
   /** RESUME or EXIT while the table is paused. */
   resumeCmd?: { type: 'RESUME' | 'EXIT' } | string;
   seatedPlayers?: Array<{ id: string; name?: string; isHuman?: boolean }>;

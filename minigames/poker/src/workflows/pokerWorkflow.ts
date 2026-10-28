@@ -6,8 +6,8 @@
  * ---
  */
 import { state, tableCtx } from '../models/pokerContext.ts';
-import { PokerActionType, PokerTablePhase, TABLE_PHASE_KEY } from '../models/pokerContracts.ts';
-import { NewRound, PhaseDeal, PhaseStreet, PhaseSettle, GameOver, TablePaused, TableResumed, ResumeAction } from '../models/pokerEvents.ts';
+import { PokerActionType, PokerTablePhase } from '../models/pokerContracts.ts';
+import { NewRound, PhaseDeal, PhaseStreet, PhaseSettle, GameOver, TablePaused, TableResumed, ResumeAction, TablePhase } from '../models/pokerEvents.ts';
 import {
   defineModule,
   defineSubroutine,
@@ -19,7 +19,7 @@ import {
 } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
 import { buildTableBootStep } from './pokerLobby.ts';
-import { decideTurn, applyTurn, isCommand, turnPauses, turnExits } from './playerTurn.ts';
+import { decideTurn, submitTurn, isCommand, turnPauses, turnExits, turnRejected } from './playerTurn.ts';
 
 const {
   gameState,
@@ -96,10 +96,14 @@ export function buildTablePhases() {
       next: [
         { to: PokerTablePhase.PAUSED, when: turnPauses },
         { to: PokerTablePhase.EXITED, when: turnExits },
-        { to: PokerTablePhase.APPLY },
+        { to: PokerTablePhase.SUBMIT },
       ],
     },
-    [PokerTablePhase.APPLY]: { run: applyTurn(), next: streetTransitions },
+    // The table rules (systems) validate and apply the intent; a rejected one goes back to the seat
+    [PokerTablePhase.SUBMIT]: {
+      run: submitTurn(),
+      next: [{ to: PokerTablePhase.BETTING, when: turnRejected }, ...streetTransitions],
+    },
     [PokerTablePhase.PAUSED]: {
       onEnter: [setState({ isPaused: true }), TablePaused.emit({ tableId: gameState.tableId })],
       run: ResumeAction.wait(state.resumeCmd),
@@ -126,21 +130,14 @@ export function buildTablePhases() {
         GameOver.emit({ standings: `${gameState.finalStandings} || ${tableCtx.standings}` }),
       ],
     },
-  }, { name: steps.TABLE_PHASES, stateKey: TABLE_PHASE_KEY });
+  }, { name: steps.TABLE_PHASES, stateKey: TablePhase });
 }
 
-/**
- * Pure TypeScript representation of Texas Hold'em 5-Phase Autonomous Game Loop.
- * Compile-time verified with full type safety and minimal literal strings.
- */
+/** The table app: its game-loop state machine (the rules run beside it as systems, see tableRules). */
 export function buildPokerWorkflowModule(): CuratorModuleNode {
-  return defineModule(
-    modules.WORKFLOW,
-    {
-      description: "Curator Texas Hold'em autonomous event-driven 5-phase game loop engine",
-    },
-    () => seq(steps.DYNAMIC_ENGINE, [buildTablePhases()]),
-  );
+  return defineModule(modules.WORKFLOW, {
+    description: "Curator Texas Hold'em table: game-loop state machine",
+  }, () => seq(steps.DYNAMIC_ENGINE, [buildTablePhases()]));
 }
 
 export const pokerWorkflowAst = buildPokerWorkflowModule();

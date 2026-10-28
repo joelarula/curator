@@ -458,7 +458,6 @@ import {
   pokerLobbyAst,
   humanTurnAst,
   agentTurnAst,
-  pokerActionAst,
   ambientReactionAst,
   POKER_WORKFLOW_ASTS,
 } from '../workflows/index.ts';

@@ -118,7 +118,7 @@ test('Poker Deterministic Harness: Module compilation and version registration',
   try {
     const modules = [
       'poker_lobby',
-      'poker_action',
+      'poker_rules',
       'ambient_reaction',
       'agent_turn',
       'human_turn',
@@ -248,50 +248,50 @@ test('Poker Deterministic Harness: agent_turn executes AI decision tool and acti
   }
 });
 
-test('Poker Deterministic Harness: poker_action emits event and triggers ambient_reaction subscription', async () => {
-  const canned = createPokerCannedTools();
-  const env = await createEnv('poker_det_pubsub', canned);
+test('Poker Deterministic Harness: rules systems validate and apply an intent; ambient reacts to the action', async () => {
+  const legal = { choices: [{ id: 'call', args: { action: { type: 'CALL', amount: 20 } } }, { id: 'fold', args: { action: { type: 'FOLD' } } }] };
+  const env = await createEnv('poker_det_rules', { ...createPokerCannedTools(), poker_get_choices: () => legal });
   try {
-    // Save ambient_reaction first to materialize subscriptions in the DB
-    const ambientAst = await loadScriptAst('ambient_reaction');
-    await saveScript(env, 'ambient_reaction', ambientAst);
+    // Systems-only modules: saving them materializes their subscriptions
+    await saveScript(env, 'poker_rules', await loadScriptAst('poker_rules'));
+    await saveScript(env, 'ambient_reaction', await loadScriptAst('ambient_reaction'));
 
-    // Save poker_action
-    const actionAst = await loadScriptAst('poker_action');
-    const savedAction = await saveScript(env, 'poker_action', actionAst);
-
-    // Run poker_action
-    const { requestId, result } = await runScript(env, savedAction.scriptId, savedAction.version, {
-      context: {
-        action: { type: 'CALL', amount: 20 },
-        gameState: {
-          tableId: 'table_pubsub',
-          activePlayerIdx: 0,
-          pot: 40,
-          players: [{ id: 'p1', name: 'Alice', chips: 980 }],
-        },
+    const { appendStatePatch } = await import('../src/curator.ts');
+    await appendStatePatch(env.prisma, env.conversationId, {
+      set: {
+        tablePhase: 'SUBMIT',
+        gameState: { tableId: 'table_rules', activePlayerIdx: 0, currentBet: 20, pot: 30, players: [{ id: 'p1', name: 'Alice', chips: 980, streetBet: 0 }] },
       },
     });
+    const intent = (action: any) => runAst(env, { type: 'Curator_EmitEvent', eventName: 'poker:action_intent', payload: { seatId: 'p1', action } });
+    const resolutions = async () => (await env.prisma.eventLog.findMany({ where: { eventName: 'poker:action_resolved' }, orderBy: { id: 'asc' } }))
+      .map((e: any) => (typeof e.payload === 'string' ? JSON.parse(e.payload) : e.payload));
 
-    assert.equal(result.done, true);
-    const rootReq = await env.prisma.request.findUnique({ where: { id: requestId } });
-    assert.equal(rootReq.status, 'COMPLETED');
+    // An illegal intent is rejected back to the seat and nothing is applied
+    await intent({ type: 'CHECK' });
+    assert.deepEqual(env.calls.filter((c) => c.tool === 'poker_apply_action'), []);
+    assert.equal((await resolutions()).at(-1)?.accepted, false);
 
-    // Now emit poker:action_taken to verify the ambient reactor triggers deterministically
-    const emitResult = await runAst(env, {
-      type: 'Curator_EmitEvent',
-      eventName: 'poker:action_taken',
-      payload: {
-        player: 'Alice',
-        action: { type: 'CALL', amount: 20 },
-      },
-    });
-    assert.equal(emitResult.result.done, true);
+    // A legal one is validated, applied and announced; the ambient system reacts to the announcement
+    await intent({ type: 'CALL', amount: 20 });
+    const applied = env.calls.filter((c) => c.tool === 'poker_apply_action');
+    assert.deepEqual(applied.map((c) => c.args.action), [{ type: 'CALL', amount: 20 }]);
+    assert.equal((await resolutions()).at(-1)?.accepted, true);
+    const names = (await env.prisma.eventLog.findMany({ orderBy: { id: 'asc' } })).map((e: any) => e.eventName);
+    assert.ok(names.indexOf('poker:action_taken') < names.indexOf('poker:ambient_evaluated'), 'ambient reacts after the action is taken');
 
-    // Verify requests in conversation: poker_action, emit, and ambient_reaction#on_action_taken
-    const snap = await snapshotDb(env);
-    assert.ok(snap.requests.length >= 3, 'Should have processed action, emit, and spawned handler');
-    assert.ok(snap.requests.every((r: any) => r.status === 'COMPLETED'));
+    // A seat that keeps sending illegal intents is sent back a bounded number of times, then coerced
+    await intent({ type: 'CHECK' });
+    await intent({ type: 'CHECK' });
+    assert.equal(env.calls.filter((c) => c.tool === 'poker_apply_action').length, 1, 'still rejected (2 of 2)');
+    await intent({ type: 'CHECK' });
+    assert.equal(env.calls.filter((c) => c.tool === 'poker_apply_action').length, 2, 'third illegal intent is applied (sanitized)');
+    assert.equal((await resolutions()).at(-1)?.accepted, true);
+
+    // Outside the SUBMIT phase the rules do not run at all
+    await appendStatePatch(env.prisma, env.conversationId, { set: { tablePhase: 'BETTING' } });
+    await intent({ type: 'CALL', amount: 20 });
+    assert.equal(env.calls.filter((c) => c.tool === 'poker_apply_action').length, 2);
   } finally {
     await env.cleanup();
   }
@@ -345,7 +345,7 @@ test('Poker Frontmatter Integrity: Workflows contain required frontmatter metada
     'pokerLobby.ts',
     'humanTurn.ts',
     'agentTurn.ts',
-    'pokerAction.ts',
+    'tableRules.ts',
     'ambientReaction.ts',
   ];
 
@@ -365,7 +365,7 @@ test('Poker Typed TypeScript Workflows: All 6 modules validate and run determini
     pokerLobbyAst,
     humanTurnAst,
     agentTurnAst,
-    pokerActionAst,
+    pokerRulesAst,
     ambientReactionAst,
   } = await import('../src/workflows/index.ts');
 
@@ -381,8 +381,8 @@ test('Poker Typed TypeScript Workflows: All 6 modules validate and run determini
   assert.equal(agentTurnAst.type, 'Curator_Module');
   assert.equal(agentTurnAst.name, 'agent_turn');
 
-  assert.equal(pokerActionAst.type, 'Curator_Module');
-  assert.equal(pokerActionAst.name, 'poker_action');
+  assert.equal(pokerRulesAst.type, 'Curator_Module');
+  assert.equal(pokerRulesAst.name, 'poker_rules');
 
   assert.equal(ambientReactionAst.type, 'Curator_Module');
   assert.equal(ambientReactionAst.name, 'ambient_reaction');

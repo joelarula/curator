@@ -2,18 +2,18 @@
  * ---
  * id: player_turn
  * name: player_turn
- * description: One seat's turn - the seat's actor handler decides, the table applies the action
+ * description: One seat's turn - the seat's actor handler decides, the table rules validate and apply it
  * ---
  */
 import { defineModule, actorRef, type CuratorModuleNode } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
 import { state } from '../models/pokerContext.ts';
 import { PokerActionType } from '../models/pokerContracts.ts';
-import { ActionTaken } from '../models/pokerEvents.ts';
+import { ActionIntent, ActionResolved } from '../models/pokerEvents.ts';
 import { humanDecision } from './humanTurn.ts';
 import { aiDecision } from './agentTurn.ts';
 
-const { gameState, apply_player_action, modules } = pokerComposables;
+const { gameState, modules } = pokerComposables;
 
 /** Seated player kinds; each one is played by its registered decision handler. */
 export const PokerActorKind = {
@@ -30,31 +30,31 @@ export const pokerActorHandlers = {
 /** True when `path` holds the given command, as an action object or a bare string. */
 export const isCommand = (path: unknown, type: string) => `((${path} && ${path}.type == '${type}') || ${path} == '${type}')`;
 
+const activeSeat = `${gameState.players}[${gameState.activePlayerIdx}]`;
+
 /** The active seat's handler decides; the decision lands in `$state.turnAction`. */
 export function decideTurn() {
-  return actorRef(`${gameState.players}[${gameState.activePlayerIdx}]`, pokerActorHandlers, {
+  return actorRef(activeSeat, pokerActorHandlers, {
     kind: `($actor.isHuman || $actor.isInteractive) ? '${PokerActorKind.HUMAN}' : '${PokerActorKind.LLM}'`,
     as: state.turnAction,
   });
 }
 
-/** Applies the decided action to the table and announces it. */
-export function applyTurn() {
+/** Submits the decision as an ActionIntent and waits for the table rules to resolve it (see tableRules). */
+export function submitTurn() {
   return [
-    apply_player_action(state.turnAction),
-    ActionTaken.emit({
-      player: `${gameState.lastActorName} || ${gameState.players}[${gameState.activePlayerIdx}].name`,
-      action: state.turnAction,
-      summary: gameState.lastActionSummary,
-      gameState,
-    }),
+    ActionIntent.emit({ seatId: `${activeSeat}.id`, action: state.turnAction }),
+    ActionResolved.wait(state.turnResolution),
   ];
 }
 
-/** Turn decisions that leave the betting flow instead of being applied. */
+/** Turn decisions that leave the betting flow instead of being submitted. */
 export const turnPauses = isCommand(state.turnAction, PokerActionType.PAUSE);
 export const turnExits = isCommand(state.turnAction, PokerActionType.EXIT);
 
+/** The rules rejected the submitted action: the seat decides again. */
+export const turnRejected = `not ${state.turnResolution.accepted}`;
+
 export const playerTurnAst: CuratorModuleNode = defineModule(modules.PLAYER_TURN, {
-  description: 'One seat\'s turn: the actor handler decides, then the action is applied',
-}, () => [decideTurn(), ...applyTurn()]);
+  description: 'One seat\'s turn: the actor handler decides, the table rules validate and apply it',
+}, () => [decideTurn(), ...submitTurn()]);

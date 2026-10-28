@@ -724,31 +724,12 @@ export class CuratorRequestProcessor {
 
     while (steps < maxSteps) {
       await this.expireHumanWaits();
-      // 1. Check if currently parked at an asynchronous wait gate
-      const waitingReq = await this.prisma.request.findFirst({
-        where: {
-          ...(convId !== undefined ? { conversationId: convId } : {}),
-          status: { in: ['WAITING_FOR_EVENT', 'WAITING_FOR_USER', 'PAUSED'] },
-        },
-        orderBy: { updatedAt: 'desc' },
-      });
-
-      if (waitingReq) {
-        const ctx = (waitingReq.context as any) || {};
-        return {
-          steps,
-          done: false,
-          waiting: true,
-          waitingRequest: waitingReq,
-          waitEvent: ctx.waitEvent,
-        };
-      }
-
-      // 2. Execute one AST step cycle
+      // 1. Execute one AST step cycle. A flow parked at a wait does not stop the others: concurrent
+      //    flows (systems, subscriptions) keep running until nothing in the conversation is runnable.
       const processed = await this.step({ conversationId: convId });
 
       if (processed === 0) {
-        // Re-check wait status in case the last processed task parked into a wait state
+        // Idle: report the wait gate the conversation is parked at, if any
         const finalWait = await this.prisma.request.findFirst({
           where: {
             ...(convId !== undefined ? { conversationId: convId } : {}),
@@ -778,7 +759,7 @@ export class CuratorRequestProcessor {
 
       steps++;
 
-      // 3. Optional custom predicate check
+      // 2. Optional custom predicate check
       if (options?.until) {
         const latestReq = await this.prisma.request.findFirst({
           where: {

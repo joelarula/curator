@@ -1,35 +1,61 @@
 /**
+ * ---
+ * id: poker_rules
+ * name: poker_rules
+ * description: Table rules as systems - validate and apply seat action intents
+ * ---
+ */
+/**
  * Table rules as systems (Bevy `add_systems`): a seat's ActionIntent is validated, then applied.
  * They chain through events, so any submitter (seat handler, UI, bot) goes through the same rules.
  */
-import { defineSubroutine, ifElse, system } from '../curator.ts';
+import { defineModule, defineSubroutine, ifElse, setState, system, type CuratorModuleNode } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
-import { turnCtx } from '../models/pokerContext.ts';
+import { state, turnCtx } from '../models/pokerContext.ts';
 import { PokerTablePhase } from '../models/pokerContracts.ts';
 import {
   ActionIntent, ActionValidated, ActionRejected, ActionResolved, ActionTaken, TablePhase,
 } from '../models/pokerEvents.ts';
 
-const { gameState, get_legal_choices, apply_player_action } = pokerComposables;
+const { gameState, get_legal_choices, apply_player_action, modules } = pokerComposables;
 
 const intent = ActionIntent.payload();
 const validated = ActionValidated.payload();
 
-/** Accepts the intent when its action type is among the seat's legal choices. */
+/** Illegal intents a seat may send back per turn before the engine coerces the action to a legal one. */
+export const MAX_TURN_REJECTIONS = 2;
+const rejections = `(${state.turnRejections} || 0)`;
+
+const isLegal = `${turnCtx.legalChoices}.choices.some((c) => c.args && c.args.action
+  && c.args.action.type == (${intent.action}.type || ${intent.action}))`;
+
+/**
+ * Accepts the intent when its action type is among the seat's legal choices. An illegal one goes back
+ * to the seat a bounded number of times; after that it is passed on and the engine sanitizes it.
+ */
 export const validateAction = defineSubroutine('validate_action', [
   get_legal_choices({}, { as: turnCtx.legalChoices }),
   ifElse(
-    `${turnCtx.legalChoices}.choices.some((c) => c.args && c.args.action && c.args.action.type == ${intent.action}.type)`,
+    isLegal,
     ActionValidated.emit({ seatId: intent.seatId, action: intent.action }),
-    [
-      ActionRejected.emit({ seatId: intent.seatId, action: intent.action, reason: 'illegal action' }),
-      ActionResolved.emit({ seatId: intent.seatId, accepted: false, reason: 'illegal action' }),
-    ],
+    ifElse(
+      `${rejections} < ${MAX_TURN_REJECTIONS}`,
+      [
+        setState({ turnRejections: `{{${rejections} + 1}}` }),
+        ActionRejected.emit({ seatId: intent.seatId, action: intent.action, reason: 'illegal action' }),
+        ActionResolved.emit({ seatId: intent.seatId, accepted: false, reason: 'illegal action' }),
+      ],
+      [
+        ActionRejected.emit({ seatId: intent.seatId, action: intent.action, reason: 'illegal action, coerced to a legal one' }),
+        ActionValidated.emit({ seatId: intent.seatId, action: intent.action }),
+      ],
+    ),
   ),
 ]);
 
-/** Applies a validated action to the table and announces it. */
+/** Applies a validated action to the table (the engine sanitizes it) and announces it. */
 export const applyAction = defineSubroutine('apply_action', [
+  setState({ turnRejections: 0 }),
   apply_player_action(validated.action),
   ActionTaken.emit({
     player: `${gameState.lastActorName} || ${gameState.players}[${gameState.activePlayerIdx}].name`,
@@ -40,8 +66,11 @@ export const applyAction = defineSubroutine('apply_action', [
   ActionResolved.emit({ seatId: validated.seatId, accepted: true }),
 ]);
 
-/** Registers the table rules in the enclosing module. */
-export function tableSystems() {
+/** The rules module holds only systems; they run beside every table, gated by its phase. */
+export const pokerRulesAst: CuratorModuleNode = defineModule(modules.RULES, {
+  description: "Texas Hold'em table rules: validate and apply seat action intents",
+}, () => {
   system({ on: ActionIntent, runIf: TablePhase.in(PokerTablePhase.SUBMIT), run: validateAction });
   system({ on: ActionValidated, run: applyAction });
-}
+  return undefined;
+});

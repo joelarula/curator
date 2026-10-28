@@ -190,7 +190,10 @@ Bevy-style state hooks (all optional):
 * `onExit: { State: node }` runs after the state's transition is chosen, also on self-transitions and on the way to `__end__` (`OnExit`).
 * `stateKey: "phase"` mirrors the active state into `$state.phase` (`'__end__'` when finished), so other flows can gate on it. It already holds the new state during `onEnter`.
 
-Order per transition: body → transition chosen → `onExit[from]` → `stateKey` written → `onEnter[to]` → body of `to`. State bodies and hooks inherit the graph's context, `projectId` and `scriptId`, with the previous state's output as `input`. The `stateMachine()` builder declares each state's `run`/`onEnter`/`onExit`/`next` together (see `minigames/poker/src/workflows/pokerWorkflow.ts`).
+* With `stateKey`, every transition is also announced as the event `state:<stateKey>` with `{ from, to }` (`from` is `null` for the start state, `to` is `'__end__'` at the end), so systems can react to it (Bevy `StateTransitionEvent`).
+* `startNode` may be guarded transitions instead of a name, e.g. `[{ "to": "BOOT", "when": "$context.tableId" }, { "to": "MENU" }]`.
+
+Order per transition: body → transition chosen → `onExit[from]` → `stateKey` written and announced → `onEnter[to]` → body of `to`. State bodies and hooks inherit the graph's context, `projectId` and `scriptId`, with the previous state's output as `input`. The `stateMachine()` builder declares each state's `run`/`onEnter`/`onExit`/`next` together (see `minigames/poker/src/workflows/pokerWorkflow.ts`).
 
 ### Usage Example
 ```json
@@ -268,6 +271,28 @@ Lets the acting entity decide who plays a turn (Bevy `register_agent_system`). `
 ```
 
 Builder: `actorRef(actor, { human: humanDecision, llm: aiDecision }, { kind, as })`. Like a child call, it is not allowed inside inline subroutines.
+
+---
+
+## 9d. Systems, typed events and states (builder)
+
+Systems are the Bevy `add_systems` counterpart. They compile to module `subscriptions`, so there is no new node type. Every system starts its handler as its own flow whenever its trigger fires and its run condition holds:
+
+```ts
+const Bet = defineEvent<{ amount: number }>('bet');          // typed event: .emit() .wait() .on() .payload()
+const phases = defineStates('phase', Phase);                   // run conditions + triggers for a stateKey
+
+defineModule('game', () => {
+  system({ on: phases.entered(Phase.BET), run: onBetEntered }); // Bevy OnEnter
+  system({ on: Bet, runIf: phases.in(Phase.BET), run: logBet }); // event + in_state run condition
+  return stateMachine(Phase.DEAL, { ... }, { stateKey: phases });
+});
+```
+
+* `runIf` and the trigger's filter are combined into the subscription's `when`, which sees the payload (`event`, or the `as` alias) and `$state`.
+* Systems chain through the events they emit (intent → validated → applied); there is no separate ordering construct.
+* Subroutines referenced by a module (calls, actor handlers, systems) are included in it automatically.
+* `stepUntil` runs a conversation until nothing is runnable: a flow parked at a wait does not stop concurrent flows (systems, subscriptions), and the wait is reported once the conversation is idle.
 
 ---
 

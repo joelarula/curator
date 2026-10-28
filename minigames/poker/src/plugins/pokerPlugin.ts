@@ -80,7 +80,7 @@ const SCRIPT_DESCRIPTIONS: Record<string, string> = {
   [PokerModule.PLAYER_TURN]: 'Universal Texas Holdem player turn AST workflow',
   [PokerModule.HUMAN_TURN]: 'Human player turn handler AST workflow',
   [PokerModule.AGENT_TURN]: 'AI Agent turn handler AST workflow',
-  [PokerModule.ACTION]: 'Player action event distributor AST workflow',
+  [PokerModule.RULES]: 'Table rules systems: validate and apply action intents',
   [PokerModule.AMBIENT_REACTION]: 'Table spectator chatter and ambient reaction AST workflow',
 };
 

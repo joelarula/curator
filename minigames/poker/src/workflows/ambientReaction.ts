@@ -2,74 +2,39 @@
  * ---
  * id: ambient_reaction
  * name: ambient_reaction
- * description: Ambient Reaction & Table Talk Event Module with Pub/Sub Subscriptions
+ * description: Table talk and ambient reactions as systems
  * ---
  */
-import { ambientCtx } from '../models/pokerContext.ts';
-import {
-  defineModule,
-  defineSubroutine,
-  onEvent,
-  emitEvent,
-  type CuratorModuleNode,
-} from '../curator.ts';
+import { defineModule, defineSubroutine, system, type CuratorModuleNode } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
+import { PokerSpeechAct } from '../models/pokerContracts.ts';
+import { Speech, ActionTaken, AmbientSpoken, AmbientEvaluated } from '../models/pokerEvents.ts';
 
-const {
-  params,
-  human_speech,
-  events,
-  modules,
-} = pokerComposables;
+const { human_speech, modules } = pokerComposables;
 
-/**
- * First-class typed handler for table speech events.
- */
-export const onSpeechEvent = defineSubroutine('on_speech_event', () => [
+const speech = Speech.payload('speechEvt');
+const action = ActionTaken.payload('actionEvt');
+
+/** Records table speech and echoes it as ambient chatter. */
+export const onSpeechEvent = defineSubroutine('on_speech_event', [
   human_speech({
-    speechAct: `${params.speechEvt.speechAct} || 'TABLE_TALK'`,
-    targetId: params.speechEvt.targetId,
-    text: `${params.speechEvt.text} || ''`,
-    speakerName: `${params.speechEvt.speakerName} || 'Observer'`,
+    speechAct: `${speech.speechAct} || '${PokerSpeechAct.TABLE_TALK}'`,
+    targetId: String(speech.targetId),
+    text: `${speech.text} || ''`,
+    speakerName: `${speech.speakerName} || 'Observer'`,
   }),
-  emitEvent(events.AMBIENT_SPOKEN, {
-    speaker: params.speechEvt.speakerName,
-    speechAct: params.speechEvt.speechAct,
-    text: params.speechEvt.text,
-  }),
+  AmbientSpoken.emit({ speaker: speech.speakerName, speechAct: speech.speechAct, text: speech.text }),
 ], { params: { speechEvt: { type: 'object' } } });
 
-/**
- * First-class typed handler for player action events.
- */
-export const onActionTaken = defineSubroutine('on_action_taken', () => [
-  emitEvent(events.AMBIENT_EVALUATED, {
-    player: params.actionEvt.player,
-    action: params.actionEvt.action,
-  }),
+/** Lets the room weigh in on every action taken at the table. */
+export const onActionTaken = defineSubroutine('on_action_taken', [
+  AmbientEvaluated.emit({ player: action.player, action: action.action }),
 ], { params: { actionEvt: { type: 'object' } } });
 
-export function buildAmbientReactionModule(): CuratorModuleNode {
-  return defineModule(modules.AMBIENT_REACTION, () => {
-    // 1. Auto-register event listeners to module subscriptions
-    onEvent(events.SPEECH, onSpeechEvent, { as: params.speechEvt });
-    onEvent(events.ACTION_TAKEN, onActionTaken, { as: params.actionEvt });
-
-    // 2. Return main sequence directly
-    return [
-      human_speech({
-        speechAct: `${ambientCtx.eventSpeechAct} || 'TABLE_TALK'`,
-        targetId: ambientCtx.eventTargetId,
-        text: `${ambientCtx.eventText} || ''`,
-      }),
-      emitEvent(events.AMBIENT_SPOKEN, {
-        speaker: ambientCtx.speakerName,
-        speechAct: ambientCtx.speechAct,
-        text: ambientCtx.text,
-      }),
-    ];
-  });
-}
-
-export const ambientReactionAst = buildAmbientReactionModule();
-
+export const ambientReactionAst: CuratorModuleNode = defineModule(modules.AMBIENT_REACTION, {
+  description: 'Table talk and ambient reactions, running beside every table',
+}, () => {
+  system({ on: Speech, run: onSpeechEvent, as: 'speechEvt' });
+  system({ on: ActionTaken, run: onActionTaken, as: 'actionEvt' });
+  return undefined;
+});

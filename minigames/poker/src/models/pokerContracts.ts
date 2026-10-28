@@ -205,7 +205,7 @@ export type PokerGameOverResultType = (typeof PokerGameOverResult)[keyof typeof 
 export const PokerModule = {
   WORKFLOW: 'poker_workflow',
   LOBBY: 'poker_lobby',
-  ACTION: 'poker_action',
+  RULES: 'poker_rules',
   PLAYER_TURN: 'player_turn',
   HUMAN_TURN: 'human_turn',
   AGENT_TURN: 'agent_turn',
@@ -263,7 +263,7 @@ export const PokerTablePhase = {
   BOOT: 'BOOT',
   START_HAND: 'START_HAND',
   BETTING: 'BETTING',
-  APPLY: 'APPLY',
+  SUBMIT: 'SUBMIT',
   PAUSED: 'PAUSED',
   EXITED: 'EXITED',
   DEAL_STREET: 'DEAL_STREET',

@@ -9,7 +9,7 @@ import path from 'node:path';
 
 import { makeFakeLlm } from '../../../curator/test/helpers/harness.ts';
 import { PokerEvent, PokerTablePhase } from '../src/models/pokerContracts.ts';
-import { rebuildStateSnapshot } from '../../../curator/src/engine/ConversationStateLog.ts';
+import { rebuildStateSnapshot } from '../src/curator.ts';
 
 const HANDS = 2;
 const SEATS = 4;
