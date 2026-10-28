@@ -130,10 +130,10 @@ export class CuratorCoreBuilder {
       | string
       | TypedPathProxy<any>
       | Array<
-          | { when: string | ((ctx: any) => boolean); then: CuratorAstNode | CuratorAstNode[] | any }
-          | { pat: string; guard?: string | ((ctx: any) => boolean); then: CuratorAstNode | CuratorAstNode[] | any }
-          | [string | TypedPathProxy<any>, CuratorAstNode | CuratorAstNode[] | any, (string | ((ctx: any) => boolean))?]
-        >,
+        | { when: string | ((ctx: any) => boolean); then: CuratorAstNode | CuratorAstNode[] | any }
+        | { pat: string; guard?: string | ((ctx: any) => boolean); then: CuratorAstNode | CuratorAstNode[] | any }
+        | [string | TypedPathProxy<any>, CuratorAstNode | CuratorAstNode[] | any, (string | ((ctx: any) => boolean))?]
+      >,
     armsOrDefault?:
       | Record<string, CuratorAstNode | CuratorAstNode[] | any>
       | Array<[string | TypedPathProxy<any>, CuratorAstNode | CuratorAstNode[] | any, (string | ((ctx: any) => boolean))?]>
@@ -249,7 +249,7 @@ export class CuratorCoreBuilder {
    * While the condition evaluates to true, loop over the `body`.
    * Automatically wraps arrays of steps into a sequential node.
    */
-  static whileLoop<TContext = any>(
+  static loopwhile<TContext = any>(
     condition: string | ((ctx: TContext) => boolean),
     body: CuratorAstNode | CuratorAstNode[] | any
   ): CuratorWhileNode {
@@ -332,12 +332,12 @@ export class CuratorCoreBuilder {
     setupOrOptions:
       | (() => CuratorAstNode | CuratorAstNode[] | any)
       | {
-          main?: CuratorAstNode | { build: () => CuratorAstNode };
-          params?: Record<string, CuratorParamSpec>;
-          subroutines?: Record<string, CuratorSubroutine | TypedSubroutine> | TypedSubroutine[];
-          subscriptions?: CuratorSubscribeNode[];
-          description?: string;
-        },
+        main?: CuratorAstNode | { build: () => CuratorAstNode };
+        params?: Record<string, CuratorParamSpec>;
+        subroutines?: Record<string, CuratorSubroutine | TypedSubroutine> | TypedSubroutine[];
+        subscriptions?: CuratorSubscribeNode[];
+        description?: string;
+      },
     maybeSetup?: () => CuratorAstNode | CuratorAstNode[] | any
   ): CuratorModuleNode {
     if (typeof setupOrOptions === 'function' || typeof maybeSetup === 'function') {
@@ -664,12 +664,12 @@ export function defineSubroutine<TParams = any>(
     | CuratorAstNode
     | CuratorAstNode[]
     | {
-        params?: Record<string, CuratorParamSpec>;
-        body: CuratorAstNode | { build: () => CuratorAstNode } | any;
-        returns?: string;
-        description?: string;
-        defaultMode?: 'child' | 'inline';
-      },
+      params?: Record<string, CuratorParamSpec>;
+      body: CuratorAstNode | { build: () => CuratorAstNode } | any;
+      returns?: string;
+      description?: string;
+      defaultMode?: 'child' | 'inline';
+    },
   subOptions?: {
     params?: Record<string, CuratorParamSpec>;
     returns?: string;
@@ -767,7 +767,7 @@ export const choice = CuratorCoreBuilder.input;
 export const ifElse = CuratorCoreBuilder.ifElse;
 export const match = CuratorCoreBuilder.match;
 export const switchCase = CuratorCoreBuilder.switchCase;
-export const whileLoop = CuratorCoreBuilder.whileLoop;
+export const whileLoop = CuratorCoreBuilder.loopwhile;
 export const repeat = CuratorCoreBuilder.repeat;
 export const every = CuratorCoreBuilder.every;
 export const forEach = CuratorCoreBuilder.forEach;

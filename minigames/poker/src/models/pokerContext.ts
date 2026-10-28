@@ -132,6 +132,7 @@ export interface PokerGetChoicesParams {
 }
 
 export interface PokerListTablesParams {
+  actorId?: WorkflowValue<string>;
   userId?: WorkflowValue<string>;
   playerName?: WorkflowValue<string>;
   playerId?: WorkflowValue<string>;
@@ -244,6 +245,7 @@ export interface PokerHandResult {
 export interface PokerSharedContext {
   gameState?: PokerGameState;
   tableId?: string;
+  actorId?: string;
   playerName?: string;
   userId?: string;
   playerId?: string;
@@ -290,16 +292,14 @@ export interface PokerBootContext extends PokerSharedContext {
 
 /** Lobby flow proper: table listing/selection, composed with its buy-in and boot sub-flows. */
 export interface PokerLobbyContext extends PokerBankrollContext, PokerBootContext {
-  bypassLobby?: boolean;
   lobbyChoice?: PokerLobbyChoice | { id: PokerLobbyActionType; label?: string } | string;
-  lobbyChoices?: PokerLobbyChoice[];
   selectedTable?: PokerTableChoice | { id: string; tableId?: string } | string;
 
   poker_create_table?: { tableId?: string; [key: string]: any };
   poker_list_tables?: {
     tables: Array<{ id: string; tableId: string; title: string }>;
     choices: PokerTableChoice[];
-    lobbyChoices?: PokerLobbyChoice[];
+    lobbyChoices: PokerLobbyChoice[];
     hasUnfinishedGames: boolean;
     count: number;
   };
@@ -348,9 +348,9 @@ export interface PokerAmbientContext extends PokerSharedContext {
 /** Root context of the top-level poker workflow: union of all flow contexts. */
 export interface PokerWorkflowContext
   extends PokerLobbyContext,
-    PokerTableContext,
-    PokerTurnContext,
-    PokerAmbientContext {
+  PokerTableContext,
+  PokerTurnContext,
+  PokerAmbientContext {
   [key: string]: any;
 }
 

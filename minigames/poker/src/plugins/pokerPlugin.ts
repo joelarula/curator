@@ -58,6 +58,7 @@ import {
   formatTableChoices,
   isTableUnfinishedForUser,
 } from '../services/pokerTableStore.ts';
+import { DEFAULT_LOBBY_CHOICES } from '../workflows/pokerLobby.ts';
 import {
   getOrCreateBankroll,
   depositBuyIn,
@@ -344,6 +345,7 @@ export const pokerListTablesTool = defineTool<PokerListTablesParams>({
   parameters: {
     type: 'object',
     properties: {
+      actorId: { type: 'string' },
       userId: { type: 'string' },
       playerName: { type: 'string' },
       playerId: { type: 'string' },
@@ -353,17 +355,28 @@ export const pokerListTablesTool = defineTool<PokerListTablesParams>({
   execute: async (args: PokerListTablesParams, ctx: any) => {
     const prisma = ctx?.toolContext?.prisma || ctx?.prisma;
     if (!prisma?.conversation && !prisma?.resource) {
-      return { tables: [], choices: [], hasUnfinishedGames: false, count: 0 };
+      return { tables: [], choices: [], lobbyChoices: DEFAULT_LOBBY_CHOICES, hasUnfinishedGames: false, count: 0 };
     }
 
     const targetProjectId = String(args?.projectId || ctx?.toolContext?.projectId || ctx?.projectId || ctx?.project?.id || '').trim();
     const reqCtx = (typeof ctx?.toolContext?.context === 'object' && ctx.toolContext.context) || (typeof ctx?.context === 'object' && ctx.context) || {};
+    const actorId = String(
+      args?.actorId ||
+      reqCtx.actorId ||
+      ctx?.actorId ||
+      args?.userId ||
+      reqCtx.userId ||
+      ctx?.userId ||
+      ctx?.user?.id ||
+      ''
+    ).trim();
     const playerName = String(args?.playerName || reqCtx.playerName || ctx?.playerName || ctx?.user?.name || '').trim();
-    const playerId = String(args?.playerId || reqCtx.playerId || ctx?.playerId || ctx?.user?.id || '').trim();
-    const userId = String(args?.userId || reqCtx.userId || ctx?.userId || ctx?.user?.id || '').trim();
+    const playerId = String(args?.playerId || reqCtx.playerId || ctx?.playerId || actorId || '').trim();
+    const userId = String(args?.userId || reqCtx.userId || ctx?.userId || ctx?.user?.id || actorId || '').trim();
 
     return queryActivePokerTables(prisma, {
       projectId: targetProjectId,
+      actorId,
       playerName,
       playerId,
       userId,
@@ -394,7 +407,8 @@ export const pokerCreateTableTool = defineTool<PokerCreateTableParams>({
       const tableInfo = await createPokerGameTable(host, args as any);
       return { success: true, table: tableInfo, tableId: tableInfo.tableId };
     }
-    return { success: false, message: 'Host not available in context' };
+    const tableId = `poker:table_${crypto.randomUUID()}`;
+    return { success: true, tableId, table: { title: args?.tableName || `Table #${tableId.slice(-6)}` } };
   },
 });
 

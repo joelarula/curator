@@ -5,7 +5,7 @@
  * description: Texas Hold'em Lounge Concierge & Table Selection Module
  * ---
  */
-import { lobbyCtx, bankrollCtx, bootCtx } from '../models/pokerContext.ts';
+import { lobbyCtx as lobbyCtxProxy, bankrollCtx, bootCtx } from '../models/pokerContext.ts';
 import {
   defineModule,
   defineSubroutine,
@@ -13,7 +13,7 @@ import {
   input,
   ifElse,
   match,
-  whileLoop,
+  whileLoop as loopwhile,
   waitEvent,
   setState,
   emitEvent,
@@ -105,12 +105,12 @@ export const DEFAULT_LOBBY_CHOICES = getLobbyChoices(false);
 /**
  * Subroutine for bootstrapping an open table with dynamic seating.
  */
-const bootTableSub = defineSubroutine('boot_table', () => [
+export const bootTableSub = defineSubroutine('boot_table', () => [
   boot_table(),
   emitEvent(events.LOBBY_READY, {
     tableId: String(gameState.tableId),
   }),
-  whileLoop(
+  loopwhile(
     pokerPredicates.table_needs_players,
     seq(steps.WAIT_FOR_PLAYERS, [
       emitEvent(events.AWAITING_PLAYERS, {
@@ -177,9 +177,41 @@ function buildTableSelectedFlow() {
   return [
     ...buildBuyInSequence(),
     emitEvent(events.TABLE_SELECTED, {
-      tableId: String(lobbyCtx.tableId),
-      buyIn: lobbyCtx.selectedBuyIn,
+      tableId: String(lobbyCtxProxy.tableId),
+      buyIn: lobbyCtxProxy.selectedBuyIn,
     }),
+  ];
+}
+
+function buildResumeTableFlow() {
+  return [
+    input('Select Table:', String(lobbyCtxProxy.poker_list_tables.choices), { as: lobbyCtxProxy.selectedTable }),
+    match(lobbyCtxProxy.selectedTable, {
+      [lobbyActions.BACK]: [
+        setState({
+          lobbyChoice: null,
+          selectedTable: null,
+        }),
+      ],
+      _: [
+        setState({
+          tableId: `${lobbyCtxProxy.selectedTable.id} || ${lobbyCtxProxy.selectedTable.tableId} || ${lobbyCtxProxy.selectedTable}`,
+        }),
+        ...buildTableSelectedFlow(),
+      ],
+    }),
+  ];
+}
+
+function buildNewTableFlow() {
+  return [
+    create_table({
+      playerName: String(lobbyCtxProxy.playerName),
+    }),
+    setState<PokerLobbyContext>((c) => ({
+      tableId: c.poker_create_table?.tableId || `poker:table_${crypto.randomUUID()}`,
+    })),
+    ...buildTableSelectedFlow(),
   ];
 }
 
@@ -189,50 +221,14 @@ export function buildPokerLobbyModule(): CuratorModuleNode {
     subroutines: [bootTableSub],
   }, () => [
     // 1. Interactive Lobby Selection Gate (New Game, Resume Game, Exit)
-    whileLoop<PokerLobbyContext>(
-      (c) => !c.tableId && !c.sessionEnded && !c.bypassLobby,
+    loopwhile<PokerLobbyContext>((c) => !c.tableId && !c.sessionEnded,
       [
-        list_tables({
-          playerName: String(lobbyCtx.playerName),
-          playerId: String(lobbyCtx.playerId),
-          userId: String(lobbyCtx.userId),
-        }),
-        ifElse<PokerLobbyContext>(
-          (c) => Boolean(c.poker_list_tables?.hasUnfinishedGames),
-          setState({ lobbyChoices: getLobbyChoices(true) }),
-          setState({ lobbyChoices: getLobbyChoices(false) }),
-        ),
-        input('Lobby Options:', String(lobbyCtx.lobbyChoices), { as: lobbyCtx.lobbyChoice }),
-        match(lobbyCtx.lobbyChoice, {
-          [lobbyActions.EXIT]: [
-            handle_user_exit(),
-          ],
-          [lobbyActions.RESUME]: [
-            input('Select Table:', String(lobbyCtx.poker_list_tables.choices), { as: lobbyCtx.selectedTable }),
-            match(lobbyCtx.selectedTable, {
-              [lobbyActions.BACK]: [
-                setState({
-                  lobbyChoice: null,
-                  selectedTable: null,
-                }),
-              ],
-              _: [
-                setState({
-                  tableId: `${lobbyCtx.selectedTable.id} || ${lobbyCtx.selectedTable.tableId} || ${lobbyCtx.selectedTable}`,
-                }),
-                ...buildTableSelectedFlow(),
-              ],
-            }),
-          ],
-          [lobbyActions.NEW]: [
-            create_table({
-              playerName: String(lobbyCtx.playerName),
-            }),
-            setState({
-              tableId: `${lobbyCtx.poker_create_table.tableId} || ${lobbyCtx.tableId} || 'poker:high_roller_lounge'`,
-            }),
-            ...buildTableSelectedFlow(),
-          ],
+        list_tables(),
+        input('Lobby Options:', String(lobbyCtxProxy.poker_list_tables.lobbyChoices), { as: lobbyCtxProxy.lobbyChoice }),
+        match(lobbyCtxProxy.lobbyChoice, {
+          [lobbyActions.EXIT]: [handle_user_exit()],
+          [lobbyActions.RESUME]: buildResumeTableFlow(),
+          [lobbyActions.NEW]: buildNewTableFlow(),
           _: [
             setState({
               lobbyChoice: null,

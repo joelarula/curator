@@ -16,7 +16,7 @@ import {
   type CuratorModuleNode,
 } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
-import { buildTableBootStep } from './pokerLobby.ts';
+import { buildTableBootStep, bootTableSub } from './pokerLobby.ts';
 import { buildPlayerTurnStep, handlePause } from './playerTurn.ts';
 import { aiAgentFlow } from './agentTurn.ts';
 
@@ -74,7 +74,7 @@ export function buildPokerWorkflowModule(): CuratorModuleNode {
     modules.WORKFLOW,
     {
       description: "Curator Texas Hold'em autonomous event-driven 5-phase game loop engine",
-      subroutines: [handlePause, aiAgentFlow, dealNextStreetSub, settleShowdownSub],
+      subroutines: [handlePause, aiAgentFlow, dealNextStreetSub, settleShowdownSub, bootTableSub],
     },
     () => seq(steps.DYNAMIC_ENGINE, [
       // 1. Initialize open table if state not yet booted

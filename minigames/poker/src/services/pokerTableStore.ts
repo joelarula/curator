@@ -3,7 +3,13 @@ import {
   POKER_TABLE_STATUS,
   type PokerTableStatusType,
 } from '../models/pokerShapes.ts';
-import { PokerLobbyAction, type PokerTableChoice } from '../workflows/pokerLobby.ts';
+import {
+  PokerLobbyAction,
+  type PokerTableChoice,
+  type PokerLobbyChoice,
+  getLobbyChoices,
+  DEFAULT_LOBBY_CHOICES,
+} from '../workflows/pokerLobby.ts';
 
 export interface SyncPokerTableParams {
   tableId: string | number;
@@ -18,6 +24,7 @@ export interface SyncPokerTableParams {
 
 export interface QueryPokerTablesParams {
   projectId?: string;
+  actorId?: string;
   playerName?: string;
   playerId?: string;
   userId?: string;
@@ -26,6 +33,7 @@ export interface QueryPokerTablesParams {
 export interface ActivePokerTablesResult {
   tables: Array<{ id: string; tableId: string; title: string }>;
   choices: PokerTableChoice[];
+  lobbyChoices: PokerLobbyChoice[];
   hasUnfinishedGames: boolean;
   count: number;
 }
@@ -62,24 +70,26 @@ async function ensureResource(
 }
 
 /**
- * Checks whether an array of player resources matches a user query.
+ * Checks whether an array of player resources matches an actor / user query.
  */
 function matchesPlayerQuery(
   players: any[],
   creatorUserId: string | null | undefined,
   query: QueryPokerTablesParams
 ): boolean {
+  const normActorId = query.actorId?.trim().toLowerCase();
   const normName = query.playerName?.trim().toLowerCase();
   const normPlayerId = query.playerId?.trim().toLowerCase();
   const normUserId = query.userId?.trim().toLowerCase();
 
-  if (!normName && !normPlayerId && !normUserId) return false;
+  if (!normActorId && !normName && !normPlayerId && !normUserId) return false;
 
   const matches = (id?: string | null, name?: string | null, uri?: string | null) => {
     const idNorm = id?.trim().toLowerCase();
     const nameNorm = name?.trim().toLowerCase();
     const uriNorm = uri?.trim().toLowerCase();
 
+    if (normActorId && (idNorm === normActorId || uriNorm?.includes(`:${normActorId}`))) return true;
     if (normPlayerId && (idNorm === normPlayerId || uriNorm?.includes(`:${normPlayerId}`))) return true;
     if (normUserId && (idNorm === normUserId || uriNorm?.includes(`:${normUserId}`))) return true;
     if (normName && (nameNorm === normName || uriNorm?.includes(`:${normName}`))) return true;
@@ -91,8 +101,11 @@ function matchesPlayerQuery(
   );
   if (hasPlayerMatch) return true;
 
-  if (normUserId && creatorUserId && creatorUserId.trim().toLowerCase() === normUserId) {
-    return true;
+  if (creatorUserId) {
+    const creatorNorm = creatorUserId.trim().toLowerCase();
+    if ((normActorId && creatorNorm === normActorId) || (normUserId && creatorNorm === normUserId)) {
+      return true;
+    }
   }
 
   return false;
@@ -321,9 +334,11 @@ export async function queryActivePokerTables(
   }
 
   const choices = formatTableChoices(tables);
+  const lobbyChoices = getLobbyChoices(tables.length > 0, tables.length);
   return {
     tables,
     choices,
+    lobbyChoices,
     hasUnfinishedGames: tables.length > 0,
     count: tables.length,
   };
@@ -366,6 +381,7 @@ export function formatTableChoices(
 }
 
 export interface UnfinishedGameUserQuery {
+  actorId?: string;
   playerName?: string;
   playerId?: string;
   userId?: string;
@@ -373,7 +389,7 @@ export interface UnfinishedGameUserQuery {
 
 /**
  * Pure predicate checking whether a conversation represents an unfinished poker game
- * for a specific human user (non-terminal request, session active, >= 2 seated players, not game over, user is seated/participant).
+ * for a specific actor (user or agent) (non-terminal request, session active, >= 2 seated players, not game over, actor is seated/participant).
  */
 export function isTableUnfinishedForUser(
   conv: any,
@@ -401,17 +417,19 @@ export function isTableUnfinishedForUser(
   // 3. Game must not be over
   if (gameState.gameOver === true) return false;
 
-  // 4. Must involve the same user
+  // 4. Must involve the same actor (user or agent)
+  const normActorId = user.actorId?.trim().toLowerCase();
   const normName = user.playerName?.trim().toLowerCase();
   const normPlayerId = user.playerId?.trim().toLowerCase();
   const normUserId = user.userId?.trim().toLowerCase();
 
-  // If no user identity is known at all, can't attribute to same user
-  if (!normName && !normPlayerId && !normUserId) return false;
+  // If no actor identity is known at all, can't attribute to same actor
+  if (!normActorId && !normName && !normPlayerId && !normUserId) return false;
 
   const matchesUser = (id?: string | null, name?: string | null) => {
     const idNorm = id?.trim().toLowerCase();
     const nameNorm = name?.trim().toLowerCase();
+    if (normActorId && (idNorm === normActorId || idNorm === `user_${normActorId}`)) return true;
     if (normPlayerId && (idNorm === normPlayerId || idNorm === `user_${normPlayerId}`)) return true;
     if (normUserId && idNorm === normUserId) return true;
     if (normName && (nameNorm === normName || idNorm === `user_${normName}`)) return true;
@@ -431,8 +449,11 @@ export function isTableUnfinishedForUser(
   if (hasUserInParticipants) return true;
 
   // Check conversation owner
-  if (normUserId && conv.userId && conv.userId.trim().toLowerCase() === normUserId) {
-    return true;
+  if (conv.userId) {
+    const convOwner = conv.userId.trim().toLowerCase();
+    if ((normActorId && convOwner === normActorId) || (normUserId && convOwner === normUserId)) {
+      return true;
+    }
   }
 
   return false;

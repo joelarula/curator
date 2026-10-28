@@ -438,7 +438,7 @@ export async function closePokerGameTable(
         await cashOutToBankroll(prisma, host.user.id, human.chips, convId, host.project.id);
       }
     }
-  } catch (_) {}
+  } catch (_) { }
 
   await prisma.request.updateMany({
     where: {
@@ -464,7 +464,7 @@ export async function closePokerGameTable(
         },
       });
     }
-  } catch (_) {}
+  } catch (_) { }
 
   await closePokerTableResource(prisma, tableId, reason);
 
@@ -517,11 +517,9 @@ export async function enqueueTableASTRequest(
     maxSeats?: number;
     tableId?: string | number;
     playerName?: string;
-    bypassLobby?: boolean;
     scriptName?: string;
   } = {}
 ): Promise<any> {
-  const bypassLobby = options.bypassLobby ?? (options.tableId !== undefined);
   const targetScript = options.scriptName || PokerModule.WORKFLOW;
   const ast = await getScriptAST(host.prisma, targetScript);
   return host.prisma.request.create({
@@ -533,7 +531,6 @@ export async function enqueueTableASTRequest(
       ast: ast as any,
       context: {
         ...(options.tableId !== undefined ? { tableId: String(options.tableId) } : {}),
-        bypassLobby,
         playerName: options.playerName || 'You',
         startingChips: options.startingChips || 1000,
         sbAmount: options.smallBlind || 10,
@@ -622,7 +619,7 @@ export async function ensureHumanActorInDatabase(
           update: {},
         });
       }
-    } catch (_) {}
+    } catch (_) { }
   }
 
   // 3. Register human actor as active participant in Conversation metadata
@@ -649,7 +646,7 @@ export async function ensureHumanActorInDatabase(
         data: { metadata: { ...meta, participants: existingParticipants } },
       });
     }
-  } catch (_) {}
+  } catch (_) { }
 
   return user;
 }
@@ -668,7 +665,7 @@ export async function getConversationActors(
       where: { id: convIdNum },
       include: { project: true },
     });
-  } catch (_) {}
+  } catch (_) { }
 
   const actors: CuratorActor[] = [];
 
@@ -677,7 +674,7 @@ export async function getConversationActors(
   if (conv?.userId) {
     try {
       user = await prisma.user.findUnique({ where: { id: conv.userId } });
-    } catch (_) {}
+    } catch (_) { }
   }
   if (!user) user = host.user;
 
@@ -704,7 +701,7 @@ export async function getConversationActors(
       },
       orderBy: { id: 'asc' },
     });
-  } catch (_) {}
+  } catch (_) { }
 
   // 4. Merge with live gameState.players if table is seated
   let gameState: PokerGameState | null = null;
@@ -717,7 +714,7 @@ export async function getConversationActors(
     if (latestReq?.context?.gameState) {
       gameState = latestReq.context.gameState as PokerGameState;
     }
-  } catch (_) {}
+  } catch (_) { }
 
   const seatedMap = new Map((gameState?.players || []).map((p: any) => [p.id.toLowerCase(), p]));
 
@@ -785,15 +782,15 @@ export async function createPokerGameSession(
   const isTableTargeted = options.tableId !== undefined;
   const conversation = isTableTargeted
     ? await ensureTableConversation(host, {
-        tableId: options.tableId,
-        maxSeats,
-      })
+      tableId: options.tableId,
+      maxSeats,
+    })
     : await ensureLobbyConversation(host, {
-        playerName: options.playerName,
-        playerId: options.playerId,
-        sessionId: options.sessionId,
-        forceNew: options.newSession,
-      });
+      playerName: options.playerName,
+      playerId: options.playerId,
+      sessionId: options.sessionId,
+      forceNew: options.newSession,
+    });
 
   // 1b. Ensure human user actor exists in database with roles and conversation participant metadata
   await ensureHumanActorInDatabase(host, conversation.id, {
@@ -831,7 +828,6 @@ export async function createPokerGameSession(
       maxSeats,
       tableId: options.tableId,
       playerName: options.playerName,
-      bypassLobby: isTableTargeted,
       scriptName: isTableTargeted ? PokerModule.WORKFLOW : PokerModule.LOBBY,
     });
     if (!options.quiet) {
@@ -1029,7 +1025,6 @@ export async function createPokerGameSession(
       smallBlind,
       bigBlind,
       maxSeats,
-      bypassLobby: false,
     });
     host.events.broadcast(PokerEvent.LOBBY_PROMPT, {
       choices: DEFAULT_LOBBY_CHOICES,

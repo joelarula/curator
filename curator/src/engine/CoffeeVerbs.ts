@@ -39,10 +39,10 @@ export const coffeeAstVerbs: Record<string, any> = {
     CuratorBuilder.ifElse(condition, thenBranch, elseBranch),
   ifElse: (condition: string | ((ctx: any) => boolean), thenBranch: CuratorAstNode, elseBranch?: CuratorAstNode) =>
     CuratorBuilder.ifElse(condition, thenBranch, elseBranch),
-  while_loop: (condition: string | ((ctx: any) => boolean), body: CuratorAstNode) =>
-    CuratorBuilder.whileLoop(condition, body),
+  loopwhile: (condition: string | ((ctx: any) => boolean), body: CuratorAstNode) =>
+    CuratorBuilder.loopwhile(condition, body),
   whileLoop: (condition: string | ((ctx: any) => boolean), body: CuratorAstNode) =>
-    CuratorBuilder.whileLoop(condition, body),
+    CuratorBuilder.loopwhile(condition, body),
   repeat: (body: CuratorAstNode, options?: any) => CuratorBuilder.repeat(body, options),
   every: (schedule: string, body: CuratorAstNode, options?: any) => CuratorBuilder.every(schedule, body, options),
   for_each: (collectionExpression: string | ((ctx: any) => any[]), body: CuratorAstNode, iteratorName?: string) =>
