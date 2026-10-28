@@ -5,6 +5,7 @@
  * description: Ambient Reaction & Table Talk Event Module with Pub/Sub Subscriptions
  * ---
  */
+import { ambientCtx } from '../models/pokerContext.ts';
 import {
   defineModule,
   defineSubroutine,
@@ -15,7 +16,6 @@ import {
 import { pokerComposables } from '../composables/pokerComposables.ts';
 
 const {
-  ctx,
   params,
   human_speech,
   events,
@@ -58,14 +58,14 @@ export function buildAmbientReactionModule(): CuratorModuleNode {
     // 2. Return main sequence directly
     return [
       human_speech({
-        speechAct: `${ctx.eventSpeechAct} || 'TABLE_TALK'`,
-        targetId: ctx.eventTargetId,
-        text: `${ctx.eventText} || ''`,
+        speechAct: `${ambientCtx.eventSpeechAct} || 'TABLE_TALK'`,
+        targetId: ambientCtx.eventTargetId,
+        text: `${ambientCtx.eventText} || ''`,
       }),
       emitEvent(events.AMBIENT_SPOKEN, {
-        speaker: ctx.speakerName,
-        speechAct: ctx.speechAct,
-        text: ctx.text,
+        speaker: ambientCtx.speakerName,
+        speechAct: ambientCtx.speechAct,
+        text: ambientCtx.text,
       }),
     ];
   });

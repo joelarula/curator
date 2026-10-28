@@ -240,45 +240,29 @@ export interface PokerHandResult {
 // ==========================================
 // 3. Workflow Context, State & Params
 // ==========================================
-export interface PokerWorkflowContext {
-  // Primary table game state
+/** Fields shared by every flow: identity, blinds and the live game state. */
+export interface PokerSharedContext {
   gameState?: PokerGameState;
-
-  // Session flags and configuration
   tableId?: string;
-  bypassLobby?: boolean;
   playerName?: string;
-  startingChips?: number;
+  userId?: string;
+  playerId?: string;
   sbAmount?: number;
   bbAmount?: number;
-  maxSeats?: number;
   isPaused?: boolean;
   sessionEnded?: boolean;
+  event?: {
+    type: string;
+    tableId?: string;
+    payload?: any;
+    [key: string]: any;
+  };
+}
 
-  // Active player and turn dynamics
-  activePlayer?: PlayerState;
-  player?: PlayerState;
-  action?: PlayerAction;
-  humanAction?: PlayerAction;
-  lastAiAction?: PlayerAction;
-  resumeCmd?: { type: 'RESUME' | 'EXIT' } | string;
-
-  // Seating and lobby requests
-  players?: PlayerJoinOptions[];
-  joinRequest?: PlayerJoinOptions;
-
-  // Choices and agent decisions
-  choices?: PokerLegalChoice[];
-  decision?: PokerTurnDecision;
-  lobbyChoice?: PokerLobbyChoice | { id: PokerLobbyActionType; label?: string } | string;
-  lobbyChoices?: PokerLobbyChoice[];
-  selectedTable?: PokerTableChoice | { id: string; tableId?: string } | string;
+/** Buy-in sub-flow: bankroll lookup, optional reload and chip deposit. */
+export interface PokerBankrollContext extends PokerSharedContext {
   buyInChoice?: any;
-  buyInChoices?: any[];
   selectedBuyIn?: number;
-  bankroll?: any;
-
-  // Tool execution results cached in context under toolName
   poker_get_bankroll?: {
     balance: number;
     minBuyIn: number;
@@ -291,24 +275,27 @@ export interface PokerWorkflowContext {
     newBalance: number;
     deposited: number;
   };
-  poker_cash_out?: {
-    success: boolean;
-    newBalance: number;
-    cashedOut: number;
-  };
   poker_reload_bankroll?: {
     balance: number;
   };
-  poker_init_lobby?: { gameState: PokerGameState };
-  poker_start_hand?: { gameState: PokerGameState };
-  poker_get_choices?: { choices: PokerLegalChoice[] };
-  poker_ai_decision?: PokerTurnDecision;
-  poker_apply_action?: { gameState: PokerGameState };
-  poker_deal_street?: { gameState: PokerGameState };
-  poker_distribute_pots?: { gameState: PokerGameState };
-  poker_check_game_over?: { gameOver: boolean; standings?: PlayerStanding[] };
-  poker_rotate_dealer?: { gameState: PokerGameState };
-  poker_join_lobby?: { gameState: PokerGameState };
+}
+
+/** Table boot sub-flow: open-table initialization and dynamic seating. */
+export interface PokerBootContext extends PokerSharedContext {
+  startingChips?: number;
+  maxSeats?: number;
+  players?: PlayerJoinOptions[];
+  joinRequest?: PlayerJoinOptions;
+}
+
+/** Lobby flow proper: table listing/selection, composed with its buy-in and boot sub-flows. */
+export interface PokerLobbyContext extends PokerBankrollContext, PokerBootContext {
+  bypassLobby?: boolean;
+  lobbyChoice?: PokerLobbyChoice | { id: PokerLobbyActionType; label?: string } | string;
+  lobbyChoices?: PokerLobbyChoice[];
+  selectedTable?: PokerTableChoice | { id: string; tableId?: string } | string;
+
+  poker_create_table?: { tableId?: string; [key: string]: any };
   poker_list_tables?: {
     tables: Array<{ id: string; tableId: string; title: string }>;
     choices: PokerTableChoice[];
@@ -316,20 +303,54 @@ export interface PokerWorkflowContext {
     hasUnfinishedGames: boolean;
     count: number;
   };
+}
 
-  // Discourse and table remarks
+/** Hand lifecycle flow: dealing, street progression, settlement, game over. */
+export interface PokerTableContext extends PokerSharedContext {
+  winnerSummary?: string;
+  standings?: PlayerStanding[];
+  poker_start_hand?: { gameState: PokerGameState };
+  poker_deal_street?: { gameState: PokerGameState };
+  poker_distribute_pots?: { gameState: PokerGameState };
+  poker_check_game_over?: { gameOver: boolean; standings?: PlayerStanding[] };
+  poker_rotate_dealer?: { gameState: PokerGameState };
+}
+
+/** Player turn flows (agent, human, action application). */
+export interface PokerTurnContext extends PokerSharedContext {
+  activePlayer?: PlayerState;
+  player?: PlayerState;
+  action?: PlayerAction;
+  turnAction?: PlayerAction;
+  humanAction?: PlayerAction;
+  lastAiAction?: PlayerAction;
+  resumeCmd?: { type: 'RESUME' | 'EXIT' } | string;
+  choices?: PokerLegalChoice[];
+  decision?: PokerTurnDecision;
+  recentRemarks?: AmbientRemark[];
+  poker_get_choices?: { choices: PokerLegalChoice[] };
+  poker_ai_decision?: PokerTurnDecision;
+  poker_apply_action?: { gameState: PokerGameState };
+}
+
+/** Ambient table-talk reaction flow. */
+export interface PokerAmbientContext extends PokerSharedContext {
   recentRemarks?: AmbientRemark[];
   speech?: string;
   speechAct?: SpeechAct;
+  text?: string;
+  speakerName?: string;
+  eventSpeechAct?: SpeechAct;
+  eventTargetId?: string;
+  eventText?: string;
+}
 
-  // Event context
-  event?: {
-    type: string;
-    tableId?: string;
-    payload?: any;
-    [key: string]: any;
-  };
-
+/** Root context of the top-level poker workflow: union of all flow contexts. */
+export interface PokerWorkflowContext
+  extends PokerLobbyContext,
+    PokerTableContext,
+    PokerTurnContext,
+    PokerAmbientContext {
   [key: string]: any;
 }
 
@@ -372,6 +393,12 @@ export interface PokerEventMap {
 }
 
 export const ctx: TypedPathProxy<PokerWorkflowContext> = createContextProxy<PokerWorkflowContext>('$context');
+export const lobbyCtx: TypedPathProxy<PokerLobbyContext> = createContextProxy<PokerLobbyContext>('$context');
+export const bankrollCtx: TypedPathProxy<PokerBankrollContext> = createContextProxy<PokerBankrollContext>('$context');
+export const bootCtx: TypedPathProxy<PokerBootContext> = createContextProxy<PokerBootContext>('$context');
+export const tableCtx: TypedPathProxy<PokerTableContext> = createContextProxy<PokerTableContext>('$context');
+export const turnCtx: TypedPathProxy<PokerTurnContext> = createContextProxy<PokerTurnContext>('$context');
+export const ambientCtx: TypedPathProxy<PokerAmbientContext> = createContextProxy<PokerAmbientContext>('$context');
 export const gameState: TypedPathProxy<PokerGameState> = createContextProxy<PokerGameState>('$context.gameState');
 export const state: TypedPathProxy<PokerWorkflowState> = createContextProxy<PokerWorkflowState>('$state');
 export const params: TypedPathProxy<PokerWorkflowParams> = createContextProxy<PokerWorkflowParams>('$params');

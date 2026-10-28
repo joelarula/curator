@@ -5,6 +5,7 @@
  * description: Interactive Human Turn Module with Choices, Pause/Resume, and Action Dispatch
  * ---
  */
+import { turnCtx } from '../models/pokerContext.ts';
 import {
   defineModule,
   defineSubroutine,
@@ -20,7 +21,6 @@ import {
 import { pokerComposables } from '../composables/pokerComposables.ts';
 
 const {
-  ctx,
   gameState,
   is_table_paused,
   is_session_unpaused,
@@ -48,7 +48,7 @@ export const handlePause = defineSubroutine('handle_pause', () => [
   whileLoop(
     is_table_paused,
     [
-      waitEvent(events.RESUME_ACTION, ctx.resumeCmd),
+      waitEvent(events.RESUME_ACTION, turnCtx.resumeCmd),
       ifElse(
         is_resume_cmd,
         [
@@ -81,8 +81,8 @@ export function buildHumanChoiceSteps() {
     }),
     ifElse(
       can_check,
-      choice('Your turn (Check or Bet):', String(ctx.poker_get_choices.choices), { as: ctx.turnAction }),
-      choice('Your turn (Call, Raise, or Fold):', String(ctx.poker_get_choices.choices), { as: ctx.turnAction }),
+      choice('Your turn (Check or Bet):', String(turnCtx.poker_get_choices.choices), { as: turnCtx.turnAction }),
+      choice('Your turn (Call, Raise, or Fold):', String(turnCtx.poker_get_choices.choices), { as: turnCtx.turnAction }),
     ),
     ifElse(
       is_turn_action_pause,
@@ -104,11 +104,11 @@ export function buildHumanTurnSteps() {
     ifElse(
       is_session_unpaused,
       seq(steps.APPLY_ACTION, [
-        apply_player_action(ctx.turnAction),
+        apply_player_action(turnCtx.turnAction),
         emitEvent(events.ACTION_TAKEN, {
           summary: String(gameState.lastActionSummary),
           player: `${gameState.lastActorName} || ${gameState.players}[${gameState.activePlayerIdx}].name`,
-          action: String(ctx.turnAction),
+          action: String(turnCtx.turnAction),
           gameState: String(gameState),
         }),
       ]),

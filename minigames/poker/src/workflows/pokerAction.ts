@@ -5,6 +5,7 @@
  * description: Texas Hold'em Action Processing Module with Pot Commitment & Event Emission
  * ---
  */
+import { turnCtx } from '../models/pokerContext.ts';
 import {
   defineModule,
   seq,
@@ -14,7 +15,6 @@ import {
 import { pokerComposables } from '../composables/pokerComposables.ts';
 
 const {
-  ctx,
   gameState,
   params,
   apply_player_action,
@@ -30,16 +30,16 @@ export function buildPokerActionModule(): CuratorModuleNode {
       action: { type: 'object', description: 'PlayerAction to apply' },
     },
   }, () => [
-    apply_player_action(`${params.action} || ${ctx.action}`),
+    apply_player_action(`${params.action} || ${turnCtx.action}`),
     emitEvent(events.ACTION_APPLIED, {
       player: `${gameState.players}[${gameState.activePlayerIdx}].name`,
-      action: `${params.action} || ${ctx.action}`,
+      action: `${params.action} || ${turnCtx.action}`,
       pot: gameState.pot,
     }),
     emitEvent(events.ACTION_TAKEN, {
       summary: String(gameState.lastActionSummary),
       player: `${gameState.players}[${gameState.activePlayerIdx}].name`,
-      action: `${params.action} || ${ctx.action}`,
+      action: `${params.action} || ${turnCtx.action}`,
       pot: gameState.pot,
       gameState: String(gameState),
     }),

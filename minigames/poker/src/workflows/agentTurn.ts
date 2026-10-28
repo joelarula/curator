@@ -29,7 +29,7 @@ import {
 import {
   ctx,
   gameState,
-  type PokerWorkflowContext,
+  type PokerTurnContext,
 } from '../models/pokerContext.ts';
 import { getRulesDescription } from '../engine/pokerRules.ts';
 export {
@@ -140,7 +140,7 @@ export const ai_decision = agent_decision;
 /**
  * Tool helper applying a player's action to game state.
  */
-export function apply_player_action(action: any = (c: PokerWorkflowContext) => c.decision?.action || c.turnAction || c.action): CuratorToolNode {
+export function apply_player_action(action: any = (c: PokerTurnContext) => c.decision?.action || c.turnAction || c.action): CuratorToolNode {
   return CuratorBuilder.tool(PokerTool.APPLY_ACTION, {
     state: String(gameState),
     action: typeof action === 'string' ? action : action,
@@ -153,10 +153,10 @@ export function apply_player_action(action: any = (c: PokerWorkflowContext) => c
 export function buildAgentDecisionSteps(options: PokerAgentDecisionOptions = {}) {
   return [
     agent_decision(options),
-    ifElse<PokerWorkflowContext>(
+    ifElse<PokerTurnContext>(
       (c) => Boolean(c.decision?.speech && c.decision.speech.trim().length > 0),
       seq('emit_ai_speech', [
-        emitEvent(PokerEvent.SPEECH, (c: PokerWorkflowContext) => {
+        emitEvent(PokerEvent.SPEECH, (c: PokerTurnContext) => {
           const player = c.gameState?.players?.[c.gameState.activePlayerIdx];
           return {
             speakerId: player?.id,
@@ -176,7 +176,7 @@ export function buildAgentDecisionSteps(options: PokerAgentDecisionOptions = {})
 export function buildAgentTurnSteps(options: PokerAgentDecisionOptions = {}) {
   return [
     ...buildAgentDecisionSteps(options),
-    apply_player_action((c: PokerWorkflowContext) => c.decision?.action || c.turnAction || c.action),
+    apply_player_action((c: PokerTurnContext) => c.decision?.action || c.turnAction || c.action),
   ];
 }
 

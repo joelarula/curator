@@ -1,10 +1,6 @@
 import {
   CuratorBuilder,
-  defineSubroutine,
   seq,
-  ifElse,
-  whileLoop,
-  waitEvent,
   setState,
   emitEvent,
   type CuratorToolNode,
@@ -170,44 +166,7 @@ export const pokerComposables = {
   tools: PokerTool,
   reasons: PokerSessionReason,
   actionTypes: PokerActionType,
-  bootTableSub: ((...args: any[]) => (bootTableSub as any)(...args)) as typeof bootTableSub,
-  buildTableBootStep: () => buildTableBootStep(),
 };
-
-/**
- * Subroutine for bootstrapping an open table with dynamic seating.
- */
-export const bootTableSub = defineSubroutine('boot_table', () => [
-  pokerComposables.boot_table(),
-  emitEvent(PokerEvent.LOBBY_READY, {
-    tableId: String(gameState.tableId),
-  }),
-  whileLoop(
-    pokerPredicates.table_needs_players,
-    seq(PokerStep.WAIT_FOR_PLAYERS, [
-      emitEvent(PokerEvent.AWAITING_PLAYERS, {
-        tableId: String(gameState.tableId),
-        seatedCount: String(gameState.players.length),
-      }),
-      waitEvent(PokerEvent.PLAYER_JOINED, ctx.joinRequest),
-      pokerComposables.join_lobby(ctx.joinRequest),
-    ]),
-  ),
-  emitEvent(PokerEvent.TABLE_READY, {
-    tableId: String(gameState.tableId),
-    playerCount: String(gameState.players.length),
-  }),
-]);
-
-/**
- * Composable conditional step that boots the table if state has not been initialized.
- */
-export function buildTableBootStep() {
-  return ifElse(
-    `${pokerPredicates.table_has_no_state} and not ${ctx.sessionEnded}`,
-    bootTableSub(),
-  );
-}
 
 /**
  * Domain composable returning typed proxies and models for poker workflows.
@@ -225,8 +184,6 @@ export function usePokerContext() {
     reasons: PokerSessionReason,
     actions: PokerActionType,
     predicates: pokerPredicates,
-    bootTableSub,
-    buildTableBootStep,
   };
 }
 

@@ -28,7 +28,7 @@ const {
   steps,
 } = pokerComposables;
 
-import { type PokerWorkflowContext } from '../models/pokerContext.ts';
+import { type PokerTurnContext } from '../models/pokerContext.ts';
 
 /**
  * Composable sequence for universal player turn handling (interactive choices and autonomous agent deliberation).
@@ -43,8 +43,8 @@ export function buildPlayerTurnStep() {
     ifElse(
       is_session_unpaused,
       seq(steps.APPLY_ACTION, [
-        apply_player_action((c: PokerWorkflowContext) => c.decision?.action || c.turnAction || c.action),
-        emitEvent(events.ACTION_TAKEN, (c: PokerWorkflowContext) => {
+        apply_player_action((c: PokerTurnContext) => c.decision?.action || c.turnAction || c.action),
+        emitEvent(events.ACTION_TAKEN, (c: PokerTurnContext) => {
           const action = c.decision?.action || c.turnAction || c.action;
           const gs = c.gameState;
           const player = gs?.players?.[gs?.activePlayerIdx];

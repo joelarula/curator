@@ -5,6 +5,7 @@
  * description: Curator Texas Hold'em Autonomous Event-Driven 5-Phase Game Loop Module
  * ---
  */
+import { tableCtx } from '../models/pokerContext.ts';
 import {
   defineModule,
   defineSubroutine,
@@ -14,16 +15,12 @@ import {
   emitEvent,
   type CuratorModuleNode,
 } from '../curator.ts';
-import {
-  pokerComposables,
-  bootTableSub,
-  buildTableBootStep,
-} from '../composables/pokerComposables.ts';
+import { pokerComposables } from '../composables/pokerComposables.ts';
+import { buildTableBootStep } from './pokerLobby.ts';
 import { buildPlayerTurnStep, handlePause } from './playerTurn.ts';
 import { aiAgentFlow } from './agentTurn.ts';
 
 const {
-  ctx,
   gameState,
   is_game_active,
   is_hand_active,
@@ -62,7 +59,7 @@ export const settleShowdownSub = defineSubroutine('settle_showdown', {
   body: seq(steps.PHASE_SETTLE_STEP, [
     settle_showdown(),
     emitEvent(events.PHASE_SETTLE, {
-      winnerSummary: String(ctx.winnerSummary),
+      winnerSummary: String(tableCtx.winnerSummary),
       gameState: String(gameState),
     }),
   ]),
@@ -77,7 +74,7 @@ export function buildPokerWorkflowModule(): CuratorModuleNode {
     modules.WORKFLOW,
     {
       description: "Curator Texas Hold'em autonomous event-driven 5-phase game loop engine",
-      subroutines: [handlePause, aiAgentFlow, bootTableSub, dealNextStreetSub, settleShowdownSub],
+      subroutines: [handlePause, aiAgentFlow, dealNextStreetSub, settleShowdownSub],
     },
     () => seq(steps.DYNAMIC_ENGINE, [
       // 1. Initialize open table if state not yet booted
@@ -124,7 +121,7 @@ export function buildPokerWorkflowModule(): CuratorModuleNode {
 
       // 3. Final Game Over Session Summary
       emitEvent(events.GAME_OVER, {
-        standings: `${ctx.standings} || ${ctx.poker_check_game_over.standings}`,
+        standings: `${tableCtx.standings} || ${tableCtx.poker_check_game_over.standings}`,
       }),
     ]),
   );
