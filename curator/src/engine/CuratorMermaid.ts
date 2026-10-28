@@ -533,12 +533,22 @@ export class CuratorMermaid {
               this.lines.push(`    ${exitId} --> ${toRes.entryNodeId}`);
             }
           }
+        } else if (Array.isArray(target)) {
+          for (const transition of target) {
+            const toRes = nodeEntries[transition.to];
+            if (!fromRes || !toRes) continue;
+            const label = transition.when ? `|"${this.escapeLabel(transition.when)}"|` : '';
+            for (const exitId of fromRes.exitNodeIds) {
+              this.lines.push(`    ${exitId} -->${label} ${toRes.entryNodeId}`);
+            }
+          }
         }
       }
     }
 
     this.lines.push('  end');
-    const startRes = node.startNode ? nodeEntries[node.startNode] : Object.values(nodeEntries)[0];
+    const start = Array.isArray(node.startNode) ? node.startNode[0]?.to : node.startNode;
+    const startRes = start ? nodeEntries[start] : Object.values(nodeEntries)[0];
     return startRes || { entryNodeId: graphId, exitNodeIds: [graphId] };
   }
 

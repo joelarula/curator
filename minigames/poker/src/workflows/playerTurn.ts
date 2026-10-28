@@ -2,72 +2,59 @@
  * ---
  * id: player_turn
  * name: player_turn
- * description: Universal Player Turn Module for Texas Hold'em (Interactive & Autonomous Players)
+ * description: One seat's turn - the seat's actor handler decides, the table applies the action
  * ---
  */
-import {
-  defineModule,
-  seq,
-  ifElse,
-  setState,
-  emitEvent,
-  type CuratorModuleNode,
-} from '../curator.ts';
+import { defineModule, actorRef, type CuratorModuleNode } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
-import { buildAgentDecisionSteps, buildAgentTurnSteps } from './agentTurn.ts';
-import { buildHumanChoiceSteps, buildHumanTurnSteps, handlePause } from './humanTurn.ts';
+import { state } from '../models/pokerContext.ts';
+import { PokerActionType } from '../models/pokerContracts.ts';
+import { ActionTaken } from '../models/pokerEvents.ts';
+import { humanDecision } from './humanTurn.ts';
+import { aiDecision } from './agentTurn.ts';
 
-const {
-  ctx,
-  gameState,
-  active_player_is_interactive,
-  is_session_unpaused,
-  apply_player_action,
-  events,
-  modules,
-  steps,
-} = pokerComposables;
+const { gameState, apply_player_action, modules } = pokerComposables;
 
-import { type PokerTurnContext } from '../models/pokerContext.ts';
+/** Seated player kinds; each one is played by its registered decision handler. */
+export const PokerActorKind = {
+  HUMAN: 'human',
+  LLM: 'llm',
+} as const;
 
-/**
- * Composable sequence for universal player turn handling (interactive choices and autonomous agent deliberation).
- */
-export function buildPlayerTurnStep() {
-  return seq(steps.TURN_STEP, [
-    ifElse(
-      active_player_is_interactive,
-      seq(steps.HUMAN_AGENT_FLOW, buildHumanChoiceSteps()),
-      seq(steps.AI_AGENT_FLOW, buildAgentDecisionSteps()),
-    ),
-    ifElse(
-      is_session_unpaused,
-      seq(steps.APPLY_ACTION, [
-        apply_player_action((c: PokerTurnContext) => c.decision?.action || c.turnAction || c.action),
-        emitEvent(events.ACTION_TAKEN, (c: PokerTurnContext) => {
-          const action = c.decision?.action || c.turnAction || c.action;
-          const gs = c.gameState;
-          const player = gs?.players?.[gs?.activePlayerIdx];
-          return {
-            summary: String(gameState.lastActionSummary),
-            player: `${gameState.lastActorName} || ${player?.name || 'Player'}`,
-            action,
-            gameState: String(gameState),
-          };
-        }),
-      ]),
-    ),
-  ]);
+/** Actor registry (Bevy `register_agent_system`): seat kind → decision handler. */
+export const pokerActorHandlers = {
+  [PokerActorKind.HUMAN]: humanDecision,
+  [PokerActorKind.LLM]: aiDecision,
+};
+
+/** True when `path` holds the given command, as an action object or a bare string. */
+export const isCommand = (path: unknown, type: string) => `((${path} && ${path}.type == '${type}') || ${path} == '${type}')`;
+
+/** The active seat's handler decides; the decision lands in `$state.turnAction`. */
+export function decideTurn() {
+  return actorRef(`${gameState.players}[${gameState.activePlayerIdx}]`, pokerActorHandlers, {
+    kind: `($actor.isHuman || $actor.isInteractive) ? '${PokerActorKind.HUMAN}' : '${PokerActorKind.LLM}'`,
+    as: state.turnAction,
+  });
 }
 
-export function buildPlayerTurnModule(): CuratorModuleNode {
-  return defineModule(modules.PLAYER_TURN, {
-    description: 'Universal Texas Hold\'em player turn module handling interactive choices and autonomous agent decisions',
-    subroutines: [handlePause],
-  }, () => [
-    buildPlayerTurnStep(),
-  ]);
+/** Applies the decided action to the table and announces it. */
+export function applyTurn() {
+  return [
+    apply_player_action(state.turnAction),
+    ActionTaken.emit({
+      player: `${gameState.lastActorName} || ${gameState.players}[${gameState.activePlayerIdx}].name`,
+      action: state.turnAction,
+      summary: gameState.lastActionSummary,
+      gameState,
+    }),
+  ];
 }
 
-export const playerTurnAst = buildPlayerTurnModule();
-export { handlePause, buildHumanTurnSteps, buildAgentTurnSteps };
+/** Turn decisions that leave the betting flow instead of being applied. */
+export const turnPauses = isCommand(state.turnAction, PokerActionType.PAUSE);
+export const turnExits = isCommand(state.turnAction, PokerActionType.EXIT);
+
+export const playerTurnAst: CuratorModuleNode = defineModule(modules.PLAYER_TURN, {
+  description: 'One seat\'s turn: the actor handler decides, then the action is applied',
+}, () => [decideTurn(), ...applyTurn()]);

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createEnv, runAst } from '../helpers/harness.ts';
 import { listDeadLetters, replayDeadLetter } from '../../src/engine/DeadLetters.ts';
+import { stateAt } from '../../src/engine/ConversationStateLog.ts';
 
 const tool = (name: string, args: any = {}) => ({ type: 'Curator_Tool', toolName: name, args });
 const seq = (name: string, subAgents: any[]) => ({ type: 'Curator_Sequential', name, subAgents });
@@ -24,6 +25,15 @@ test('dead letters: a failing step poisons the steps waiting on it instead of ru
     assert.deepEqual(kinds, ['FAILED', 'FAILED']);
     assert.ok(dead.some((d: any) => /not found in dynamic registry/.test(d.reason)));
     assert.ok(dead.some((d: any) => /upstream request \d+ FAILED/.test(d.reason)));
+
+    // The step ending the workflow failed: the failure is part of the conversation's state history
+    const { lastFailure } = await stateAt(env.prisma, env.conversationId);
+    const tail = await env.prisma.request.findFirst({
+      where: { conversationId: env.conversationId, notifyId: null, parentId: null, status: 'FAILED' },
+    });
+    assert.equal(lastFailure?.requestId, tail.id);
+    assert.equal(lastFailure?.nodeType, 'Curator_Tool');
+    assert.match(lastFailure?.reason, /upstream request \d+ FAILED/);
   } finally {
     await env.cleanup();
   }
@@ -55,6 +65,7 @@ test('dead letters: a Join completes even when upstream branches fail', async ()
     const dead = await listDeadLetters(env.prisma, { conversationId: env.conversationId });
     assert.equal(dead.length, 1);
     assert.match(dead[0].reason, /not found in dynamic registry/);
+    assert.equal((await stateAt(env.prisma, env.conversationId)).lastFailure, undefined, 'an absorbed branch failure is not a workflow failure');
   } finally {
     await env.cleanup();
   }

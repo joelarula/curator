@@ -58,10 +58,10 @@ test('header: a script with a # --- header still compiles to the same AST as wit
   assert.deepEqual(withHeader, without);
 });
 
-test('header: the real poker_lobby.coffee registers as poker_lobby with its description', () => {
-  const file = path.resolve(here, '../../../minigames/poker/src/scripts/poker_lobby.coffee');
-  const engine = register({ 'poker_lobby.coffee': readFileSync(file, 'utf8') });
-  const s = engine.scripts.get('poker_lobby');
+test('header: a script file on disk registers under its header id with its description', () => {
+  const file = path.resolve(here, '../fixtures/headed_script.coffee');
+  const engine = register({ 'headed_script.coffee': readFileSync(file, 'utf8') });
+  const s = engine.scripts.get('lounge_concierge');
   assert.ok(s);
   assert.equal(s.description, "Texas Hold'em Lounge Concierge & Table Selection Workflow");
 });

@@ -114,3 +114,16 @@ test('module/coffee: the compiled module runs, child call returns 42', async () 
     await env.cleanup();
   }
 });
+
+test('defineModule: pulls in subroutines reached through calls, actor handlers and nested bodies', async () => {
+  const { defineModule, defineSubroutine, actorRef, tool: toolNode } = await import('../../src/engine/builder/CuratorCoreBuilder.ts');
+  const leaf = defineSubroutine('auto_leaf', [toolNode('record', { value: 1 })]);
+  const branch = defineSubroutine('auto_branch', () => [leaf()]);
+  const human = defineSubroutine('auto_human', [toolNode('record', { value: 2 })]);
+  const unused = defineSubroutine('auto_unused', [toolNode('record', { value: 3 })]);
+
+  const mod: any = defineModule('auto_mod', () => [branch(), actorRef('$state.actor', { human })]);
+  assert.deepEqual(Object.keys(mod.subroutines).sort(), ['auto_branch', 'auto_human', 'auto_leaf']);
+  assert.equal(mod.subroutines.auto_leaf, leaf.definition);
+  void unused;
+});

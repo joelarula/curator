@@ -2,6 +2,7 @@ import type { PrismaClient } from '@prisma/client';
 import type { CuratorAstNode } from './CuratorAst.js';
 import type { CuratorTool } from '../tools/CuratorTool.js';
 import type { SemanticNodeShape } from '../services/SemanticSchemaEngine.js';
+import type { StateProjector } from './ConversationStateLog.js';
 
 export type JsonRecord = Record<string, unknown>;
 
@@ -115,6 +116,8 @@ export interface CuratorPluginDefinition {
   llmProviders?: Record<string, any>;
   vocabularies?: Record<string, (...args: any[]) => CuratorAstNode | any>;
   mcp?: CuratorPluginMcpPolicy;
+  /** Read models derived from conversation state; run inside every state event's transaction. */
+  stateProjectors?: StateProjector[];
   onInit?: (context: any) => Promise<void> | void;
   onDestroy?: () => Promise<void> | void;
 }

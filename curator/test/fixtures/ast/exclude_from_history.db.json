@@ -45,10 +45,11 @@
         "type": "Curator_Agent"
       },
       "context": {
-        "input": "{\"output\":\"Nice\"}",
-        "state": {
-          "output": "Nice"
-        }
+        "$last": "Hi Bob",
+        "$response": "Hi Bob",
+        "decision": "Hi Bob",
+        "input": "{}",
+        "state": {}
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -72,10 +73,11 @@
         "type": "Curator_Agent"
       },
       "context": {
-        "input": "{\"output\":\"Hi Bob\"}",
-        "state": {
-          "output": "Hi Bob"
-        }
+        "$last": "Hi Bob",
+        "$response": "Hi Bob",
+        "decision": "Hi Bob",
+        "input": "{}",
+        "state": {}
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",

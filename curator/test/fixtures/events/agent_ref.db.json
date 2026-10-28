@@ -33,9 +33,12 @@
       "context": {
         "astPath": "",
         "callDepth": 1,
+        "got": "from-agent",
         "origin": "AST",
         "params": {},
-        "record": "{\"got\":\"from-agent\"}",
+        "record": {
+          "got": "from-agent"
+        },
         "ref": "agent_script"
       },
       "deletedAt": null,

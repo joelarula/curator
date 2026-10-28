@@ -29,13 +29,22 @@ import {
   type PokerGetStandingsParams,
   type PokerGetChoicesParams,
   type PokerListTablesParams,
+  type PokerLobbyMenuParams,
   type PokerCreateTableParams,
+  buildLobbyMenu,
   type PokerGetBankrollParams,
+  type PokerGetBuyInOptionsParams,
   type PokerDepositBuyInParams,
   type PokerCashOutParams,
   type PokerReloadBankrollParams,
+  type PokerCloseTableParams,
 } from '../models/index.ts';
 import { POKER_WORKFLOW_ASTS } from '../workflows/index.ts';
+import {
+  closePokerLobbyConversation,
+  closePokerGameTable,
+  parseConversationMetadata,
+} from '../session/pokerSession.ts';
 import type { PokerGameState, PlayerAction } from '../types.ts';
 import {
   initPokerLobby,
@@ -53,19 +62,15 @@ import {
 } from '../engine/pokerEngine.ts';
 import { PokerSpeechAct } from '../models/index.ts';
 import { PokerTableShape, PokerBankrollShape } from '../models/pokerShapes.ts';
-import {
-  queryActivePokerTables,
-  formatTableChoices,
-  isTableUnfinishedForUser,
-} from '../services/pokerTableStore.ts';
-import { DEFAULT_LOBBY_CHOICES } from '../workflows/pokerLobby.ts';
+import { queryActivePokerTables, pokerTableProjector } from '../services/pokerTableStore.ts';
 import {
   getOrCreateBankroll,
   depositBuyIn,
   cashOutToBankroll,
   reloadBankroll,
   getBuyInPresets,
-  parseBuyInAmount,
+  getBuyInLimits,
+  parseChipAmount,
 } from '../services/pokerBankrollStore.ts';
 import { POKER_AGENT_PROFILES } from '../workflows/agentProfiles.ts';
 
@@ -100,7 +105,7 @@ export const pokerScripts: Record<string, CuratorScriptDefinition> = Object.from
 // ----------------------------------------------------------------------------
 
 function extractGameState(args: any, ctx: any): PokerGameState {
-  return (args?.state || ctx?.state?.gameState || ctx?.context?.gameState) as PokerGameState;
+  return (args?.state || ctx?.state?.gameState) as PokerGameState;
 }
 
 // ----------------------------------------------------------------------------
@@ -342,46 +347,31 @@ export const pokerListTablesTool = defineTool<PokerListTablesParams>({
   aliases: [PokerToolAlias.LIST_TABLES],
   requiredRole: PokerRole.SPECTATOR,
   accessLevel: CuratorAccessLevel.SAFE_READ,
-  parameters: {
-    type: 'object',
-    properties: {
-      actorId: { type: 'string' },
-      userId: { type: 'string' },
-      playerName: { type: 'string' },
-      playerId: { type: 'string' },
-      projectId: { type: 'string' },
-    },
-  },
-  execute: async (args: PokerListTablesParams, ctx: any) => {
-    const prisma = ctx?.toolContext?.prisma || ctx?.prisma;
-    if (!prisma?.conversation && !prisma?.resource) {
-      return { tables: [], choices: [], lobbyChoices: DEFAULT_LOBBY_CHOICES, hasUnfinishedGames: false, count: 0 };
-    }
+  parameters: { type: 'object', properties: {} },
+  // Identity and project scope come only from the host session, never from tool args
+  execute: async (_args: PokerListTablesParams, ctx: any) => {
+    const host = ctx?.host;
+    const reqCtx = (typeof ctx?.context === 'object' && ctx.context) || {};
 
-    const targetProjectId = String(args?.projectId || ctx?.toolContext?.projectId || ctx?.projectId || ctx?.project?.id || '').trim();
-    const reqCtx = (typeof ctx?.toolContext?.context === 'object' && ctx.toolContext.context) || (typeof ctx?.context === 'object' && ctx.context) || {};
-    const actorId = String(
-      args?.actorId ||
-      reqCtx.actorId ||
-      ctx?.actorId ||
-      args?.userId ||
-      reqCtx.userId ||
-      ctx?.userId ||
-      ctx?.user?.id ||
-      ''
-    ).trim();
-    const playerName = String(args?.playerName || reqCtx.playerName || ctx?.playerName || ctx?.user?.name || '').trim();
-    const playerId = String(args?.playerId || reqCtx.playerId || ctx?.playerId || actorId || '').trim();
-    const userId = String(args?.userId || reqCtx.userId || ctx?.userId || ctx?.user?.id || actorId || '').trim();
-
-    return queryActivePokerTables(prisma, {
-      projectId: targetProjectId,
-      actorId,
-      playerName,
-      playerId,
-      userId,
+    return queryActivePokerTables(ctx?.prisma, {
+      projectId: String(ctx?.projectId || host?.project?.id || '').trim(),
+      userId: String(ctx?.userId || host?.user?.id || '').trim(),
+      playerName: String(reqCtx.playerName || host?.user?.name || '').trim(),
     });
   },
+});
+
+export const pokerLobbyMenuTool = defineTool<PokerLobbyMenuParams>({
+  name: PokerTool.LOBBY_MENU,
+  description: 'Builds the lounge menu (New / Resume / Exit) and table selection choices from a list of open tables.',
+  requiredRole: PokerRole.SPECTATOR,
+  accessLevel: CuratorAccessLevel.SAFE_READ,
+  parameters: {
+    type: 'object',
+    properties: { tables: { type: 'array' } },
+  },
+  // Pure view: no I/O, same tables in -> same menu out
+  execute: async (args: PokerLobbyMenuParams) => buildLobbyMenu(Array.isArray(args?.tables) ? args.tables : []),
 });
 
 export const pokerCreateTableTool = defineTool<PokerCreateTableParams>({
@@ -412,44 +402,49 @@ export const pokerCreateTableTool = defineTool<PokerCreateTableParams>({
   },
 });
 
+/** Wallet tools act on the session user's bankroll only; identity never comes from args. */
+function resolveWalletOwner(ctx: any): { prisma: any; userId: string; projectId?: string } {
+  const host = ctx?.toolContext?.host || ctx?.host;
+  const prisma = host?.prisma || ctx?.prisma;
+  const userId = host?.user?.id;
+  if (!prisma || !userId) {
+    throw new Error('Bankroll tools require a host session with prisma and an authenticated user');
+  }
+  return { prisma, userId: String(userId), projectId: host?.project?.id };
+}
+
 export const pokerGetBankrollTool = defineTool<PokerGetBankrollParams>({
   name: PokerTool.GET_BANKROLL,
-  description: 'Retrieves persistent chip bankroll and buy-in presets for a player.',
+  description: "Retrieves the session user's persistent chip bankroll (wallet).",
+  requiredRole: PokerRole.SPECTATOR,
+  accessLevel: CuratorAccessLevel.READ_ONLY,
+  parameters: { type: 'object', properties: {} },
+  execute: async (_args: PokerGetBankrollParams, ctx: any) => {
+    const { prisma, userId, projectId } = resolveWalletOwner(ctx);
+    const bankroll = await getOrCreateBankroll(prisma, userId, projectId);
+    return {
+      balance: bankroll.balance,
+      currency: bankroll.currency,
+      formattedBalance: `$${bankroll.balance.toLocaleString()}`,
+    };
+  },
+});
+
+export const pokerGetBuyInOptionsTool = defineTool<PokerGetBuyInOptionsParams>({
+  name: PokerTool.GET_BUY_IN_OPTIONS,
+  description: "Computes table buy-in limits and presets from the table's big blind and the user's bankroll.",
   requiredRole: PokerRole.SPECTATOR,
   accessLevel: CuratorAccessLevel.READ_ONLY,
   parameters: {
     type: 'object',
     properties: {
-      userId: { type: 'string' },
-      playerName: { type: 'string' },
-      sbAmount: { type: 'number' },
       bbAmount: { type: 'number' },
     },
   },
-  execute: async (args: PokerGetBankrollParams, ctx: any) => {
-    const host = ctx?.toolContext?.host || ctx?.host;
-    const prisma = host?.prisma || ctx?.prisma;
-    const userId = String(args.userId || host?.user?.id || 'player');
-    const playerName = String(args.playerName || host?.user?.name || 'Player');
-    const projectId = host?.project?.id;
-
-    if (!prisma) {
-      return { balance: 10000, formattedBalance: '$10,000', minBuyIn: 400, maxBuyIn: 2000, canAfford: true, choices: [] };
-    }
-
-    const bankroll = await getOrCreateBankroll(prisma, userId, playerName, 10000, projectId);
-    const sb = Number(args.sbAmount) || 10;
-    const bb = Number(args.bbAmount) || 20;
-    const options = getBuyInPresets(bankroll.balance, sb, bb);
-
-    return {
-      balance: bankroll.balance,
-      formattedBalance: `$${bankroll.balance.toLocaleString()}`,
-      minBuyIn: options.minBuyIn,
-      maxBuyIn: options.maxBuyIn,
-      canAfford: options.canAfford,
-      choices: options.choices,
-    };
+  execute: async (args: PokerGetBuyInOptionsParams, ctx: any) => {
+    const { prisma, userId, projectId } = resolveWalletOwner(ctx);
+    const bankroll = await getOrCreateBankroll(prisma, userId, projectId);
+    return getBuyInPresets(bankroll.balance, Number(args.bbAmount) || 20);
   },
 });
 
@@ -461,25 +456,16 @@ export const pokerDepositBuyInTool = defineTool<PokerDepositBuyInParams>({
   parameters: {
     type: 'object',
     properties: {
-      userId: { type: 'string' },
       tableId: { type: 'string' },
       amount: { type: ['number', 'string'] },
+      bbAmount: { type: 'number' },
     },
     required: ['amount'],
   },
   execute: async (args: PokerDepositBuyInParams, ctx: any) => {
-    const host = ctx?.toolContext?.host || ctx?.host;
-    const prisma = host?.prisma || ctx?.prisma;
-    const userId = String(args.userId || host?.user?.id || 'player');
-    const rawAmount = args.amount;
-    const projectId = host?.project?.id;
-
-    if (!prisma) {
-      const parsedAmt = parseBuyInAmount(rawAmount);
-      return { success: true, newBalance: 10000 - parsedAmt, deposited: parsedAmt };
-    }
-
-    return depositBuyIn(prisma, userId, rawAmount, args.tableId, projectId);
+    const { prisma, userId, projectId } = resolveWalletOwner(ctx);
+    const limits = getBuyInLimits(Number(args.bbAmount) || 20);
+    return depositBuyIn(prisma, userId, args.amount, args.tableId, projectId, limits);
   },
 });
 
@@ -491,52 +477,66 @@ export const pokerCashOutTool = defineTool<PokerCashOutParams>({
   parameters: {
     type: 'object',
     properties: {
-      userId: { type: 'string' },
       tableId: { type: 'string' },
       chips: { type: 'number' },
     },
     required: ['chips'],
   },
   execute: async (args: PokerCashOutParams, ctx: any) => {
-    const host = ctx?.toolContext?.host || ctx?.host;
-    const prisma = host?.prisma || ctx?.prisma;
-    const userId = String(args.userId || host?.user?.id || 'player');
-    const chips = Number(args.chips) || 0;
-    const projectId = host?.project?.id;
-
-    if (!prisma) {
-      return { success: true, newBalance: 10000 + chips, cashedOut: chips };
-    }
-
-    return cashOutToBankroll(prisma, userId, chips, args.tableId, projectId);
+    const { prisma, userId, projectId } = resolveWalletOwner(ctx);
+    return cashOutToBankroll(prisma, userId, Number(args.chips) || 0, args.tableId, projectId);
   },
 });
 
 export const pokerReloadBankrollTool = defineTool<PokerReloadBankrollParams>({
   name: PokerTool.RELOAD_BANKROLL,
-  description: 'Reloads player persistent bankroll with fresh chips.',
+  description: 'Adds free-form game money to the session user\'s persistent bankroll (e.g. 5000, "$7,500", "10k").',
   requiredRole: PokerRole.PLAYER,
   accessLevel: CuratorAccessLevel.SAFE_WRITE,
   parameters: {
     type: 'object',
     properties: {
-      userId: { type: 'string' },
-      amount: { type: 'number' },
+      amount: { type: ['number', 'string', 'object'] },
     },
   },
   execute: async (args: PokerReloadBankrollParams, ctx: any) => {
-    const host = ctx?.toolContext?.host || ctx?.host;
-    const prisma = host?.prisma || ctx?.prisma;
-    const userId = String(args.userId || host?.user?.id || 'player');
-    const amount = Number(args.amount) || 5000;
-    const projectId = host?.project?.id;
+    const { prisma, userId, projectId } = resolveWalletOwner(ctx);
+    const amount = parseChipAmount(args.amount);
+    const reloaded = await reloadBankroll(prisma, userId, amount, projectId);
+    return { success: reloaded.added > 0, added: reloaded.added, balance: reloaded.balance };
+  },
+});
 
-    if (!prisma) {
-      return { balance: 15000 };
+export const pokerCloseTableTool = defineTool<PokerCloseTableParams>({
+  name: PokerTool.CLOSE_TABLE,
+  description: 'Closes the current lobby or table conversation, cashing out table chips to the bankroll.',
+  requiredRole: PokerRole.PLAYER,
+  accessLevel: CuratorAccessLevel.SAFE_WRITE,
+  parameters: {
+    type: 'object',
+    properties: {
+      reason: { type: 'string' },
+    },
+  },
+  execute: async (args: PokerCloseTableParams, ctx: any) => {
+    const host = ctx?.toolContext?.host || ctx?.host;
+    const conversationId = Number(ctx?.conversationId);
+    const reason = String(args.reason || 'user_exit');
+
+    if (!host?.prisma || Number.isNaN(conversationId)) {
+      return { closed: false, reason };
     }
 
-    const reloaded = await reloadBankroll(prisma, userId, amount, projectId);
-    return { balance: reloaded.balance };
+    const conv = await host.prisma.conversation.findUnique({ where: { id: conversationId } });
+    if (!conv) return { closed: false, reason };
+
+    if (parseConversationMetadata(conv.metadata).isLobby) {
+      await closePokerLobbyConversation(host, conversationId, reason);
+    } else {
+      // The workflow emits SESSION_EXITED itself
+      await closePokerGameTable(host, conversationId, reason, false);
+    }
+    return { closed: true, conversationId, reason };
   },
 });
 
@@ -549,11 +549,14 @@ export const pokerToolsList = [
   pokerJoinLobbyTool,
   pokerLeaveLobbyTool,
   pokerListTablesTool,
+  pokerLobbyMenuTool,
   pokerCreateTableTool,
   pokerGetBankrollTool,
+  pokerGetBuyInOptionsTool,
   pokerDepositBuyInTool,
   pokerCashOutTool,
   pokerReloadBankrollTool,
+  pokerCloseTableTool,
   pokerStartHandTool,
   pokerApplyActionTool,
   pokerDealStreetTool,
@@ -613,6 +616,7 @@ export const pokerPlugin: CuratorPlugin = {
         PokerTool.DEPOSIT_BUY_IN,
         PokerTool.CASH_OUT,
         PokerTool.RELOAD_BANKROLL,
+        PokerTool.CLOSE_TABLE,
       ],
     },
     [PokerRole.SPECTATOR]: {
@@ -620,9 +624,11 @@ export const pokerPlugin: CuratorPlugin = {
       description: 'Spectator observing table action, discovery, and leaderboard standings',
       tools: [
         PokerTool.LIST_TABLES,
+        PokerTool.LOBBY_MENU,
         PokerTool.GET_CHOICES,
         PokerTool.GET_STANDINGS,
         PokerTool.GET_BANKROLL,
+        PokerTool.GET_BUY_IN_OPTIONS,
       ],
     },
   },
@@ -636,6 +642,7 @@ export const pokerPlugin: CuratorPlugin = {
   ],
   tools: pokerTools,
   models: [PokerTableShape, PokerBankrollShape],
+  stateProjectors: [pokerTableProjector],
   scripts: pokerScripts,
   agents: Object.fromEntries(
     Object.entries(POKER_AGENT_PROFILES)

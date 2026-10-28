@@ -169,6 +169,22 @@ test('Poker Deterministic Harness: poker_lobby initializes table and emits table
     const calledTools = env.calls.map((c) => c.tool);
     assert.ok(calledTools.includes('poker_init_lobby'), 'poker_init_lobby must be called');
 
+    // Tool output lands in the event-sourced state, which the workflow reads (`$state.gameState`)
+    const { stateAt } = await import('../src/curator.ts');
+    const state = await stateAt(env.prisma, env.conversationId);
+    assert.equal(state.gameState?.tableId, 'table_gold');
+
+    // The run's table config reaches the boot step instead of falling back to defaults
+    const initCall = env.calls.find((c) => c.tool === 'poker_init_lobby');
+    assert.equal(initCall?.args?.tableId, 'table_gold');
+    assert.equal(Number(initCall?.args?.startingChips), 1500);
+    assert.equal(Number(initCall?.args?.sbAmount), 15);
+    assert.equal(Number(initCall?.args?.bbAmount), 30);
+    assert.deepEqual(state.seatedPlayers, [
+      { id: 'p1', name: 'Alice', isHuman: false },
+      { id: 'p2', name: 'Bob', isHuman: false },
+    ], 'seats are recorded without chips or cards');
+
     // Assert database snapshot is clean and stable
     const snap = await snapshotDb(env);
     assert.ok(snap.requests.length > 0);
@@ -194,26 +210,39 @@ test('Poker Deterministic Harness: agent_turn executes AI decision tool and acti
     const agentAst = await loadScriptAst('agent_turn');
     const saved = await saveScript(env, 'agent_turn', agentAst);
 
-    const { requestId, result } = await runScript(env, saved.scriptId, saved.version, {
-      context: {
+    // Game state lives in the event-sourced conversation state, as a prior engine step would leave it
+    const { appendStatePatch } = await import('../src/curator.ts');
+    await appendStatePatch(env.prisma, env.conversationId, {
+      set: {
         gameState: {
           tableId: 'table_1',
           activePlayerIdx: 0,
-          players: [{ id: 'ai_1', name: 'SharkAI', chips: 1000 }],
+          currentBet: 20,
+          pot: 30,
+          board: [],
+          currentStreet: 'PREFLOP',
+          players: [{ id: 'ai_1', name: 'SharkAI', chips: 1000, streetBet: 0 }],
         },
       },
     });
+
+    const { requestId, result } = await runScript(env, saved.scriptId, saved.version);
 
     assert.equal(result.done, true);
     const rootReq = await env.prisma.request.findUnique({ where: { id: requestId } });
     assert.equal(rootReq.status, 'COMPLETED');
 
-    const calledTools = env.calls.map((c) => c.tool);
-    assert.deepEqual(calledTools, ['poker_apply_action']);
+    // The seat only decides (the table applies): no engine tool runs, the action is the result
+    assert.deepEqual(env.calls.map((c) => c.tool), []);
+    const seatCall = (await env.prisma.request.findMany({ include: { responses: true } }))
+      .find((r: any) => r.ast?.type === 'Curator_Call');
+    assert.deepEqual(JSON.parse(seatCall.responses[0].content), { type: 'CALL', amount: 20 });
 
-    // Check that apply_action received the decision output from agent_decision AST construct
-    const applyCall = env.calls.find((c) => c.tool === 'poker_apply_action');
-    assert.deepEqual(applyCall?.args?.action, { type: 'CALL', amount: 20 });
+    // The decision's table talk is announced as speech from the seat
+    const speech = await env.prisma.eventLog.findFirst({ where: { eventName: 'poker:speech' } });
+    const payload = typeof speech?.payload === 'string' ? JSON.parse(speech.payload) : speech?.payload;
+    assert.equal(payload?.speakerName, 'SharkAI');
+    assert.equal(payload?.text, 'I call your bet.');
   } finally {
     await env.cleanup();
   }
@@ -414,7 +443,7 @@ test('Poker TypeScript Context Models: Path proxies, type guards, and semantic s
   assert.equal(String(ctx.gameState.players[0].chips), '$context.gameState.players.0.chips');
   assert.equal(String(ctx.humanAction.type), '$context.humanAction.type');
   assert.equal(String(ctx.poker_get_choices.choices), '$context.poker_get_choices.choices');
-  assert.equal(String(gameState.board), '$context.gameState.board');
+  assert.equal(String(gameState.board), '$state.gameState.board', 'game state is read from the event-sourced state');
   assert.equal(String(state.isPaused), '$state.isPaused');
   assert.equal(String(params.action), '$params.action');
 

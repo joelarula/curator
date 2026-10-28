@@ -11,7 +11,6 @@ import {
   seq,
   ifElse,
   setState,
-  emitEvent,
   CuratorBuilder,
   CuratorSystemRole,
   type CuratorModuleNode,
@@ -25,13 +24,20 @@ import {
   PokerStep,
   PokerTool,
   PokerStreet,
+  PokerSpeechAct,
 } from '../models/index.ts';
 import {
   ctx,
+  actor,
   gameState,
   type PokerTurnContext,
 } from '../models/pokerContext.ts';
+import { Speech } from '../models/pokerEvents.ts';
 import { getRulesDescription } from '../engine/pokerRules.ts';
+
+/** The seat whose turn it is. */
+const activePlayer = `${gameState.players}[${gameState.activePlayerIdx}]`;
+
 export {
   POKER_AI_PROFILES,
   DEFAULT_AI_PLAYERS,
@@ -103,21 +109,20 @@ export const POKER_AGENT_INSTRUCTION =
  * Injects the seated player's persona instruction dynamically while enforcing core rules and output schema.
  */
 export function agent_decision(options: PokerAgentDecisionOptions = {}): CuratorAgentNode {
-  const activePlayer = `${gameState.players}[${gameState.activePlayerIdx}]`;
   const defaultInstruction = options.instruction
-    ?? `{${activePlayer}.instruction?}\n\n${POKER_AGENT_INSTRUCTION}`;
+    ?? `{${actor}.instruction?}\n\n${POKER_AGENT_INSTRUCTION}`;
 
   const defaultPrompt = options.prompt ?? [
     "Current Texas Hold'em Turn State:",
-    `- Active Player: {${activePlayer}.name?} ({${activePlayer}.persona?})`,
-    `- Your Hole Cards: {${activePlayer}.holeCards?}`,
-    `- Community Board: {$context.gameState.board?}`,
-    `- Street: {$context.gameState.currentStreet?} | Current Pot: [chips] {$context.gameState.pot?} | Current Bet to Match: [chips] {$context.gameState.currentBet?}`,
-    `- Your Stack: [chips] {${activePlayer}.chips?} | Your Street Bet: [chips] {${activePlayer}.streetBet?}`,
+    `- Active Player: {${actor}.name?} ({${actor}.persona?})`,
+    `- Your Hole Cards: {${actor}.holeCards?}`,
+    `- Community Board: {$state.gameState.board?}`,
+    `- Street: {$state.gameState.currentStreet?} | Current Pot: [chips] {$state.gameState.pot?} | Current Bet to Match: [chips] {$state.gameState.currentBet?}`,
+    `- Your Stack: [chips] {${actor}.chips?} | Your Street Bet: [chips] {${actor}.streetBet?}`,
     `- Table: {gameState?}`,
     "Turn Rules:",
-    `If ({$context.gameState.currentBet?} - {${activePlayer}.streetBet?}) > 0: you face a bet to match. You MUST choose CALL, RAISE, ALL_IN, or FOLD (CHECK is strictly forbidden).`,
-    `If ({$context.gameState.currentBet?} - {${activePlayer}.streetBet?}) == 0: there is no bet to match. You MUST choose CHECK, RAISE, or ALL_IN (FOLD is forbidden).`,
+    `If ({$state.gameState.currentBet?} - {${actor}.streetBet?}) > 0: you face a bet to match. You MUST choose CALL, RAISE, ALL_IN, or FOLD (CHECK is strictly forbidden).`,
+    `If ({$state.gameState.currentBet?} - {${actor}.streetBet?}) == 0: there is no bet to match. You MUST choose CHECK, RAISE, or ALL_IN (FOLD is forbidden).`,
     "Decide on your legal poker action and optionally include engaging in-character table talk in 'speech'.",
   ].join('\n');
 
@@ -137,68 +142,22 @@ export function agent_decision(options: PokerAgentDecisionOptions = {}): Curator
 
 export const ai_decision = agent_decision;
 
-/**
- * Tool helper applying a player's action to game state.
- */
-export function apply_player_action(action: any = (c: PokerTurnContext) => c.decision?.action || c.turnAction || c.action): CuratorToolNode {
-  return CuratorBuilder.tool(PokerTool.APPLY_ACTION, {
-    state: String(gameState),
-    action: typeof action === 'string' ? action : action,
-  });
-}
-
-/**
- * Composable steps to calculate an agent decision and bind turnAction into context/state.
- */
-export function buildAgentDecisionSteps(options: PokerAgentDecisionOptions = {}) {
-  return [
-    agent_decision(options),
-    ifElse<PokerTurnContext>(
-      (c) => Boolean(c.decision?.speech && c.decision.speech.trim().length > 0),
-      seq('emit_ai_speech', [
-        emitEvent(PokerEvent.SPEECH, (c: PokerTurnContext) => {
-          const player = c.gameState?.players?.[c.gameState.activePlayerIdx];
-          return {
-            speakerId: player?.id,
-            speakerName: player?.name,
-            text: c.decision?.speech,
-            speechAct: 'TABLE_TALK',
-          };
-        }),
-      ]),
-    ),
-  ];
-}
-
-/**
- * Full autonomous agent turn sequence: decision deliberation + optional speech + action application.
- */
-export function buildAgentTurnSteps(options: PokerAgentDecisionOptions = {}) {
-  return [
-    ...buildAgentDecisionSteps(options),
-    apply_player_action((c: PokerTurnContext) => c.decision?.action || c.turnAction || c.action),
-  ];
-}
-
-/**
- * Subroutine for autonomous AI decision calculation and action dispatch.
- */
-export const aiAgentFlow = defineSubroutine('ai_agent_flow', {
-  defaultMode: 'inline',
-  body: seq(PokerStep.AI_AGENT_FLOW, buildAgentTurnSteps()),
+/** LLM seat: persona deliberation with optional table talk; returns the decided action. */
+export const aiDecision = defineSubroutine('ai_decision', {
+  params: { actor: { type: 'object', required: true } },
+  body: [
+    agent_decision(),
+    ifElse<PokerTurnContext>((c) => Boolean(c.decision?.speech?.trim()), [
+      Speech.emit({ speakerId: actor.id, speakerName: actor.name, text: ctx.decision.speech, speechAct: PokerSpeechAct.TABLE_TALK }),
+    ]),
+  ],
+  returns: String(ctx.decision.action),
 });
 
-/**
- * Compiled Curator AST Module for autonomous player agent turns.
- */
-export function buildAgentTurnModule(): CuratorModuleNode {
-  return defineModule(PokerModule.AGENT_TURN, {
-    description: 'Autonomous AI player decision flow with LLM persona and prompt injection',
-    subroutines: [aiAgentFlow],
-  }, () => buildAgentTurnSteps());
-}
-
-export const agentTurnAst = buildAgentTurnModule();
+/** The LLM seat's own script: deliberates for the active seat. */
+export const agentTurnAst: CuratorModuleNode = defineModule(PokerModule.AGENT_TURN, {
+  description: 'LLM seat: persona deliberation for the active player',
+}, () => [aiDecision({ actor: activePlayer })]);
 
 /**
  * Formats recent speech acts and whispers into text lines for agent context history.

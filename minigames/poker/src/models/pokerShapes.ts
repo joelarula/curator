@@ -16,6 +16,11 @@ export const POKER_SHAPE_URIS = {
 export const POKER_TABLE_STATUS = {
   ACTIVE: 'active',
   PAUSED: 'paused',
+  /** The game reached game over. */
+  FINISHED: 'finished',
+  /** The table workflow crashed; details are in the conversation state's `lastFailure`. */
+  FAILED: 'failed',
+  /** A player or the host closed the table. */
   CLOSED: 'closed',
 } as const;
 
@@ -43,9 +48,9 @@ export const PokerTableShape: SemanticNodeShape = {
     status: {
       path: POKER_SHAPE_URIS.STATUS_PREDICATE,
       name: 'Table Status',
-      description: 'Current lifecycle state of the table: active, paused, closed',
+      description: 'Current lifecycle state of the table: active, paused, finished, failed, closed',
       datatype: 'xsd:string',
-      in: [POKER_TABLE_STATUS.ACTIVE, POKER_TABLE_STATUS.PAUSED, POKER_TABLE_STATUS.CLOSED],
+      in: Object.values(POKER_TABLE_STATUS),
       minCount: 1,
       maxCount: 1,
     },

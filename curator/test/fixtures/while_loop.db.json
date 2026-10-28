@@ -77,7 +77,10 @@
         "type": "Curator_While"
       },
       "context": {
-        "echo": "{\"echoed\":\"tick\"}",
+        "echo": {
+          "echoed": "tick"
+        },
+        "echoed": "tick",
         "input": "{\"n\":3,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 3\"}",
         "state": {
           "echoed": "tick",
@@ -160,7 +163,7 @@
       "executionScheduled": "<ts>",
       "existent": true,
       "id": "<req:4>",
-      "notifyId": "<req:2>",
+      "notifyId": null,
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -178,7 +181,10 @@
         "type": "Curator_Assign"
       },
       "context": {
-        "echo": "{\"echoed\":\"tick\"}",
+        "echo": {
+          "echoed": "tick"
+        },
+        "echoed": "tick",
         "input": "{\"n\":0,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\"}",
         "state": {
           "echoed": "tick",
@@ -213,7 +219,10 @@
         "type": "Curator_Tool"
       },
       "context": {
-        "echo": "{\"echoed\":\"tick\"}",
+        "echo": {
+          "echoed": "tick"
+        },
+        "echoed": "tick",
         "input": "{\"n\":0,\"status\":\"State updated\",\"state\":{\"n\":0}}",
         "state": {
           "n": 0,
@@ -258,7 +267,10 @@
         "type": "Curator_Sequential"
       },
       "context": {
-        "echo": "{\"echoed\":\"tick\"}",
+        "echo": {
+          "echoed": "tick"
+        },
+        "echoed": "tick",
         "input": "{\"n\":1,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 1\"}",
         "state": {
           "echoed": "tick",
@@ -274,7 +286,7 @@
       "executionScheduled": "<ts>",
       "existent": true,
       "id": "<req:7>",
-      "notifyId": "<req:2>",
+      "notifyId": null,
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -292,7 +304,10 @@
         "type": "Curator_Assign"
       },
       "context": {
-        "echo": "{\"echoed\":\"tick\"}",
+        "echo": {
+          "echoed": "tick"
+        },
+        "echoed": "tick",
         "input": "{\"n\":1,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 1\"}",
         "state": {
           "echoed": "tick",
@@ -328,7 +343,10 @@
         "type": "Curator_Tool"
       },
       "context": {
-        "echo": "{\"echoed\":\"tick\"}",
+        "echo": {
+          "echoed": "tick"
+        },
+        "echoed": "tick",
         "input": "{\"n\":1,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 1\"}",
         "state": {
           "echoed": "tick",
@@ -375,7 +393,10 @@
         "type": "Curator_Sequential"
       },
       "context": {
-        "echo": "{\"echoed\":\"tick\"}",
+        "echo": {
+          "echoed": "tick"
+        },
+        "echoed": "tick",
         "input": "{\"n\":2,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 2\"}",
         "state": {
           "echoed": "tick",
@@ -391,7 +412,7 @@
       "executionScheduled": "<ts>",
       "existent": true,
       "id": "<req:10>",
-      "notifyId": "<req:2>",
+      "notifyId": null,
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -409,7 +430,10 @@
         "type": "Curator_Assign"
       },
       "context": {
-        "echo": "{\"echoed\":\"tick\"}",
+        "echo": {
+          "echoed": "tick"
+        },
+        "echoed": "tick",
         "input": "{\"n\":2,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 2\"}",
         "state": {
           "echoed": "tick",
@@ -445,7 +469,10 @@
         "type": "Curator_Tool"
       },
       "context": {
-        "echo": "{\"echoed\":\"tick\"}",
+        "echo": {
+          "echoed": "tick"
+        },
+        "echoed": "tick",
         "input": "{\"n\":2,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 2\"}",
         "state": {
           "echoed": "tick",

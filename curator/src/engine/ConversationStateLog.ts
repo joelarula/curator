@@ -132,17 +132,55 @@ async function materializeIn(db: any, conversationId: number): Promise<StateSnap
 const atomically = <T>(prisma: any, fn: (db: any) => Promise<T>): Promise<T> =>
   typeof prisma.$transaction === 'function' ? prisma.$transaction((tx: any) => fn(tx)) : fn(prisma);
 
+/** A committed state transition, handed to projectors inside the transaction that appended it. */
+export interface StateChange {
+  /** Transaction client: projector writes commit or roll back together with the state event. */
+  db: any;
+  conversationId: number;
+  event: StateEventRow;
+  previous: ConversationStateData;
+  state: ConversationStateData;
+}
+
+/** Derives read models (e.g. knowledge-graph triples) from state. Throwing rolls the state event back. */
+export type StateProjector = (change: StateChange) => Promise<void> | void;
+
+// Keyed by client so projectors fire for every appender of that database, and never for another database.
+const projectorsByClient = new WeakMap<object, Set<StateProjector>>();
+
+/** Registers `projector` for every state event appended through `prisma`. Returns an unregister function. */
+export function registerStateProjector(prisma: object, projector: StateProjector): () => void {
+  let projectors = projectorsByClient.get(prisma);
+  if (!projectors) projectorsByClient.set(prisma, (projectors = new Set()));
+  projectors.add(projector);
+  return () => { projectors!.delete(projector); };
+}
+
+async function appendStateEvent(
+  prisma: any,
+  conversationId: number,
+  eventName: string,
+  payload: any,
+): Promise<{ seq: number; state: ConversationStateData }> {
+  const projectors = projectorsByClient.get(prisma);
+  return atomically(prisma, async (db) => {
+    const previous = projectors?.size ? (await materializeIn(db, conversationId)).state : {};
+    const row = await db.eventLog.create({ data: { conversationId, eventName, payload } });
+    const { state } = await materializeIn(db, conversationId);
+    for (const project of projectors ?? []) {
+      await project({ db, conversationId, event: { id: row.id, eventName, payload }, previous, state });
+    }
+    return { seq: row.id, state };
+  });
+}
+
 /** Appends a patch event and refreshes the materialized view. Returns the event's sequence id and new state. */
 export async function appendStatePatch(
   prisma: any,
   conversationId: number,
   patch: StatePatchPayload,
 ): Promise<{ seq: number; state: ConversationStateData }> {
-  return atomically(prisma, async (db) => {
-    const row = await db.eventLog.create({ data: { conversationId, eventName: STATE_PATCH, payload: patch } });
-    const { state } = await materializeIn(db, conversationId);
-    return { seq: row.id, state };
-  });
+  return appendStateEvent(prisma, conversationId, STATE_PATCH, patch);
 }
 
 /** Zero-loss rollback: appends a compensating event; the abandoned events stay in the log for debugging. */
@@ -151,11 +189,7 @@ export async function rewindState(
   conversationId: number,
   toSeq: number,
 ): Promise<{ seq: number; state: ConversationStateData }> {
-  return atomically(prisma, async (db) => {
-    const row = await db.eventLog.create({ data: { conversationId, eventName: STATE_REWIND, payload: { to: toSeq } } });
-    const { state } = await materializeIn(db, conversationId);
-    return { seq: row.id, state };
-  });
+  return appendStateEvent(prisma, conversationId, STATE_REWIND, { to: toSeq });
 }
 
 /** Time travel: the conversation state exactly as it was right after event `upTo` (default: now). */

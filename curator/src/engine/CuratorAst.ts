@@ -38,6 +38,7 @@ export const CuratorNodeType = {
   Graph: 'Curator_Graph',
   HumanInput: 'Curator_HumanInput',
   AgentRef: 'Curator_AgentRef',
+  ActorRef: 'Curator_ActorRef',
   SetState: 'Curator_SetState',
   EmitEvent: 'Curator_EmitEvent',
   Interrupt: 'Curator_Interrupt',
@@ -66,6 +67,7 @@ export type CuratorAstNode =
   | CuratorGraphNode
   | CuratorHumanInputNode
   | CuratorAgentRefNode
+  | CuratorActorRefNode
   | CuratorSetStateNode
   | CuratorEmitEventNode
   | CuratorInterruptNode
@@ -195,12 +197,34 @@ export interface CuratorRouteNode extends CuratorBaseNode {
   defaultRoute?: string;
 }
 
+/** Guarded graph transition; `when` sees `output`/`input` (the state's output, JSON objects parsed) plus `$state`/`$context`. */
+export interface CuratorGraphTransition {
+  to: string;
+  /** Omitted = always taken. */
+  when?: string;
+}
+
+/**
+ * Curator_Graph — state machine. Each key of `nodes` is a state.
+ * Transition order: state body → edge resolution → onExit[from] → (stateKey written) → onEnter[to] → body of `to`.
+ */
 export interface CuratorGraphNode extends CuratorBaseNode {
   type: typeof CuratorNodeType.Graph;
   name?: string;
-  startNode: string;
+  /** Initial state, or guarded transitions choosing it (e.g. skip a menu when a table is already chosen). */
+  startNode: string | CuratorGraphTransition[];
   nodes: Record<string, CuratorAstNode>;
-  edges?: Record<string, string | CuratorAstNode>;
+  /**
+   * Per-state outgoing transition: a target name ('__end__' terminates), a router AST returning the target name,
+   * or guarded transitions checked in order (first match wins; no match or no edge = '__end__').
+   */
+  edges?: Record<string, string | CuratorAstNode | CuratorGraphTransition[]>;
+  /** Run when a state is entered, before its body (Bevy `OnEnter`). Keyed by state name. */
+  onEnter?: Record<string, CuratorAstNode>;
+  /** Run when a state is left, after its transition is chosen, also on self-transitions and '__end__' (Bevy `OnExit`). */
+  onExit?: Record<string, CuratorAstNode>;
+  /** Conversation state key mirroring the active state ('__end__' when finished), e.g. for `$state.phase == 'Betting'` run conditions. */
+  stateKey?: string;
   /** Optional TypeScript interface/schema definition for the graph's global state */
   stateSchema?: string;
 }
@@ -237,6 +261,11 @@ export interface CuratorToolNode extends CuratorBaseNode {
   /** Optional context key to store tool output under in request context */
   as?: string;
   outputKey?: string;
+  /**
+   * Whether the tool output's top-level fields are also merged into the request context (default: true).
+   * Set false so the output lands only under `as` / toolName and cannot overwrite unrelated keys.
+   */
+  spread?: boolean;
   /** @deprecated Use args. Legacy scripts are normalized at the AST boundary. */
   parameters?: Record<string, any>;
   /** Approval wait lifetime in ms when the tool requires approval (0 = never expires). Default: processor `approvalTtlMs`. */
@@ -268,6 +297,8 @@ export interface CuratorChoiceItem {
   value?: any;
   roles?: string[];
   blocking?: boolean;
+  /** Expression evaluated when the prompt is presented; the choice is offered only when it is truthy. */
+  when?: string;
 }
 
 export interface CuratorHumanInputNode extends CuratorBaseNode {
@@ -294,6 +325,25 @@ export interface CuratorHumanInputNode extends CuratorBaseNode {
 export interface CuratorAgentRefNode extends CuratorBaseNode {
   type: typeof CuratorNodeType.AgentRef;
   agentName: string;
+}
+
+/**
+ * Curator_ActorRef — let the acting entity decide who acts (Bevy `register_agent_system`).
+ * Resolves `actor`, picks a handler by `kind` and runs it as a child Call with the actor as `$params.actor`,
+ * so one workflow node serves humans, LLM personas and scripted bots alike.
+ */
+export interface CuratorActorRefNode extends CuratorBaseNode {
+  type: typeof CuratorNodeType.ActorRef;
+  /** Expression resolving the acting entity, e.g. the active player. */
+  actor: string;
+  /** Expression selecting the handler key, evaluated with `$actor` bound. Default: '$actor.kind'. */
+  kind?: string;
+  /** Handler registry: kind → subroutine ref ('#sub', 'script', 'script#sub'); 'default' is the fallback. */
+  handlers: Record<string, string>;
+  /** Extra handler args (expressions allowed, as in Call.args). */
+  args?: Record<string, any>;
+  /** Caller context key receiving the handler's result. */
+  as?: string;
 }
 
 /**

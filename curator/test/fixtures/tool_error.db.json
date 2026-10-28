@@ -48,7 +48,10 @@
         "type": "Curator_Tool"
       },
       "context": {
-        "echo": "{\"echoed\":\"after\"}",
+        "echo": {
+          "echoed": "after"
+        },
+        "echoed": "after",
         "input": "{\"output\":\"[Tool Error] kaboom\"}",
         "state": {
           "output": "[Tool Error] kaboom"

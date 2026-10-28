@@ -181,8 +181,16 @@ A graph defines a set of `nodes` (states) and `edges` (transitions).
 Edges can be either:
 1. A **static string** pointing to the next node name.
 2. A **conditional router** (an AST Node like a Script or Agent) that evaluates the current state and outputs the next node name.
+3. **Guarded transitions** `[{ "to": "Deal", "when": "output.status == 'CONTINUE'" }, { "to": "__end__" }]`, checked in order; the first match wins. `when` sees the state's output as `output`/`input` (JSON objects parsed) plus `$state`/`$context`. No match, or no edge at all, ends the graph.
 
 Returning the literal string `"__end__"` as a transition will terminate the graph.
+
+Bevy-style state hooks (all optional):
+* `onEnter: { State: node }` runs before the state's body each time it is entered (`OnEnter`).
+* `onExit: { State: node }` runs after the state's transition is chosen, also on self-transitions and on the way to `__end__` (`OnExit`).
+* `stateKey: "phase"` mirrors the active state into `$state.phase` (`'__end__'` when finished), so other flows can gate on it. It already holds the new state during `onEnter`.
+
+Order per transition: body → transition chosen → `onExit[from]` → `stateKey` written → `onEnter[to]` → body of `to`. State bodies and hooks inherit the graph's context, `projectId` and `scriptId`, with the previous state's output as `input`. The `stateMachine()` builder declares each state's `run`/`onEnter`/`onExit`/`next` together (see `minigames/poker/src/workflows/pokerWorkflow.ts`).
 
 ### Usage Example
 ```json
@@ -242,6 +250,24 @@ Set `timeoutSeconds` (Coffee: `prompt(text, 'text', undefined, { as, timeoutSeco
 * `wait_event name, alias, { timeoutSeconds }` parks the request until a matching event arrives and binds the payload to `alias`.
 * **Lossless:** each request has an `eventCursor`. A wait first consumes the earliest logged event after its cursor (and addressed to it or to everyone), so an event emitted before the waiter parked is not lost. A flow's first wait only sees events logged before its anchor (chain end or Join) was created; by default late joiners do not replay older events. Set `replay: true` (`wait_event "news", "item", { replay: true }`) to make a flow's first wait start from the beginning of the conversation's log, then consume the backlog in order; later waits continue from the cursor.
 * **Timeout:** with `timeoutSeconds`, a wait with no event by the deadline completes with a `WAIT_TIMEOUT` Response, nothing is bound to `alias`, and the flow continues so it can branch on the empty alias. An event arriving first wins and no timeout is recorded.
+
+---
+
+## 9c. `Curator_ActorRef`
+
+Lets the acting entity decide who plays a turn (Bevy `register_agent_system`). `actor` resolves the entity, `kind` (default `$actor.kind`, evaluated with `$actor` bound) picks a handler ref from `handlers` (`'default'` is the fallback), and the handler runs as an isolated child `Curator_Call` with the actor as `$params.actor`. Its result lands under `as`. Handlers may suspend (human input, waits). A missing handler fails the request.
+
+```json
+{
+  "type": "Curator_ActorRef",
+  "actor": "$state.gameState.players[$state.gameState.activePlayerIdx]",
+  "kind": "$actor.isHuman ? 'human' : 'llm'",
+  "handlers": { "human": "#human_decision", "llm": "#ai_decision" },
+  "as": "turnAction"
+}
+```
+
+Builder: `actorRef(actor, { human: humanDecision, llm: aiDecision }, { kind, as })`. Like a child call, it is not allowed inside inline subroutines.
 
 ---
 

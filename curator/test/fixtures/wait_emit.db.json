@@ -52,8 +52,10 @@
         "type": "Curator_Tool"
       },
       "context": {
-        "__humanInputReceived__": true,
-        "echo": "{\"echoed\":\"hi\"}",
+        "echo": {
+          "echoed": "hi"
+        },
+        "echoed": "hi",
         "input": "{\"phase\":1,\"status\":\"State updated\",\"state\":{\"phase\":1},\"payload\":{\"msg\":\"hi\"},\"msg\":\"hi\"}",
         "payload": {
           "msg": "hi"

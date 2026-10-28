@@ -21,6 +21,8 @@ const baseProperties = {
 
 /** Subroutine reference: 'script', 'script#sub' or '#sub'. */
 const REF_PATTERN = '^(?:#[A-Za-z_][A-Za-z0-9_]*|[A-Za-z0-9_.:-]+(?:#[A-Za-z_][A-Za-z0-9_]*)?)$';
+/** Guarded graph transitions, checked in order (Curator_Graph edges and conditional start). */
+const GRAPH_TRANSITIONS = { type: 'array', minItems: 1, items: { type: 'object', properties: { to: { type: 'string', minLength: 1 }, when: { type: 'string', minLength: 1 } }, required: ['to'], additionalProperties: false } };
 const REF_RE = new RegExp(REF_PATTERN);
 
 export interface CuratorRef {
@@ -46,6 +48,7 @@ const INLINE_FORBIDDEN = new Set([
   CuratorNodeType.Subscribe,
   CuratorNodeType.Unsubscribe,
   CuratorNodeType.Interrupt,
+  CuratorNodeType.ActorRef,
 ]);
 
 const schema: Record<string, any> = {
@@ -80,7 +83,7 @@ const schema: Record<string, any> = {
     },
     {
       type: 'object',
-      properties: { ...baseProperties, type: { const: 'Curator_Graph' }, name: { type: 'string' }, startNode: { type: 'string', minLength: 1 }, nodes: { type: 'object', minProperties: 1, additionalProperties: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' } }, edges: { type: 'object', additionalProperties: { anyOf: [{ type: 'string' }, { $ref: 'https://curator.local/schemas/curator-ast-v1.json' }] } }, stateSchema: { type: 'string' } },
+      properties: { ...baseProperties, type: { const: 'Curator_Graph' }, name: { type: 'string' }, startNode: { anyOf: [{ type: 'string', minLength: 1 }, GRAPH_TRANSITIONS] }, nodes: { type: 'object', minProperties: 1, additionalProperties: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' } }, edges: { type: 'object', additionalProperties: { anyOf: [{ type: 'string' }, { $ref: 'https://curator.local/schemas/curator-ast-v1.json' }, GRAPH_TRANSITIONS] } }, onEnter: { type: 'object', additionalProperties: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' } }, onExit: { type: 'object', additionalProperties: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' } }, stateKey: { type: 'string', minLength: 1 }, stateSchema: { type: 'string' } },
       required: ['type', 'startNode', 'nodes'],
       additionalProperties: false,
     },
@@ -92,7 +95,7 @@ const schema: Record<string, any> = {
     },
     {
       type: 'object',
-      properties: { ...baseProperties, type: { const: 'Curator_Tool' }, toolName: { type: 'string', minLength: 1 }, args: { anyOf: [{ type: 'object' }, { type: 'string' }] }, parameters: { type: 'object' }, as: { type: 'string' }, outputKey: { type: 'string' }, approvalTtlMs: { type: 'integer', minimum: 0 }, onApprovalExpired: { type: 'string', enum: ['fail', 'continue'] } },
+      properties: { ...baseProperties, type: { const: 'Curator_Tool' }, toolName: { type: 'string', minLength: 1 }, args: { anyOf: [{ type: 'object' }, { type: 'string' }] }, parameters: { type: 'object' }, as: { type: 'string' }, outputKey: { type: 'string' }, spread: { type: 'boolean' }, approvalTtlMs: { type: 'integer', minimum: 0 }, onApprovalExpired: { type: 'string', enum: ['fail', 'continue'] } },
       required: ['type', 'toolName'],
       additionalProperties: false,
       anyOf: [{ required: ['args'] }, { required: ['parameters'] }, { not: { anyOf: [{ required: ['args'] }, { required: ['parameters'] }] } }],
@@ -129,6 +132,12 @@ const schema: Record<string, any> = {
       type: 'object',
       properties: { ...baseProperties, type: { const: 'Curator_AgentRef' }, agentName: { type: 'string', minLength: 1 } },
       required: ['type', 'agentName'],
+      additionalProperties: false,
+    },
+    {
+      type: 'object',
+      properties: { ...baseProperties, type: { const: 'Curator_ActorRef' }, actor: { type: 'string', minLength: 1 }, kind: { type: 'string', minLength: 1 }, handlers: { type: 'object', minProperties: 1, additionalProperties: { type: 'string', pattern: REF_PATTERN } }, args: { type: 'object' }, as: { type: 'string' } },
+      required: ['type', 'actor', 'handlers'],
       additionalProperties: false,
     },
     {
@@ -364,14 +373,31 @@ function validateReferences(root: any): string[] {
         errors.push(`${path} inline call must use a local ref ('#name'), got '${refStr}'`);
       }
     }
+    if (node.type === 'Curator_ActorRef') {
+      for (const [kind, handler] of Object.entries<any>(node.handlers || {})) {
+        const parsed = parseCuratorRef(handler);
+        if (!parsed) errors.push(`${path}/handlers/${kind} is not a valid ref '${handler}'`);
+        else if (!parsed.script && mod && !(parsed.entry! in (mod.subroutines || {}))) errors.push(`${path}/handlers/${kind} references missing subroutine '${handler}'`);
+      }
+    }
     if (node.type === 'Curator_Route') {
       if (node.defaultRoute !== undefined && !(node.defaultRoute in node.subAgents)) errors.push(`${path}/defaultRoute references missing route '${node.defaultRoute}'`);
     }
     if (node.type === 'Curator_Graph') {
-      if (!(node.startNode in node.nodes)) errors.push(`${path}/startNode references missing graph node '${node.startNode}'`);
+      for (const start of Array.isArray(node.startNode) ? node.startNode.map((t: any) => t?.to) : [node.startNode]) {
+        if (start !== '__end__' && !(start in node.nodes)) errors.push(`${path}/startNode references missing graph node '${start}'`);
+      }
       for (const [key, edge] of Object.entries(node.edges || {})) {
         if (!(key in node.nodes)) errors.push(`${path}/edges/${key} references missing graph node`);
         if (typeof edge === 'string' && edge !== '__end__' && !(edge in node.nodes)) errors.push(`${path}/edges/${key} targets missing graph node '${edge}'`);
+        if (Array.isArray(edge)) edge.forEach((t: any, i: number) => {
+          if (t?.to !== '__end__' && !(t?.to in node.nodes)) errors.push(`${path}/edges/${key}/${i} targets missing graph node '${t?.to}'`);
+        });
+      }
+      for (const hook of ['onEnter', 'onExit'] as const) {
+        for (const key of Object.keys(node[hook] || {})) {
+          if (!(key in node.nodes)) errors.push(`${path}/${hook}/${key} references missing graph node`);
+        }
       }
     }
     for (const [key, value] of Object.entries(node)) {

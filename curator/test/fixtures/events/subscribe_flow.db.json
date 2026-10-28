@@ -193,6 +193,7 @@
       "context": {
         "astPath": "",
         "eventName": "ping",
+        "got": 2,
         "input": {
           "conversationId": 1,
           "n": 2,
@@ -206,7 +207,9 @@
             "tableId": "1"
           }
         },
-        "record": "{\"got\":2}",
+        "record": {
+          "got": 2
+        },
         "state": {}
       },
       "deletedAt": null,

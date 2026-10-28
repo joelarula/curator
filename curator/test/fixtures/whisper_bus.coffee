@@ -6,7 +6,7 @@ whisperer = (me, next) ->
   msg = "msg_#{me}"
   seq "agent #{me}",
     set_state "#{done}": false
-    while_loop "!$state.#{done}",
+    whileLoop "!$state.#{done}",
       seq "#{me} inbox",
         wait_event "whisper", msg
         if_else "$state.#{msg}.to == '#{me}'",

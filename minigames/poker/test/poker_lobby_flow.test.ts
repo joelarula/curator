@@ -11,8 +11,11 @@ import {
   type PokerLobbyChoice,
   type PokerTableChoice,
 } from '../src/workflows/pokerLobby.ts';
-import { formatTableChoices } from '../src/services/pokerTableStore.ts';
-import { POKER_SHAPE_URIS } from '../src/models/pokerShapes.ts';
+import { formatTableChoices, syncPokerTableResource, pokerTableStatusUri } from '../src/services/pokerTableStore.ts';
+import { buildLobbyMenu } from '../src/models/pokerLobbyMenu.ts';
+import { pokerLobbyMenuTool } from '../src/plugins/pokerPlugin.ts';
+import { readFileSync, readdirSync } from 'node:fs';
+import { POKER_SHAPE_URIS, POKER_TABLE_STATUS } from '../src/models/pokerShapes.ts';
 import { createPokerHost } from '../src/host.ts';
 import {
   createPokerGameSession,
@@ -65,6 +68,28 @@ test('Table Selection: formatTableChoices returns typesafe PokerTableChoice arra
   assert.equal(backChoice.id, PokerLobbyAction.BACK);
   assert.ok(backChoice.aliases.includes('back'));
   assert.ok(backChoice.aliases.includes('3'));
+});
+
+test('Lobby Menu: poker_lobby_menu is a pure view over the open tables', async () => {
+  const empty = buildLobbyMenu([]);
+  assert.deepEqual(empty.lobbyChoices.map((c) => c.id), [PokerLobbyAction.NEW, PokerLobbyAction.EXIT]);
+  assert.deepEqual(empty.tableChoices.map((c) => c.id), [PokerLobbyAction.BACK]);
+
+  const tables = [{ tableId: '7', title: 'High Rollers' }];
+  const menu: any = await pokerLobbyMenuTool.runAsync({ args: { tables }, toolContext: {} as any });
+  assert.deepEqual(menu, buildLobbyMenu(tables));
+  assert.deepEqual(menu.lobbyChoices.map((c: any) => c.id), [PokerLobbyAction.NEW, PokerLobbyAction.RESUME, PokerLobbyAction.EXIT]);
+  assert.deepEqual(menu.tableChoices.map((c: any) => c.id), ['7', PokerLobbyAction.BACK]);
+});
+
+test('Workflows: tool results are bound with explicit `as`, never read via implicit poker_* keys', () => {
+  const dirs = ['../src/workflows/', '../src/composables/'].map((d) => new URL(d, import.meta.url));
+  const implicitReads = dirs.flatMap((dir) =>
+    readdirSync(dir)
+      .filter((f) => f.endsWith('.ts'))
+      .flatMap((f) => (readFileSync(new URL(f, dir), 'utf8').match(/\.poker_[a-z_]+/g) || []).map((m) => `${f}: ${m}`))
+  );
+  assert.deepEqual(implicitReads, [], `Bind the tool result with { as } instead of reading ${implicitReads.join(', ')}`);
 });
 
 test('Lobby AST Workflow: Stepping back from table selection returns to Lobby Options', async () => {
@@ -142,6 +167,19 @@ test('Lobby AST Workflow: Stepping back from table selection returns to Lobby Op
           },
         },
       },
+    });
+
+    // Tables are discovered through their PokerTableShape resource
+    await syncPokerTableResource(host.prisma, {
+      tableId: unfinishedConv.id,
+      title: 'Table #42',
+      conversationId: unfinishedConv.id,
+      projectId: host.project.id,
+      userId: 'user_hero',
+      players: [
+        { id: 'user_hero', name: 'Hero', isHuman: true },
+        { id: 'bot_1', name: 'Bot 1', isHuman: false },
+      ],
     });
 
     // 3. Start a new lobby session with user identity
@@ -234,18 +272,25 @@ test('Lobby Separation & Lifecycle: Dedicated lobby conversation, table creation
     assert.equal(tableConv?.metadata?.tableName, 'Diamond Suite #7');
 
     // 4. Verify PokerTableShape semantic resource & player relation were created
+    const tableTriples = {
+      subjectRelations: {
+        where: { existent: true },
+        include: { predicate: true, object: true },
+      },
+      conversations: { select: { id: true } },
+    };
+    const statusOf = (resource: any) =>
+      resource.subjectRelations.find((rel: any) => rel.predicate.uri === POKER_SHAPE_URIS.STATUS_PREDICATE)?.object.uri;
+
     const tableResource = await host.prisma.resource.findUnique({
       where: { uri: `poker:table:${tableInfo.tableId}` },
-      include: {
-        subjectRelations: {
-          include: { predicate: true, object: true },
-        },
-      },
+      include: tableTriples,
     });
     assert.ok(tableResource, 'Semantic resource for PokerTableShape must exist');
     assert.equal(tableResource.metadata?.shape, POKER_SHAPE_URIS.TABLE_SHAPE);
-    assert.equal(tableResource.metadata?.tableName, 'Diamond Suite #7');
-    assert.equal(tableResource.metadata?.status, 'active');
+    assert.equal(tableResource.title, 'Diamond Suite #7');
+    assert.equal(statusOf(tableResource), pokerTableStatusUri(POKER_TABLE_STATUS.ACTIVE));
+    assert.deepEqual(tableResource.conversations.map((c: any) => c.id), [tableInfo.conversationId]);
 
     const playerRelation = tableResource.subjectRelations.find(
       (rel: any) => rel.predicate.uri === POKER_SHAPE_URIS.PLAYER_PREDICATE
@@ -270,9 +315,14 @@ test('Lobby Separation & Lifecycle: Dedicated lobby conversation, table creation
     // Semantic resource is updated to closed
     const closedResource = await host.prisma.resource.findUnique({
       where: { uri: `poker:table:${tableInfo.tableId}` },
+      include: tableTriples,
     });
-    assert.equal(closedResource?.metadata?.status, 'closed', 'Resource status must be closed');
-    assert.equal(closedResource?.metadata?.isClosed, true);
+    assert.equal(statusOf(closedResource), pokerTableStatusUri(POKER_TABLE_STATUS.CLOSED), 'Resource status must be closed');
+    assert.equal(
+      closedResource.subjectRelations.filter((rel: any) => rel.predicate.uri === POKER_SHAPE_URIS.STATUS_PREDICATE).length,
+      1,
+      'Exactly one live status triple'
+    );
 
     // After closing, listTables returns empty
     const tablesAfterClose = await session.listTables();

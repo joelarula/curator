@@ -5,25 +5,23 @@
  * description: Texas Hold'em Lounge Concierge & Table Selection Module
  * ---
  */
-import { lobbyCtx as lobbyCtxProxy, bankrollCtx, bootCtx } from '../models/pokerContext.ts';
+import { lobbyCtx as lobbyCtxProxy, bankrollCtx, bootCtx, state } from '../models/pokerContext.ts';
 import {
   defineModule,
   defineSubroutine,
   seq,
   input,
   ifElse,
-  match,
-  whileLoop as loopwhile,
-  waitEvent,
+  stateMachine,
+  whileLoop,
   setState,
-  emitEvent,
   type CuratorModuleNode,
 } from '../curator.ts';
-import {
-  pokerComposables,
-  pokerPredicates,
-} from '../composables/pokerComposables.ts';
-import type { PokerLobbyContext, PokerBankrollContext } from '../models/pokerContext.ts';
+import { pokerComposables, pokerPredicates } from '../composables/pokerComposables.ts';
+import type { PokerLobbyContext, PokerBootContext } from '../models/pokerContext.ts';
+import { PokerLobbyPhase, LOBBY_PHASE_KEY } from '../models/pokerContracts.ts';
+import { LobbyReady, AwaitingPlayers, PlayerJoined, TableReady, TableSelected } from '../models/pokerEvents.ts';
+import { PokerLobbyAction, LobbyChoices, ReloadChoices } from '../models/pokerLobbyMenu.ts';
 
 const {
   gameState,
@@ -31,216 +29,162 @@ const {
   boot_table,
   join_lobby,
   list_tables,
+  lobby_menu,
   create_table,
-  events,
   modules,
-  get_bankroll,
+  get_buy_in_options,
   deposit_buy_in,
   reload_bankroll,
   handle_user_exit,
 } = pokerComposables;
 
-/**
- * Poker Lobby Actions, Options, and Choices
- */
-export const PokerLobbyAction = {
-  NEW: 'new',
-  RESUME: 'resume',
-  EXIT: 'exit',
-  BACK: 'back',
-} as const;
+// Lobby menu models are pure presentation; re-exported for existing workflow consumers
+export {
+  PokerLobbyAction,
+  type PokerLobbyActionType,
+  type PokerLobbyChoice,
+  type PokerTableChoice,
+  getLobbyChoices,
+  DEFAULT_LOBBY_CHOICES,
+} from '../models/pokerLobbyMenu.ts';
 
-export type PokerLobbyActionType = (typeof PokerLobbyAction)[keyof typeof PokerLobbyAction];
 export const lobbyActions = PokerLobbyAction;
-
-export interface PokerLobbyChoice {
-  id: PokerLobbyActionType;
-  label: string;
-  description?: string;
-  aliases: string[];
-}
-
-export interface PokerTableChoice {
-  id: string;
-  tableId: string;
-  title: string;
-  label: string;
-  aliases: string[];
-}
-
-export function getLobbyChoices(hasUnfinishedGames: boolean = false, count?: number): PokerLobbyChoice[] {
-  const choices: PokerLobbyChoice[] = [
-    {
-      id: PokerLobbyAction.NEW,
-      label: 'New Game - Start fresh table',
-      description: 'Start fresh table',
-      aliases: ['1', 'n', 'new'],
-    },
-  ];
-
-  if (hasUnfinishedGames) {
-    const label = count !== undefined && count > 0
-      ? `Resume Game - Select from active/paused tables (${count} available)`
-      : 'Resume Game - Select from active/paused tables';
-    choices.push({
-      id: PokerLobbyAction.RESUME,
-      label,
-      description: 'Select from active/paused tables',
-      aliases: [String(choices.length + 1), 'r', 'resume', 'continue'],
-    });
-  }
-
-  choices.push({
-    id: PokerLobbyAction.EXIT,
-    label: 'Exit - Quit session',
-    description: 'Quit session',
-    aliases: [String(choices.length + 1), 'q', 'exit', 'quit'],
-  });
-
-  return choices;
-}
-
-export const DEFAULT_LOBBY_CHOICES = getLobbyChoices(false);
 
 /**
  * Subroutine for bootstrapping an open table with dynamic seating.
+ * Runs as an isolated child call (it waits for players), so it reads the table config from state.
  */
 export const bootTableSub = defineSubroutine('boot_table', () => [
   boot_table(),
-  emitEvent(events.LOBBY_READY, {
-    tableId: String(gameState.tableId),
-  }),
-  loopwhile(
+  LobbyReady.emit({ tableId: gameState.tableId }),
+  whileLoop(
     pokerPredicates.table_needs_players,
     seq(steps.WAIT_FOR_PLAYERS, [
-      emitEvent(events.AWAITING_PLAYERS, {
-        tableId: String(gameState.tableId),
-        seatedCount: String(gameState.players.length),
-      }),
-      waitEvent(events.PLAYER_JOINED, bootCtx.joinRequest),
+      AwaitingPlayers.emit({ tableId: gameState.tableId, seatedCount: gameState.players.length }),
+      PlayerJoined.wait(bootCtx.joinRequest),
       join_lobby(bootCtx.joinRequest),
     ]),
   ),
-  emitEvent(events.TABLE_READY, {
-    tableId: String(gameState.tableId),
-    playerCount: String(gameState.players.length),
-  }),
+  // Seats only (no chips or cards): projected into the table's poker:hasPlayer triples
+  setState<PokerLobbyContext>((c) => ({
+    seatedPlayers: (c.state?.gameState?.players || []).map((p: any) => ({ id: p.id, name: p.name, isHuman: Boolean(p.isHuman) })),
+  })),
+  TableReady.emit({ tableId: gameState.tableId, playerCount: gameState.players.length }),
 ]);
 
 /**
  * Composable conditional step that boots the table if state has not been initialized.
  */
 export function buildTableBootStep() {
-  return ifElse(
-    `${pokerPredicates.table_has_no_state} and not ${bootCtx.sessionEnded}`,
-    bootTableSub(),
+  return ifElse<PokerBootContext>(
+    (c) => !c.state?.gameState && !c.sessionEnded,
+    seq(steps.BOOT_TABLE, [
+      // The boot subroutine is an isolated child call: hand it the run's table config through state
+      setState<PokerBootContext>((c) => ({
+        tableConfig: {
+          tableId: c.tableId,
+          startingChips: c.startingChips,
+          sbAmount: c.sbAmount,
+          bbAmount: c.bbAmount,
+          maxSeats: c.maxSeats,
+          players: c.players,
+          playerName: c.playerName,
+        },
+      })),
+      bootTableSub(),
+    ]),
   );
 }
 
-function buildBuyInSequence() {
-  return [
-    get_bankroll({
-      userId: String(bankrollCtx.userId),
-      playerName: String(bankrollCtx.playerName),
-      sbAmount: `${bankrollCtx.sbAmount} || 10`,
-      bbAmount: `${bankrollCtx.bbAmount} || 20`,
-    }),
-    ifElse<PokerBankrollContext>(
-      (c) => Boolean(c.poker_get_bankroll && !c.poker_get_bankroll.canAfford),
-      seq('RELOAD_BANKROLL_FLOW', [
-        reload_bankroll({ userId: String(bankrollCtx.userId), amount: 5000 }),
-        get_bankroll({
-          userId: String(bankrollCtx.userId),
-          playerName: String(bankrollCtx.playerName),
-          sbAmount: `${bankrollCtx.sbAmount} || 10`,
+/** True when a menu answer (choice object or bare id) is the given option. */
+const picked = (answer: unknown, id: string) => `(${answer}.id == '${id}' or ${answer} == '${id}' or ${answer}.value == '${id}')`;
+
+const loadBuyInOptions = () =>
+  get_buy_in_options({ bbAmount: `${bankrollCtx.bbAmount} || 20` }, { as: bankrollCtx.buyInOptions });
+
+/**
+ * The lounge as a Bevy-style state machine: menu → pick or create a table → buy in → boot the table.
+ * The active state is mirrored into `$state.lobbyPhase`.
+ */
+export function buildLobbyPhases() {
+  return stateMachine([
+    // A table chosen up front (or an ended session) skips the menu
+    { to: PokerLobbyPhase.BOOT, when: `${lobbyCtxProxy.tableId} or ${lobbyCtxProxy.sessionEnded}` },
+    { to: PokerLobbyPhase.MENU },
+  ], {
+    [PokerLobbyPhase.MENU]: {
+      run: [
+        list_tables({}, { as: lobbyCtxProxy.openTables }),
+        input('Lobby Options:', [
+          LobbyChoices.NEW,
+          { ...LobbyChoices.RESUME, when: `${lobbyCtxProxy.openTables.tables.length} > 0` },
+          LobbyChoices.EXIT,
+        ], { as: lobbyCtxProxy.lobbyChoice }),
+      ],
+      next: [
+        { to: PokerLobbyPhase.NEW_TABLE, when: picked(state.lobbyChoice, lobbyActions.NEW) },
+        { to: PokerLobbyPhase.PICK_TABLE, when: picked(state.lobbyChoice, lobbyActions.RESUME) },
+        { to: PokerLobbyPhase.EXIT, when: picked(state.lobbyChoice, lobbyActions.EXIT) },
+        { to: PokerLobbyPhase.MENU },
+      ],
+    },
+    [PokerLobbyPhase.PICK_TABLE]: {
+      run: [
+        lobby_menu({ tables: String(lobbyCtxProxy.openTables.tables) }, { as: lobbyCtxProxy.lobbyMenu }),
+        input('Select Table:', String(lobbyCtxProxy.lobbyMenu.tableChoices), { as: lobbyCtxProxy.selectedTable }),
+      ],
+      next: [
+        { to: PokerLobbyPhase.MENU, when: picked(state.selectedTable, lobbyActions.BACK) },
+        { to: PokerLobbyPhase.BUY_IN },
+      ],
+      onExit: ifElse(`not ${picked(state.selectedTable, lobbyActions.BACK)}`,
+        setState({ tableId: `${state.selectedTable.id} || ${state.selectedTable}` })),
+    },
+    [PokerLobbyPhase.NEW_TABLE]: {
+      run: [
+        create_table({ playerName: String(lobbyCtxProxy.playerName) }, { as: lobbyCtxProxy.newTable }),
+        setState<PokerLobbyContext>((c) => ({ tableId: c.newTable?.tableId || `poker:table_${crypto.randomUUID()}` })),
+      ],
+      next: PokerLobbyPhase.BUY_IN,
+    },
+    // The wallet persists across games; below the minimum buy-in the player tops it up first
+    [PokerLobbyPhase.BUY_IN]: {
+      run: loadBuyInOptions(),
+      next: [
+        { to: PokerLobbyPhase.RELOAD, when: 'output and not output.canAfford' },
+        { to: PokerLobbyPhase.DEPOSIT },
+      ],
+    },
+    [PokerLobbyPhase.RELOAD]: {
+      run: [
+        input("Your bankroll is below this table's minimum buy-in. Enter an amount to add (or select preset):",
+          ReloadChoices, { as: bankrollCtx.reloadChoice }),
+        reload_bankroll({ amount: String(bankrollCtx.reloadChoice) }, { as: bankrollCtx.reload }),
+      ],
+      next: PokerLobbyPhase.BUY_IN,
+    },
+    [PokerLobbyPhase.DEPOSIT]: {
+      run: [
+        loadBuyInOptions(),
+        input('Enter Buy-In amount (or select preset):', String(bankrollCtx.buyInOptions.choices), { as: bankrollCtx.buyInChoice }),
+        deposit_buy_in({
+          tableId: state.tableId,
           bbAmount: `${bankrollCtx.bbAmount} || 20`,
-        }),
-      ]),
-    ),
-    input(
-      'Enter Buy-In amount (or select preset):',
-      String(bankrollCtx.poker_get_bankroll.choices),
-      { as: bankrollCtx.buyInChoice }
-    ),
-    deposit_buy_in({
-      userId: String(bankrollCtx.userId),
-      tableId: String(bankrollCtx.tableId),
-      amount: `${bankrollCtx.buyInChoice.amount} || ${bankrollCtx.buyInChoice} || 1000`,
-    }),
-    setState({
-      selectedBuyIn: `${bankrollCtx.poker_deposit_buy_in.deposited} || ${bankrollCtx.buyInChoice.amount} || ${bankrollCtx.buyInChoice} || 1000`,
-    }),
-  ];
-}
-
-function buildTableSelectedFlow() {
-  return [
-    ...buildBuyInSequence(),
-    emitEvent(events.TABLE_SELECTED, {
-      tableId: String(lobbyCtxProxy.tableId),
-      buyIn: lobbyCtxProxy.selectedBuyIn,
-    }),
-  ];
-}
-
-function buildResumeTableFlow() {
-  return [
-    input('Select Table:', String(lobbyCtxProxy.poker_list_tables.choices), { as: lobbyCtxProxy.selectedTable }),
-    match(lobbyCtxProxy.selectedTable, {
-      [lobbyActions.BACK]: [
+          amount: `${bankrollCtx.buyInChoice.amount} || ${bankrollCtx.buyInChoice} || 1000`,
+        }, { as: bankrollCtx.buyInDeposit }),
         setState({
-          lobbyChoice: null,
-          selectedTable: null,
+          selectedBuyIn: `${bankrollCtx.buyInDeposit.deposited} || ${bankrollCtx.buyInChoice.amount} || ${bankrollCtx.buyInChoice} || 1000`,
         }),
+        TableSelected.emit({ tableId: state.tableId, buyIn: state.selectedBuyIn }),
       ],
-      _: [
-        setState({
-          tableId: `${lobbyCtxProxy.selectedTable.id} || ${lobbyCtxProxy.selectedTable.tableId} || ${lobbyCtxProxy.selectedTable}`,
-        }),
-        ...buildTableSelectedFlow(),
-      ],
-    }),
-  ];
+      next: PokerLobbyPhase.BOOT,
+    },
+    // Initializes the table unless it already runs (or the session ended)
+    [PokerLobbyPhase.BOOT]: { run: buildTableBootStep() },
+    [PokerLobbyPhase.EXIT]: { run: handle_user_exit() },
+  }, { name: steps.LOBBY_MANAGER, stateKey: LOBBY_PHASE_KEY });
 }
 
-function buildNewTableFlow() {
-  return [
-    create_table({
-      playerName: String(lobbyCtxProxy.playerName),
-    }),
-    setState<PokerLobbyContext>((c) => ({
-      tableId: c.poker_create_table?.tableId || `poker:table_${crypto.randomUUID()}`,
-    })),
-    ...buildTableSelectedFlow(),
-  ];
-}
-
-export function buildPokerLobbyModule(): CuratorModuleNode {
-  return defineModule(modules.LOBBY, {
-    description: "Texas Hold'em Lounge Concierge for table selection and dynamic player seating",
-    subroutines: [bootTableSub],
-  }, () => [
-    // 1. Interactive Lobby Selection Gate (New Game, Resume Game, Exit)
-    loopwhile<PokerLobbyContext>((c) => !c.tableId && !c.sessionEnded,
-      [
-        list_tables(),
-        input('Lobby Options:', String(lobbyCtxProxy.poker_list_tables.lobbyChoices), { as: lobbyCtxProxy.lobbyChoice }),
-        match(lobbyCtxProxy.lobbyChoice, {
-          [lobbyActions.EXIT]: [handle_user_exit()],
-          [lobbyActions.RESUME]: buildResumeTableFlow(),
-          [lobbyActions.NEW]: buildNewTableFlow(),
-          _: [
-            setState({
-              lobbyChoice: null,
-            }),
-          ],
-        }),
-      ],
-    ),
-
-    // 2. Fallback Table Booting: Initializes table if tableId was provided directly without state
-    buildTableBootStep(),
-  ]);
-}
-
-export const pokerLobbyAst = buildPokerLobbyModule();
+export const pokerLobbyAst: CuratorModuleNode = defineModule(modules.LOBBY, {
+  description: "Texas Hold'em Lounge Concierge for table selection and dynamic player seating",
+}, () => [buildLobbyPhases()]);

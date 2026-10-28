@@ -3,7 +3,7 @@ import {
   getWaitingChoice,
   type CuratorHost,
 } from '../curatorHost.ts';
-import { AgentRoleService, logger } from '../curator.ts';
+import { AgentRoleService, appendStatePatch, readSnapshot, logger } from '../curator.ts';
 import type { PlayerAction, PokerGameState } from '../types.ts';
 import {
   PokerEvent,
@@ -14,8 +14,8 @@ import {
   PokerModule,
   PokerConversationType,
   type ChoiceOption,
+  type PokerWorkflowState,
   normalizeChoices,
-  extractGameState,
 } from '../models/index.ts';
 import {
   DEFAULT_LOBBY_CHOICES,
@@ -23,7 +23,6 @@ import {
 import {
   formatTableChoices,
   syncPokerTableResource,
-  closePokerTableResource,
 } from '../services/pokerTableStore.ts';
 
 export interface PokerSessionOptions {
@@ -147,7 +146,7 @@ export interface PokerGameSession {
     params: SpeechInput,
     options?: { tableId?: string | number; sessionId?: string }
   ): Promise<SpeechResult>;
-  getBankroll(playerName?: string): Promise<{ balance: number; currency: string } | null>;
+  getBankroll(): Promise<{ balance: number; currency: string } | null>;
   getStandings(tableId?: string | number): Promise<any[]>;
   close(): Promise<void>;
 }
@@ -169,6 +168,29 @@ export function parseConversationMetadata(metadata: any): Record<string, any> {
 }
 
 /**
+ * Live event-sourced state of a conversation (its materialized `metadata` view): the single source for
+ * game and lifecycle state, instead of copies carried in request contexts.
+ */
+export async function readConversationState(prisma: any, conversationId: number): Promise<PokerWorkflowState> {
+  const conv = await prisma.conversation.findUnique({ where: { id: conversationId }, select: { metadata: true } });
+  return readSnapshot(conv?.metadata).state;
+}
+
+/**
+ * Creates a conversation whose initial metadata is its first state event, so the materialized
+ * `Conversation.metadata` view can always be rebuilt from the EventLog.
+ */
+async function createStatefulConversation(
+  prisma: any,
+  data: { userId: string; projectId: string },
+  initialState: Record<string, any>
+): Promise<any> {
+  const conv = await prisma.conversation.create({ data });
+  const { state } = await appendStatePatch(prisma, conv.id, { set: initialState });
+  return { ...conv, metadata: state };
+}
+
+/**
  * Creates a fresh, dedicated lounge lobby concierge conversation for a client run.
  */
 export async function createLobbyConversation(
@@ -180,20 +202,14 @@ export async function createLobbyConversation(
   const userId = host.user.id;
   const clientName = options.playerName || host.user.name || 'Player';
 
-  return prisma.conversation.create({
-    data: {
-      userId,
-      projectId,
-      metadata: {
-        type: PokerConversationType.LOBBY,
-        isLobby: true,
-        title: `${clientName}'s Lounge Concierge`,
-        playerName: clientName,
-        playerId: options.playerId || userId,
-        sessionId: options.sessionId,
-        isClosed: false,
-      },
-    },
+  return createStatefulConversation(prisma, { userId, projectId }, {
+    type: PokerConversationType.LOBBY,
+    isLobby: true,
+    title: `${clientName}'s Lounge Concierge`,
+    playerName: clientName,
+    playerId: options.playerId || userId,
+    sessionId: options.sessionId,
+    isClosed: false,
   });
 }
 
@@ -214,17 +230,8 @@ export async function closePokerLobbyConversation(
   });
   if (!conv) return;
 
-  const meta = parseConversationMetadata(conv.metadata);
-  await prisma.conversation.update({
-    where: { id: targetId },
-    data: {
-      metadata: {
-        ...meta,
-        isClosed: true,
-        closingReason: reason,
-        closedAt: new Date().toISOString(),
-      },
-    },
+  await appendStatePatch(prisma, targetId, {
+    set: { isClosed: true, closingReason: reason, closedAt: new Date().toISOString() },
   });
 
   await prisma.request.updateMany({
@@ -305,18 +312,12 @@ export async function ensureTableConversation(
 
   if (existingTable) return existingTable;
 
-  return prisma.conversation.create({
-    data: {
-      userId,
-      projectId,
-      metadata: {
-        type: PokerConversationType.TABLE,
-        isLobby: false,
-        tableName: options.title || 'Table #1',
-        ruleset: 'texas_holdem_nl',
-        maxSeats,
-      },
-    },
+  return createStatefulConversation(prisma, { userId, projectId }, {
+    type: PokerConversationType.TABLE,
+    isLobby: false,
+    tableName: options.title || 'Table #1',
+    ruleset: 'texas_holdem_nl',
+    maxSeats,
   });
 }
 
@@ -345,20 +346,14 @@ export async function createPokerGameTable(
   }).length;
   const title = options.title || `Table #${tableCount + 1}`;
 
-  const newConv = await prisma.conversation.create({
-    data: {
-      userId: user.id,
-      projectId: project.id,
-      metadata: {
-        type: PokerConversationType.TABLE,
-        isLobby: false,
-        tableName: title,
-        maxSeats,
-        startingChips,
-        smallBlind,
-        bigBlind,
-      },
-    },
+  const newConv = await createStatefulConversation(prisma, { userId: user.id, projectId: project.id }, {
+    type: PokerConversationType.TABLE,
+    isLobby: false,
+    tableName: title,
+    maxSeats,
+    startingChips,
+    smallBlind,
+    bigBlind,
   });
 
   await ensureHumanActorInDatabase(host, newConv.id, {
@@ -416,19 +411,15 @@ export async function createPokerGameTable(
 export async function closePokerGameTable(
   host: CuratorHost,
   tableId: string | number,
-  reason: string = 'closed'
+  reason: string = 'closed',
+  broadcast: boolean = true
 ): Promise<void> {
   const prisma = host.prisma;
   const convId = Number(tableId);
 
   // Cash out human player chips back into their persistent bankroll
   try {
-    const latestReq = await prisma.request.findFirst({
-      where: { conversationId: convId },
-      orderBy: { updatedAt: 'desc' },
-    });
-    const reqCtx = latestReq?.context as any;
-    const gState = reqCtx?.gameState || reqCtx?.state?.gameState;
+    const gState = (await readConversationState(prisma, convId)).gameState;
     if (gState && Array.isArray(gState.players)) {
       const human = gState.players.find(
         (p: any) => p.isHuman || p.id === host.user.id || p.name === host.user.name
@@ -448,26 +439,12 @@ export async function closePokerGameTable(
     data: { status: 'COMPLETED' },
   });
 
-  try {
-    const conv = await prisma.conversation.findUnique({ where: { id: convId } });
-    if (conv) {
-      const meta = typeof conv.metadata === 'object' && conv.metadata ? conv.metadata : {};
-      await prisma.conversation.update({
-        where: { id: convId },
-        data: {
-          metadata: {
-            ...meta,
-            isClosed: true,
-            closedAt: new Date().toISOString(),
-            closingReason: reason,
-          },
-        },
-      });
-    }
-  } catch (_) { }
+  // The state event is the audit record; pokerTableProjector moves the table resource to closed with it
+  await appendStatePatch(prisma, convId, {
+    set: { isClosed: true, closingReason: reason, closedAt: new Date().toISOString() },
+  });
 
-  await closePokerTableResource(prisma, tableId, reason);
-
+  if (!broadcast) return;
   host.events.broadcast(PokerEvent.SESSION_EXITED, {
     tableId: String(convId),
     conversationId: convId,
@@ -641,10 +618,7 @@ export async function ensureHumanActorInDatabase(
           roles: humanRoles,
         });
       }
-      await prisma.conversation.update({
-        where: { id: conversationId },
-        data: { metadata: { ...meta, participants: existingParticipants } },
-      });
+      await appendStatePatch(prisma, conversationId, { set: { participants: existingParticipants } });
     }
   } catch (_) { }
 
@@ -706,14 +680,7 @@ export async function getConversationActors(
   // 4. Merge with live gameState.players if table is seated
   let gameState: PokerGameState | null = null;
   try {
-    const latestReq = await prisma.request.findFirst({
-      where: { conversationId: convIdNum },
-      orderBy: { id: 'desc' },
-      select: { context: true },
-    });
-    if (latestReq?.context?.gameState) {
-      gameState = latestReq.context.gameState as PokerGameState;
-    }
+    gameState = (await readConversationState(prisma, convIdNum)).gameState ?? null;
   } catch (_) { }
 
   const seatedMap = new Map((gameState?.players || []).map((p: any) => [p.id.toLowerCase(), p]));
@@ -847,17 +814,7 @@ export async function createPokerGameSession(
 
   const getGameState = async (tableId?: string | number): Promise<PokerGameState | null> => {
     const targetConvId = tableId !== undefined ? Number(tableId) : conversation.id;
-
-    // Check most recent request context with gameState for this conversation
-    const latestReq = await prisma.request.findFirst({
-      where: {
-        conversationId: targetConvId,
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
-
-    const ctx = latestReq?.context as any;
-    return extractGameState(ctx) || extractGameState(ctx?.state) || null;
+    return (await readConversationState(prisma, targetConvId)).gameState ?? null;
   };
 
   const getWaitingHumanTurn = async (tableId?: string | number): Promise<HumanTurnPromptInfo | null> => {
@@ -865,7 +822,7 @@ export async function createPokerGameSession(
     const choiceInfo = await getWaitingChoice(prisma, targetConvId);
     if (!choiceInfo) return null;
 
-    const gameState = choiceInfo.context?.gameState;
+    const gameState = (await readConversationState(prisma, targetConvId)).gameState;
     if (!gameState || !Array.isArray(gameState.players) || gameState.players.length === 0) {
       return null;
     }
@@ -1052,7 +1009,7 @@ export async function createPokerGameSession(
       where: { conversationId: c.id },
       orderBy: { updatedAt: 'desc' },
     });
-    const isPaused = latestReq?.status === 'PAUSED' || (latestReq?.context as any)?.isPaused === true;
+    const isPaused = latestReq?.status === 'PAUSED' || meta.isPaused === true;
     return {
       tableId: String(c.id),
       conversationId: c.id,
@@ -1190,9 +1147,9 @@ export async function createPokerGameSession(
     };
   };
 
-  const getBankroll = async (playerName?: string): Promise<{ balance: number; currency: string } | null> => {
+  const getBankroll = async (): Promise<{ balance: number; currency: string } | null> => {
     try {
-      const res = await runTool(PokerTool.GET_BANKROLL, { playerName: playerName || user?.name || 'You' });
+      const res = await runTool(PokerTool.GET_BANKROLL, {});
       if (res?.balance !== undefined) {
         return {
           balance: Number(res.balance),

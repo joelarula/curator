@@ -281,3 +281,60 @@ test('ast/choices: joins three parallel choice questions before asking the LLM t
     await env.cleanup();
   }
 });
+
+test('ast/choice: conditional choices are offered only while their `when` expression holds', async () => {
+  const env = await createEnv('ast_choice_when', { listing: () => ({ count: 0 }) });
+  try {
+    await runAst(env, {
+      type: 'Curator_Sequential',
+      subAgents: [
+        { type: 'Curator_Tool', toolName: 'listing', args: {}, as: 'listing' },
+        {
+          type: 'Curator_HumanInput',
+          prompt: 'Lobby:',
+          inputType: 'choices',
+          choices: [
+            { id: 'new', label: 'New' },
+            { id: 'resume', label: 'Resume', when: '$context.listing.count > 0' },
+            { id: 'exit', label: 'Exit', when: '$context.listing.count == 0' },
+          ],
+          as: 'selection',
+        },
+      ],
+    });
+
+    const waitingRequest = await env.prisma.request.findFirst({
+      where: { conversationId: env.conversationId, status: 'WAITING_FOR_USER' },
+    });
+    assert.deepEqual(waitingRequest.context.activeChoices, [
+      { id: 'new', label: 'New' },
+      { id: 'exit', label: 'Exit' },
+    ]);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('ast/tool: spread=false binds the output under `as` only, without merging its fields into context', async () => {
+  const env = await createEnv('ast_tool_spread', {
+    make: () => ({ tableId: 't-1' }),
+    echo: (a: any) => ({ echoed: a.text }),
+  });
+  try {
+    const { result } = await runAst(env, {
+      type: 'Curator_Sequential',
+      subAgents: [
+        { type: 'Curator_Tool', toolName: 'make', args: {}, as: 'made', spread: false },
+        { type: 'Curator_Tool', toolName: 'echo', args: { text: '$context.made.tableId' } },
+        { type: 'Curator_Tool', toolName: 'echo', args: { text: '$context.tableId || "unset"' } },
+        { type: 'Curator_Tool', toolName: 'make', args: {} },
+        { type: 'Curator_Tool', toolName: 'echo', args: { text: '$context.tableId || "unset"' } },
+      ],
+    });
+
+    assert.equal(result.done, true);
+    assert.deepEqual(env.calls.filter((c) => c.tool === 'echo').map((c) => c.args.text), ['t-1', 'unset', 't-1']);
+  } finally {
+    await env.cleanup();
+  }
+});

@@ -22,7 +22,9 @@ import type {
   PokerLobbyChoice,
   PokerTableChoice,
   PokerLobbyActionType,
-} from '../workflows/pokerLobby.ts';
+  PokerLobbyTable,
+  PokerLobbyMenu,
+} from './pokerLobbyMenu.ts';
 import { createContextProxy, type TypedPathProxy } from '../curator.ts';
 
 // ==========================================
@@ -131,12 +133,11 @@ export interface PokerGetChoicesParams {
   playerIdx?: WorkflowValue<number>;
 }
 
-export interface PokerListTablesParams {
-  actorId?: WorkflowValue<string>;
-  userId?: WorkflowValue<string>;
-  playerName?: WorkflowValue<string>;
-  playerId?: WorkflowValue<string>;
-  projectId?: WorkflowValue<string>;
+/** No parameters: identity and project scope are resolved from the host session. */
+export type PokerListTablesParams = Record<string, never>;
+
+export interface PokerLobbyMenuParams {
+  tables?: WorkflowValue<PokerLobbyTable[]>;
 }
 
 export interface PokerCreateTableParams {
@@ -148,28 +149,31 @@ export interface PokerCreateTableParams {
   maxSeats?: WorkflowValue<number>;
 }
 
-export interface PokerGetBankrollParams {
-  userId?: WorkflowValue<string>;
-  playerName?: WorkflowValue<string>;
-  sbAmount?: WorkflowValue<number>;
+/** Wallet owner is always the host session user; no identity params. */
+export type PokerGetBankrollParams = Record<string, never>;
+
+export interface PokerGetBuyInOptionsParams {
   bbAmount?: WorkflowValue<number>;
 }
 
 export interface PokerDepositBuyInParams {
-  userId?: WorkflowValue<string>;
   tableId?: WorkflowValue<string | number>;
   amount?: WorkflowValue<number>;
+  bbAmount?: WorkflowValue<number>;
 }
 
 export interface PokerCashOutParams {
-  userId?: WorkflowValue<string>;
   tableId?: WorkflowValue<string | number>;
   chips?: WorkflowValue<number>;
 }
 
 export interface PokerReloadBankrollParams {
-  userId?: WorkflowValue<string>;
-  amount?: WorkflowValue<number>;
+  /** Free-form amount: number, "$5,000", "5k" or a reload choice object. */
+  amount?: WorkflowValue<number | string>;
+}
+
+export interface PokerCloseTableParams {
+  reason?: WorkflowValue<string>;
 }
 
 export interface PokerToolParamsMap {
@@ -188,11 +192,14 @@ export interface PokerToolParamsMap {
   [PokerTool.GET_STANDINGS]: PokerGetStandingsParams;
   [PokerTool.GET_CHOICES]: PokerGetChoicesParams;
   [PokerTool.LIST_TABLES]: PokerListTablesParams;
+  [PokerTool.LOBBY_MENU]: PokerLobbyMenuParams;
   [PokerTool.CREATE_TABLE]: PokerCreateTableParams;
   [PokerTool.GET_BANKROLL]: PokerGetBankrollParams;
+  [PokerTool.GET_BUY_IN_OPTIONS]: PokerGetBuyInOptionsParams;
   [PokerTool.DEPOSIT_BUY_IN]: PokerDepositBuyInParams;
   [PokerTool.CASH_OUT]: PokerCashOutParams;
   [PokerTool.RELOAD_BANKROLL]: PokerReloadBankrollParams;
+  [PokerTool.CLOSE_TABLE]: PokerCloseTableParams;
 }
 
 // ==========================================
@@ -243,6 +250,8 @@ export interface PokerHandResult {
 // ==========================================
 /** Fields shared by every flow: identity, blinds and the live game state. */
 export interface PokerSharedContext {
+  /** Live event-sourced conversation state; closures read game and lifecycle state from here. */
+  state?: PokerWorkflowState;
   gameState?: PokerGameState;
   tableId?: string;
   actorId?: string;
@@ -265,19 +274,27 @@ export interface PokerSharedContext {
 export interface PokerBankrollContext extends PokerSharedContext {
   buyInChoice?: any;
   selectedBuyIn?: number;
-  poker_get_bankroll?: {
+  bankroll?: {
+    balance: number;
+    currency: string;
+    formattedBalance: string;
+  };
+  buyInOptions?: {
     balance: number;
     minBuyIn: number;
     maxBuyIn: number;
     canAfford: boolean;
     choices: any[];
   };
-  poker_deposit_buy_in?: {
+  buyInDeposit?: {
     success: boolean;
     newBalance: number;
     deposited: number;
   };
-  poker_reload_bankroll?: {
+  reloadChoice?: any;
+  reload?: {
+    success: boolean;
+    added: number;
     balance: number;
   };
 }
@@ -293,27 +310,18 @@ export interface PokerBootContext extends PokerSharedContext {
 /** Lobby flow proper: table listing/selection, composed with its buy-in and boot sub-flows. */
 export interface PokerLobbyContext extends PokerBankrollContext, PokerBootContext {
   lobbyChoice?: PokerLobbyChoice | { id: PokerLobbyActionType; label?: string } | string;
-  selectedTable?: PokerTableChoice | { id: string; tableId?: string } | string;
+  selectedTable?: PokerTableChoice | { id: string } | string;
 
-  poker_create_table?: { tableId?: string; [key: string]: any };
-  poker_list_tables?: {
-    tables: Array<{ id: string; tableId: string; title: string }>;
-    choices: PokerTableChoice[];
-    lobbyChoices: PokerLobbyChoice[];
-    hasUnfinishedGames: boolean;
-    count: number;
-  };
+  // Tool results, each bound explicitly with `{ as }` in the lobby workflow
+  openTables?: { tables: PokerLobbyTable[] };
+  lobbyMenu?: PokerLobbyMenu;
+  newTable?: { tableId?: string; [key: string]: any };
 }
 
 /** Hand lifecycle flow: dealing, street progression, settlement, game over. */
 export interface PokerTableContext extends PokerSharedContext {
   winnerSummary?: string;
   standings?: PlayerStanding[];
-  poker_start_hand?: { gameState: PokerGameState };
-  poker_deal_street?: { gameState: PokerGameState };
-  poker_distribute_pots?: { gameState: PokerGameState };
-  poker_check_game_over?: { gameOver: boolean; standings?: PlayerStanding[] };
-  poker_rotate_dealer?: { gameState: PokerGameState };
 }
 
 /** Player turn flows (agent, human, action application). */
@@ -328,9 +336,8 @@ export interface PokerTurnContext extends PokerSharedContext {
   choices?: PokerLegalChoice[];
   decision?: PokerTurnDecision;
   recentRemarks?: AmbientRemark[];
-  poker_get_choices?: { choices: PokerLegalChoice[] };
-  poker_ai_decision?: PokerTurnDecision;
-  poker_apply_action?: { gameState: PokerGameState };
+  /** poker_get_choices result, bound with `{ as }` in the human turn */
+  legalChoices?: { choices: PokerLegalChoice[] };
 }
 
 /** Ambient table-talk reaction flow. */
@@ -354,9 +361,37 @@ export interface PokerWorkflowContext
   [key: string]: any;
 }
 
+/**
+ * Conversation state (event-sourced). The lifecycle keys below are projected into the table's
+ * PokerTableShape triples by `pokerTableProjector`.
+ */
 export interface PokerWorkflowState {
+  /** Written by every engine tool step (its output is appended to the state log). */
+  gameState?: PokerGameState;
+  /** The run's table settings, handed to the isolated boot subroutine. */
+  tableConfig?: {
+    tableId?: string;
+    startingChips?: number;
+    sbAmount?: number;
+    bbAmount?: number;
+    maxSeats?: number;
+    players?: any[];
+    playerName?: string;
+  };
   isPaused?: boolean;
   sessionEnded?: boolean;
+  gameOver?: boolean;
+  isClosed?: boolean;
+  /** Active state of the table / lobby state machines. */
+  tablePhase?: string;
+  lobbyPhase?: string;
+  /** The current seat's decision, written by its actor handler. */
+  turnAction?: PlayerAction;
+  /** RESUME or EXIT while the table is paused. */
+  resumeCmd?: { type: 'RESUME' | 'EXIT' } | string;
+  seatedPlayers?: Array<{ id: string; name?: string; isHuman?: boolean }>;
+  /** Written by the engine when the table workflow crashes. */
+  lastFailure?: { requestId: number; nodeId: string | null; nodeType: string | null; reason: string; failedAt: string };
   handCount?: number;
   lastWinnerId?: string;
   [key: string]: any;
@@ -399,7 +434,10 @@ export const bootCtx: TypedPathProxy<PokerBootContext> = createContextProxy<Poke
 export const tableCtx: TypedPathProxy<PokerTableContext> = createContextProxy<PokerTableContext>('$context');
 export const turnCtx: TypedPathProxy<PokerTurnContext> = createContextProxy<PokerTurnContext>('$context');
 export const ambientCtx: TypedPathProxy<PokerAmbientContext> = createContextProxy<PokerAmbientContext>('$context');
-export const gameState: TypedPathProxy<PokerGameState> = createContextProxy<PokerGameState>('$context.gameState');
+// Game and lifecycle state are read from the event-sourced conversation state, never from request-context copies
+export const gameState: TypedPathProxy<PokerGameState> = createContextProxy<PokerGameState>('$state.gameState');
 export const state: TypedPathProxy<PokerWorkflowState> = createContextProxy<PokerWorkflowState>('$state');
 export const params: TypedPathProxy<PokerWorkflowParams> = createContextProxy<PokerWorkflowParams>('$params');
+/** The seat an actor handler is playing (Bevy component of the acting entity). */
+export const actor: TypedPathProxy<PlayerState> = createContextProxy<PlayerState>('$params.actor');
 

@@ -29,6 +29,23 @@ export interface BuyInOptionsResult {
 
 const DEFAULT_INITIAL_BANKROLL = 10000;
 const DEFAULT_RELOAD_AMOUNT = 5000;
+const MAX_RELOAD_AMOUNT = 1_000_000;
+
+/**
+ * Parses a free-form chip amount: 5000, "5000", "$5,000", "5k", { amount }, { value }, { choice }.
+ * Returns 0 when nothing usable is found.
+ */
+export function parseChipAmount(input: any): number {
+  if (typeof input === 'number') return Number.isFinite(input) && input > 0 ? Math.floor(input) : 0;
+  if (input && typeof input === 'object') {
+    return parseChipAmount(input.amount ?? input.value ?? input.choice ?? input.id);
+  }
+  if (typeof input !== 'string') return 0;
+  const match = input.trim().toLowerCase().replace(/[\$,\s]/g, '').match(/^(\d+(?:\.\d+)?)(k)?$/);
+  if (!match) return 0;
+  const amount = Number(match[1]) * (match[2] ? 1000 : 1);
+  return amount > 0 ? Math.floor(amount) : 0;
+}
 
 function parseBankrollMetadata(description?: string | null): Record<string, any> {
   if (!description) return {};
@@ -39,15 +56,14 @@ function parseBankrollMetadata(description?: string | null): Record<string, any>
   }
 }
 
+/** Per-user chip wallet; identity is the host user id, nothing else. */
 export async function getOrCreateBankroll(
   prisma: any,
   userId: string,
-  playerName?: string,
-  initialBalance: number = DEFAULT_INITIAL_BANKROLL,
   projectId?: string | null
 ): Promise<BankrollInfo> {
   const uri = `${POKER_SHAPE_URIS.BANKROLL_CLASS}:${userId}`;
-  const title = `${playerName || 'Player'}'s Bankroll`;
+  const initialBalance = DEFAULT_INITIAL_BANKROLL;
 
   let resource = await prisma.resource.findUnique({
     where: { uri },
@@ -64,7 +80,7 @@ export async function getOrCreateBankroll(
     resource = await prisma.resource.create({
       data: {
         uri,
-        title,
+        title: 'Poker Bankroll',
         description: JSON.stringify(meta),
         userId,
         projectId: projectId || null,
@@ -146,7 +162,7 @@ export async function depositBuyIn(
   projectId?: string | null,
   options: { minBuyIn?: number; maxBuyIn?: number } = {}
 ): Promise<{ success: boolean; newBalance: number; deposited: number; reason?: string }> {
-  const bankroll = await getOrCreateBankroll(prisma, userId, undefined, DEFAULT_INITIAL_BANKROLL, projectId);
+  const bankroll = await getOrCreateBankroll(prisma, userId, projectId);
   const minBuyIn = options.minBuyIn ?? 400;
   const maxBuyIn = options.maxBuyIn ?? 2000;
   const depositAmt = parseBuyInAmount(amount, minBuyIn, maxBuyIn, bankroll.balance);
@@ -189,7 +205,7 @@ export async function cashOutToBankroll(
   _tableId?: string | number,
   projectId?: string | null
 ): Promise<{ success: boolean; newBalance: number; cashedOut: number }> {
-  const bankroll = await getOrCreateBankroll(prisma, userId, undefined, DEFAULT_INITIAL_BANKROLL, projectId);
+  const bankroll = await getOrCreateBankroll(prisma, userId, projectId);
   const returnChips = Math.max(0, Number(chips) || 0);
   const newBalance = bankroll.balance + returnChips;
 
@@ -219,9 +235,11 @@ export async function reloadBankroll(
   userId: string,
   reloadAmount: number = DEFAULT_RELOAD_AMOUNT,
   projectId?: string | null
-): Promise<BankrollInfo> {
-  const bankroll = await getOrCreateBankroll(prisma, userId, undefined, DEFAULT_INITIAL_BANKROLL, projectId);
-  const newBalance = bankroll.balance + Math.max(0, reloadAmount);
+): Promise<BankrollInfo & { added: number }> {
+  const bankroll = await getOrCreateBankroll(prisma, userId, projectId);
+  reloadAmount = Math.min(MAX_RELOAD_AMOUNT, Math.max(0, Math.floor(reloadAmount) || 0));
+  if (reloadAmount === 0) return { ...bankroll, added: 0 };
+  const newBalance = bankroll.balance + reloadAmount;
 
   const meta = {
     balance: newBalance,
@@ -243,16 +261,23 @@ export async function reloadBankroll(
     balance: newBalance,
     currency: bankroll.currency,
     updatedAt: meta.updatedAt,
+    added: reloadAmount,
+  };
+}
+
+/** Table buy-in limits derived from the table's big blind (not a wallet concern). */
+export function getBuyInLimits(bbAmount: number = 20): { minBuyIn: number; maxBuyIn: number } {
+  return {
+    minBuyIn: bbAmount * 20, // 20 BB e.g. $400
+    maxBuyIn: bbAmount * 100, // 100 BB e.g. $2000
   };
 }
 
 export function getBuyInPresets(
   balance: number,
-  _sbAmount: number = 10,
   bbAmount: number = 20
 ): BuyInOptionsResult {
-  const minBuyIn = bbAmount * 20; // 20 BB e.g. $400
-  const maxBuyIn = bbAmount * 100; // 100 BB e.g. $2000
+  const { minBuyIn, maxBuyIn } = getBuyInLimits(bbAmount);
   const canAfford = balance >= minBuyIn;
 
   const standardBuyIns = [

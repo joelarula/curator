@@ -8,8 +8,8 @@ const turn = {
   type: 'Curator_Sequential',
   name: 'Dialogue Turn',
   subAgents: [
-    { type: 'Curator_HumanInput', prompt: 'Your question:', inputType: 'text', as: 'question' },
-    { type: 'Curator_Agent', agentName: 'assistant', model: 'fake-model', prompt: 'Answer briefly.' },
+    { type: 'Curator_HumanInput', prompt: 'Your question:', inputType: 'text', as: 'question', blocking: true },
+    { type: 'Curator_Agent', agentName: 'assistant', model: 'fake-model', prompt: 'Answer briefly.', as: 'assistant' },
   ],
 };
 
@@ -63,8 +63,8 @@ const interviewTurn = {
   type: 'Curator_Sequential',
   name: 'Interview Turn',
   subAgents: [
-    { type: 'Curator_Agent', agentName: 'interviewer', model: 'fake-model', prompt: 'Ask the next question.' },
-    { type: 'Curator_HumanInput', prompt: 'Your answer:', inputType: 'text', as: 'answer' },
+    { type: 'Curator_Agent', agentName: 'interviewer', model: 'fake-model', prompt: 'Ask the next question.', as: 'interviewer' },
+    { type: 'Curator_HumanInput', prompt: 'Your answer:', inputType: 'text', as: 'answer', blocking: true },
   ],
 };
 
@@ -158,8 +158,8 @@ test('dialogue/panel: human asks once, several agents answer in parallel and eac
 
 // CoffeeScript parse check: each fixture must compile to exactly this hand-written AST.
 const json = (v: unknown) => JSON.parse(JSON.stringify(v));
-const humanText = (prompt: string, as: string) => ({ type: 'Curator_HumanInput', prompt, inputType: 'text', as });
-const llmAgent = (agentName: string, prompt: string) => ({ type: 'Curator_Agent', agentName, model: 'fake-model', prompt });
+const humanText = (prompt: string, as: string) => ({ type: 'Curator_HumanInput', prompt, inputType: 'text', as, blocking: true });
+const llmAgent = (agentName: string, prompt: string) => ({ type: 'Curator_Agent', agentName, model: 'fake-model', prompt, as: agentName });
 
 test('dialogue/coffee: fixtures compile to the expected ASTs', async () => {
   assert.deepEqual(json(await compileFixture('dialogue.coffee')), {

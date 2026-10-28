@@ -181,9 +181,7 @@ export const POKER_COMMANDS: ReplCommand[] = [
         } catch (_) {}
       } else if (ctx?.channel && typeof (ctx.channel as any).runTool === 'function') {
         try {
-          const res = await (ctx.channel as any).runTool(PokerTool.GET_BANKROLL, {
-            playerName: ctx.actorName || 'You',
-          });
+          const res = await (ctx.channel as any).runTool(PokerTool.GET_BANKROLL, {});
           if (res?.balance !== undefined) {
             walletStr = `$${Number(res.balance).toLocaleString()}`;
           }
@@ -258,9 +256,7 @@ export function createPokerClientShell(
     getWallet: async () => {
       if (opts.channel && typeof (opts.channel as any).runTool === 'function') {
         try {
-          const res = await (opts.channel as any).runTool(PokerTool.GET_BANKROLL, {
-            playerName: opts.actorName || 'You',
-          });
+          const res = await (opts.channel as any).runTool(PokerTool.GET_BANKROLL, {});
           if (res?.balance !== undefined) return res.balance;
         } catch (_) {}
       }

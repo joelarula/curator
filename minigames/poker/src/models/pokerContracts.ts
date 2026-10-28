@@ -31,15 +31,18 @@ export const PokerTool = {
   ROTATE_DEALER: 'poker_rotate_dealer',
   AI_DECISION: 'poker_ai_decision',
   LIST_TABLES: 'poker_list_tables',
+  LOBBY_MENU: 'poker_lobby_menu',
   SPEECH: 'poker_speech',
   HUMAN_SPEECH: 'poker_human_speech',
   FAST_FORWARD: 'poker_fast_forward_board',
   GET_STANDINGS: 'poker_get_standings',
   CREATE_TABLE: 'poker_create_table',
   GET_BANKROLL: 'poker_get_bankroll',
+  GET_BUY_IN_OPTIONS: 'poker_get_buy_in_options',
   DEPOSIT_BUY_IN: 'poker_deposit_buy_in',
   CASH_OUT: 'poker_cash_out',
   RELOAD_BANKROLL: 'poker_reload_bankroll',
+  CLOSE_TABLE: 'poker_close_table',
 } as const;
 
 export type PokerToolType = (typeof PokerTool)[keyof typeof PokerTool];
@@ -113,6 +116,10 @@ export const PokerEvent = {
   TOOL_CALL: 'poker:tool_call',
 
   // Actions & Execution
+  ACTION_INTENT: 'poker:action_intent',
+  ACTION_VALIDATED: 'poker:action_validated',
+  ACTION_REJECTED: 'poker:action_rejected',
+  ACTION_RESOLVED: 'poker:action_resolved',
   ACTION_APPLIED: 'poker:action_applied',
   ACTION_TAKEN: 'poker:action_taken',
   AWAITING_HUMAN_ACTION: 'poker:awaiting_human_action',
@@ -240,8 +247,7 @@ export const PokerStep = {
 
   // Master Workflow Engine Steps
   DYNAMIC_ENGINE: 'poker:dynamic_engine',
-  SINGLE_HAND: 'poker:single_hand',
-  STREET_LOOP: 'poker:street_loop',
+  TABLE_PHASES: 'poker:table_phases',
   TURN_STEP: 'poker:turn_step',
   HUMAN_AGENT_FLOW: 'poker:human_agent_flow',
   AI_AGENT_FLOW: 'poker:ai_agent_flow',
@@ -251,6 +257,38 @@ export const PokerStep = {
 } as const;
 
 export type PokerStepType = (typeof PokerStep)[keyof typeof PokerStep];
+
+/** States of the table game-loop state machine, mirrored into conversation state under `TABLE_PHASE_KEY`. */
+export const PokerTablePhase = {
+  BOOT: 'BOOT',
+  START_HAND: 'START_HAND',
+  BETTING: 'BETTING',
+  APPLY: 'APPLY',
+  PAUSED: 'PAUSED',
+  EXITED: 'EXITED',
+  DEAL_STREET: 'DEAL_STREET',
+  SETTLE: 'SETTLE',
+  CLOSE_HAND: 'CLOSE_HAND',
+  GAME_OVER: 'GAME_OVER',
+} as const;
+
+export type PokerTablePhaseType = (typeof PokerTablePhase)[keyof typeof PokerTablePhase];
+
+export const TABLE_PHASE_KEY = 'tablePhase';
+
+/** States of the lounge state machine, mirrored into conversation state under `LOBBY_PHASE_KEY`. */
+export const PokerLobbyPhase = {
+  MENU: 'MENU',
+  PICK_TABLE: 'PICK_TABLE',
+  NEW_TABLE: 'NEW_TABLE',
+  BUY_IN: 'BUY_IN',
+  RELOAD: 'RELOAD',
+  DEPOSIT: 'DEPOSIT',
+  BOOT: 'BOOT',
+  EXIT: 'EXIT',
+} as const;
+
+export const LOBBY_PHASE_KEY = 'lobbyPhase';
 
 // ==========================================
 // 6. Client Transport & Runtime Constants

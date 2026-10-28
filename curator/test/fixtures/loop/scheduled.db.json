@@ -22,7 +22,7 @@
         "state": {
           "output": "2"
         },
-        "tick": "2"
+        "tick": 2
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -50,7 +50,7 @@
       "context": {
         "iteration": 1,
         "state": {},
-        "tick": "1"
+        "tick": 1
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -81,7 +81,7 @@
         "state": {
           "output": "1"
         },
-        "tick": "2"
+        "tick": 2
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",

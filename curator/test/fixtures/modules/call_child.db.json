@@ -31,8 +31,11 @@
         "type": "Curator_Tool"
       },
       "context": {
+        "got": 42,
         "input": "{\"doubled\":42,\"output\":\"42\",\"result\":42}",
-        "record": "{\"got\":42}",
+        "record": {
+          "got": 42
+        },
         "result": 42,
         "state": {
           "doubled": 42,
@@ -104,7 +107,7 @@
       "executionScheduled": "<ts>",
       "existent": true,
       "id": "<req:4>",
-      "notifyId": "<req:3>",
+      "notifyId": null,
       "parentId": "<req:3>",
       "pendingDependencies": 0,
       "priority": 0,

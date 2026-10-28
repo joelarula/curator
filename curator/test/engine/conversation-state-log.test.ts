@@ -7,6 +7,7 @@ import {
   foldState,
   listStateEvents,
   rebuildStateSnapshot,
+  registerStateProjector,
   rewindState,
   stateAt,
   STATE_PATCH,
@@ -65,6 +66,42 @@ test('state log: writes append events, materialize metadata, support time travel
 
     const rows = await p.eventLog.findMany({ where: { conversationId: id } });
     assert.deepEqual(entriesFromEvents(rows), [], 'state events never reach a prompt');
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('state projectors: see each transition in its transaction; a throwing projector rolls the event back', async () => {
+  const env = await createEnv('state_projectors');
+  try {
+    const p = env.prisma;
+    const id = env.conversationId;
+    const seen: Array<{ eventName: string; previous: any; state: any }> = [];
+    const unregister = registerStateProjector(p, ({ event, previous, state }) => {
+      seen.push({ eventName: event.eventName, previous, state });
+    });
+
+    const first = await appendStatePatch(p, id, { set: { status: 'active' } });
+    await appendStatePatch(p, id, { set: { status: 'finished' } });
+    await rewindState(p, id, first.seq);
+    assert.deepEqual(seen.map((s) => [s.eventName, s.previous.status, s.state.status]), [
+      [STATE_PATCH, undefined, 'active'],
+      [STATE_PATCH, 'active', 'finished'],
+      [STATE_REWIND, 'finished', 'active'],
+    ]);
+
+    const failing = registerStateProjector(p, ({ state }) => {
+      if (state.status === 'broken') throw new Error('projection failed');
+    });
+    await assert.rejects(appendStatePatch(p, id, { set: { status: 'broken' } }), /projection failed/);
+    assert.equal((await stateAt(p, id)).status, 'active', 'rejected event was not appended');
+    assert.equal((await listStateEvents(p, id)).length, 3);
+
+    failing();
+    unregister();
+    const seenBefore = seen.length;
+    await appendStatePatch(p, id, { set: { status: 'paused' } });
+    assert.equal(seen.length, seenBefore, 'unregistered projectors no longer fire');
   } finally {
     await env.cleanup();
   }

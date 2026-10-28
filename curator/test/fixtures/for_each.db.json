@@ -59,7 +59,10 @@
         "type": "Curator_ForEach"
       },
       "context": {
-        "echo": "{\"echoed\":\"c\"}",
+        "echo": {
+          "echoed": "c"
+        },
+        "echoed": "c",
         "forEachCollection": [
           "a",
           "b",
@@ -136,7 +139,10 @@
         "type": "Curator_Tool"
       },
       "context": {
-        "echo": "{\"echoed\":\"a\"}",
+        "echo": {
+          "echoed": "a"
+        },
+        "echoed": "a",
         "input": "{\"items\":[\"a\",\"b\",\"c\"],\"status\":\"State updated\",\"state\":{\"items\":[\"a\",\"b\",\"c\"]}}",
         "item": "a",
         "state": {
@@ -179,7 +185,10 @@
         "type": "Curator_Tool"
       },
       "context": {
-        "echo": "{\"echoed\":\"b\"}",
+        "echo": {
+          "echoed": "b"
+        },
+        "echoed": "b",
         "forEachCollection": [
           "a",
           "b",
@@ -229,7 +238,10 @@
         "type": "Curator_Tool"
       },
       "context": {
-        "echo": "{\"echoed\":\"c\"}",
+        "echo": {
+          "echoed": "c"
+        },
+        "echoed": "c",
         "forEachCollection": [
           "a",
           "b",

@@ -6,6 +6,7 @@ import {
   curatorEngine,
   ConversationManager,
   ConversationRouter,
+  registerStateProjector,
   setLogLevel,
 } from '@curator/agent-server';
 import { CuratorHostEvents } from './events/CuratorHostEvents.js';
@@ -106,6 +107,11 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
     },
   });
 
+  // Plugin projectors run for every state event on this database, whichever component appends it
+  const unregisterProjectors = registeredEngine.plugins.flatMap((plugin: any) =>
+    (plugin.stateProjectors ?? []).map((projector: any) => registerStateProjector(prisma, projector))
+  );
+
   // 6. Instantiate ConversationManager & ConversationRouter for native intra-node agent communication
   const convManager = new ConversationManager({
     prisma,
@@ -187,6 +193,7 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
         processor.stop();
       }
       events.close();
+      unregisterProjectors.forEach((unregister: () => void) => unregister());
       if (prisma && typeof prisma.$disconnect === 'function') {
         await prisma.$disconnect();
       }

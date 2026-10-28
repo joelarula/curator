@@ -53,8 +53,10 @@
         "type": "Curator_SetState"
       },
       "context": {
-        "echo": "{\"echoed\":\"hello\"}",
-        "echoed": "{\"echoed\":\"hello\"}",
+        "echo": {
+          "echoed": "hello"
+        },
+        "echoed": "hello",
         "input": "{\"counter\":1,\"status\":\"State updated\",\"state\":{\"counter\":1},\"echoed\":\"hello\"}",
         "state": {
           "counter": 1,
@@ -90,8 +92,10 @@
         "type": "Curator_Tool"
       },
       "context": {
-        "echo": "{\"echoed\":\"hello\"}",
-        "echoed": "{\"echoed\":\"hello\"}",
+        "echo": {
+          "echoed": "hello"
+        },
+        "echoed": "hello",
         "input": "{\"counter\":1,\"status\":\"State updated\",\"state\":{\"counter\":1}}",
         "state": {
           "counter": 1,

@@ -69,7 +69,10 @@
         "type": "Curator_IfElse"
       },
       "context": {
-        "echo": "{\"echoed\":\"high\"}",
+        "echo": {
+          "echoed": "high"
+        },
+        "echoed": "high",
         "ifElseEvaluated": true,
         "input": "{\"score\":10,\"status\":\"State updated\",\"state\":{\"score\":10},\"echoed\":\"high\"}",
         "state": {
@@ -128,7 +131,10 @@
         "type": "Curator_Tool"
       },
       "context": {
-        "echo": "{\"echoed\":\"high\"}",
+        "echo": {
+          "echoed": "high"
+        },
+        "echoed": "high",
         "input": "{\"score\":10,\"status\":\"State updated\",\"state\":{\"score\":10}}",
         "state": {
           "score": 10,

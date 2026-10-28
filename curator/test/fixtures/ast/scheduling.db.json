@@ -48,10 +48,11 @@
         "type": "Curator_Agent"
       },
       "context": {
-        "input": "{\"output\":\"Successfully scheduled my_test_task. ID: 7\"}",
-        "state": {
-          "output": "Successfully scheduled my_test_task. ID: 7"
-        }
+        "$last": "Successfully scheduled my_test_task. ID: 7",
+        "$response": "Successfully scheduled my_test_task. ID: 7",
+        "decision": "Successfully scheduled my_test_task. ID: 7",
+        "input": "{}",
+        "state": {}
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",

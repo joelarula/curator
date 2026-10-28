@@ -57,7 +57,10 @@
         "choiceAs": "code",
         "choicePrompt": "Please enter your approval code:",
         "code": "CODE-42",
-        "echo": "{\"echoed\":\"CODE-42\"}",
+        "echo": {
+          "echoed": "CODE-42"
+        },
+        "echoed": "CODE-42",
         "input": "{\"status\":\"pre-processed\",\"code\":\"CODE-42\",\"output\":\"CODE-42\"}",
         "state": {
           "code": "CODE-42",

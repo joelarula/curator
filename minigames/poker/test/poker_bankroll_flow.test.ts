@@ -9,6 +9,7 @@ import {
   cashOutToBankroll,
   reloadBankroll,
   getBuyInPresets,
+  parseChipAmount,
 } from '../src/services/pokerBankrollStore.ts';
 import {
   createPokerGameSession,
@@ -28,10 +29,9 @@ test('Cashier Bankroll Service: Manages player balance, presets, and deposits', 
   try {
     const prisma = host.prisma;
     const userId = 'player_hero';
-    const playerName = 'Hero';
 
     // 1. Initial Bankroll Creation ($10,000 default)
-    const bankroll = await getOrCreateBankroll(prisma, userId, playerName);
+    const bankroll = await getOrCreateBankroll(prisma, userId);
     assert.equal(bankroll.balance, 10000);
     assert.equal(bankroll.uri, `${POKER_SHAPE_URIS.BANKROLL_CLASS}:${userId}`);
 
@@ -43,8 +43,8 @@ test('Cashier Bankroll Service: Manages player balance, presets, and deposits', 
     const parsed = JSON.parse(resource.description);
     assert.equal(parsed.balance, 10000);
 
-    // 2. Buy-in Presets Calculation (Blinds: $10 / $20)
-    const presets = getBuyInPresets(bankroll.balance, 10, 20);
+    // 2. Buy-in Presets Calculation (Big blind: $20)
+    const presets = getBuyInPresets(bankroll.balance, 20);
     assert.equal(presets.minBuyIn, 400); // 20 BB
     assert.equal(presets.maxBuyIn, 2000); // 100 BB
     assert.equal(presets.canAfford, true);
@@ -87,17 +87,39 @@ test('Cashier Bankroll Service: Manages player balance, presets, and deposits', 
     const lowBankroll = await getOrCreateBankroll(prisma, userId);
     assert.equal(lowBankroll.balance, 200);
 
-    const lowPresets = getBuyInPresets(lowBankroll.balance, 10, 20);
+    const lowPresets = getBuyInPresets(lowBankroll.balance, 20);
     assert.equal(lowPresets.canAfford, false);
 
     // Top-up reload ($5,000)
     const reloaded = await reloadBankroll(prisma, userId, 5000);
     assert.equal(reloaded.balance, 5200);
-    const reloadedPresets = getBuyInPresets(reloaded.balance, 10, 20);
+    const reloadedPresets = getBuyInPresets(reloaded.balance, 20);
     assert.equal(reloadedPresets.canAfford, true);
+
+    // 6. Free-form top-ups persist on the same wallet resource
+    const freeForm = await reloadBankroll(prisma, userId, parseChipAmount('$7,500'));
+    assert.equal(freeForm.added, 7500);
+    assert.equal(freeForm.balance, 12700);
+    const noop = await reloadBankroll(prisma, userId, parseChipAmount('lots'));
+    assert.equal(noop.added, 0);
+    assert.equal(noop.balance, 12700);
+    assert.equal((await getOrCreateBankroll(prisma, userId)).balance, 12700);
   } finally {
     await host.stop();
   }
+});
+
+test('parseChipAmount: accepts free-form chip amounts', () => {
+  assert.equal(parseChipAmount(5000), 5000);
+  assert.equal(parseChipAmount('5000'), 5000);
+  assert.equal(parseChipAmount('$5,000'), 5000);
+  assert.equal(parseChipAmount('10k'), 10000);
+  assert.equal(parseChipAmount('2.5K'), 2500);
+  assert.equal(parseChipAmount({ value: 1000 }), 1000);
+  assert.equal(parseChipAmount({ choice: '750' }), 750);
+  assert.equal(parseChipAmount('-100'), 0);
+  assert.equal(parseChipAmount('abc'), 0);
+  assert.equal(parseChipAmount(undefined), 0);
 });
 
 test('Cashier Table Integration: Table creation with custom buyIn and automatic cash out', async () => {
@@ -187,7 +209,7 @@ test('Buy-In Flow: Supports numeric preset selection and free-form deposit amoun
   const { createPokerClientShell } = await import('../src/client/pokerClientShell.ts');
   const { getBuyInPresets } = await import('../src/services/pokerBankrollStore.ts');
 
-  const presets = getBuyInPresets(10000, 10, 20);
+  const presets = getBuyInPresets(10000, 20);
 
   const shell = createPokerClientShell({
     actorName: 'Hero',
