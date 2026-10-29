@@ -1,4 +1,3 @@
-import { EventEmitter } from 'events';
 import type {
   AgentMessageEnvelope,
   AgentEndpoint,
@@ -6,6 +5,8 @@ import type {
   ForumGovernanceMode,
 } from './types.js';
 import { createAgentMessageEnvelope } from './EnvelopeValidator.js';
+import { BaseConversationSession } from './BaseConversationSession.js';
+import { evaluateQuorum } from './ConversationTools.js';
 import type { ConversationManager } from './ConversationManager.js';
 
 export interface ActiveProposal {
@@ -28,12 +29,10 @@ export interface ForumRoomOptions {
 
 /**
  * Manages an M:N structured deliberation forum or committee room.
- * Operates natively inside a single node as well as across the mesh.
  * Supports floor arbitration, role assignment, proposal lifecycle, and voting quorum.
  */
-export class ForumRoom extends EventEmitter {
+export class ForumRoom extends BaseConversationSession {
   public readonly roomUri: string;
-  public readonly topic?: string;
   public readonly governanceMode: ForumGovernanceMode;
   public readonly requiredVotes: number;
 
@@ -41,17 +40,17 @@ export class ForumRoom extends EventEmitter {
   private currentActiveProposal: ActiveProposal | null = null;
   private proposalHistory: ActiveProposal[] = [];
   private currentActiveSpeaker?: AgentEndpoint;
-  private manager?: ConversationManager;
-  private turnCounter: number = 0;
   private isConcluded: boolean = false;
 
   constructor(options: ForumRoomOptions) {
-    super();
+    super({
+      conversationId: options.roomUri,
+      topic: options.topic,
+      manager: options.manager,
+    });
     this.roomUri = options.roomUri;
-    this.topic = options.topic;
     this.governanceMode = options.governanceMode || 'moderated';
     this.requiredVotes = options.requiredVotes || 2;
-    this.manager = options.manager;
 
     if (options.initialParticipants) {
       for (const p of options.initialParticipants) {
@@ -80,18 +79,11 @@ export class ForumRoom extends EventEmitter {
     return this.isConcluded;
   }
 
-  /**
-   * Registers a participant in the room roster.
-   */
   public join(participant: AgentEndpoint): void {
-    const key = `${participant.nodeId}:${participant.agentId}`;
-    this.participantsMap.set(key, participant);
+    this.participantsMap.set(this.endpointKey(participant), participant);
     this.emit('join', participant);
   }
 
-  /**
-   * Removes a participant from the room roster.
-   */
   public leave(agentId: string, nodeId: string = 'local'): boolean {
     const key = `${nodeId}:${agentId}`;
     const deleted = this.participantsMap.delete(key);
@@ -101,34 +93,24 @@ export class ForumRoom extends EventEmitter {
     return deleted;
   }
 
-  /**
-   * Assigns or updates the communicative role of a participant.
-   */
   public assignRole(agentId: string, role: string, nodeId: string = 'local'): boolean {
-    const key = `${nodeId}:${agentId}`;
-    const p = this.participantsMap.get(key);
+    const p = this.participantsMap.get(`${nodeId}:${agentId}`);
     if (!p) return false;
     p.role = role;
     this.emit('role_assigned', { participant: p, role });
     return true;
   }
 
-  /**
-   * Grants the active speaking floor to an agent.
-   */
   public grantFloor(speaker: AgentEndpoint): void {
     this.currentActiveSpeaker = speaker;
     this.emit('floor_granted', speaker);
   }
 
-  /**
-   * Submits a new proposal to the forum.
-   */
   public async postProposal(
     proposer: AgentEndpoint,
     title: string,
     payload: any,
-    options: { requiredVotes?: number } = {}
+    _options: { requiredVotes?: number } = {}
   ): Promise<AgentMessageEnvelope> {
     if (this.isConcluded) {
       throw new Error(`Forum '${this.roomUri}' is already concluded`);
@@ -165,15 +147,12 @@ export class ForumRoom extends EventEmitter {
       },
     });
 
-    await this.persistTurn(envelope);
+    await this.persistTurn(envelope, envelope.contextState);
     this.emit('proposal', this.currentActiveProposal);
     this.emit('message', envelope);
     return envelope;
   }
 
-  /**
-   * Casts a ballot on the active proposal.
-   */
   public async castVote(
     voter: AgentEndpoint,
     choice: VoteChoice,
@@ -182,7 +161,6 @@ export class ForumRoom extends EventEmitter {
     if (!this.currentActiveProposal) {
       throw new Error(`Cannot vote: No active proposal in forum '${this.roomUri}'`);
     }
-
     if (this.isConcluded) {
       throw new Error(`Cannot vote: Forum '${this.roomUri}' is concluded`);
     }
@@ -190,18 +168,12 @@ export class ForumRoom extends EventEmitter {
     this.join(voter);
     this.turnCounter += 1;
 
-    const voterKey = `${voter.nodeId}:${voter.agentId}`;
-    this.currentActiveProposal.ballots.set(voterKey, { choice, rationale, voter });
-
-    // Check if quorum is reached
-    const approvals = Array.from(this.currentActiveProposal.ballots.values()).filter(b => b.choice === 'approve').length;
-    const rejections = Array.from(this.currentActiveProposal.ballots.values()).filter(b => b.choice === 'reject').length;
-    const totalVotes = this.currentActiveProposal.ballots.size;
-
-    let quorumReached = totalVotes >= this.requiredVotes;
-    if (quorumReached) {
-      this.currentActiveProposal.status = approvals > rejections ? 'ACCEPTED' : 'REJECTED';
-    }
+    this.currentActiveProposal.ballots.set(this.endpointKey(voter), { choice, rationale, voter });
+    const evalResult = evaluateQuorum(
+      Array.from(this.currentActiveProposal.ballots.values()).map((b) => b.choice),
+      this.requiredVotes
+    );
+    this.currentActiveProposal.status = evalResult.status;
 
     const envelope = createAgentMessageEnvelope({
       conversationId: this.roomUri,
@@ -217,36 +189,37 @@ export class ForumRoom extends EventEmitter {
         proposalId: this.currentActiveProposal.proposalId,
         ballot: choice,
         rationale,
-        tally: { approvals, rejections, total: totalVotes, required: this.requiredVotes },
-        quorumReached,
+        tally: {
+          approvals: evalResult.approvals,
+          rejections: evalResult.rejections,
+          total: evalResult.totalVotes,
+          required: this.requiredVotes,
+        },
+        quorumReached: evalResult.quorumReached,
       },
       turn: this.turnCounter,
       contextState: {
         activeProposalId: this.currentActiveProposal.proposalId,
         proposalStatus: this.currentActiveProposal.status,
-        quorumReached,
+        quorumReached: evalResult.quorumReached,
       },
     });
 
-    await this.persistTurn(envelope);
+    await this.persistTurn(envelope, envelope.contextState);
     this.emit('vote', { voter, choice, proposal: this.currentActiveProposal });
     this.emit('message', envelope);
 
-    if (quorumReached) {
+    if (evalResult.quorumReached) {
       this.emit('quorum', this.currentActiveProposal);
     }
 
-    return { envelope, quorumReached };
+    return { envelope, quorumReached: evalResult.quorumReached };
   }
 
-  /**
-   * Synthesizes and concludes the forum topic.
-   * Can be invoked by the chair or designated synthesizer.
-   */
   public async synthesizeConsensus(
     synthesizer: AgentEndpoint,
     conclusion: string,
-    options: { force?: boolean } = {}
+    _options: { force?: boolean } = {}
   ): Promise<AgentMessageEnvelope> {
     this.join(synthesizer);
     this.turnCounter += 1;
@@ -278,16 +251,13 @@ export class ForumRoom extends EventEmitter {
       },
     });
 
-    await this.persistTurn(envelope);
+    await this.persistTurn(envelope, envelope.contextState);
     this.emit('synthesize', { synthesizer, conclusion });
     this.emit('message', envelope);
     this.emit('concluded', conclusion);
     return envelope;
   }
 
-  /**
-   * Ingests an incoming forum envelope.
-   */
   public async handleIncoming(envelope: AgentMessageEnvelope): Promise<void> {
     if (envelope.conversationId !== this.roomUri) return;
 
@@ -305,9 +275,8 @@ export class ForumRoom extends EventEmitter {
       };
       this.emit('proposal', this.currentActiveProposal);
     } else if (envelope.speechAct === 'VOTE' && this.currentActiveProposal) {
-      const voterKey = `${envelope.sender.nodeId}:${envelope.sender.agentId}`;
       const choice = envelope.payload.ballot as VoteChoice;
-      this.currentActiveProposal.ballots.set(voterKey, {
+      this.currentActiveProposal.ballots.set(this.endpointKey(envelope.sender), {
         choice,
         rationale: envelope.payload.rationale,
         voter: envelope.sender,
@@ -319,20 +288,7 @@ export class ForumRoom extends EventEmitter {
       this.emit('concluded', envelope.payload?.conclusion);
     }
 
-    await this.persistTurn(envelope);
+    await this.persistTurn(envelope, envelope.contextState);
     this.emit('message', envelope);
-  }
-
-  private async persistTurn(envelope: AgentMessageEnvelope): Promise<void> {
-    if (!this.manager) return;
-    try {
-      const room = await this.manager.findOrCreateRoom(envelope);
-      await this.manager.recordTurn(room, envelope);
-      if (envelope.contextState) {
-        await this.manager.syncContextState(room.id, envelope.contextState);
-      }
-    } catch (err) {
-      this.emit('warn', `Failed to persist forum turn: ${err}`);
-    }
   }
 }

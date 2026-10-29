@@ -38,80 +38,27 @@ const cannedMockTable = {
   ],
 };
 
-function createPokerCannedTools(): Record<string, (args: any) => any> {
+/** Canned table reducer: records each command and returns a fixed table step (no engine involved). */
+function createPokerCannedTools(step: (command: any) => any = () => ({})): Record<string, (args: any) => any> {
   const mockTable = cannedMockTable;
 
   return {
-    poker_init_lobby: (args: any) => ({
-      gameState: {
-        ...mockTable,
-        tableId: args?.tableId || mockTable.tableId,
-        sbAmount: args?.sbAmount || 10,
-        bbAmount: args?.bbAmount || 20,
-      },
-    }),
-    poker_start_hand: (args: any) => ({
-      gameState: {
-        ...mockTable,
-        handNumber: 1,
-        currentStreet: 'PREFLOP',
-      },
-    }),
-    poker_get_choices: (_args: any) => ({
-      choices: [
-        { label: 'Check', value: { type: 'CHECK' } },
-        { label: 'Bet 40', value: { type: 'BET', amount: 40 } },
-        { label: 'Fold', value: { type: 'FOLD' } },
-      ],
-    }),
-    poker_ai_decision: (_args: any) => ({
-      action: { type: 'CALL', amount: 20 },
-      speech: 'I call your bet.',
-    }),
-    poker_apply_action: (args: any) => ({
-      gameState: {
-        ...mockTable,
-        lastAction: args?.action || { type: 'CHECK' },
-        streetComplete: true,
-      },
-    }),
-    poker_deal_street: (_args: any) => ({
-      gameState: {
-        ...mockTable,
-        currentStreet: 'FLOP',
-        communityCards: [
-          { rank: 'A', suit: 's' },
-          { rank: 'K', suit: 'h' },
-          { rank: 'Q', suit: 'd' },
-        ],
-      },
-    }),
-    poker_distribute_pots: (_args: any) => ({
-      gameState: {
-        ...mockTable,
-        handOver: true,
-        winners: [{ playerId: 'p1', amount: 60 }],
-      },
-    }),
-    poker_check_game_over: (_args: any) => ({
-      gameOver: false,
-      standings: [
-        { id: 'p1', rank: 1, chips: 1020 },
-        { id: 'p2', rank: 2, chips: 940 },
-      ],
-    }),
-    poker_rotate_dealer: (_args: any) => ({
-      gameState: {
-        ...mockTable,
-        dealerIdx: 1,
-      },
-    }),
-    poker_human_speech: (args: any) => ({
-      success: true,
-      remark: args?.text || 'Good game.',
-    }),
+    poker_table_command: (args: any) => {
+      const command = args?.command || {};
+      if (command.type === 'boot') {
+        return {
+          gameState: { ...mockTable, tableId: command.config?.tableId || mockTable.tableId },
+          turn: null,
+          events: [],
+        };
+      }
+      return { gameState: mockTable, turn: null, events: [], ...step(command) };
+    },
   };
 }
+
+const tableCommands = (env: any, type?: string) =>
+  env.calls.filter((c: any) => c.reducer === 'poker_table_command' && (!type || c.args?.command?.type === type));
 
 test('Poker Deterministic Harness: Module compilation and version registration', async () => {
   const env = await createEnv('poker_det_compile', createPokerCannedTools());
@@ -165,9 +112,8 @@ test('Poker Deterministic Harness: poker_lobby initializes table and emits table
     const rootReq = await env.prisma.request.findUnique({ where: { id: requestId } });
     assert.equal(rootReq.status, 'COMPLETED');
 
-    // Assert that poker_init_lobby was called
-    const calledTools = env.calls.map((c) => c.tool);
-    assert.ok(calledTools.includes('poker_init_lobby'), 'poker_init_lobby must be called');
+    // The table is booted through the table reducer
+    assert.equal(tableCommands(env, 'boot').length, 1, 'the table must be booted');
 
     // Tool output lands in the event-sourced state, which the workflow reads (`$state.gameState`)
     const { stateAt } = await import('../src/curator.ts');
@@ -175,11 +121,11 @@ test('Poker Deterministic Harness: poker_lobby initializes table and emits table
     assert.equal(state.gameState?.tableId, 'table_gold');
 
     // The run's table config reaches the boot step instead of falling back to defaults
-    const initCall = env.calls.find((c) => c.tool === 'poker_init_lobby');
-    assert.equal(initCall?.args?.tableId, 'table_gold');
-    assert.equal(Number(initCall?.args?.startingChips), 1500);
-    assert.equal(Number(initCall?.args?.sbAmount), 15);
-    assert.equal(Number(initCall?.args?.bbAmount), 30);
+    const config = tableCommands(env, 'boot')[0]?.args?.command?.config;
+    assert.equal(config?.tableId, 'table_gold');
+    assert.equal(Number(config?.startingChips), 1500);
+    assert.equal(Number(config?.sbAmount), 15);
+    assert.equal(Number(config?.bbAmount), 30);
     assert.deepEqual(state.seatedPlayers, [
       { id: 'p1', name: 'Alice', isHuman: false },
       { id: 'p2', name: 'Bob', isHuman: false },
@@ -232,8 +178,8 @@ test('Poker Deterministic Harness: agent_turn executes AI decision tool and acti
     const rootReq = await env.prisma.request.findUnique({ where: { id: requestId } });
     assert.equal(rootReq.status, 'COMPLETED');
 
-    // The seat only decides (the table applies): no engine tool runs, the action is the result
-    assert.deepEqual(env.calls.map((c) => c.tool), []);
+    // The seat only decides (the table applies): the engine does not run, the action is the result
+    assert.deepEqual(env.calls, []);
     const seatCall = (await env.prisma.request.findMany({ include: { responses: true } }))
       .find((r: any) => r.ast?.type === 'Curator_Call');
     assert.deepEqual(JSON.parse(seatCall.responses[0].content), { type: 'CALL', amount: 20 });
@@ -249,8 +195,12 @@ test('Poker Deterministic Harness: agent_turn executes AI decision tool and acti
 });
 
 test('Poker Deterministic Harness: rules systems validate and apply an intent; ambient reacts to the action', async () => {
-  const legal = { choices: [{ id: 'call', args: { action: { type: 'CALL', amount: 20 } } }, { id: 'fold', args: { action: { type: 'FOLD' } } }] };
-  const env = await createEnv('poker_det_rules', { ...createPokerCannedTools(), poker_get_choices: () => legal });
+  const turn = { seatId: 'p1', choices: [{ id: 'call', action: { type: 'CALL', amount: 20 } }, { id: 'fold', action: { type: 'FOLD' } }] };
+  // The applied action keeps the seat to act, so the next intents are validated against the same choices
+  const env = await createEnv('poker_det_rules', createPokerCannedTools((command) => ({
+    turn,
+    events: [{ name: 'poker:action_taken', payload: { player: 'Alice', action: command.action, summary: 'Alice acts.', gameState: cannedMockTable } }],
+  })));
   try {
     // Systems-only modules: saving them materializes their subscriptions
     await saveScript(env, 'poker_rules', await loadScriptAst('poker_rules'));
@@ -260,6 +210,7 @@ test('Poker Deterministic Harness: rules systems validate and apply an intent; a
     await appendStatePatch(env.prisma, env.conversationId, {
       set: {
         tablePhase: 'SUBMIT',
+        turn,
         gameState: { tableId: 'table_rules', activePlayerIdx: 0, currentBet: 20, pot: 30, players: [{ id: 'p1', name: 'Alice', chips: 980, streetBet: 0 }] },
       },
     });
@@ -269,13 +220,12 @@ test('Poker Deterministic Harness: rules systems validate and apply an intent; a
 
     // An illegal intent is rejected back to the seat and nothing is applied
     await intent({ type: 'CHECK' });
-    assert.deepEqual(env.calls.filter((c) => c.tool === 'poker_apply_action'), []);
+    assert.deepEqual(tableCommands(env, 'act'), []);
     assert.equal((await resolutions()).at(-1)?.accepted, false);
 
     // A legal one is validated, applied and announced; the ambient system reacts to the announcement
     await intent({ type: 'CALL', amount: 20 });
-    const applied = env.calls.filter((c) => c.tool === 'poker_apply_action');
-    assert.deepEqual(applied.map((c) => c.args.action), [{ type: 'CALL', amount: 20 }]);
+    assert.deepEqual(tableCommands(env, 'act').map((c: any) => c.args.command.action), [{ type: 'CALL', amount: 20 }]);
     assert.equal((await resolutions()).at(-1)?.accepted, true);
     const names = (await env.prisma.eventLog.findMany({ orderBy: { id: 'asc' } })).map((e: any) => e.eventName);
     assert.ok(names.indexOf('poker:action_taken') < names.indexOf('poker:ambient_evaluated'), 'ambient reacts after the action is taken');
@@ -283,57 +233,44 @@ test('Poker Deterministic Harness: rules systems validate and apply an intent; a
     // A seat that keeps sending illegal intents is sent back a bounded number of times, then coerced
     await intent({ type: 'CHECK' });
     await intent({ type: 'CHECK' });
-    assert.equal(env.calls.filter((c) => c.tool === 'poker_apply_action').length, 1, 'still rejected (2 of 2)');
+    assert.equal(tableCommands(env, 'act').length, 1, 'still rejected (2 of 2)');
     await intent({ type: 'CHECK' });
-    assert.equal(env.calls.filter((c) => c.tool === 'poker_apply_action').length, 2, 'third illegal intent is applied (sanitized)');
+    assert.equal(tableCommands(env, 'act').length, 2, 'third illegal intent is applied (sanitized)');
     assert.equal((await resolutions()).at(-1)?.accepted, true);
 
     // Outside the SUBMIT phase the rules do not run at all
     await appendStatePatch(env.prisma, env.conversationId, { set: { tablePhase: 'BETTING' } });
     await intent({ type: 'CALL', amount: 20 });
-    assert.equal(env.calls.filter((c) => c.tool === 'poker_apply_action').length, 2);
+    assert.equal(tableCommands(env, 'act').length, 2);
   } finally {
     await env.cleanup();
   }
 });
 
-test('Poker Deterministic Harness: Calling subroutines directly by ref (deal_next_street, settle_showdown)', async () => {
-  const canned = createPokerCannedTools();
-  const env = await createEnv('poker_det_subroutines', canned);
+test('Poker Deterministic Harness: applying an action emits everything the table reported, in order', async () => {
+  const snapshot = (street: string) => ({ ...cannedMockTable, currentStreet: street });
+  const reported = [
+    { name: 'poker:action_taken', payload: { player: 'Alice', action: { type: 'CALL' }, summary: 'Alice calls $20.', gameState: snapshot('PREFLOP') } },
+    { name: 'poker:phase_street', payload: { street: 'FLOP', gameState: snapshot('FLOP') } },
+    { name: 'poker:phase_street', payload: { street: 'TURN', gameState: snapshot('TURN') } },
+    { name: 'poker:phase_settle', payload: { winnerSummary: 'Alice wins $60!', gameState: snapshot('SHOWDOWN') } },
+    { name: 'poker:new_round', payload: { handNumber: 2, gameState: snapshot('PREFLOP') } },
+  ];
+  const env = await createEnv('poker_det_announce', createPokerCannedTools(() => ({ events: reported })));
   try {
-    const workflowAst = await loadScriptAst('poker_workflow');
-    await saveScript(env, 'poker_workflow', workflowAst);
+    await saveScript(env, 'poker_rules', await loadScriptAst('poker_rules'));
+    await runAst(env, { type: 'Curator_EmitEvent', eventName: 'poker:action_validated', payload: { seatId: 'p1', action: { type: 'CALL' } } });
 
-    // 1. Call poker_workflow#deal_next_street directly
-    const dealCall = await runAst(
-      env,
-      {
-        type: 'Curator_Call',
-        ref: 'poker_workflow#deal_next_street',
-      },
-      {
-        context: { gameState: cannedMockTable },
-      },
-    );
-    assert.equal(dealCall.result.done, true);
-    assert.ok(env.calls.some((c) => c.tool === 'poker_deal_street'));
+    assert.deepEqual(tableCommands(env).map((c: any) => c.args.command), [{ type: 'act', action: { type: 'CALL' } }]);
+    const logged = (await env.prisma.eventLog.findMany({ orderBy: { id: 'asc' } }))
+      .map((e: any) => ({ name: e.eventName, payload: typeof e.payload === 'string' ? JSON.parse(e.payload) : e.payload }))
+      .filter((e: any) => e.name.startsWith('poker:') && e.name !== 'poker:action_validated');
 
-    // 2. Call poker_workflow#settle_showdown directly
-    const settleCall = await runAst(
-      env,
-      {
-        type: 'Curator_Call',
-        ref: 'poker_workflow#settle_showdown',
-      },
-      {
-        context: { gameState: cannedMockTable },
-      },
-    );
-    assert.equal(settleCall.result.done, true);
-    assert.ok(env.calls.some((c) => c.tool === 'poker_distribute_pots'));
-
-    const snap = await snapshotDb(env);
-    assert.ok(snap.requests.every((r: any) => r.status === 'COMPLETED'));
+    assert.deepEqual(logged.map((e: any) => e.name), [...reported.map((e) => e.name), 'poker:action_resolved'],
+      'the reported events, then the turn is resolved');
+    assert.deepEqual(logged.filter((e: any) => e.name === 'poker:phase_street').map((e: any) => e.payload.gameState.currentStreet), ['FLOP', 'TURN'],
+      'each event keeps its own snapshot');
+    assert.equal(logged.at(-1).payload.accepted, true);
   } finally {
     await env.cleanup();
   }
@@ -395,19 +332,6 @@ test('Poker Typed TypeScript Workflows: All 6 modules validate and run determini
     assert.ok(saved.scriptId > 0);
     assert.equal(saved.version, 1);
 
-    // Call TypeScript subroutine directly
-    const dealCall = await runAst(
-      env,
-      {
-        type: 'Curator_Call',
-        ref: 'poker_workflow_ts#deal_next_street',
-      },
-      {
-        context: { gameState: cannedMockTable },
-      },
-    );
-    assert.equal(dealCall.result.done, true);
-    assert.ok(env.calls.some((c) => c.tool === 'poker_deal_street'));
   } finally {
     await env.cleanup();
   }
@@ -442,7 +366,7 @@ test('Poker TypeScript Context Models: Path proxies, type guards, and semantic s
   assert.equal(String(ctx.gameState.pot), '$context.gameState.pot');
   assert.equal(String(ctx.gameState.players[0].chips), '$context.gameState.players.0.chips');
   assert.equal(String(ctx.humanAction.type), '$context.humanAction.type');
-  assert.equal(String(ctx.poker_get_choices.choices), '$context.poker_get_choices.choices');
+  assert.equal(String(ctx.openTables.tableChoices), '$context.openTables.tableChoices');
   assert.equal(String(gameState.board), '$state.gameState.board', 'game state is read from the event-sourced state');
   assert.equal(String(state.isPaused), '$state.isPaused');
   assert.equal(String(params.action), '$params.action');
@@ -462,8 +386,7 @@ test('Poker TypeScript Context Models: Path proxies, type guards, and semantic s
   assert.equal(PokerEvent.LOBBY_READY, 'poker:lobby_ready');
   assert.equal(PokerEvent.ACTION_TAKEN, 'poker:action_taken');
   assert.equal(PokerEvent.SESSION_EXITED, 'poker:session_exited');
-  assert.equal(PokerTool.APPLY_ACTION, 'poker_apply_action');
-  assert.equal(PokerTool.INIT_LOBBY, 'poker_init_lobby');
+  assert.equal(PokerTool.LIST_TABLES, 'poker_list_tables');
   assert.equal(PokerModule.WORKFLOW, 'poker_workflow');
   assert.equal(PokerStep.TABLE_PHASES, 'poker:table_phases');
   assert.equal(PokerSessionReason.USER_EXIT, 'user_exit');

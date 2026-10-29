@@ -164,6 +164,16 @@ async function appendStateEvent(
 ): Promise<{ seq: number; state: ConversationStateData }> {
   const projectors = projectorsByClient.get(prisma);
   return atomically(prisma, async (db) => {
+    if (!db.eventLog?.create) {
+      const conv = await db.conversation.findUnique({ where: { id: conversationId } });
+      const snap = readSnapshot(conv?.metadata);
+      const next = foldState([{ id: snap.seq + 1, eventName, payload }], { from: snap });
+      await db.conversation.update({
+        where: { id: conversationId },
+        data: { metadata: { ...next.state, [STATE_SEQ_KEY]: next.seq } },
+      });
+      return { seq: next.seq, state: next.state };
+    }
     const previous = projectors?.size ? (await materializeIn(db, conversationId)).state : {};
     const row = await db.eventLog.create({ data: { conversationId, eventName, payload } });
     const { state } = await materializeIn(db, conversationId);

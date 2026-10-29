@@ -7,21 +7,20 @@
  */
 import { defineModule, defineSubroutine, ifElse, choice, type CuratorModuleNode } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
-import { actor, turnCtx } from '../models/pokerContext.ts';
+import { actor, state, turnCtx } from '../models/pokerContext.ts';
 import { AwaitingHumanAction } from '../models/pokerEvents.ts';
 
-const { gameState, get_legal_choices, modules } = pokerComposables;
+const { gameState, modules } = pokerComposables;
 
-/** Human seat: legal choices prompt; returns the chosen action (PAUSE / EXIT are handled by the table). */
+/** Human seat: prompts the table's legal choices; returns the chosen action (PAUSE / EXIT are handled by the table). */
 export const humanDecision = defineSubroutine('human_decision', {
   params: { actor: { type: 'object', required: true } },
   body: [
-    get_legal_choices({}, { as: turnCtx.legalChoices }),
     AwaitingHumanAction.emit({ gameState }),
     ifElse(
       `(${gameState.currentBet} - ${actor.streetBet}) == 0`,
-      choice('Your turn (Check or Bet):', String(turnCtx.legalChoices.choices), { as: turnCtx.turnAction }),
-      choice('Your turn (Call, Raise, or Fold):', String(turnCtx.legalChoices.choices), { as: turnCtx.turnAction }),
+      choice('Your turn (Check or Bet):', String(state.turn.choices), { as: turnCtx.turnAction }),
+      choice('Your turn (Call, Raise, or Fold):', String(state.turn.choices), { as: turnCtx.turnAction }),
     ),
   ],
   // The choice is bound into state as well as context

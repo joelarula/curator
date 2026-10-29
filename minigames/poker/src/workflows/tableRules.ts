@@ -12,13 +12,13 @@
  */
 import { defineModule, defineSubroutine, ifElse, setState, system, type CuratorModuleNode } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
-import { state, turnCtx } from '../models/pokerContext.ts';
+import { state } from '../models/pokerContext.ts';
 import { PokerTablePhase, PokerSessionReason } from '../models/pokerContracts.ts';
 import {
-  ActionIntent, ActionValidated, ActionRejected, ActionResolved, ActionTaken, SessionExited, TablePhase,
+  ActionIntent, ActionValidated, ActionRejected, ActionResolved, SessionExited, TablePhase,
 } from '../models/pokerEvents.ts';
 
-const { gameState, get_legal_choices, apply_player_action, close_table, modules } = pokerComposables;
+const { act, close_table, modules } = pokerComposables;
 
 const intent = ActionIntent.payload();
 const validated = ActionValidated.payload();
@@ -27,15 +27,14 @@ const validated = ActionValidated.payload();
 export const MAX_TURN_REJECTIONS = 2;
 const rejections = `(${state.turnRejections} || 0)`;
 
-const isLegal = `${turnCtx.legalChoices}.choices.some((c) => c.args && c.args.action
-  && c.args.action.type == (${intent.action}.type || ${intent.action}))`;
+// The table reducer keeps the deciding seat's legal choices in `$state.turn`
+const isLegal = `(${state.turn}.choices || []).some((c) => c.action && c.action.type == (${intent.action}.type || ${intent.action}))`;
 
 /**
  * Accepts the intent when its action type is among the seat's legal choices. An illegal one goes back
  * to the seat a bounded number of times; after that it is passed on and the engine sanitizes it.
  */
 export const validateAction = defineSubroutine('validate_action', [
-  get_legal_choices({}, { as: turnCtx.legalChoices }),
   ifElse(
     isLegal,
     ActionValidated.emit({ seatId: intent.seatId, action: intent.action }),
@@ -54,16 +53,13 @@ export const validateAction = defineSubroutine('validate_action', [
   ),
 ]);
 
-/** Applies a validated action to the table (the engine sanitizes it) and announces it. */
+/**
+ * Applies a validated action (the engine sanitizes it); the table then advances on its own and emits
+ * everything that happened on the way (action, streets, showdown, next hand).
+ */
 export const applyAction = defineSubroutine('apply_action', [
   setState({ turnRejections: 0 }),
-  apply_player_action(validated.action),
-  ActionTaken.emit({
-    player: `${gameState.lastActorName} || ${gameState.players}[${gameState.activePlayerIdx}].name`,
-    action: validated.action,
-    summary: gameState.lastActionSummary,
-    gameState,
-  }),
+  ...act(validated.action),
   ActionResolved.emit({ seatId: validated.seatId, accepted: true }),
 ]);
 

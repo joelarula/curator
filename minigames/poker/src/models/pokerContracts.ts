@@ -18,24 +18,16 @@ export type PokerRole = (typeof PokerRole)[keyof typeof PokerRole];
 // ==========================================
 // 2. Tool Identifiers & Usage
 // ==========================================
+/** Pure reducers the plugin registers; flows run them with `reduce(name, args)`. */
+export const PokerReducer = {
+  /** The table reducer (engine/pokerTable.ts): the only way flows reach the deterministic engine. */
+  TABLE: 'poker_table_command',
+} as const;
+
+/** Tools: everything that touches the database or the session user. */
 export const PokerTool = {
-  INIT_LOBBY: 'poker_init_lobby',
-  JOIN_LOBBY: 'poker_join_lobby',
-  LEAVE_LOBBY: 'poker_leave_lobby',
-  START_HAND: 'poker_start_hand',
-  DEAL_STREET: 'poker_deal_street',
-  DISTRIBUTE_POTS: 'poker_distribute_pots',
-  APPLY_ACTION: 'poker_apply_action',
-  GET_CHOICES: 'poker_get_choices',
-  CHECK_GAME_OVER: 'poker_check_game_over',
-  ROTATE_DEALER: 'poker_rotate_dealer',
-  AI_DECISION: 'poker_ai_decision',
-  LIST_TABLES: 'poker_list_tables',
-  LOBBY_MENU: 'poker_lobby_menu',
-  SPEECH: 'poker_speech',
-  HUMAN_SPEECH: 'poker_human_speech',
-  FAST_FORWARD: 'poker_fast_forward_board',
   GET_STANDINGS: 'poker_get_standings',
+  LIST_TABLES: 'poker_list_tables',
   CREATE_TABLE: 'poker_create_table',
   GET_BANKROLL: 'poker_get_bankroll',
   GET_BUY_IN_OPTIONS: 'poker_get_buy_in_options',
@@ -55,23 +47,11 @@ export const PokerConversationType = {
 export type PokerConversationType = (typeof PokerConversationType)[keyof typeof PokerConversationType];
 
 export const PokerToolAlias = {
-  ACT: 'act',
-  SPEECH: 'speech',
   STANDINGS: 'standings_tool',
   LIST_TABLES: 'list_tables',
 } as const;
 
 export type PokerToolAliasType = (typeof PokerToolAlias)[keyof typeof PokerToolAlias];
-
-export const PokerToolUsage = {
-  JOIN_LOBBY: '<actorId> <name> [chips] [seatIdx]',
-  LEAVE_LOBBY: '<actorId>',
-  APPLY_ACTION: '<actionType> [amount]',
-  HUMAN_SPEECH: '<speak|whisper|message> [actor] <text>',
-  GET_CHOICES: '[playerIdx]',
-} as const;
-
-export type PokerToolUsageType = (typeof PokerToolUsage)[keyof typeof PokerToolUsage];
 
 export function isPokerTool(value: unknown): value is PokerToolType {
   return typeof value === 'string' && Object.values(PokerTool).includes(value as PokerToolType);
@@ -224,8 +204,6 @@ export const PokerStep = {
   // Table
   DYNAMIC_ENGINE: 'poker:dynamic_engine',
   TABLE_PHASES: 'poker:table_phases',
-  DEAL_NEXT_STREET: 'poker:deal_next_street',
-  PHASE_SETTLE_STEP: 'poker:phase_settle_step',
 } as const;
 
 export type PokerStepType = (typeof PokerStep)[keyof typeof PokerStep];
@@ -233,14 +211,10 @@ export type PokerStepType = (typeof PokerStep)[keyof typeof PokerStep];
 /** States of the table game-loop state machine, mirrored into conversation state under `TABLE_PHASE_KEY`. */
 export const PokerTablePhase = {
   BOOT: 'BOOT',
-  START_HAND: 'START_HAND',
   BETTING: 'BETTING',
   SUBMIT: 'SUBMIT',
   PAUSED: 'PAUSED',
   EXITED: 'EXITED',
-  DEAL_STREET: 'DEAL_STREET',
-  SETTLE: 'SETTLE',
-  CLOSE_HAND: 'CLOSE_HAND',
   GAME_OVER: 'GAME_OVER',
 } as const;
 

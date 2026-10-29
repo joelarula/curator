@@ -7,22 +7,15 @@
  */
 import { defineModule, defineSubroutine, system, type CuratorModuleNode } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
-import { PokerSpeechAct } from '../models/pokerContracts.ts';
 import { Speech, ActionTaken, AmbientSpoken, AmbientEvaluated } from '../models/pokerEvents.ts';
 
-const { human_speech, modules } = pokerComposables;
+const { modules } = pokerComposables;
 
 const speech = Speech.payload('speechEvt');
 const action = ActionTaken.payload('actionEvt');
 
-/** Records table speech and echoes it as ambient chatter. */
+/** Echoes table speech as ambient chatter (the speech event itself is the record). */
 export const onSpeechEvent = defineSubroutine('on_speech_event', [
-  human_speech({
-    speechAct: `${speech.speechAct} || '${PokerSpeechAct.TABLE_TALK}'`,
-    targetId: String(speech.targetId),
-    text: `${speech.text} || ''`,
-    speakerName: `${speech.speakerName} || 'Observer'`,
-  }),
   AmbientSpoken.emit({ speaker: speech.speakerName, speechAct: speech.speechAct, text: speech.text }),
 ], { params: { speechEvt: { type: 'object' } } });
 

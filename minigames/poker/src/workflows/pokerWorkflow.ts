@@ -5,12 +5,11 @@
  * description: Curator Texas Hold'em Autonomous Event-Driven 5-Phase Game Loop Module
  * ---
  */
-import { state, tableCtx } from '../models/pokerContext.ts';
+import { state } from '../models/pokerContext.ts';
 import { PokerActionType, PokerTablePhase } from '../models/pokerContracts.ts';
-import { NewRound, PhaseDeal, PhaseStreet, PhaseSettle, GameOver, TablePaused, TableResumed, ResumeAction, TablePhase } from '../models/pokerEvents.ts';
+import { GameOver, TablePaused, TableResumed, ResumeAction, TablePhase } from '../models/pokerEvents.ts';
 import {
   defineModule,
-  defineSubroutine,
   seq,
   ifElse,
   stateMachine,
@@ -24,71 +23,32 @@ import { decideTurn, submitTurn, isCommand, turnPauses, turnExits, turnRejected 
 const {
   gameState,
   is_game_active,
-  is_hand_active,
-  is_street_active,
-  start_poker_hand,
-  deal_next_street,
-  settle_showdown,
-  check_game_over,
-  rotate_dealer,
+  start_hand,
   handle_user_exit,
   modules,
   steps,
 } = pokerComposables;
 
-
-/**
- * Subroutine for dealing the next street community cards.
- */
-export const dealNextStreetSub = defineSubroutine('deal_next_street', {
-  defaultMode: 'inline',
-  body: seq(steps.DEAL_NEXT_STREET, [
-    deal_next_street(),
-    PhaseStreet.emit({ street: gameState.currentStreet, gameState }),
-  ]),
-});
-
-/**
- * Subroutine for showdown adjudication and pot allocation.
- */
-export const settleShowdownSub = defineSubroutine('settle_showdown', {
-  defaultMode: 'inline',
-  body: seq(steps.PHASE_SETTLE_STEP, [
-    settle_showdown(),
-    PhaseSettle.emit({ winnerSummary: tableCtx.winnerSummary, gameState }),
-  ]),
-});
-
 const resumes = isCommand(state.resumeCmd, PokerActionType.RESUME);
 
-// After any wagering step: next player turn, next street, or showdown.
-const streetTransitions = [
-  { to: PokerTablePhase.BETTING, when: `(${is_hand_active}) and (${is_street_active})` },
-  { to: PokerTablePhase.DEAL_STREET, when: is_hand_active },
-  { to: PokerTablePhase.SETTLE },
-];
-
-// Another hand while the session lasts; otherwise the summary (exit closes rather than finishes).
+// The next seat decides while the session lasts; otherwise the summary (exit closes rather than finishes).
 const sessionTransitions = [
-  { to: PokerTablePhase.START_HAND, when: is_game_active },
+  { to: PokerTablePhase.BETTING, when: is_game_active },
   { to: PokerTablePhase.GAME_OVER },
 ];
 
 /**
- * Texas Hold'em game loop as a Bevy-style state machine; the active phase is mirrored into
+ * Texas Hold'em table as a Bevy-style state machine; the active phase is mirrored into
  * `$state.tablePhase` so other flows can gate on it.
+ * Only seat decisions, pausing and leaving are states here: dealing, settling and starting the next hand
+ * happen inside the table reducer (engine/pokerTable.ts) whenever an action is applied.
  */
 export function buildTablePhases() {
   return stateMachine(PokerTablePhase.BOOT, {
-    // Initialize open table if state not yet booted
-    [PokerTablePhase.BOOT]: { run: buildTableBootStep(), next: sessionTransitions },
-    [PokerTablePhase.START_HAND]: {
-      run: [
-        start_poker_hand(),
-        NewRound.emit({ handNumber: gameState.handNumber, gameState }),
-        PhaseDeal.emit({ street: gameState.currentStreet, gameState }),
-      ],
-      next: streetTransitions,
+    // Initialize open table if state not yet booted, then deal the first hand (a running one is kept)
+    [PokerTablePhase.BOOT]: {
+      run: [buildTableBootStep(), ifElse(is_game_active, start_hand())],
+      next: sessionTransitions,
     },
     // A seat's turn: its actor handler decides; pausing and leaving are table states, not flags
     [PokerTablePhase.BETTING]: {
@@ -102,7 +62,7 @@ export function buildTablePhases() {
     // The table rules (systems) validate and apply the intent; a rejected one goes back to the seat
     [PokerTablePhase.SUBMIT]: {
       run: submitTurn(),
-      next: [{ to: PokerTablePhase.BETTING, when: turnRejected }, ...streetTransitions],
+      next: [{ to: PokerTablePhase.BETTING, when: turnRejected }, ...sessionTransitions],
     },
     [PokerTablePhase.PAUSED]: {
       onEnter: [setState({ isPaused: true }), TablePaused.emit({ tableId: gameState.tableId })],
@@ -119,15 +79,11 @@ export function buildTablePhases() {
     },
     // Leaving closes the table rather than finishing the game
     [PokerTablePhase.EXITED]: { run: handle_user_exit() },
-    [PokerTablePhase.DEAL_STREET]: { run: dealNextStreetSub(), next: streetTransitions },
-    [PokerTablePhase.SETTLE]: { run: settleShowdownSub(), next: PokerTablePhase.CLOSE_HAND },
-    // Standings, then the button rotates on the way out of every hand
-    [PokerTablePhase.CLOSE_HAND]: { run: check_game_over(), onExit: rotate_dealer(), next: sessionTransitions },
     [PokerTablePhase.GAME_OVER]: {
       run: [
         setState({ gameOver: gameState.gameOver }),
-        // check_game_over commits its standings into gameState.finalStandings
-        GameOver.emit({ standings: `${gameState.finalStandings} || ${tableCtx.standings}` }),
+        // The reducer commits the final standings into gameState.finalStandings
+        GameOver.emit({ standings: gameState.finalStandings }),
       ],
     },
   }, { name: steps.TABLE_PHASES, stateKey: TablePhase });

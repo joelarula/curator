@@ -99,11 +99,26 @@ export interface CuratorPluginMcpPolicy {
   exclude?: string[];
 }
 
+/**
+ * A pure, deterministic function run by `Curator_Reduce` nodes: arguments in, state fields out.
+ * No I/O and no identity: anything that needs the database or the session user is a tool.
+ */
+export type CuratorReducer = (args: Record<string, any>) => Record<string, any>;
+
+/** One event of a `Curator_EmitEvents` list. */
+export interface CuratorEventSpec {
+  name: string;
+  payload?: any;
+  targetAgentId?: number | string;
+}
+
 export interface CuratorPluginDefinition {
   name: string;
   version?: string;
   description?: string;
   tools?: Record<string, CuratorTool> | CuratorTool[];
+  /** Pure functions workflows run with `reduce(name, args)` (see CuratorReducer). */
+  reducers?: Record<string, CuratorReducer>;
   models?: SemanticNodeShape[];
   scripts?: Record<string, CuratorScriptInput> | CuratorScriptInput[];
   agents?: Record<string, CuratorAgentDefinition | CuratorAstNode>;
@@ -136,6 +151,7 @@ export type CuratorResponseRecordType =
   | 'APPROVAL_REQUIRED'
   | 'APPROVAL_EXPIRED'
   | 'EVENT_EMITTED'
+  | 'EVENTS_EMITTED'
   | 'CHOICE_PROMPT'
   | 'CHOICE_RECEIVED'
   | 'HUMAN_TIMEOUT'
@@ -176,6 +192,8 @@ export interface CuratorStructuredResponse {
   roles?: string[];
   approvalScope?: string | null;
   event?: CuratorEventEmitResult;
+  /** One entry per event of an EVENTS_EMITTED list, in emission order. */
+  events?: CuratorEventEmitResult[];
   /** Choice id for CHOICE_RECEIVED. */
   choiceId?: string;
   /** ISO time an approval wait expires (APPROVAL_REQUIRED) or expired (APPROVAL_EXPIRED). */

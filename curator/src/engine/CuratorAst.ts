@@ -34,6 +34,7 @@ export const CuratorNodeType = {
   Route: 'Curator_Route',
   Loop: 'Curator_Loop',
   Tool: 'Curator_Tool',
+  Reduce: 'Curator_Reduce',
   Script: 'Curator_Script',
   Graph: 'Curator_Graph',
   HumanInput: 'Curator_HumanInput',
@@ -41,6 +42,7 @@ export const CuratorNodeType = {
   ActorRef: 'Curator_ActorRef',
   SetState: 'Curator_SetState',
   EmitEvent: 'Curator_EmitEvent',
+  EmitEvents: 'Curator_EmitEvents',
   Interrupt: 'Curator_Interrupt',
   Assign: 'Curator_Assign',
   IfElse: 'Curator_IfElse',
@@ -63,6 +65,7 @@ export type CuratorAstNode =
   | CuratorRouteNode 
   | CuratorLoopNode
   | CuratorToolNode
+  | CuratorReduceNode
   | CuratorScriptNode
   | CuratorGraphNode
   | CuratorHumanInputNode
@@ -70,6 +73,7 @@ export type CuratorAstNode =
   | CuratorActorRefNode
   | CuratorSetStateNode
   | CuratorEmitEventNode
+  | CuratorEmitEventsNode
   | CuratorInterruptNode
   | CuratorAssignNode
   | CuratorIfElseNode
@@ -128,6 +132,15 @@ export interface CuratorEmitEventNode extends CuratorBaseNode {
   eventName: string;
   targetAgentId?: number | string;
   payload?: any;
+}
+
+/**
+ * Emits a list of events computed at run time, e.g. what a reducer step reports.
+ * `events` evaluates to `[{ name, payload?, targetAgentId? }]`; payloads are data and are not evaluated again.
+ */
+export interface CuratorEmitEventsNode extends CuratorBaseNode {
+  type: typeof CuratorNodeType.EmitEvents;
+  events: string;
 }
 
 export interface CuratorWaitEventNode extends CuratorBaseNode {
@@ -276,6 +289,18 @@ export interface CuratorToolNode extends CuratorBaseNode {
    * under `as` / toolName so the flow can branch (e.g. `if_else "$context.<as>.expired"`).
    */
   onApprovalExpired?: 'fail' | 'continue';
+}
+
+/**
+ * Runs a pure function registered by a plugin (`reducers`): no I/O, no RBAC, no tool record.
+ * Its output is bound like tool output: spread into context and state, or kept under `as` when `spread` is false.
+ */
+export interface CuratorReduceNode extends CuratorBaseNode {
+  type: typeof CuratorNodeType.Reduce;
+  reducer: string;
+  args?: Record<string, any> | string;
+  as?: string;
+  spread?: boolean;
 }
 
 export interface CuratorScriptNode extends CuratorBaseNode {

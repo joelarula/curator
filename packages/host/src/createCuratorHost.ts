@@ -6,6 +6,7 @@ import {
   curatorEngine,
   ConversationManager,
   ConversationRouter,
+  createConversationPlugin,
   registerStateProjector,
   setLogLevel,
 } from '@curator/agent-server';
@@ -125,6 +126,10 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
     manager: convManager,
     prisma,
   });
+
+  if (typeof registeredEngine.registerPlugin === 'function') {
+    registeredEngine.registerPlugin(createConversationPlugin(conversations));
+  }
 
   function parseDurationMs(duration: string | number): number {
     if (typeof duration === 'number') return duration;

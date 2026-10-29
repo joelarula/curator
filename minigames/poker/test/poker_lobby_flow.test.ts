@@ -13,7 +13,7 @@ import {
 } from '../src/workflows/pokerLobby.ts';
 import { formatTableChoices, syncPokerTableResource, pokerTableStatusUri } from '../src/services/pokerTableStore.ts';
 import { buildLobbyMenu } from '../src/models/pokerLobbyMenu.ts';
-import { pokerLobbyMenuTool } from '../src/plugins/pokerPlugin.ts';
+import { pokerListTablesTool } from '../src/plugins/pokerPlugin.ts';
 import { readFileSync, readdirSync } from 'node:fs';
 import { POKER_SHAPE_URIS, POKER_TABLE_STATUS } from '../src/models/pokerShapes.ts';
 import { createPokerHost } from '../src/host.ts';
@@ -70,16 +70,19 @@ test('Table Selection: formatTableChoices returns typesafe PokerTableChoice arra
   assert.ok(backChoice.aliases.includes('3'));
 });
 
-test('Lobby Menu: poker_lobby_menu is a pure view over the open tables', async () => {
+test('Lobby Menu: a pure view over the open tables, returned by poker_list_tables', async () => {
   const empty = buildLobbyMenu([]);
   assert.deepEqual(empty.lobbyChoices.map((c) => c.id), [PokerLobbyAction.NEW, PokerLobbyAction.EXIT]);
   assert.deepEqual(empty.tableChoices.map((c) => c.id), [PokerLobbyAction.BACK]);
 
   const tables = [{ tableId: '7', title: 'High Rollers' }];
-  const menu: any = await pokerLobbyMenuTool.runAsync({ args: { tables }, toolContext: {} as any });
-  assert.deepEqual(menu, buildLobbyMenu(tables));
+  const menu = buildLobbyMenu(tables);
   assert.deepEqual(menu.lobbyChoices.map((c: any) => c.id), [PokerLobbyAction.NEW, PokerLobbyAction.RESUME, PokerLobbyAction.EXIT]);
   assert.deepEqual(menu.tableChoices.map((c: any) => c.id), ['7', PokerLobbyAction.BACK]);
+
+  // Without a session there is nothing to resume: the listing carries the empty-lounge menu
+  const listed: any = await pokerListTablesTool.runAsync({ args: {}, toolContext: {} as any });
+  assert.deepEqual(listed, { tables: [], ...empty });
 });
 
 test('Workflows: tool results are bound with explicit `as`, never read via implicit poker_* keys', () => {

@@ -1,11 +1,14 @@
-import type { CuratorAstNode, CuratorSequentialNode } from '../../CuratorAst.js';
+import type { CuratorAstNode, CuratorGraphNode, CuratorSequentialNode } from '../../CuratorAst.js';
 import { CuratorCoreBuilder } from '../CuratorCoreBuilder.js';
+import { ConversationToolName } from '../../../conversations/ConversationTools.js';
+import { buildDialogStateMachine } from '../../../conversations/ConversationWorkflows.js';
 
 /**
  * Fluent builder for bilateral 1:1 agent dialog sessions.
+ * Supports both event-driven temporal steps and deterministic DB/tool-backed state transitions.
  */
 export class FluentDialogBuilder {
-  private steps: CuratorAstNode[] = [];
+  protected steps: CuratorAstNode[] = [];
   public targetUri: string;
   public targetRole?: string;
   public senderRole?: string;
@@ -35,6 +38,20 @@ export class FluentDialogBuilder {
   to_role(role: string): this {
     this.targetRole = role;
     this.targetUri = `@role:${role}`;
+    return this;
+  }
+
+  /**
+   * Deterministic tool call to initialize the persistent dialog room in the database.
+   */
+  start_room(options: { conversationId?: string; topic?: string; initialState?: Record<string, any> } = {}): this {
+    this.steps.push(CuratorCoreBuilder.tool(ConversationToolName.START, {
+      conversationId: options.conversationId || '$context.conversationId',
+      conversationType: 'dialog',
+      governanceMode: 'round-robin',
+      topic: options.topic,
+      initialState: options.initialState,
+    }));
     return this;
   }
 
@@ -94,6 +111,13 @@ export class FluentDialogBuilder {
       this.steps.push(res as CuratorAstNode);
     }
     return this;
+  }
+
+  /**
+   * Embeds the formal DB-driven bilateral dialog AST state machine.
+   */
+  state_machine(options: { maxTurns?: number } = {}): CuratorGraphNode {
+    return buildDialogStateMachine(options);
   }
 
   build(): CuratorSequentialNode {

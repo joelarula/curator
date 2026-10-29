@@ -1,6 +1,6 @@
 /**
  * Pure lobby menu models: lounge actions, menu choices and table selection choices.
- * No I/O; consumed by the poker_lobby_menu tool, the lobby workflow, session discovery and the REPL shell.
+ * No I/O; consumed by the poker_list_tables tool, the lobby workflow, session discovery and the REPL shell.
  */
 
 export const PokerLobbyAction = {

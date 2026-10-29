@@ -18,8 +18,10 @@ export const FIXTURES_DIR = path.resolve(here, '..', 'fixtures');
 
 export const FIXED_NOW = Date.UTC(2100, 0, 1, 0, 0, 0);
 
+/** A canned tool or reducer call; exactly one of `tool` / `reducer` is set. */
 export interface RecordedCall {
-  tool: string;
+  tool?: string;
+  reducer?: string;
   args: any;
 }
 
@@ -41,7 +43,14 @@ export function makeFakeEngine(canned: Record<string, (args: any) => any>) {
       } as any),
     );
   }
-  return { engine: { tools }, calls };
+  // Canned functions also serve as reducers (Curator_Reduce), recorded under `reducer`
+  const reducers = new Map<string, (args: any) => any>(
+    Object.entries(canned).map(([name, fn]) => [name, (args: any) => {
+      calls.push({ reducer: name, args });
+      return fn(args);
+    }]),
+  );
+  return { engine: { tools, reducers }, calls };
 }
 
 const SCHEMA_PATH = path.resolve(here, '..', '..', 'prisma-sqlite', 'schema.prisma');

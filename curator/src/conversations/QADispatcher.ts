@@ -1,9 +1,9 @@
-import { EventEmitter } from 'events';
 import type {
   AgentMessageEnvelope,
   AgentEndpoint,
 } from './types.js';
 import { createAgentMessageEnvelope } from './EnvelopeValidator.js';
+import { BaseConversationSession } from './BaseConversationSession.js';
 import type { ConversationManager } from './ConversationManager.js';
 
 export type TenderStatus = 'OPEN' | 'EVALUATING' | 'AWARDED' | 'EXPIRED';
@@ -35,29 +35,24 @@ export interface SolicitOptions {
 
 /**
  * Manages 1:1 and 1:N RFP (Request For Proposal) and Question-Answer auctions.
- * Operates natively inside a single node as well as across the mesh.
- * Solicits bids, manages bidding collection windows, and handles winner selection with ACCEPT/REJECT performatives.
+ * Solicits bids, manages bidding collection windows, and handles winner selection.
  */
-export class QADispatcher extends EventEmitter {
-  public readonly conversationId: string;
+export class QADispatcher extends BaseConversationSession {
   public readonly requester: AgentEndpoint;
-  public readonly topic?: string;
   public readonly timeoutMs: number;
 
   private tenderStatus: TenderStatus = 'OPEN';
   private bidsList: CandidateBid[] = [];
   private winningBidId: string | null = null;
-  private manager?: ConversationManager;
-  private turnCounter: number = 0;
-  private timer: NodeJS.Timeout | null = null;
 
   constructor(options: QADispatcherOptions) {
-    super();
-    this.conversationId = options.conversationId;
+    super({
+      conversationId: options.conversationId,
+      topic: options.topic,
+      manager: options.manager,
+    });
     this.requester = options.requester;
-    this.topic = options.topic;
     this.timeoutMs = options.timeoutMs || 15000;
-    this.manager = options.manager;
   }
 
   public get status(): TenderStatus {
@@ -69,12 +64,9 @@ export class QADispatcher extends EventEmitter {
   }
 
   public get winner(): CandidateBid | undefined {
-    return this.bidsList.find(b => b.bidId === this.winningBidId);
+    return this.bidsList.find((b) => b.bidId === this.winningBidId);
   }
 
-  /**
-   * Broadcasts or directs the initial RFP solicitation query.
-   */
   public async solicit(options: SolicitOptions): Promise<AgentMessageEnvelope> {
     this.turnCounter += 1;
     const timeout = options.timeoutMs || this.timeoutMs;
@@ -101,21 +93,18 @@ export class QADispatcher extends EventEmitter {
 
     await this.persistTurn(envelope);
 
-    this.timer = setTimeout(() => {
+    this.startSessionTimer(timeout, () => {
       if (this.tenderStatus === 'OPEN') {
         this.tenderStatus = this.bidsList.length > 0 ? 'EVALUATING' : 'EXPIRED';
         this.emit('timeout', { tenderStatus: this.tenderStatus, bidsCount: this.bidsList.length });
       }
-    }, timeout);
+    });
 
     this.emit('solicit', envelope);
     this.emit('message', envelope);
     return envelope;
   }
 
-  /**
-   * Submits a candidate bid or answer from an agent.
-   */
   public async submitBid(
     bidder: AgentEndpoint,
     payload: any,
@@ -159,66 +148,49 @@ export class QADispatcher extends EventEmitter {
     return bid;
   }
 
-  /**
-   * Awards the contract to a winning bid, sending ACCEPT to winner and REJECT to other bidders.
-   */
   public async awardWinner(
     bidId: string,
     rationale?: string
   ): Promise<{ winnerEnvelope: AgentMessageEnvelope; rejectEnvelopes: AgentMessageEnvelope[] }> {
-    const winnerBid = this.bidsList.find(b => b.bidId === bidId);
+    const winnerBid = this.bidsList.find((b) => b.bidId === bidId);
     if (!winnerBid) {
       throw new Error(`Bid '${bidId}' not found in tender '${this.conversationId}'`);
     }
 
-    this.clearTimer();
+    this.clearSessionTimer();
     this.tenderStatus = 'AWARDED';
     this.winningBidId = bidId;
 
-    // 1. Send ACCEPT to winning agent
-    this.turnCounter += 1;
-    const winnerEnvelope = createAgentMessageEnvelope({
-      conversationId: this.conversationId,
-      conversationType: 'qa',
-      communicationForm: 'catechism',
-      turnDynamics: 'interrogation_loop',
-      intent: 'assertive',
-      speechAct: 'ACCEPT',
-      sender: this.requester,
-      recipients: [winnerBid.bidder],
-      topic: this.topic,
-      payload: {
-        bidId,
-        awarded: true,
-        rationale: rationale || 'Bid selected as best fulfillment',
-      },
-      turn: this.turnCounter,
-    });
-    await this.persistTurn(winnerEnvelope);
-    this.emit('message', winnerEnvelope);
-
-    // 2. Send REJECT to other bidders
-    const rejectEnvelopes: AgentMessageEnvelope[] = [];
-    const others = this.bidsList.filter(b => b.bidId !== bidId);
-    for (const other of others) {
+    const createDecisionEnvelope = (recipient: AgentEndpoint, targetBidId: string, awarded: boolean, reason: string) => {
       this.turnCounter += 1;
-      const rejectEnv = createAgentMessageEnvelope({
+      return createAgentMessageEnvelope({
         conversationId: this.conversationId,
         conversationType: 'qa',
         communicationForm: 'catechism',
         turnDynamics: 'interrogation_loop',
         intent: 'assertive',
-        speechAct: 'REJECT',
+        speechAct: awarded ? 'ACCEPT' : 'REJECT',
         sender: this.requester,
-        recipients: [other.bidder],
+        recipients: [recipient],
         topic: this.topic,
-        payload: {
-          bidId: other.bidId,
-          awarded: false,
-          rationale: 'Another candidate was selected',
-        },
+        payload: { bidId: targetBidId, awarded, rationale: reason },
         turn: this.turnCounter,
       });
+    };
+
+    const winnerEnvelope = createDecisionEnvelope(
+      winnerBid.bidder,
+      bidId,
+      true,
+      rationale || 'Bid selected as best fulfillment'
+    );
+    await this.persistTurn(winnerEnvelope);
+    this.emit('message', winnerEnvelope);
+
+    const rejectEnvelopes: AgentMessageEnvelope[] = [];
+    const others = this.bidsList.filter((b) => b.bidId !== bidId);
+    for (const other of others) {
+      const rejectEnv = createDecisionEnvelope(other.bidder, other.bidId, false, 'Another candidate was selected');
       await this.persistTurn(rejectEnv);
       rejectEnvelopes.push(rejectEnv);
       this.emit('message', rejectEnv);
@@ -228,9 +200,6 @@ export class QADispatcher extends EventEmitter {
     return { winnerEnvelope, rejectEnvelopes };
   }
 
-  /**
-   * Ingests incoming envelope.
-   */
   public async handleIncoming(envelope: AgentMessageEnvelope): Promise<void> {
     if (envelope.conversationId !== this.conversationId) return;
 
@@ -248,23 +217,6 @@ export class QADispatcher extends EventEmitter {
       await this.persistTurn(envelope);
       this.emit('bid', bid);
       this.emit('message', envelope);
-    }
-  }
-
-  private clearTimer(): void {
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
-  }
-
-  private async persistTurn(envelope: AgentMessageEnvelope): Promise<void> {
-    if (!this.manager) return;
-    try {
-      const room = await this.manager.findOrCreateRoom(envelope);
-      await this.manager.recordTurn(room, envelope);
-    } catch (err) {
-      this.emit('warn', `Failed to persist QA turn: ${err}`);
     }
   }
 }

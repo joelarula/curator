@@ -10,8 +10,8 @@ import { validateCuratorAst, isCuratorAstNode, parseCuratorRef, AST_LIMITS } fro
 import { superviseAgentLoops, isValidSchedule, isCronDue, isScheduleDue, computeNextRunDate } from './AgentScheduleSupervisor.js';
 export { isValidSchedule, isCronDue, isScheduleDue, computeNextRunDate };
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { CuratorCallNode, CuratorSubscribeNode, CuratorUnsubscribeNode, CuratorParamSpec, CuratorLoopNode, CuratorInlineTool } from './CuratorAst.js';
-import type { CuratorEventEmitResult, CuratorStructuredResponse } from './CuratorContracts.js';
+import type { CuratorCallNode, CuratorSubscribeNode, CuratorUnsubscribeNode, CuratorParamSpec, CuratorLoopNode, CuratorInlineTool, CuratorReduceNode, CuratorEmitEventsNode } from './CuratorAst.js';
+import type { CuratorEventEmitResult, CuratorEventSpec, CuratorReducer, CuratorStructuredResponse } from './CuratorContracts.js';
 import { resolveRef, resolveRequestNode, getScriptVersionAst, getEntry, entryAstPath, expandInlineCalls, saveAdhocScript } from './ScriptRegistry.js';
 import { coffeeAstVerbs } from './CoffeeVerbs.js';
 import { toCamelCase } from './builder/CuratorCoreBuilder.js';
@@ -35,8 +35,8 @@ export interface CuratorRequestProcessorOptions {
   astStorage?: 'reference' | 'snapshot';
   /** Maximum nested Curator_Call depth (child mode). Default 16. */
   maxCallDepth?: number;
-  /** Tool registry used for Curator_Tool nodes and direct tool Requests. Default: the global curatorEngine. */
-  engine?: { tools: Map<string, any> };
+  /** Tool and reducer registry used for Curator_Tool / Curator_Reduce nodes and direct tool Requests. Default: the global curatorEngine. */
+  engine?: { tools: Map<string, any>; reducers?: Map<string, CuratorReducer> };
   /** Non-serializable values merged into every tool's toolContext (e.g. `{ host }`). */
   toolContextExtras?: Record<string, any>;
   /** Default lifetime of an approval wait in ms (0 = never expires). Default 24h. Tool nodes may override (`approvalTtlMs`). */
@@ -134,7 +134,7 @@ export class CuratorRequestProcessor {
   private maxCallDepth: number;
   /** Script version of the Request being executed; pins child Requests to the same version. */
   private execScope = new AsyncLocalStorage<{ scriptId?: number | null; scriptVersion?: number | null }>();
-  private engine: { tools: Map<string, any> };
+  private engine: { tools: Map<string, any>; reducers?: Map<string, CuratorReducer> };
   private toolContextExtras: Record<string, any>;
   /** In-process data of direct tool Requests: runtime-only inputs and the raw output/error. */
   private inflight = new Map<number, { runtimeArgs?: Record<string, any>; runtimeContext?: Record<string, any>; broadcastToolEvents?: boolean; raw?: any; error?: any }>();
@@ -945,6 +945,7 @@ export class CuratorRequestProcessor {
           case 'Curator_Parallel': return await this.handleParallel(ast, req);
           case 'Curator_Join': return await this.handleJoin(ast, req);
           case 'Curator_Tool': return await this.handleTool(ast, req);
+          case 'Curator_Reduce': return await this.handleReduce(ast, req);
           case 'Curator_Script': return await this.handleScript(ast, req);
           case 'Curator_Route': return await this.handleRoute(ast, req);
           case 'Curator_HumanInput': return await this.handleHumanInput(ast, req);
@@ -955,6 +956,7 @@ export class CuratorRequestProcessor {
           case 'Curator_SetState': return await this.handleSetState(ast, req);
           case 'Curator_Interrupt': return await this.handleInterrupt(ast, req);
           case 'Curator_EmitEvent': return await this.handleEmitEvent(ast, req);
+          case 'Curator_EmitEvents': return await this.handleEmitEvents(ast, req);
           case 'Curator_Assign': return await this.handleAssign(ast, req);
           case 'Curator_IfElse': return await this.handleIfElse(ast, req);
           case 'Curator_While': return await this.handleWhile(ast, req);
@@ -1005,24 +1007,9 @@ export class CuratorRequestProcessor {
     } else if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
       payload = await this.evaluateArgs(payload, req);
     }
-    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
-      if (req.conversationId !== undefined && req.conversationId !== null) {
-        if (payload.conversationId === undefined) {
-          payload.conversationId = req.conversationId;
-        }
-        if (payload.tableId === undefined) {
-          payload.tableId = String(req.conversationId);
-        }
-      }
-      if (payload.sessionId === undefined) {
-        const sessId = req.context?.sessionId || (req.context as any)?.state?.sessionId || req.sessionId;
-        if (sessId) {
-          payload.sessionId = sessId;
-        }
-      }
-    }
+    this.addEventOrigin(payload, req);
     this.emit(node.eventName, payload);
-    
+
     // Evaluate dynamic targetAgentId
     let targetAgentId = node.targetAgentId;
     if (typeof targetAgentId === 'string' && this.isDynamicExpr(targetAgentId)) {
@@ -1033,6 +1020,51 @@ export class CuratorRequestProcessor {
     const record: CuratorStructuredResponse = { type: 'EVENT_EMITTED', ok: true, event: result };
     await this.saveResponse(req, JSON.stringify(record));
     await this.completeRequest(req.id, 'COMPLETED');
+  }
+
+  /**
+   * Curator_EmitEvents: emits a list computed at run time (`[{ name, payload?, targetAgentId? }]`), in order.
+   * The payloads are data (e.g. reducer output): they are not evaluated as expressions.
+   */
+  private async handleEmitEvents(node: CuratorEmitEventsNode, req: any) {
+    const list = await this.evaluateExpressionAsync(node.events, req);
+    if (list != null && !Array.isArray(list)) {
+      throw new Error(`Curator_EmitEvents: '${node.events}' must evaluate to an array of { name, payload }`);
+    }
+    const events: CuratorEventEmitResult[] = [];
+    for (const spec of (list || []) as CuratorEventSpec[]) {
+      if (!spec || typeof spec.name !== 'string' || !spec.name) {
+        throw new Error(`Curator_EmitEvents: every event needs a name (got ${JSON.stringify(spec)})`);
+      }
+      const payload = spec.payload && typeof spec.payload === 'object' && !Array.isArray(spec.payload)
+        ? { ...spec.payload }
+        : spec.payload;
+      this.addEventOrigin(payload, req);
+      this.emit(spec.name, payload);
+      events.push(await this.dispatchEvent(spec.name, payload, req, spec.targetAgentId as any));
+    }
+    const record: CuratorStructuredResponse = { type: 'EVENTS_EMITTED', ok: true, events };
+    await this.saveResponse(req, JSON.stringify(record));
+    await this.completeRequest(req.id, 'COMPLETED');
+  }
+
+  /** Stamps an object payload with the conversation (as `conversationId` / `tableId`) and session it was emitted from. */
+  private addEventOrigin(payload: any, req: any) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+    if (req.conversationId !== undefined && req.conversationId !== null) {
+      if (payload.conversationId === undefined) {
+        payload.conversationId = req.conversationId;
+      }
+      if (payload.tableId === undefined) {
+        payload.tableId = String(req.conversationId);
+      }
+    }
+    if (payload.sessionId === undefined) {
+      const sessId = req.context?.sessionId || (req.context as any)?.state?.sessionId || req.sessionId;
+      if (sessId) {
+        payload.sessionId = sessId;
+      }
+    }
   }
 
   /**
@@ -2503,6 +2535,37 @@ export class CuratorRequestProcessor {
     await this.completeRequest(req.id, 'COMPLETED');
   }
 
+  /**
+   * Curator_Reduce: runs a plugin's pure reducer on the evaluated args. No RBAC, approval or tool events;
+   * the output is bound like tool output (context here, conversation state on completion).
+   */
+  private async handleReduce(ast: CuratorReduceNode, req: any) {
+    const reducer = this.engine.reducers?.get(ast.reducer);
+    if (!reducer) throw new Error(`Reducer ${ast.reducer} not found in dynamic registry.`);
+
+    let args: Record<string, any> = {};
+    if (this.isDynamicExpr(ast.args)) {
+      const resolved = await this.evaluateExpressionAsync(ast.args as string, req);
+      args = (resolved && typeof resolved === 'object' && !Array.isArray(resolved)) ? resolved : { input: resolved };
+    } else if (ast.args && typeof ast.args === 'object') {
+      args = await this.evaluateArgs(ast.args, req);
+    }
+
+    const output = reducer(args);
+    if (!output || typeof output !== 'object' || Array.isArray(output)) {
+      throw new Error(`Reducer ${ast.reducer} must return an object`);
+    }
+
+    const updatedContext = { ...(req.context || {}) };
+    if (ast.as) updatedContext[ast.as] = output;
+    if (ast.spread !== false) Object.assign(updatedContext, output);
+    req.context = updatedContext;
+    await this.prisma.request.update({ where: { id: req.id }, data: { context: updatedContext } });
+
+    await this.saveResponse(req, JSON.stringify(output));
+    await this.completeRequest(req.id, 'COMPLETED');
+  }
+
   private async handleSetState(ast: any, req: any) {
     logger.debug(`[CuratorRequestProcessor] Setting state for request ${req.id}`);
     let evaluatedState: Record<string, any> = {};
@@ -3068,7 +3131,7 @@ export class CuratorRequestProcessor {
   }
 
   private static readonly STRUCTURED_RECORD_TYPES = new Set([
-    'TOOL_BLOCKED', 'APPROVAL_REQUIRED', 'APPROVAL_EXPIRED', 'HUMAN_TIMEOUT', 'WAIT_TIMEOUT', 'EVENT_EMITTED', 'CHOICE_PROMPT', 'CHOICE_RECEIVED',
+    'TOOL_BLOCKED', 'APPROVAL_REQUIRED', 'APPROVAL_EXPIRED', 'HUMAN_TIMEOUT', 'WAIT_TIMEOUT', 'EVENT_EMITTED', 'EVENTS_EMITTED', 'CHOICE_PROMPT', 'CHOICE_RECEIVED',
     'SUBSCRIBED', 'UNSUBSCRIBED', 'MODEL_CHANGED'
   ]);
 
@@ -3245,9 +3308,9 @@ export class CuratorRequestProcessor {
               } else if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
                 if (agentKey) {
                   newUpdates = { [agentKey]: parsed };
-                } else if (req.ast?.type === 'Curator_Tool' && req.ast.spread === false) {
-                  // Non-spreading tool: its output is state only under its bound key, never field by field
-                  newUpdates = { [req.ast.as || req.ast.toolName]: parsed };
+                } else if ((req.ast?.type === 'Curator_Tool' || req.ast?.type === 'Curator_Reduce') && req.ast.spread === false) {
+                  // Non-spreading tool or reducer: its output is state only under its bound key, never field by field
+                  newUpdates = { [req.ast.as || req.ast.toolName || req.ast.reducer]: parsed };
                 } else {
                   newUpdates = parsed;
                 }

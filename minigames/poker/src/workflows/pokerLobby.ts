@@ -27,9 +27,8 @@ const {
   gameState,
   steps,
   boot_table,
-  join_lobby,
+  join_table,
   list_tables,
-  lobby_menu,
   create_table,
   modules,
   get_buy_in_options,
@@ -55,14 +54,14 @@ export const lobbyActions = PokerLobbyAction;
  * Runs as an isolated child call (it waits for players), so it reads the table config from state.
  */
 export const bootTableSub = defineSubroutine('boot_table', () => [
-  boot_table(),
+  ...boot_table(),
   LobbyReady.emit({ tableId: gameState.tableId }),
   whileLoop(
     pokerPredicates.table_needs_players,
     seq(steps.WAIT_FOR_PLAYERS, [
       AwaitingPlayers.emit({ tableId: gameState.tableId, seatedCount: gameState.players.length }),
       PlayerJoined.wait(bootCtx.joinRequest),
-      join_lobby(bootCtx.joinRequest),
+      ...join_table(bootCtx.joinRequest),
     ]),
   ),
   // Seats only (no chips or cards): projected into the table's poker:hasPlayer triples
@@ -129,10 +128,8 @@ export function buildLobbyPhases() {
       ],
     },
     [PokerLobbyPhase.PICK_TABLE]: {
-      run: [
-        lobby_menu({ tables: String(lobbyCtxProxy.openTables.tables) }, { as: lobbyCtxProxy.lobbyMenu }),
-        input('Select Table:', String(lobbyCtxProxy.lobbyMenu.tableChoices), { as: lobbyCtxProxy.selectedTable }),
-      ],
+      // list_tables already built the table choices (with Back) for the open tables
+      run: input('Select Table:', String(lobbyCtxProxy.openTables.tableChoices), { as: lobbyCtxProxy.selectedTable }),
       next: [
         { to: PokerLobbyPhase.MENU, when: picked(state.selectedTable, lobbyActions.BACK) },
         { to: PokerLobbyPhase.BUY_IN },

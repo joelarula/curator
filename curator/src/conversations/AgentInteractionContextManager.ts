@@ -1,5 +1,11 @@
 import { EventEmitter } from 'events';
 import { appendStatePatch } from '../engine/ConversationStateLog.js';
+import {
+  ConversationContextBuilder,
+  type ConversationContext,
+  type ConversationEntry,
+} from '../engine/llm/ConversationContext.js';
+import type { ILlmProvider } from '../engine/llm/ILlmProvider.js';
 
 export interface InteractionEvent {
   id: string;
@@ -68,6 +74,7 @@ export interface AgentProjectedState {
 export interface AgentInteractionContextOptions {
   conversationId: string;
   prisma?: any;
+  llmProvider?: ILlmProvider;
   maxStoryLogEntries?: number;
   autoCompactThreshold?: number;
   maxEventLogEntries?: number;
@@ -92,24 +99,21 @@ export interface AgentReactionResult {
   innerMonologue: string;
 }
 
+const ANSI_PALETTE = ['\x1b[35m', '\x1b[33m', '\x1b[36m', '\x1b[34m'];
+
 /**
  * AgentInteractionContextManager
  *
- * Models and manages the unified stream of consecutive game moves and speech acts,
- * synthesizing subjective working memories and context streams per agent.
- *
- * Guarantees:
- * 1. Asymmetric Exposure: Whispers and private states are revealed only to authorized participants.
- * 2. Unbroken Game Memory: AI agents maintain an evolving chronological log of moves, speech, and reads.
- * 3. Gemini / LLM Synthesis: Generates contextual prompts and agentic soliloquies/dialogue.
- * 4. Bounded Context & Compaction: Older moves automatically compact to prevent unbounded token growth.
- * 5. Checkpoints & Epochs: First-class epoch demarcation (hands, rounds) and checkpoint snapshots.
+ * Models and manages consecutive domain moves and speech acts,
+ * synthesizing subjective working memories and audience-filtered context streams per participant.
+ * Bridges with the engine's ConversationContextBuilder & ConversationStateLog.
  */
 export class AgentInteractionContextManager extends EventEmitter {
   public readonly conversationId: string;
   private memories: Map<string, AgentWorkingMemory> = new Map();
   private eventLog: InteractionEvent[] = [];
   private prisma?: any;
+  private llmProvider?: ILlmProvider;
 
   public readonly maxStoryLogEntries: number;
   public readonly autoCompactThreshold: number;
@@ -119,19 +123,17 @@ export class AgentInteractionContextManager extends EventEmitter {
   private checkpoints: Map<string, InteractionCheckpoint> = new Map();
   private latestCheckpoint?: InteractionCheckpoint;
 
-  constructor(options: AgentInteractionContextOptions | { conversationId: string; prisma?: any }) {
+  constructor(options: AgentInteractionContextOptions) {
     super();
     this.conversationId = options.conversationId;
     this.prisma = options.prisma;
-    this.maxStoryLogEntries = (options as AgentInteractionContextOptions).maxStoryLogEntries ?? 25;
-    this.autoCompactThreshold = (options as AgentInteractionContextOptions).autoCompactThreshold ?? 35;
-    this.maxEventLogEntries = (options as AgentInteractionContextOptions).maxEventLogEntries ?? 50;
-    this.promptHistoryWindow = (options as AgentInteractionContextOptions).promptHistoryWindow ?? 12;
+    this.llmProvider = options.llmProvider;
+    this.maxStoryLogEntries = options.maxStoryLogEntries ?? 25;
+    this.autoCompactThreshold = options.autoCompactThreshold ?? 35;
+    this.maxEventLogEntries = options.maxEventLogEntries ?? 50;
+    this.promptHistoryWindow = options.promptHistoryWindow ?? 12;
   }
 
-  /**
-   * Compacts older story log entries for an agent into a unified summary to keep memory bounded.
-   */
   public compactAgentStoryLog(agentId: string): void {
     const mem = this.memories.get(agentId);
     if (!mem || mem.storyLog.length <= this.maxStoryLogEntries) return;
@@ -143,9 +145,6 @@ export class AgentInteractionContextManager extends EventEmitter {
     this.emit('memory:compacted', { agentId, prunedCount: oldEntries.length });
   }
 
-  /**
-   * Starts a new logical epoch (e.g. "Hand #2", "Round 3") across all participants.
-   */
   public startEpoch(
     epochId: string,
     metadata?: { description?: string; resetPrivateState?: boolean; details?: any }
@@ -171,9 +170,6 @@ export class AgentInteractionContextManager extends EventEmitter {
     return this.currentEpochId;
   }
 
-  /**
-   * Creates a formal checkpoint snapshot of all participants and optional domain state.
-   */
   public createCheckpoint(stateSnapshot?: Record<string, any>): InteractionCheckpoint {
     const id = `chk_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const participants = Array.from(this.memories.values()).map((m) => ({ ...m.participant }));
@@ -184,8 +180,8 @@ export class AgentInteractionContextManager extends EventEmitter {
         privateState: { ...mem.privateState },
         innerMonologue: mem.innerMonologue,
         recentStoryLog: mem.storyLog.slice(-this.maxStoryLogEntries),
-        peerModels: mem.peerModels ? JSON.parse(JSON.stringify(mem.peerModels)) : {},
-        epistemicState: mem.epistemicState ? JSON.parse(JSON.stringify(mem.epistemicState)) : {},
+        peerModels: mem.peerModels ? structuredClone(mem.peerModels) : {},
+        epistemicState: mem.epistemicState ? structuredClone(mem.epistemicState) : {},
       };
     }
 
@@ -196,14 +192,13 @@ export class AgentInteractionContextManager extends EventEmitter {
       timestamp: Date.now(),
       participants,
       memories: memoriesSnapshot,
-      stateSnapshot: stateSnapshot ? JSON.parse(JSON.stringify(stateSnapshot)) : undefined,
+      stateSnapshot: stateSnapshot ? structuredClone(stateSnapshot) : undefined,
     };
 
     this.checkpoints.set(id, checkpoint);
     this.latestCheckpoint = checkpoint;
     this.emit('checkpoint:created', checkpoint);
 
-    // If Prisma is available, asynchronously persist checkpoint to Conversation.metadata
     if (this.prisma?.conversation?.update) {
       this.persistCheckpoint(checkpoint).catch(() => {});
     }
@@ -211,30 +206,18 @@ export class AgentInteractionContextManager extends EventEmitter {
     return checkpoint;
   }
 
-  /**
-   * Retrieves a checkpoint by its ID.
-   */
   public getCheckpoint(id: string): InteractionCheckpoint | undefined {
     return this.checkpoints.get(id);
   }
 
-  /**
-   * Retrieves the most recently created checkpoint.
-   */
   public getLatestCheckpoint(): InteractionCheckpoint | undefined {
     return this.latestCheckpoint;
   }
 
-  /**
-   * Returns all stored checkpoints in chronological order.
-   */
   public getAllCheckpoints(): InteractionCheckpoint[] {
     return Array.from(this.checkpoints.values());
   }
 
-  /**
-   * Persists a checkpoint to the database under Conversation.metadata.lastCheckpoint.
-   */
   public async persistCheckpoint(checkpoint?: InteractionCheckpoint): Promise<void> {
     const cp = checkpoint || this.latestCheckpoint;
     if (!cp || !this.prisma?.conversation) return;
@@ -251,9 +234,6 @@ export class AgentInteractionContextManager extends EventEmitter {
     }
   }
 
-  /**
-   * Restores working memory states from an existing checkpoint.
-   */
   public restoreFromCheckpoint(checkpoint: InteractionCheckpoint): void {
     this.currentEpochId = checkpoint.epochId;
     for (const p of checkpoint.participants) {
@@ -272,9 +252,6 @@ export class AgentInteractionContextManager extends EventEmitter {
     this.emit('checkpoint:restored', { checkpointId: checkpoint.id });
   }
 
-  /**
-   * Generates a projected, non-redundant state view for an individual agent.
-   */
   public getProjectedState(agentId: string, publicGameStateSummary?: string): AgentProjectedState | null {
     const mem = this.memories.get(agentId);
     if (!mem) return null;
@@ -293,8 +270,37 @@ export class AgentInteractionContextManager extends EventEmitter {
   }
 
   /**
-   * Registers a participant (human or AI agent) into the interaction frame.
+   * Projects recorded interaction events into the engine's standard ConversationContext
+   * for a specific viewer, enforcing audience visibility for private moves and whispers.
    */
+  public toConversationContext(agentId: string): ConversationContext | null {
+    const mem = this.memories.get(agentId);
+    if (!mem) return null;
+
+    const entries: ConversationEntry[] = this.eventLog.map((evt) => {
+      const mode = evt.type === 'SPEECH_ACT' && evt.isPrivate ? 'whisper' : 'say';
+      const audience = evt.isPrivate && evt.authorizedParticipantIds
+        ? evt.authorizedParticipantIds
+        : 'all';
+      return {
+        id: evt.id,
+        at: evt.timestamp,
+        speaker: evt.actorId,
+        mode,
+        text: evt.summary,
+        audience,
+      };
+    });
+
+    return new ConversationContextBuilder({
+      system: mem.participant.personaPrompt,
+      limit: this.promptHistoryWindow,
+      label: (speakerId) => this.memories.get(speakerId)?.participant.name || speakerId,
+    })
+      .pushAll(entries)
+      .build(agentId);
+  }
+
   public registerParticipant(profile: AgentParticipantProfile): void {
     if (!this.memories.has(profile.id)) {
       this.memories.set(profile.id, {
@@ -310,9 +316,6 @@ export class AgentInteractionContextManager extends EventEmitter {
     }
   }
 
-  /**
-   * Sets or updates private state known exclusively to this agent (e.g. hole cards).
-   */
   public setPrivateState(agentId: string, state: Record<string, any>): void {
     const mem = this.memories.get(agentId);
     if (mem) {
@@ -320,10 +323,6 @@ export class AgentInteractionContextManager extends EventEmitter {
     }
   }
 
-  /**
-   * Records a game move (e.g. BET, RAISE, CALL, FOLD, CHECK, DEAL, SHOWDOWN).
-   * Appends subjective perception to each participant's narrative log.
-   */
   public recordGameMove(options: {
     actorId: string;
     action: string;
@@ -348,37 +347,22 @@ export class AgentInteractionContextManager extends EventEmitter {
       summary: options.summary,
     };
 
-    this.eventLog.push(event);
-    if (this.eventLog.length > this.maxEventLogEntries) {
-      this.eventLog.shift();
-    }
+    this.pushEvent(event);
 
-    // Update subjective memory of each participant
     for (const [id, mem] of this.memories.entries()) {
       if (options.isPrivate && options.privateTo && !options.privateTo.includes(id)) {
         continue;
       }
 
-      if (id === options.actorId) {
-        mem.storyLog.push(`I executed move [${options.action}]: ${options.summary}`);
-      } else {
-        mem.storyLog.push(`Observed ${actorName} execute [${options.action}]: ${options.summary}`);
-      }
-
-      if (mem.storyLog.length > this.autoCompactThreshold) {
-        this.compactAgentStoryLog(id);
-      }
+      const line = id === options.actorId
+        ? `I executed move [${options.action}]: ${options.summary}`
+        : `Observed ${actorName} execute [${options.action}]: ${options.summary}`;
+      this.appendStoryLine(id, mem, line);
     }
 
     this.emit('event:game_move', event);
   }
 
-  /**
-   * Records a speech utterance or message.
-   * If recipientId is specified (or speechAct is 'WHISPER'), privacy is enforced:
-   * the message is recorded in full for sender and recipient, while bystanders
-   * only observe that a private whisper occurred.
-   */
   public recordSpeech(options: {
     speakerId: string;
     text: string;
@@ -406,54 +390,39 @@ export class AgentInteractionContextManager extends EventEmitter {
       summary: `${speakerName} spoke: "${options.text}"`,
     };
 
-    this.eventLog.push(event);
-    if (this.eventLog.length > this.maxEventLogEntries) {
-      this.eventLog.shift();
-    }
+    this.pushEvent(event);
 
     for (const [id, mem] of this.memories.entries()) {
+      let line: string;
       if (isWhisper) {
         if (id === options.speakerId) {
-          mem.storyLog.push(`[WHISPER to ${recipientName || 'someone'}]: "${options.text}"`);
+          line = `[WHISPER to ${recipientName || 'someone'}]: "${options.text}"`;
         } else if (id === options.recipientId) {
-          mem.storyLog.push(`[WHISPER from ${speakerName}]: "${options.text}"`);
+          line = `[WHISPER from ${speakerName}]: "${options.text}"`;
           mem.innerMonologue = `${speakerName} whispered privately to me. Evaluating intent.`;
         } else {
-          // Asymmetric exposure: bystander sees that whispering occurred without secret content
-          mem.storyLog.push(`[OBSERVED]: ${speakerName} whispered secretly to ${recipientName || 'another player'}.`);
+          line = `[OBSERVED]: ${speakerName} whispered secretly to ${recipientName || 'another participant'}.`;
         }
       } else {
-        // Public dialogue
-        if (id === options.speakerId) {
-          mem.storyLog.push(`[SPOKE to table (${options.speechAct})]: "${options.text}"`);
-        } else {
-          mem.storyLog.push(`[${speakerName} (${options.speechAct})]: "${options.text}"`);
-        }
+        line = id === options.speakerId
+          ? `[SPOKE to table (${options.speechAct})]: "${options.text}"`
+          : `[${speakerName} (${options.speechAct})]: "${options.text}"`;
       }
-
-      if (mem.storyLog.length > this.autoCompactThreshold) {
-        this.compactAgentStoryLog(id);
-      }
+      this.appendStoryLine(id, mem, line);
     }
 
     this.emit('event:speech_act', event);
   }
 
-  /**
-   * Alias for recordSpeech for backward compatibility.
-   */
   public recordSpeechAct(options: {
     speakerId: string;
     text: string;
     speechAct?: string;
     recipientId?: string;
   }): void {
-    return this.recordSpeech(options);
+    this.recordSpeech(options);
   }
 
-  /**
-   * Compiles the subjective LLM context bundle for a specific agent.
-   */
   public buildAgentLlmContext(
     agentId: string,
     situation: {
@@ -464,10 +433,10 @@ export class AgentInteractionContextManager extends EventEmitter {
     const mem = this.memories.get(agentId);
     if (!mem) return null;
 
-    const systemInstruction = `${mem.participant.personaPrompt || `You are ${mem.participant.name}, a strategic player.`}
-You are participating in an interactive game session.
+    const systemInstruction = `${mem.participant.personaPrompt || `You are ${mem.participant.name}, a strategic participant.`}
+You are participating in an interactive session.
 You have private memory and subjective observations of everything that has occurred.
-Keep your identity and secret knowledge protected unless revealed at showdown.`;
+Keep your identity and private state protected unless revealed.`;
 
     const recentHistory = mem.storyLog.slice(-this.promptHistoryWindow).join('\n');
     const privateStateStr = JSON.stringify(mem.privateState);
@@ -501,86 +470,66 @@ Respond in JSON format:
     };
   }
 
-  /**
-   * Generates an agentic reaction using Gemini API or cognitive synthesizer,
-   * automatically committing the resulting soliloquy and utterance to memory.
-   */
   public async generateAgentReaction(
     agentId: string,
     situation: {
       gameStateSummary: string;
       currentPrompt: string;
       speechActContext?: string;
+      recipientId?: string;
       apiKey?: string;
     }
   ): Promise<AgentReactionResult | null> {
     const mem = this.memories.get(agentId);
     if (!mem) return null;
 
-    const apiKey = situation.apiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     const bundle = this.buildAgentLlmContext(agentId, situation);
     if (!bundle) return null;
 
+    const defaultRecipientId =
+      situation.recipientId ||
+      Array.from(this.memories.values()).find((m) => m.participant.isHuman)?.participant.id ||
+      Array.from(this.memories.keys()).find((k) => k !== agentId);
+
     let result: AgentReactionResult | null = null;
 
-    if (apiKey) {
+    if (this.llmProvider) {
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-        const payload = {
-          systemInstruction: { parts: [{ text: bundle.systemInstruction }] },
-          contents: [{ role: 'user', parts: [{ text: bundle.userPrompt }] }],
-          generationConfig: {
-            responseMimeType: 'application/json',
-            temperature: 0.8,
-            maxOutputTokens: 250,
-          },
-        };
-
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4000);
-
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-          signal: controller.signal,
+        const res = await this.llmProvider.generateContent({
+          model: 'gemini-2.5-flash',
+          systemPrompt: bundle.systemInstruction,
+          messages: [{ role: 'user', content: bundle.userPrompt }],
+          jsonOutput: true,
+          apiKey: situation.apiKey,
         });
-        clearTimeout(timeoutId);
-
-        if (res.ok) {
-          const data: any = await res.json();
-          const candidate = data.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (candidate) {
-            const parsed = JSON.parse(candidate);
-            result = {
-              speakerId: agentId,
-              speakerName: mem.participant.name,
-              speechAct: parsed.speechAct || 'TABLE_TALK',
-              recipientId: parsed.speechAct === 'WHISPER' ? 'hero' : undefined,
-              text: parsed.text,
-              innerMonologue: parsed.innerMonologue || 'Calculated move based on memory.',
-            };
-          }
+        if (res.text) {
+          const parsed = JSON.parse(res.text);
+          result = {
+            speakerId: agentId,
+            speakerName: mem.participant.name,
+            speechAct: parsed.speechAct || 'TABLE_TALK',
+            recipientId: parsed.speechAct === 'WHISPER' ? defaultRecipientId : undefined,
+            text: parsed.text,
+            innerMonologue: parsed.innerMonologue || 'Calculated move based on memory.',
+          };
         }
       } catch {
-        // Fallback below
+        // Fallback to deterministic synthesis below
       }
     }
 
     if (!result) {
-      // Dynamic cognitive agentic synthesis
       const isWhisper = situation.speechActContext === 'WHISPER';
       result = {
         speakerId: agentId,
         speakerName: mem.participant.name,
         speechAct: isWhisper ? 'WHISPER' : 'TABLE_TALK',
-        recipientId: isWhisper ? 'hero' : undefined,
-        text: `Based on what has happened so far, words won't change the game state. Let us play.`,
-        innerMonologue: `Evaluating previous moves from my memory log. Maintaining discipline.`,
+        recipientId: isWhisper ? defaultRecipientId : undefined,
+        text: 'Based on what has happened so far, words will not change the state. Let us proceed.',
+        innerMonologue: 'Evaluating previous moves from my memory log. Maintaining discipline.',
       };
     }
 
-    // Update memory with generated reaction
     mem.innerMonologue = result.innerMonologue;
     if (result.text) {
       this.recordSpeechAct({
@@ -594,16 +543,10 @@ Respond in JSON format:
     return result;
   }
 
-  /**
-   * Returns the complete working memory of an agent.
-   */
   public getMemory(agentId: string): AgentWorkingMemory | undefined {
     return this.memories.get(agentId);
   }
 
-  /**
-   * Renders a human-readable comparative view of all agent subjective memories.
-   */
   public renderComparativeNarratives(): string {
     const reset = '\x1b[0m';
     const bold = '\x1b[1m';
@@ -612,22 +555,20 @@ Respond in JSON format:
     const green = '\x1b[32m';
     const magenta = '\x1b[35m';
 
-    let out = '\n';
-    out += `${cyan}========================================================================================${reset}\n`;
+    let out = `\n${cyan}========================================================================================${reset}\n`;
     out += `  ${bold}CURATOR CORE: AGENT CONVERSATIONAL CONTEXTS & SUBJECTIVE GAME MEMORY${reset}\n`;
-    out += `  ${yellow}Demonstrating how consecutive game moves & speech acts form distinct memory streams per mind${reset}\n`;
+    out += `  ${yellow}Demonstrating how consecutive moves & speech acts form distinct memory streams per mind${reset}\n`;
     out += `${cyan}========================================================================================${reset}\n\n`;
 
-    for (const [id, mem] of this.memories.entries()) {
-      const isHuman = mem.participant.isHuman;
-      const color = isHuman ? green : id === 'viper' ? magenta : id === 'maddog' ? yellow : cyan;
+    let paletteIdx = 0;
+    for (const [, mem] of this.memories.entries()) {
+      const color = mem.participant.isHuman ? green : ANSI_PALETTE[paletteIdx++ % ANSI_PALETTE.length];
 
       out += `${color}${bold}━━━ AGENT CONTEXT: ${mem.participant.name.toUpperCase()} (${mem.participant.role}) ━━━${reset}\n`;
       out += `  ${bold}Current Soliloquy (Inner Monologue):${reset} "${mem.innerMonologue}"\n`;
       out += `  ${bold}Subjective History Log (Last 5 Turns):${reset}\n`;
 
-      const recent = mem.storyLog.slice(-5);
-      for (const entry of recent) {
+      for (const entry of mem.storyLog.slice(-5)) {
         if (entry.includes('[WHISPER')) {
           out += `    ${magenta}• ${entry}${reset}\n`;
         } else if (entry.includes('[OBSERVED')) {
@@ -643,9 +584,6 @@ Respond in JSON format:
     return out;
   }
 
-  /**
-   * Persists narrative snapshot to the database.
-   */
   public async persistToDatabase(requestId: number, projectId: string): Promise<void> {
     if (!this.prisma) return;
 
@@ -672,6 +610,20 @@ Respond in JSON format:
       });
     } catch {
       // Non-blocking persistence
+    }
+  }
+
+  private pushEvent(event: InteractionEvent): void {
+    this.eventLog.push(event);
+    if (this.eventLog.length > this.maxEventLogEntries) {
+      this.eventLog.shift();
+    }
+  }
+
+  private appendStoryLine(agentId: string, mem: AgentWorkingMemory, line: string): void {
+    mem.storyLog.push(line);
+    if (mem.storyLog.length > this.autoCompactThreshold) {
+      this.compactAgentStoryLog(agentId);
     }
   }
 }

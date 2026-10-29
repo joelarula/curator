@@ -11,6 +11,9 @@ export function renderPokerEvent(
   currentGameState?: PokerGameState | null
 ): void {
   const { type, payload } = event;
+  // Events carry the game state as of their moment; the latest state may already be further along
+  const eventState: PokerGameState | null | undefined =
+    payload?.gameState && typeof payload.gameState === 'object' ? payload.gameState : currentGameState;
   switch (type) {
     case PokerEvent.TABLE_SELECTED: {
       const tid = (payload?.tableId && typeof payload.tableId === 'string' && !payload.tableId.startsWith('$'))
@@ -48,13 +51,13 @@ export function renderPokerEvent(
     case PokerEvent.PHASE_DEAL:
     case PokerEvent.PHASE_STREET: {
       const street = payload?.street || PokerStreet.FLOP;
-      const boardStr = currentGameState?.board?.length
-        ? ` ${currentGameState.board.map((c) => formatCard(c)).join(' ')}`
+      const boardStr = eventState?.board?.length
+        ? ` ${eventState.board.map((c) => formatCard(c)).join(' ')}`
         : '';
-      const potStr = currentGameState ? ` (Pot: $${currentGameState.pot})` : '';
+      const potStr = eventState ? ` (Pot: $${eventState.pot})` : '';
       console.log(`\n\x1b[1m\x1b[36m[DEALER] Dealing ${street}:${boardStr}${potStr}\x1b[0m`);
-      if (currentGameState && (street === PokerStreet.PREFLOP || street === 'PREFLOP')) {
-        console.log(renderTable(currentGameState, false));
+      if (eventState && (street === PokerStreet.PREFLOP || street === 'PREFLOP')) {
+        console.log(renderTable(eventState, false));
       }
       break;
     }
@@ -91,8 +94,8 @@ export function renderPokerEvent(
     case PokerEvent.PHASE_SETTLE:
     case PokerEvent.SHOWDOWN:
       console.log(`\n\x1b[1m\x1b[32m✔ [SHOWDOWN] ${payload?.winnerSummary || 'Hand completed.'}\x1b[0m`);
-      if (currentGameState) {
-        console.log(renderTable(currentGameState, true));
+      if (eventState) {
+        console.log(renderTable(eventState, true));
       }
       break;
 

@@ -7,7 +7,6 @@ import {
   PokerActionType,
   PokerStreet,
   type PokerActionTypeValue,
-  PokerTool,
 } from '../models/pokerContracts.ts';
 import type { Suit, Rank } from '../types.ts';
 import { SUITS, RANKS } from '../types.ts';
@@ -212,8 +211,6 @@ function createActionChoice(
     usage: options.usage || (type === PokerActionType.RAISE ? '<amount>' : undefined),
     minAmount: options.minAmount,
     maxAmount: options.maxAmount,
-    tool: PokerTool.APPLY_ACTION,
-    args: { action },
     action,
   };
 }

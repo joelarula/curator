@@ -102,6 +102,12 @@ const schema: Record<string, any> = {
     },
     {
       type: 'object',
+      properties: { ...baseProperties, type: { const: 'Curator_Reduce' }, reducer: { type: 'string', minLength: 1 }, args: { anyOf: [{ type: 'object' }, { type: 'string' }] }, as: { type: 'string' }, spread: { type: 'boolean' } },
+      required: ['type', 'reducer'],
+      additionalProperties: false,
+    },
+    {
+      type: 'object',
       properties: { ...baseProperties, type: { const: 'Curator_Script' }, language: { type: 'string', enum: ['javascript', 'coffeescript'] }, code: { type: 'string', minLength: 1 } },
       required: ['type', 'language', 'code'],
       additionalProperties: false,
@@ -150,6 +156,12 @@ const schema: Record<string, any> = {
       type: 'object',
       properties: { ...baseProperties, type: { const: 'Curator_EmitEvent' }, eventName: { type: 'string', minLength: 1 }, targetAgentId: { anyOf: [{ type: 'integer' }, { type: 'string' }] }, payload: {} },
       required: ['type', 'eventName'],
+      additionalProperties: false,
+    },
+    {
+      type: 'object',
+      properties: { ...baseProperties, type: { const: 'Curator_EmitEvents' }, events: { type: 'string', minLength: 1 } },
+      required: ['type', 'events'],
       additionalProperties: false,
     },
     {

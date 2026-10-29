@@ -1,8 +1,9 @@
 /**
  * Poker Client Shell Specification & Configuration.
  * Pure declarative configuration for Texas Hold'em interactive shell:
- * whitelisted tools (poker_apply_action, poker_human_speech, poker_get_standings),
+ * whitelisted tools (poker_get_standings, poker_list_tables, poker_create_table),
  * inspection commands (table, standings, pause, resume), and free-text speech routing.
+ * Seat actions and speech are events (`poker:human_action`, `poker:speech`), never tool calls.
  */
 import {
   createClientShell,
@@ -23,12 +24,7 @@ import {
 } from '../types.ts';
 import { renderTable, renderCompactStatus, renderStandings } from '../ui/tableRenderer.ts';
 import {
-  pokerApplyActionTool,
-  pokerHumanSpeechTool,
   pokerGetStandingsTool,
-  pokerGetChoicesTool,
-  pokerJoinLobbyTool,
-  pokerLeaveLobbyTool,
   pokerListTablesTool,
   pokerCreateTableTool,
 } from '../plugins/pokerPlugin.ts';
@@ -39,12 +35,7 @@ export { type ShellCommand, type ToolAction };
  * Actual Curator tools permitted in the Texas Hold'em client shell.
  */
 export const POKER_WHITELISTED_TOOLS: (string | CuratorToolDefinition)[] = [
-  pokerApplyActionTool,
-  pokerHumanSpeechTool,
   pokerGetStandingsTool,
-  pokerGetChoicesTool,
-  pokerJoinLobbyTool,
-  pokerLeaveLobbyTool,
   pokerListTablesTool,
   pokerCreateTableTool,
 ];
@@ -249,7 +240,6 @@ export function createPokerClientShell(
   return createClientShell<PokerGameState, ToolAction>({
     actorName: opts.actorName || 'You',
     channel: opts.channel,
-    defaultToolName: PokerTool.HUMAN_SPEECH,
     commands: POKER_COMMANDS,
     tools: POKER_WHITELISTED_TOOLS,
     getState: opts.getGameState,
@@ -330,17 +320,6 @@ export function createPokerClientShell(
 
       // 2. Direct channel / WebSocket dispatch
       if (opts.channel) {
-        if (toolName === PokerTool.APPLY_ACTION) {
-          return opts.channel.send(PokerEvent.HUMAN_ACTION, args.action || args);
-        }
-        if (toolName === PokerTool.HUMAN_SPEECH) {
-          return opts.channel.send(PokerEvent.SPEECH, {
-            text: args.text || args.content,
-            speakerName: opts.actorName || 'You',
-            speechAct: args.speechAct,
-            targetId: args.targetId,
-          });
-        }
         if ((opts.channel as any)?.runTool) {
           return await (opts.channel as any).runTool(toolName, args);
         }

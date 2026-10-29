@@ -16,6 +16,8 @@ import {
   type CuratorScriptNode,
   type CuratorWaitEventNode,
   type CuratorToolNode,
+  type CuratorReduceNode,
+  type CuratorEmitEventsNode,
   type CuratorModuleNode,
   type CuratorSubroutine,
   type CuratorParamSpec,
@@ -658,6 +660,27 @@ export class CuratorCoreBuilder {
   }
 
   /**
+   * Run a plugin's pure reducer (registered under `reducers`) on the given args.
+   * Its output is bound like a tool's: spread into context and state, or kept under `as` when `spread` is false.
+   */
+  static reduce(reducer: string, args?: Record<string, any> | ((ctx: any) => Record<string, any>), as?: string | TypedPathProxy<any> | any, options: { spread?: boolean } = {}): CuratorReduceNode {
+    const evaluatedArgs = typeof args === 'function' ? `(${args.toString()})(context)` : (args ? serializeClosure(args) : {});
+    const cleanAs = toVarName(as);
+    const node: CuratorReduceNode = { type: CuratorNodeType.Reduce, reducer, args: evaluatedArgs as any };
+    if (cleanAs) node.as = cleanAs;
+    if (options.spread === false) node.spread = false;
+    return node;
+  }
+
+  /**
+   * Emit every event of a list computed at run time (`[{ name, payload?, targetAgentId? }]`), e.g. `$state.events`
+   * written by a reducer. Payloads are emitted as data, without expression evaluation.
+   */
+  static emitEvents(events: string | TypedPathProxy<any>): CuratorEmitEventsNode {
+    return { type: CuratorNodeType.EmitEvents, events: String(events) };
+  }
+
+  /**
    * Reference a sensitive credential or API token via a secure placeholder.
    * e.g. CuratorCoreBuilder.secret('GITHUB_TOKEN') -> '$secret:GITHUB_TOKEN'
    */
@@ -949,6 +972,7 @@ export const repeat = CuratorCoreBuilder.repeat;
 export const every = CuratorCoreBuilder.every;
 export const forEach = CuratorCoreBuilder.forEach;
 export const emitEvent = CuratorCoreBuilder.emitEvent;
+export const emitEvents = CuratorCoreBuilder.emitEvents;
 export const waitEvent = CuratorCoreBuilder.waitEvent;
 export const setState = CuratorCoreBuilder.setState;
 export const callSubroutine = CuratorCoreBuilder.call;
@@ -956,6 +980,7 @@ export const sub = CuratorCoreBuilder.sub;
 export const subscribe = CuratorCoreBuilder.subscribe;
 export const unsubscribe = CuratorCoreBuilder.unsubscribe;
 export const tool = CuratorCoreBuilder.tool;
+export const reduce = CuratorCoreBuilder.reduce;
 export const script = CuratorCoreBuilder.script;
 export const agent = CuratorCoreBuilder.agent;
 export const secret = CuratorCoreBuilder.secret;

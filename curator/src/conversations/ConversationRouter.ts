@@ -227,6 +227,8 @@ export class ConversationRouter extends EventEmitter {
       }];
     }
 
+    const resolvedSenderRole = senderRole || raw.sender?.conversationalRole || raw.sender?.role;
+
     return createAgentMessageEnvelope({
       conversationId: convId,
       conversationType: raw.conversationType || (raw.roomUri ? 'forum' : 'dialog'),
@@ -235,10 +237,12 @@ export class ConversationRouter extends EventEmitter {
       intent: raw.intent,
       speechAct: raw.speechAct || 'INFORM',
       sender: {
-        nodeId: raw.senderNodeId || this.localNodeId,
-        agentId: raw.senderAgentId || 'local_agent',
-        conversationalRole: senderRole,
-        role: senderRole,
+        nodeId: raw.sender?.nodeId || raw.senderNodeId || this.localNodeId,
+        agentId: raw.sender?.agentId || raw.senderAgentId || 'local_agent',
+        projectId: raw.sender?.projectId,
+        name: raw.sender?.name,
+        conversationalRole: resolvedSenderRole,
+        role: resolvedSenderRole,
       },
       recipients,
       topic: raw.topic || raw.title,

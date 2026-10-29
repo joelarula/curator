@@ -11,6 +11,14 @@ import {
   evaluateBestHand,
   pokerComposables,
   pokerPlugin,
+  initPokerLobby,
+  startPokerHand,
+  dealPokerStreet,
+  distributePokerPots,
+  rotatePokerDealer,
+  checkPokerGameOver,
+  reduceTable,
+  PokerTableCommand,
 } from '../src/index.ts';
 const { agent_decision } = pokerComposables;
 import {
@@ -298,9 +306,12 @@ test('Reactive Poker Workflow AST: Validates dynamic poker state machine workflo
   assert.equal(ast.name, 'poker_workflow');
   assert.equal(ast.main.type, 'Curator_Sequential');
   assert.equal(ast.main.name, 'poker:dynamic_engine');
-  assert(ast.subroutines);
-  assert(ast.subroutines.deal_next_street);
-  assert(ast.subroutines.settle_showdown);
+  // Dealing and settling happen inside the table reducer: the flow reaches the engine through one tool
+  const json = JSON.stringify(ast);
+  assert(json.includes('poker_table_command'));
+  for (const removed of ['poker_start_hand', 'poker_deal_street', 'poker_distribute_pots', 'poker_rotate_dealer', 'poker_check_game_over']) {
+    assert(!json.includes(removed), `${removed} is no longer a workflow step`);
+  }
 });
 
 test('End-to-End Poker Session in SQLite: Lobby init, Blinds, Street deals, Showdown, Button rotation', async () => {
@@ -344,28 +355,15 @@ test('End-to-End Poker Session in SQLite: Lobby init, Blinds, Street deals, Show
     },
   });
 
-  const initTool = curatorEngine.tools.get('poker_init_lobby')!;
-  const startHandTool = curatorEngine.tools.get('poker_start_hand')!;
-  const dealStreetTool = curatorEngine.tools.get('poker_deal_street')!;
-  const distributePotsTool = curatorEngine.tools.get('poker_distribute_pots')!;
-  const rotateDealerTool = curatorEngine.tools.get('poker_rotate_dealer')!;
-
+  // The engine transitions are plain functions (the workflow reaches them through the table reducer)
   // 1. Init Lobby
-  const initRes: any = await initTool.runAsync({
-    args: { tableId: String(conversation.id), startingChips: 1000 },
-    toolContext: { prisma, conversationId: conversation.id },
-  });
-  let state = initRes.gameState;
+  let state = initPokerLobby({ tableId: String(conversation.id), startingChips: 1000 }).gameState;
   assert.equal(state.players.length, 4);
   assert.equal(state.players[0].name, 'You');
   assert.equal(state.players[1].name, 'Viper (Shark)');
 
   // 2. Start Hand 1 (Button at seat 0, SB at seat 1, BB at seat 2)
-  const hand1Res: any = await startHandTool.runAsync({
-    args: { state },
-    toolContext: { prisma, conversationId: conversation.id },
-  });
-  state = hand1Res.gameState;
+  state = startPokerHand(state).gameState;
   assert.equal(state.handNumber, 1);
   assert.equal(state.buttonIdx, 0);
   assert.equal(state.sbIdx, 1);
@@ -373,45 +371,25 @@ test('End-to-End Poker Session in SQLite: Lobby init, Blinds, Street deals, Show
   assert.equal(state.pot, 30); // 10 SB + 20 BB
 
   // 3. Deal FLOP (3 cards), TURN (1 card), RIVER (1 card)
-  const flopRes: any = await dealStreetTool.runAsync({
-    args: { state },
-    toolContext: { prisma, conversationId: conversation.id },
-  });
-  state = flopRes.gameState;
+  state = dealPokerStreet(state).gameState;
   assert.equal(state.currentStreet, 'FLOP');
   assert.equal(state.board.length, 3);
 
-  const turnRes: any = await dealStreetTool.runAsync({
-    args: { state },
-    toolContext: { prisma, conversationId: conversation.id },
-  });
-  state = turnRes.gameState;
+  state = dealPokerStreet(state).gameState;
   assert.equal(state.currentStreet, 'TURN');
   assert.equal(state.board.length, 4);
 
-  const riverRes: any = await dealStreetTool.runAsync({
-    args: { state },
-    toolContext: { prisma, conversationId: conversation.id },
-  });
-  state = riverRes.gameState;
+  state = dealPokerStreet(state).gameState;
   assert.equal(state.currentStreet, 'RIVER');
   assert.equal(state.board.length, 5);
 
   // 4. Distribute Pots at Showdown
-  const distRes: any = await distributePotsTool.runAsync({
-    args: { state },
-    toolContext: { prisma, conversationId: conversation.id },
-  });
-  state = distRes.gameState;
+  state = distributePokerPots(state).gameState;
   assert.equal(state.handOver, true);
   assert(state.winnerIds.length >= 1);
 
   // 5. Rotate Dealer Button: Button advances from 0 to 1
-  const rotRes: any = await rotateDealerTool.runAsync({
-    args: { state },
-    toolContext: { prisma, conversationId: conversation.id },
-  });
-  state = rotRes.gameState;
+  state = rotatePokerDealer(state).gameState;
   assert.equal(state.buttonIdx, 1);
 
   // 6. Verify standard Curator DB record creation
@@ -424,67 +402,6 @@ test('End-to-End Poker Session in SQLite: Lobby init, Blinds, Street deals, Show
     },
   });
   assert(responseRecord.id > 0);
-});
-
-test('Event-Driven Speech Acts: Human table talk, banter, and targeted whisper trigger AI reactions', async () => {
-  const initTool = curatorEngine.tools.get('poker_init_lobby')!;
-  const humanSpeechTool = curatorEngine.tools.get('poker_human_speech')!;
-
-  const initRes: any = await initTool.runAsync({
-    args: { tableId: 'test_speech_room' },
-    toolContext: {},
-  });
-  let state = initRes.gameState;
-
-  // 1. Human Table Talk
-  const talkRes: any = await humanSpeechTool.runAsync({
-    args: { state, speechAct: 'TABLE_TALK', text: 'Good luck tonight everyone!' },
-    toolContext: {},
-  });
-  state = talkRes.gameState;
-  assert.equal(talkRes.remark.text, 'Good luck tonight everyone!');
-  assert.equal(talkRes.remark.speechAct, 'TABLE_TALK');
-
-  // 2. Human Whisper to Viper (Shark)
-  const whisperRes: any = await humanSpeechTool.runAsync({
-    args: { state, speechAct: 'WHISPER', targetId: 'viper', text: 'Are you holding pocket aces?' },
-    toolContext: {},
-  });
-  state = whisperRes.gameState;
-  assert.equal(whisperRes.remark.speechAct, 'WHISPER');
-  assert.equal(whisperRes.remark.speakerId, 'hero');
-  assert.equal(whisperRes.remark.recipientId, 'viper');
-});
-
-test('Asymmetric Subjective Narratives: Whispers are private to participants and hidden from third parties', async () => {
-  const initTool = curatorEngine.tools.get('poker_init_lobby')!;
-  const startHandTool = curatorEngine.tools.get('poker_start_hand')!;
-  const humanSpeechTool = curatorEngine.tools.get('poker_human_speech')!;
-
-  const initRes: any = await initTool.runAsync({
-    args: { tableId: 'test_asymmetric_room' },
-    toolContext: {},
-  });
-  let state = initRes.gameState;
-
-  const handRes: any = await startHandTool.runAsync({
-    args: { state },
-    toolContext: {},
-  });
-  state = handRes.gameState;
-  // Secret whisper from Hero to Viper
-  const secretText = 'I know your tell, Viper.';
-  const whisperRes: any = await humanSpeechTool.runAsync({
-    args: { state, speechAct: 'WHISPER', targetId: 'viper', text: secretText },
-    toolContext: {},
-  });
-  state = whisperRes.gameState;
-
-  // Verify remark recorded on result
-  assert.equal(whisperRes.remark.text, secretText);
-  assert.equal(whisperRes.remark.recipientId, 'viper');
-  assert.equal(whisperRes.remark.speechAct, 'WHISPER');
-  assert.equal(whisperRes.remark.speakerId, 'hero');
 });
 
 test('Curator Core: AgentInteractionContextManager builds subjective LLM working memory', async () => {
@@ -626,52 +543,26 @@ test('Curator Core: Bounded History Compaction, Epoch Demarcations & Checkpoints
 });
 
 test('Dynamic Lobby: Agents & Human join open table dynamically and play', async () => {
-  const initTool = curatorEngine.tools.get('poker_init_lobby')!;
-  const joinTool = curatorEngine.tools.get('poker_join_lobby')!;
-  const leaveTool = curatorEngine.tools.get('poker_leave_lobby')!;
-  const startHandTool = curatorEngine.tools.get('poker_start_hand')!;
-
-  assert(joinTool !== undefined, 'poker_join_lobby tool must be registered');
-  assert(leaveTool !== undefined, 'poker_leave_lobby tool must be registered');
+  const join = (state: PokerGameState, player: any) => reduceTable(state, { type: PokerTableCommand.JOIN, player });
 
   // 1. Initialize an empty table
-  const initRes: any = await initTool.runAsync({
-    args: { tableId: 'dynamic_table_1', startingChips: 2000, players: [] },
-    toolContext: {} as any,
-  });
-  let state = initRes.gameState;
-  assert.equal(state.players.length, 0, 'Table should start with 0 players');
+  let step = reduceTable(undefined, { type: PokerTableCommand.BOOT, config: { tableId: 'dynamic_table_1', startingChips: 2000, players: [] } });
+  assert.equal(step.gameState.players.length, 0, 'Table should start with 0 players');
 
   // 2. Dynamically seat Hero (human)
-  const joinHero: any = await joinTool.runAsync({
-    args: { state, id: 'player_hero', name: 'Alice', isHuman: true, chips: 1500, seatIdx: 0 },
-    toolContext: {} as any,
-  });
-  state = joinHero.gameState;
-  assert.equal(state.players.length, 1);
-  assert.equal(state.players[0].name, 'Alice');
+  step = join(step.gameState, { id: 'player_hero', name: 'Alice', isHuman: true, chips: 1500, seatIdx: 0 });
+  assert.equal(step.gameState.players.length, 1);
+  assert.equal(step.gameState.players[0].name, 'Alice');
 
   // 3. Dynamically seat 2 AI agents
-  const joinViper: any = await joinTool.runAsync({
-    args: { state, id: 'agent_viper', name: 'Viper Prime', persona: 'shark', chips: 2000 },
-    toolContext: {} as any,
-  });
-  state = joinViper.gameState;
-  assert.equal(state.players.length, 2);
-
-  const joinMaddog: any = await joinTool.runAsync({
-    args: { state, id: 'agent_maddog', name: 'MadDog X', persona: 'maniac', chips: 1800 },
-    toolContext: {} as any,
-  });
-  state = joinMaddog.gameState;
-  assert.equal(state.players.length, 3);
+  step = join(step.gameState, { id: 'agent_viper', name: 'Viper Prime', persona: 'shark', chips: 2000 });
+  assert.equal(step.gameState.players.length, 2);
+  step = join(step.gameState, { id: 'agent_maddog', name: 'MadDog X', persona: 'maniac', chips: 1800 });
+  assert.equal(step.gameState.players.length, 3);
 
   // 4. Start a hand with the dynamic roster
-  const handRes: any = await startHandTool.runAsync({
-    args: { state },
-    toolContext: {} as any,
-  });
-  state = handRes.gameState;
+  step = reduceTable(step.gameState, { type: PokerTableCommand.START });
+  let state = step.gameState;
   assert.equal(state.handNumber, 1);
   assert.equal(state.players.length, 3);
   assert(state.pot > 0, 'Blinds should be posted for the seated players');
@@ -680,12 +571,8 @@ test('Dynamic Lobby: Agents & Human join open table dynamically and play', async
   assert.equal(state.players[2].holeCards.length, 2);
 
   // 5. One player leaves / cashes out
-  const leaveRes: any = await leaveTool.runAsync({
-    args: { state, id: 'agent_maddog' },
-    toolContext: {} as any,
-  });
-  state = leaveRes.gameState;
-  assert.equal(leaveRes.left, true);
+  step = reduceTable(state, { type: PokerTableCommand.LEAVE, id: 'agent_maddog' });
+  state = step.gameState;
   assert.equal(state.players.length, 2);
   assert(!state.players.some((p: any) => p.id === 'agent_maddog'));
 });
@@ -713,7 +600,6 @@ test('Curator Agent System Prompt: Integrates persona instructions, Texas Hold\'
 });
 
 test('Curator Bevy Parity: Standings, bankruptcy detection, and final leaderboard report', async () => {
-  const checkGameOverTool = pokerPlugin.tools!['poker_check_game_over'];
   const getStandingsTool = pokerPlugin.tools!['poker_get_standings'];
 
   const testState: PokerGameState = {
@@ -768,10 +654,7 @@ test('Curator Bevy Parity: Standings, bankruptcy detection, and final leaderboar
     ],
   };
 
-  const overRes: any = await checkGameOverTool.runAsync({
-    args: { state: gameOverState },
-    toolContext: {} as any,
-  });
+  const overRes = checkPokerGameOver(gameOverState);
   assert.equal(overRes.gameOver, true);
   assert.equal(overRes.result, 'GAME_OVER');
   assert.equal(overRes.winner, 'Hero');
@@ -780,8 +663,6 @@ test('Curator Bevy Parity: Standings, bankruptcy detection, and final leaderboar
 });
 
 test('Dynamic Seating with Unknown Wallets: Roster seats with default buy-in and tracks individual wallets', async () => {
-  const initTool = pokerPlugin.tools!['poker_init_lobby'];
-
   // Unknown players passed in with instructions/personas only — NO chips or wallet beforehand!
   const unknownPlayers = [
     {
@@ -812,12 +693,7 @@ test('Dynamic Seating with Unknown Wallets: Roster seats with default buy-in and
     },
   ];
 
-  const initRes: any = await initTool.runAsync({
-    args: { tableId: 'dynamic_wallets_table', startingChips: 1000, players: unknownPlayers },
-    toolContext: {} as any,
-  });
-
-  const state = initRes.gameState;
+  const state: any = initPokerLobby({ tableId: 'dynamic_wallets_table', startingChips: 1000, players: unknownPlayers }).gameState;
   assert.equal(state.players.length, 4);
 
   // Hero: defaulted buy-in and starting wallet to 1000
@@ -846,7 +722,6 @@ test('Modular Workflow Architecture: Validates all decoupled workflows as Curato
   assert.equal(workflowAst.type, 'Curator_Module');
   assert.equal(workflowAst.name, 'poker_workflow');
   assert.equal(workflowAst.main.type, 'Curator_Sequential');
-  assert(workflowAst.subroutines.deal_next_street);
 
   const lobbyAst: any = await getPokerScriptAST('poker_lobby');
   assert.equal(lobbyAst.type, 'Curator_Module');

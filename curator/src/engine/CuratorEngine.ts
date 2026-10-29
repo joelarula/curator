@@ -1,5 +1,5 @@
 import type { SemanticNodeShape } from '../services/SemanticSchemaEngine.js';
-import type { CuratorAgentDefinition, CuratorPluginDefinition, CuratorRoleDefinition, CuratorScriptDefinition } from './CuratorContracts.js';
+import type { CuratorAgentDefinition, CuratorPluginDefinition, CuratorReducer, CuratorRoleDefinition, CuratorScriptDefinition } from './CuratorContracts.js';
 import type { CuratorAstNode } from './CuratorAst.js';
 import type { CuratorTool } from '../tools/CuratorTool.js';
 import type {
@@ -18,6 +18,7 @@ export type CuratorPlugin = CuratorPluginDefinition;
 export class CuratorEngine {
   public tools = new Map<string, CuratorTool>();
   public toolPlugins = new Map<string, string>();
+  public reducers = new Map<string, CuratorReducer>();
   public models = new Map<string, SemanticNodeShape>();
   public scripts = new Map<string, CuratorScriptDefinition>();
   public agents = new Map<string, CuratorAgentDefinition | CuratorAstNode>();
@@ -37,6 +38,9 @@ export class CuratorEngine {
         this.tools.set(k, v);
         this.toolPlugins.set(k, plugin.name);
       });
+    }
+    if (plugin.reducers) {
+      Object.entries(plugin.reducers).forEach(([k, v]) => this.reducers.set(k, v));
     }
     if (plugin.models) {
       plugin.models.forEach(m => this.models.set(m.uri, m));

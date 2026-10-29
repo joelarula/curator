@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import {
   ConversationRouter,
   ConversationSessionManager,
+  CONVERSATION_WORKFLOW_ASTS,
+  ConversationToolName,
+  createConversationPlugin,
+  validateCuratorAst,
   compileCoffeeScriptToAST,
 } from '../../../curator/dist/src/index.js';
 
@@ -300,6 +304,68 @@ test('End-to-End Pipeline: Event In -> State Processing -> Event Out via Router'
   assert.equal(leaveResult.outboundEnvelopes[0].speechAct, 'LEAVE');
   assert.equal(leaveResult.outboundEnvelopes[0].payload.reason, 'court_adjourned');
 });
+
+test('Formalized Conversation Workflow ASTs, State Machines & Deterministic Tools', async () => {
+  const router = new ConversationRouter({ localNodeId: 'node-ast', localProjectId: 'proj-ast' });
+  const plugin = createConversationPlugin(router);
+
+  // 1. All reusable conversation workflow ASTs (state machines + reactive systems) are valid Curator ASTs
+  for (const [name, ast] of Object.entries(CONVERSATION_WORKFLOW_ASTS)) {
+    const res = validateCuratorAst(ast);
+    assert.equal(res.valid, true, `Expected ${name} AST to be valid: ${res.errors.map((e) => e.message).join(', ')}`);
+  }
+
+  // 2. Deterministic tools execute start -> join (with unified lease) -> vote -> sync -> leave
+  const tools = new Map((plugin.tools as any[]).map((t) => [t.name, t]));
+  const toolContext = { conversationId: 'room_tool_driven', projectId: 'proj-ast', userId: 'u1' };
+
+  await tools.get(ConversationToolName.START)!.runAsync({
+    args: {
+      conversationId: 'room_tool_driven',
+      conversationType: 'forum',
+      governanceMode: 'quorum',
+      requiredVotes: 2,
+    },
+    toolContext,
+  });
+
+  const joinRes: any = await tools.get(ConversationToolName.JOIN)!.runAsync({
+    args: {
+      agentId: 'voter_alpha',
+      conversationalRole: 'critic',
+      capabilities: ['approve_rfc'],
+    },
+    toolContext,
+  });
+  assert.equal(joinRes.session.conversationalRole, 'critic');
+
+  // Verify unified lease is immediately enforceable via ExposurePolicyController
+  const accessCheck = router.exposure.evaluateToolAccess(
+    { name: 'approve_rfc', accessLevel: 'admin' },
+    { peerId: 'voter_alpha', trustTier: 'guest', conversationId: 'room_tool_driven' }
+  );
+  assert.equal(accessCheck.allowed, true);
+
+  await tools.get(ConversationToolName.JOIN)!.runAsync({
+    args: { agentId: 'voter_beta', conversationalRole: 'chair' },
+    toolContext,
+  });
+
+  const vote1: any = await tools.get(ConversationToolName.VOTE)!.runAsync({
+    args: { agentId: 'voter_alpha', ballot: 'approve', rationale: 'LGTM' },
+    toolContext,
+  });
+  assert.equal(vote1.evaluation.quorumReached, false);
+
+  const vote2: any = await tools.get(ConversationToolName.VOTE)!.runAsync({
+    args: { agentId: 'voter_beta', ballot: 'approve', rationale: 'Ship it' },
+    toolContext,
+  });
+  assert.equal(vote2.evaluation.quorumReached, true);
+  assert.equal(vote2.evaluation.approved, true);
+  assert.equal(vote2.evaluation.status, 'ACCEPTED');
+});
+
 
 
 

@@ -321,7 +321,7 @@ export function startPokerHand(rawState: PokerGameState): { gameState: PokerGame
   return { gameState: nextState };
 }
 
-function getNextActivePlayerIdx(players: PlayerState[], startIdx: number): number {
+export function getNextActivePlayerIdx(players: PlayerState[], startIdx: number): number {
   for (let offset = 1; offset <= players.length; offset++) {
     const next = (startIdx + offset) % players.length;
     if (!players[next].folded && !players[next].allIn) {
@@ -484,27 +484,6 @@ export function dealPokerStreet(rawState: PokerGameState): { gameState: PokerGam
     streetComplete: false,
     players,
     lastActionSummary: `Dealt ${nextStreet}.`,
-  };
-
-  return { gameState: nextState };
-}
-
-export function fastForwardPokerBoard(rawState: PokerGameState): { gameState: PokerGameState } {
-  const deck = [...rawState.deck];
-  const board = [...rawState.board];
-
-  while (board.length < 5 && deck.length > 0) {
-    deck.pop();
-    board.push(deck.pop()!);
-  }
-
-  const nextState: PokerGameState = {
-    ...rawState,
-    deck,
-    board,
-    currentStreet: PokerStreet.SHOWDOWN,
-    streetComplete: true,
-    lastActionSummary: 'All-in runout complete.',
   };
 
   return { gameState: nextState };

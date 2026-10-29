@@ -125,6 +125,23 @@ The processor looks up the `toolName` in the `toolRegistry`. If found, it runs t
 
 ---
 
+## 5b. `Curator_Reduce`
+
+Runs a pure, deterministic function that a plugin registered under `reducers` (`CuratorReducer`: args in, state fields out). Use it for game or domain rules; use a `Curator_Tool` for anything that touches the database, the network or the session user.
+
+### Usage Example
+```ts
+reduce('poker_table_command', { state: '$state.gameState', command: { type: 'act', action: '$params.action' } })
+```
+```json
+{ "type": "Curator_Reduce", "reducer": "poker_table_command", "args": { "state": "$state.gameState", "command": { "type": "act" } } }
+```
+
+### How it is handled
+`args` are evaluated like tool args (nested `$…` expressions included) and passed to the reducer. No RBAC check, approval, tool event or tool record: reducers have no side effects to guard. The returned object is bound like tool output: its fields are merged into context and conversation state, or, with `spread: false`, kept only under `as`. A missing reducer or a non-object result fails the step.
+
+---
+
 ## 6. `Curator_Script`
 
 Executes arbitrary JavaScript logic securely inside the pipeline. Useful for data transformation, formatting, or custom routing between steps.
@@ -253,6 +270,7 @@ Set `timeoutSeconds` (Coffee: `prompt(text, 'text', undefined, { as, timeoutSeco
 * `wait_event name, alias, { timeoutSeconds }` parks the request until a matching event arrives and binds the payload to `alias`.
 * **Lossless:** each request has an `eventCursor`. A wait first consumes the earliest logged event after its cursor (and addressed to it or to everyone), so an event emitted before the waiter parked is not lost. A flow's first wait only sees events logged before its anchor (chain end or Join) was created; by default late joiners do not replay older events. Set `replay: true` (`wait_event "news", "item", { replay: true }`) to make a flow's first wait start from the beginning of the conversation's log, then consume the backlog in order; later waits continue from the cursor.
 * **Timeout:** with `timeoutSeconds`, a wait with no event by the deadline completes with a `WAIT_TIMEOUT` Response, nothing is bound to `alias`, and the flow continues so it can branch on the empty alias. An event arriving first wins and no timeout is recorded.
+* **Run-time lists (`Curator_EmitEvents`):** `emitEvents('$state.events')` evaluates its expression to `[{ name, payload?, targetAgentId? }]` and emits each event in order, through the same matcher as `emit_event`. Use it when the events are only known at run time, typically what a `Curator_Reduce` step reports. Payloads are data and are not evaluated again (a string like `"$state.x"` stays literal); they are stamped with `conversationId` / `sessionId` like any emitted payload. The step's Response is an `EVENTS_EMITTED` record. A value that is not a list of named events fails the step.
 
 ---
 
@@ -296,8 +314,105 @@ defineModule('game', () => {
 
 ---
 
-## 10. Unsupported / Experimental Nodes
+## 10. Conversation Patterns (State Machines, Systems & Deterministic Tools)
 
-The following nodes are defined in the types but are **currently ignored** by the `CuratorRequestProcessor`. If submitted, the processor will mark the request as `SKIPPED`.
+Multi-agent and human-agent conversations in Curator follow a strict separation of concerns:
 
-* **`Curator_Loop`**: Intended for iterating a specific agent `maxIterations` times.
+1. **Temporal & Dynamic Orchestration is DB + AST Driven**: Turn-taking loops, waiting for replies/ballots/bids, phase transitions, and concurrent side-channels are expressed as durable AST nodes (`Curator_Graph` via `stateMachine`, `Curator_Subscribe` via `system`, `Curator_WaitEvent`, `Curator_EmitEvent`, `Curator_ActorRef`) persisted in `Request`, `EventLog`, and `Conversation.metadata` (`ConversationStateLog`).
+2. **Deterministic Governance & State Logic is Tool + Reducer Driven**: Roster updates, floor lock release, quorum tallying, role resolution, catch-up snapshots, and capability leases are executed deterministically via pure reducers and standard `Curator_Tool` definitions (`src/conversations/ConversationTools.ts`).
+
+### 10a. Typed Conversational Events & States (`ConversationWorkflows.ts`)
+
+`ConversationEvents` provides typed event handles (`defineEvent`) that can be emitted, awaited, or subscribed to in any workflow module:
+
+* **Lifecycle & Presence:** `ParticipantJoined` (`conversation:joined`), `ParticipantLeft` (`conversation:left`)
+* **1:1 Dialog:** `DialogTurnSubmitted` (`conversation:dialog_turn`)
+* **M:N Forum & Quorum:** `ProposalPosted` (`conversation:proposal_posted`), `BallotCast` (`conversation:ballot_cast`), `QuorumReached` (`conversation:quorum_reached`), `ConsensusSynthesized` (`conversation:consensus_synthesized`)
+* **1:N Q&A / RFP Auctions:** `TenderSolicited` (`conversation:tender_solicited`), `BidSubmitted` (`conversation:bid_submitted`), `TenderAwarded` (`conversation:tender_awarded`)
+* **Turn-Invariant Side Channels:** `AmbientSpeech` (`conversation:ambient_speech`), `AmbientSpoken` (`conversation:ambient_spoken`)
+
+State machine phase handles (`DialogPhaseState`, `ForumPhaseState`, `QAPhaseState`) are defined with `defineStates`, enabling `in(...)`, `entered(...)`, and `exited(...)` guards across concurrent systems.
+
+### 10b. Reusable AST State Machines
+
+The `conversations` module exports three parameterized `stateMachine()` builders (and pre-compiled `CuratorModuleNode` scripts in `CONVERSATION_WORKFLOW_ASTS`):
+
+1. **Bilateral 1:1 Dialog (`buildDialogStateMachine` / `conversation_dialog_workflow`)**
+   * `BOOT` → initializes the room via `tool('conversation_start')` → `INITIATOR_TURN` ↔ `RESPONDER_TURN` (waits on `DialogTurnSubmitted`, increments `$state.turn`, swaps `$state.activeSpeaker`) → `COMPLETED` (when `speechAct == 'ACCEPT'` or `turn >= maxTurns`).
+2. **M:N Forum Deliberation & Quorum (`buildForumStateMachine` / `conversation_forum_workflow`)**
+   * `BOOT` → `OPEN_FLOOR` (waits on `ProposalPosted`) → `VOTING` (waits on `BallotCast`, runs `onBallotCastSub` inline to deterministically tally votes via `conversation_vote` tool until `$state.quorumReached == true`) → `SYNTHESIS` (waits on `ConsensusSynthesized`) → `CONCLUDED`.
+3. **1:N RFP / Catechism Bid Collection (`buildQAStateMachine` / `conversation_qa_workflow`)**
+   * `BOOT` → `COLLECT_BIDS` (waits on `BidSubmitted` until `$state.bidsCount >= minBids`) → `AWARD` (waits on `TenderAwarded`) → `CLOSED`.
+
+```ts
+import {
+  defineModule,
+  seq,
+  buildForumStateMachine,
+  buildConversationSystemsModule,
+} from '@curator/agent-server';
+
+// Embed a formalized quorum deliberation state machine inside a MiniApp module
+export const rfcDeliberationModule = defineModule('rfc_deliberation', () =>
+  seq('rfc_room', [buildForumStateMachine({ requiredVotes: 3 })])
+);
+```
+
+### 10c. Reactive Conversation Systems (`buildConversationSystemsModule`)
+
+`conversationSystemsAst` (`buildConversationSystemsModule()`) registers four reactive `system()` handlers that run alongside any workflow or game loop:
+
+* **`onParticipantJoinSub` (`on: ParticipantJoined`)**: Calls `conversation_join` to bind the participant's conversational role, grant TTL-bounded tool capability leases, and generate a catch-up snapshot.
+* **`onParticipantLeaveSub` (`on: ParticipantLeft`)**: Calls `conversation_leave` to revoke active capability leases, release the speaking floor if held by the leaving agent, and recalibrate `quorum.requiredVotes` to remaining active participants.
+* **`onBallotCastSub` (`on: BallotCast`)**: Calls `conversation_vote` to deterministically evaluate approvals/rejections against `requiredVotes`, updates `$state.quorumReached`, and emits `QuorumReached` when consensus threshold is reached.
+* **`onAmbientSpeechSub` (`on: AmbientSpeech`)**: Dual-track turn-invariant system for table talk, banter, gossip, and private whispers (`targetId`). Emits `AmbientSpoken` (scoped to `targetId` for whispers) without advancing the formal turn counter.
+
+### 10d. Deterministic Conversation Tools (`ConversationTools.ts`)
+
+Registered automatically on every `CuratorHost` via `createConversationPlugin(host.conversations)`:
+
+| Tool Name | Access Level | Deterministic Responsibility |
+| :--- | :--- | :--- |
+| `conversation_start` | `safe_write` | Initializes `ConversationRoomMetadata` (`governance`, `quorum`, `customState`) and appends a `state:patch` to `ConversationStateLog`. |
+| `conversation_join` | `safe_write` | Updates participant roster (`reduceRoomJoin`), binds `conversationalRole`, grants leases via `ExposurePolicyController`, and returns `ConversationStateCatchup`. |
+| `conversation_leave` | `safe_write` | Removes participant (`reduceRoomLeave`), revokes session leases, releases active floor lock, and recalibrates quorum `requiredVotes`. |
+| `conversation_vote` | `safe_write` | Records a participant's ballot (`approve` / `reject` / `abstain`) and deterministically computes `evaluateQuorum` (`approvals`, `rejections`, `quorumReached`, `approved`, `status`). |
+| `conversation_sync` | `safe_read` | Computes a deterministic `ConversationStateCatchup` snapshot (turn, contextState, roster, activeSpeaker, recent turns). |
+| `conversation_resolve_role` | `safe_read` | Resolves an abstract communicative role (`@role:chair`, `@role:critic`) to physical `AgentEndpoint[]` from room metadata or Prisma `Agent` records (strictly decoupled from RBAC security roles). |
+| `conversation_grant_lease` | `safe_write` | Grants a time-bounded / invocation-bounded `EphemeralToolLease` on `ExposurePolicyController`. |
+| `conversation_revoke_lease` | `safe_write` | Immediately revokes an active `EphemeralToolLease`. |
+
+### 10e. Fluent Builders & Role-Scoped Composables
+
+`FluentDialogBuilder` (`dialog()`) and `FluentForumBuilder` (`forum()`) combine deterministic tool calls with event-driven AST steps and role scoping (`as_role`, `role`):
+
+```ts
+import { forum, dialog, as_role } from '@curator/agent-server';
+
+// Deterministic tool setup + event-driven deliberation in a Forum
+const forumFlow = forum('curator://forums/rfc-101')
+  .start_room({ topic: 'Adopt Event-Sourced State Log', requiredVotes: 2 })
+  .join_room({ agentId: 'alice', role: 'proposer', capabilities: ['submit_patch'] })
+  .propose({ title: 'RFC-101', body: { storage: 'EventLog' } })
+  .cast_vote_tool({ agentId: 'bob', ballot: 'approve', rationale: 'Clean separation' })
+  .await_quorum()
+  .synthesize({ conclusion: 'Approved by quorum' })
+  .build();
+
+// Role-scoped bilateral dialog
+const reviewFlow = as_role('developer', () =>
+  dialog({ role: 'architect' })
+    .start_room({ topic: 'Schema Review' })
+    .say('Ready for review')
+    .wait_reply('architectReply')
+    .build()
+);
+```
+
+---
+
+## 11. Loop & Scheduling Nodes (`Curator_Loop`)
+
+`Curator_Loop` is supported by `CuratorRequestProcessor` in two forms:
+* **Condition / Collection Loops (`repeat`)**: Iterates `agent` until `until` evaluates to true, while `while` holds, or over elements of `over` (bounded by `maxIterations`).
+* **Scheduled Loops (`every`)**: Supervised by `AgentScheduleSupervisor` (`superviseAgentLoops`), executing `agent` on a 5-field cron expression or interval (`"every 10 minutes"`, `"at 14:00"`).

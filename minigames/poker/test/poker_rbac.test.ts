@@ -27,12 +27,12 @@ test('Poker RBAC — Declarative Plugin Roles & Whitelist Enforcement', async (t
 
     // Tools have requiredRole and accessLevel
     const tools = pokerPlugin.tools as any;
-    const startHand = tools?.poker_start_hand;
-    assert.equal(startHand.requiredRole, 'poker:dealer');
-    assert.equal(startHand.accessLevel, 'safe_write');
+    // The table engine is a pure reducer, not a role-gated tool
+    assert.equal(typeof (pokerPlugin.reducers as any)?.poker_table_command, 'function');
+    assert.equal(tools?.poker_table_command, undefined);
 
-    const applyAction = tools?.poker_apply_action;
-    assert.equal(applyAction.requiredRole, 'poker:player');
+    const depositBuyIn = tools?.poker_deposit_buy_in;
+    assert.equal(depositBuyIn.requiredRole, 'poker:player');
 
     const listTables = tools?.poker_list_tables;
     assert.equal(listTables.requiredRole, 'poker:spectator');
@@ -43,8 +43,8 @@ test('Poker RBAC — Declarative Plugin Roles & Whitelist Enforcement', async (t
     const unboundCheck = await AgentRoleService.validateActorToolAccess(
       {} as any,
       {},
-      'poker_apply_action',
-      { name: 'poker_apply_action', requiredRole: 'poker:player' }
+      'poker_deposit_buy_in',
+      { name: 'poker_deposit_buy_in', requiredRole: 'poker:player' }
     );
     assert.equal(unboundCheck.allowed, false);
     assert.match(unboundCheck.reason || '', /Unbound tool execution/);
@@ -122,8 +122,8 @@ test('Poker RBAC — Declarative Plugin Roles & Whitelist Enforcement', async (t
     const noRoleCheck = await AgentRoleService.validateActorToolAccess(
       mockPrisma,
       { userId: 'guest_no_roles' },
-      'poker_apply_action',
-      { name: 'poker_apply_action', requiredRole: 'poker:player' }
+      'poker_deposit_buy_in',
+      { name: 'poker_deposit_buy_in', requiredRole: 'poker:player' }
     );
     assert.equal(noRoleCheck.allowed, false);
     assert.match(noRoleCheck.reason || '', /has no assigned roles/);
@@ -132,37 +132,37 @@ test('Poker RBAC — Declarative Plugin Roles & Whitelist Enforcement', async (t
     const rogueCheck = await AgentRoleService.validateActorToolAccess(
       mockPrisma,
       { agentId: 'rogue_bot' },
-      'poker_apply_action',
-      { name: 'poker_apply_action', requiredRole: 'poker:player' }
+      'poker_deposit_buy_in',
+      { name: 'poker_deposit_buy_in', requiredRole: 'poker:player' }
     );
     assert.equal(rogueCheck.allowed, false);
     assert.match(rogueCheck.reason || '', /has no assigned roles/);
 
-    // Case C: Agent 'viper' has poker:player -> can poker_apply_action
+    // Case C: Agent 'viper' has poker:player -> can poker_deposit_buy_in
     const viperAction = await AgentRoleService.validateActorToolAccess(
       mockPrisma,
       { agentId: 'viper' },
-      'poker_apply_action',
-      { name: 'poker_apply_action', requiredRole: 'poker:player' }
+      'poker_deposit_buy_in',
+      { name: 'poker_deposit_buy_in', requiredRole: 'poker:player' }
     );
     assert.equal(viperAction.allowed, true);
 
-    // Case D: Agent 'viper' attempting dealer tool poker_start_hand is DENIED
+    // Case D: Agent 'viper' attempting dealer tool dealer_only_tool is DENIED
     const viperCheat = await AgentRoleService.validateActorToolAccess(
       mockPrisma,
       { agentId: 'viper' },
-      'poker_start_hand',
-      { name: 'poker_start_hand', requiredRole: 'poker:dealer' }
+      'dealer_only_tool',
+      { name: 'dealer_only_tool', requiredRole: 'poker:dealer' }
     );
     assert.equal(viperCheat.allowed, false);
-    assert.match(viperCheat.reason || '', /not whitelisted for tool 'poker_start_hand'/);
+    assert.match(viperCheat.reason || '', /not whitelisted for tool 'dealer_only_tool'/);
 
     // Case E: Human user with combination ['poker:player', 'poker:spectator']
     const playerAction = await AgentRoleService.validateActorToolAccess(
       mockPrisma,
       { userId: 'player_with_combination' },
-      'poker_apply_action',
-      { name: 'poker_apply_action', requiredRole: 'poker:player' }
+      'poker_deposit_buy_in',
+      { name: 'poker_deposit_buy_in', requiredRole: 'poker:player' }
     );
     assert.equal(playerAction.allowed, true);
 
@@ -178,16 +178,16 @@ test('Poker RBAC — Declarative Plugin Roles & Whitelist Enforcement', async (t
     const dealerStartHand = await AgentRoleService.validateActorToolAccess(
       mockPrisma,
       { userId: 'dealer_actor' },
-      'poker_start_hand',
-      { name: 'poker_start_hand', requiredRole: 'poker:dealer' }
+      'dealer_only_tool',
+      { name: 'dealer_only_tool', requiredRole: 'poker:dealer' }
     );
     assert.equal(dealerStartHand.allowed, true);
 
     const dealerPlayerTool = await AgentRoleService.validateActorToolAccess(
       mockPrisma,
       { userId: 'dealer_actor' },
-      'poker_apply_action',
-      { name: 'poker_apply_action', requiredRole: 'poker:player' }
+      'poker_deposit_buy_in',
+      { name: 'poker_deposit_buy_in', requiredRole: 'poker:player' }
     );
     assert.equal(dealerPlayerTool.allowed, true, 'poker:dealer inherits poker:player');
 
@@ -309,12 +309,12 @@ test('Poker RBAC — Declarative Plugin Roles & Whitelist Enforcement', async (t
     assert.ok(!vipRoles.includes('poker:player'), 'Alice does not have player role in VIP table');
 
     // 6. Test tool validation with project scope via AgentRoleService
-    // In table_casual, Alice can play (poker_apply_action requires poker:player)
+    // In table_casual, Alice can play (poker_deposit_buy_in requires poker:player)
     const casualCheck = await AgentRoleService.validateActorToolAccess(
       host.prisma,
       { userId: alice.id, projectId: 'table_casual' },
-      'poker_apply_action',
-      { name: 'poker_apply_action', requiredRole: 'poker:player' }
+      'poker_deposit_buy_in',
+      { name: 'poker_deposit_buy_in', requiredRole: 'poker:player' }
     );
     assert.equal(casualCheck.allowed, true, 'Alice is permitted to play in casual table');
 
@@ -322,8 +322,8 @@ test('Poker RBAC — Declarative Plugin Roles & Whitelist Enforcement', async (t
     const vipCheck = await AgentRoleService.validateActorToolAccess(
       host.prisma,
       { userId: alice.id, projectId: 'table_vip' },
-      'poker_apply_action',
-      { name: 'poker_apply_action', requiredRole: 'poker:player' }
+      'poker_deposit_buy_in',
+      { name: 'poker_deposit_buy_in', requiredRole: 'poker:player' }
     );
     assert.equal(vipCheck.allowed, false, 'Alice is blocked from playing in VIP table');
 

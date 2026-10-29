@@ -2,32 +2,19 @@ import {
   CuratorBuilder,
   seq,
   setState,
+  reduce,
+  emitEvents,
+  type CuratorAstNode,
   type CuratorToolNode,
 } from '../curator.ts';
 import { agent_decision } from '../workflows/agentTurn.ts';
 import { ctx, gameState, state, params } from '../models/pokerContext.ts';
 import { SessionExited } from '../models/pokerEvents.ts';
 import type {
-  PokerStartHandParams,
-  PokerDealStreetParams,
-  PokerDistributePotsParams,
-  PokerFastForwardParams,
-  PokerApplyActionParams,
-  PokerGetChoicesParams,
-  PokerGetStandingsParams,
-  PokerCheckGameOverParams,
-  PokerRotateDealerParams,
-  PokerInitLobbyParams,
   PokerListTablesParams,
-  PokerLobbyMenuParams,
   PokerCreateTableParams,
-  PokerJoinLobbyParams,
-  PokerLeaveLobbyParams,
-  PokerHumanSpeechParams,
-  PokerGetBankrollParams,
   PokerGetBuyInOptionsParams,
   PokerDepositBuyInParams,
-  PokerCashOutParams,
   PokerReloadBankrollParams,
   PokerCloseTableParams,
 } from '../models/pokerContext.ts';
@@ -36,9 +23,11 @@ import {
   PokerModule,
   PokerStep,
   PokerTool,
+  PokerReducer,
   PokerSessionReason,
   PokerActionType,
 } from '../models/pokerContracts.ts';
+import { PokerTableCommand } from '../engine/pokerTable.ts';
 
 /**
  * Tool composable options: `as` names the context key the tool result is bound to.
@@ -58,10 +47,17 @@ const bindResult = (opts: PokerToolOptions): [unknown, { spread?: boolean }] =>
  */
 export const pokerPredicates = {
   is_game_active: `not ${state.sessionEnded} and not ${state.gameState.gameOver}`,
-  is_hand_active: `${state.gameState} and not ${state.gameState.handOver} and ${state.gameState.currentStreet} != "SHOWDOWN"`,
-  is_street_active: `${state.gameState} and not ${state.gameState.streetComplete} and not ${state.gameState.handOver}`,
   table_needs_players: `not ${state.gameState} or ${state.gameState.players.length} < 2`,
 };
+
+/**
+ * One table step: the table reducer (engine/pokerTable.ts) applies `command` to the live game state, its
+ * `gameState`, `turn` and `events` land in `$state`, and the events it reports are emitted as they are.
+ */
+const table = (command: Record<string, unknown>): CuratorAstNode[] => [
+  reduce(PokerReducer.TABLE, { state: String(gameState), command }),
+  emitEvents(state.events),
+];
 
 /**
  * Declarative domain-specific poker composables that automatically bind table state
@@ -74,85 +70,47 @@ export const pokerComposables = {
   params,
   ...pokerPredicates,
 
-  // Tool composables with automated state injection and type-safe tool parameter models
-  start_poker_hand: (args: Partial<PokerStartHandParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.START_HAND, { state: String(gameState), ...args }, ...bindResult(opts)),
+  table,
 
-  deal_next_street: (args: Partial<PokerDealStreetParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.DEAL_STREET, { state: String(gameState), ...args }, ...bindResult(opts)),
+  /** Seats the table from the run's table config (handed over through `$state.tableConfig`). */
+  boot_table: (): CuratorAstNode[] =>
+    table({
+      type: PokerTableCommand.BOOT,
+      config: {
+        tableId: `${state.tableConfig.tableId} || 'poker:high_roller_lounge'`,
+        startingChips: `${state.tableConfig.startingChips} || 1000`,
+        sbAmount: `${state.tableConfig.sbAmount} || 10`,
+        bbAmount: `${state.tableConfig.bbAmount} || 20`,
+        maxSeats: `${state.tableConfig.maxSeats} || 6`,
+        players: String(state.tableConfig.players),
+        playerName: `${state.tableConfig.playerName} || 'You'`,
+      },
+    }),
 
-  settle_showdown: (args: Partial<PokerDistributePotsParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.DISTRIBUTE_POTS, { state: String(gameState), ...args }, ...bindResult(opts)),
+  join_table: (player: unknown = ctx.joinRequest): CuratorAstNode[] =>
+    table({ type: PokerTableCommand.JOIN, player: String(player) }),
 
-  fast_forward_board: (args: Partial<PokerFastForwardParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.FAST_FORWARD, { state: String(gameState), ...args }, ...bindResult(opts)),
+  /** Starts a hand unless one is already running. */
+  start_hand: (): CuratorAstNode[] =>
+    table({ type: PokerTableCommand.START }),
 
-  apply_player_action: (action?: any, args: Partial<PokerApplyActionParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.APPLY_ACTION, {
-      state: String(gameState),
-      action: String(action ?? `${ctx.turnAction} || ${ctx.humanAction} || ${ctx.decision.action} || ${ctx.action}`),
-      ...args,
-    }, ...bindResult(opts)),
-
-  get_legal_choices: (args: Partial<PokerGetChoicesParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.GET_CHOICES, {
-      state: String(gameState),
-      playerIdx: String(gameState.activePlayerIdx),
-      ...args,
-    }, ...bindResult(opts)),
-
-  get_standings: (args: Partial<PokerGetStandingsParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.GET_STANDINGS, { state: String(gameState), ...args }, ...bindResult(opts)),
-
-  check_game_over: (args: Partial<PokerCheckGameOverParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.CHECK_GAME_OVER, { state: String(gameState), ...args }, ...bindResult(opts)),
-
-  rotate_dealer: (args: Partial<PokerRotateDealerParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.ROTATE_DEALER, { state: String(gameState), ...args }, ...bindResult(opts)),
+  /** Applies a seat's action; the table then deals, settles and starts hands until a seat has to decide. */
+  act: (action: unknown): CuratorAstNode[] =>
+    table({ type: PokerTableCommand.ACT, action: String(action) }),
 
   agent_decision,
-
-  boot_table: (args: Partial<PokerInitLobbyParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.INIT_LOBBY, {
-      tableId: `${state.tableConfig.tableId} || 'poker:high_roller_lounge'`,
-      startingChips: `${state.tableConfig.startingChips} || 1000`,
-      sbAmount: `${state.tableConfig.sbAmount} || 10`,
-      bbAmount: `${state.tableConfig.bbAmount} || 20`,
-      maxSeats: `${state.tableConfig.maxSeats} || 6`,
-      players: String(state.tableConfig.players),
-      playerName: `${state.tableConfig.playerName} || 'You'`,
-      ...args,
-    }, ...bindResult(opts)),
 
   list_tables: (args: Partial<PokerListTablesParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.LIST_TABLES, args, ...bindResult(opts)),
 
-  lobby_menu: (args: Partial<PokerLobbyMenuParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.LOBBY_MENU, args, ...bindResult(opts)),
-
   create_table: (args: Partial<PokerCreateTableParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.CREATE_TABLE, args, ...bindResult(opts)),
-
-  join_lobby: (player: any = ctx.joinRequest, args: Partial<PokerJoinLobbyParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.JOIN_LOBBY, { player: String(player), ...args }, ...bindResult(opts)),
-
-  leave_lobby: (id: string, args: Partial<PokerLeaveLobbyParams> = { id }, opts: PokerToolOptions = {}): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.LEAVE_LOBBY, { id: String(id), ...args }, ...bindResult(opts)),
-
-  human_speech: (args: PokerHumanSpeechParams, opts: PokerToolOptions = {}): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.HUMAN_SPEECH, args, ...bindResult(opts)),
-
-  get_bankroll: (opts: PokerToolOptions = {}): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.GET_BANKROLL, {}, ...bindResult(opts)),
 
   get_buy_in_options: (args: Partial<PokerGetBuyInOptionsParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.GET_BUY_IN_OPTIONS, args, ...bindResult(opts)),
 
   deposit_buy_in: (args: Partial<PokerDepositBuyInParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.DEPOSIT_BUY_IN, args, ...bindResult(opts)),
-
-  cash_out: (args: Partial<PokerCashOutParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.CASH_OUT, args, ...bindResult(opts)),
 
   reload_bankroll: (args: Partial<PokerReloadBankrollParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
     CuratorBuilder.tool(PokerTool.RELOAD_BANKROLL, args, ...bindResult(opts)),
@@ -175,25 +133,3 @@ export const pokerComposables = {
   reasons: PokerSessionReason,
   actionTypes: PokerActionType,
 };
-
-/**
- * Domain composable returning typed proxies and models for poker workflows.
- */
-export function usePokerContext() {
-  return {
-    ctx,
-    gameState,
-    state,
-    params,
-    events: PokerEvent,
-    tools: PokerTool,
-    steps: PokerStep,
-    modules: PokerModule,
-    reasons: PokerSessionReason,
-    actions: PokerActionType,
-    predicates: pokerPredicates,
-  };
-}
-
-
-

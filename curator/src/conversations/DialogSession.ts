@@ -1,4 +1,3 @@
-import { EventEmitter } from 'events';
 import type {
   AgentMessageEnvelope,
   AgentEndpoint,
@@ -8,6 +7,7 @@ import type {
   CommunicativeIntent,
 } from './types.js';
 import { createAgentMessageEnvelope } from './EnvelopeValidator.js';
+import { BaseConversationSession } from './BaseConversationSession.js';
 import type { ConversationManager } from './ConversationManager.js';
 
 export type DialogStatus = 'ACTIVE' | 'WAITING' | 'COMPLETED' | 'TIMED_OUT' | 'ERROR';
@@ -36,42 +36,33 @@ export interface SendMessageOptions {
 
 /**
  * Manages a stateful 1:1 bilateral dialog between two agents.
- * Operates seamlessly inside a single node as well as across the mesh.
  * Enforces turn-taking invariants: exactly one agent holds the speaking floor at any time.
  */
-export class DialogSession extends EventEmitter {
-  public readonly conversationId: string;
+export class DialogSession extends BaseConversationSession {
   public readonly initiator: AgentEndpoint;
   public readonly responder: AgentEndpoint;
-  public readonly topic?: string;
   public readonly maxTurns: number;
   public readonly turnTimeoutMs?: number;
 
-  private currentTurnNumber: number = 0;
   private currentActiveSpeaker: AgentEndpoint;
   private sessionStatus: DialogStatus = 'ACTIVE';
   private history: AgentMessageEnvelope[] = [];
-  private manager?: ConversationManager;
-  private turnTimer: NodeJS.Timeout | null = null;
   private sharedContext: Record<string, unknown> = {};
 
   constructor(options: DialogSessionOptions) {
-    super();
-    this.conversationId = options.conversationId;
+    super({
+      conversationId: options.conversationId,
+      topic: options.topic,
+      manager: options.manager,
+    });
     this.initiator = options.initiator;
     this.responder = options.responder;
-    this.topic = options.topic;
     this.maxTurns = options.maxTurns || 20;
     this.turnTimeoutMs = options.turnTimeoutMs;
-    this.manager = options.manager;
     this.currentActiveSpeaker = options.initiator;
 
-    if (options.onMessage) {
-      this.on('message', options.onMessage);
-    }
-    if (options.onComplete) {
-      this.on('complete', options.onComplete);
-    }
+    if (options.onMessage) this.on('message', options.onMessage);
+    if (options.onComplete) this.on('complete', options.onComplete);
   }
 
   public get status(): DialogStatus {
@@ -79,7 +70,7 @@ export class DialogSession extends EventEmitter {
   }
 
   public get currentTurn(): number {
-    return this.currentTurnNumber;
+    return this.turnCounter;
   }
 
   public get activeSpeaker(): AgentEndpoint {
@@ -102,17 +93,15 @@ export class DialogSession extends EventEmitter {
       throw new Error(`Cannot send turn: Dialog '${this.conversationId}' is ${this.sessionStatus}`);
     }
 
-    // Validate that sender matches active speaker
-    if (this.currentTurnNumber > 0 && !this.isSameEndpoint(sender, this.currentActiveSpeaker)) {
+    if (this.turnCounter > 0 && !this.isSameEndpoint(sender, this.currentActiveSpeaker)) {
       throw new Error(
-        `Turn order violation: '${sender.nodeId}:${sender.agentId}' is not the active speaker. Waiting for '${this.currentActiveSpeaker.nodeId}:${this.currentActiveSpeaker.agentId}'`
+        `Turn order violation: '${this.endpointKey(sender)}' is not the active speaker. Waiting for '${this.endpointKey(this.currentActiveSpeaker)}'`
       );
     }
 
     const nextRecipient = this.isSameEndpoint(sender, this.initiator) ? this.responder : this.initiator;
-    const nextTurn = this.currentTurnNumber + 1;
+    const nextTurn = this.turnCounter + 1;
 
-    // Merge context updates
     if (options.contextState) {
       this.sharedContext = { ...this.sharedContext, ...options.contextState };
     }
@@ -138,33 +127,7 @@ export class DialogSession extends EventEmitter {
       expiresInMs: this.turnTimeoutMs,
     });
 
-    this.currentTurnNumber = nextTurn;
-    this.history.push(envelope);
-
-    // Switch active speaker token to recipient
-    this.currentActiveSpeaker = nextRecipient;
-
-    // Database persistence if manager is configured
-    if (this.manager) {
-      try {
-        const room = await this.manager.findOrCreateRoom(envelope);
-        await this.manager.recordTurn(room, envelope);
-        await this.manager.syncContextState(room.id, this.sharedContext);
-      } catch (err) {
-        this.emit('warn', `Failed to persist turn to database: ${err}`);
-      }
-    }
-
-    this.resetTurnTimer();
-
-    // Check completion criteria
-    if (envelope.speechAct === 'ACCEPT' || (envelope.payload && envelope.payload.status === 'completed')) {
-      this.complete('Conversation completed naturally');
-    } else if (this.currentTurnNumber >= this.maxTurns) {
-      this.complete(`Reached maximum turns limit (${this.maxTurns})`);
-    }
-
-    this.emit('message', envelope);
+    await this.applyTurnEnvelope(envelope, nextRecipient);
     return envelope;
   }
 
@@ -172,51 +135,22 @@ export class DialogSession extends EventEmitter {
    * Processes an incoming envelope from a peer.
    */
   public async handleIncoming(envelope: AgentMessageEnvelope): Promise<void> {
-    if (envelope.conversationId !== this.conversationId) {
-      return;
-    }
+    if (envelope.conversationId !== this.conversationId) return;
+    if (this.sessionStatus === 'COMPLETED' || this.sessionStatus === 'TIMED_OUT') return;
 
-    if (this.sessionStatus === 'COMPLETED' || this.sessionStatus === 'TIMED_OUT') {
-      return;
+    if (envelope.turn !== this.turnCounter + 1) {
+      this.emit('warn', `Unexpected turn sequence. Expected ${this.turnCounter + 1}, got ${envelope.turn}`);
     }
-
-    // Validate turn progression
-    if (envelope.turn !== this.currentTurnNumber + 1) {
-      this.emit('warn', `Unexpected turn sequence. Expected ${this.currentTurnNumber + 1}, got ${envelope.turn}`);
-    }
-
-    this.currentTurnNumber = envelope.turn;
-    this.history.push(envelope);
 
     if (envelope.contextState) {
       this.sharedContext = { ...this.sharedContext, ...envelope.contextState };
     }
 
-    // Switch active speaker to the other party
-    this.currentActiveSpeaker = this.isSameEndpoint(envelope.sender, this.initiator)
+    const nextSpeaker = this.isSameEndpoint(envelope.sender, this.initiator)
       ? this.responder
       : this.initiator;
 
-    if (this.manager) {
-      try {
-        const room = await this.manager.findOrCreateRoom(envelope);
-        await this.manager.recordTurn(room, envelope);
-        await this.manager.syncContextState(room.id, this.sharedContext);
-      } catch (err) {
-        this.emit('warn', `Failed to persist incoming turn: ${err}`);
-      }
-    }
-
-    this.resetTurnTimer();
-
-    // Check completion signals
-    if (envelope.speechAct === 'ACCEPT' || (envelope.payload && envelope.payload.status === 'completed')) {
-      this.complete('Conversation accepted / completed');
-    } else if (this.currentTurnNumber >= this.maxTurns) {
-      this.complete(`Reached maximum turns limit (${this.maxTurns})`);
-    }
-
-    this.emit('message', envelope);
+    await this.applyTurnEnvelope(envelope, nextSpeaker);
   }
 
   /**
@@ -224,33 +158,40 @@ export class DialogSession extends EventEmitter {
    */
   public complete(reason?: string): void {
     if (this.sessionStatus === 'COMPLETED') return;
-    this.clearTurnTimer();
+    this.clearSessionTimer();
     this.sessionStatus = 'COMPLETED';
     this.emit('complete', { session: this, reason });
   }
 
-  private resetTurnTimer(): void {
-    this.clearTurnTimer();
-    if (!this.turnTimeoutMs || this.sessionStatus === 'COMPLETED') return;
+  private async applyTurnEnvelope(envelope: AgentMessageEnvelope, nextSpeaker: AgentEndpoint): Promise<void> {
+    this.turnCounter = envelope.turn;
+    this.history.push(envelope);
+    this.currentActiveSpeaker = nextSpeaker;
 
-    this.turnTimer = setTimeout(() => {
+    await this.persistTurn(envelope, this.sharedContext);
+    this.resetTurnTimer();
+
+    if (envelope.speechAct === 'ACCEPT' || envelope.payload?.status === 'completed') {
+      this.complete('Conversation completed naturally');
+    } else if (this.turnCounter >= this.maxTurns) {
+      this.complete(`Reached maximum turns limit (${this.maxTurns})`);
+    }
+
+    this.emit('message', envelope);
+  }
+
+  private resetTurnTimer(): void {
+    if (!this.turnTimeoutMs || this.sessionStatus === 'COMPLETED') {
+      this.clearSessionTimer();
+      return;
+    }
+    this.startSessionTimer(this.turnTimeoutMs, () => {
       this.sessionStatus = 'TIMED_OUT';
       this.emit('timeout', {
         conversationId: this.conversationId,
         waitingFor: this.currentActiveSpeaker,
-        turn: this.currentTurnNumber,
+        turn: this.turnCounter,
       });
-    }, this.turnTimeoutMs);
-  }
-
-  private clearTurnTimer(): void {
-    if (this.turnTimer) {
-      clearTimeout(this.turnTimer);
-      this.turnTimer = null;
-    }
-  }
-
-  private isSameEndpoint(a: AgentEndpoint, b: AgentEndpoint): boolean {
-    return a.nodeId === b.nodeId && a.agentId === b.agentId;
+    });
   }
 }

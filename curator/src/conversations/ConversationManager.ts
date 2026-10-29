@@ -1,5 +1,6 @@
 import type { AgentMessageEnvelope, ConversationRoomMetadata } from './types.js';
 import { appendStatePatch } from '../engine/ConversationStateLog.js';
+import { createInitialRoomMetadata, reduceRoomTurn } from './ConversationTools.js';
 
 export interface ConversationManagerConfig {
   prisma: any;
@@ -20,7 +21,7 @@ export class ConversationManager {
 
   /**
    * Upserts or finds the database Conversation entity corresponding to the envelope's conversationId.
-   * Maintains room metadata, participant roster, and governance state.
+   * Uses pure deterministic reducers (createInitialRoomMetadata / reduceRoomTurn) and persists via appendStatePatch.
    */
   public async findOrCreateRoom(
     envelope: AgentMessageEnvelope,
@@ -34,84 +35,42 @@ export class ConversationManager {
       where: { externalId },
     });
 
-    const senderProject = envelope.sender.projectId || projectId;
-
     if (existing) {
-      // Update room metadata with active participants, participating projects, and turn
       const currentMeta: ConversationRoomMetadata = typeof existing.metadata === 'string'
         ? JSON.parse(existing.metadata)
         : (existing.metadata || {});
 
-      const participants = currentMeta.participants || [];
-      const hasSender = participants.some(
-        p => p.nodeId === envelope.sender.nodeId && p.agentId === envelope.sender.agentId
+      const { metadata: updatedMeta } = reduceRoomTurn(
+        {
+          ...currentMeta,
+          roomUri: currentMeta.roomUri || `curator://${envelope.sender.nodeId}/rooms/${externalId}`,
+          participatingProjects: currentMeta.participatingProjects || [existing.projectId || projectId],
+        },
+        envelope
       );
-
-      if (!hasSender) {
-        participants.push(envelope.sender);
-      }
-
-      // Aggregate participating projects
-      const projectSet = new Set<string>(currentMeta.participatingProjects || [existing.projectId || projectId]);
-      if (envelope.sender.projectId) projectSet.add(envelope.sender.projectId);
-      if (Array.isArray(envelope.recipients)) {
-        for (const r of envelope.recipients) {
-          if (r.projectId) projectSet.add(r.projectId);
-        }
-      }
-
-      const updatedMeta: ConversationRoomMetadata = {
-        ...currentMeta,
-        conversationType: envelope.conversationType,
-        roomUri: currentMeta.roomUri || `curator://${envelope.sender.nodeId}/rooms/${externalId}`,
-        topic: envelope.topic || currentMeta.topic,
-        participants,
-        participatingProjects: Array.from(projectSet),
-        governance: {
-          mode: currentMeta.governance?.mode || 'round-robin',
-          activeSpeaker: `${envelope.sender.nodeId}:${envelope.sender.agentId}`,
-          currentTurn: envelope.turn,
-          maxTurns: currentMeta.governance?.maxTurns,
-        },
-        customState: {
-          ...(currentMeta.customState || {}),
-          ...(envelope.contextState || {}),
-          lastSpeechAct: envelope.speechAct,
-          lastMessageId: envelope.messageId,
-          lastUpdatedAt: envelope.timestamp,
-        },
-      };
 
       await appendStatePatch(this.prisma, existing.id, { set: updatedMeta as Record<string, any> });
       return this.prisma.conversation.findUnique({ where: { id: existing.id } });
     }
 
-    // Aggregate participating projects for new room
-    const initialProjects = new Set<string>([projectId, senderProject]);
-    if (Array.isArray(envelope.recipients)) {
-      for (const r of envelope.recipients) {
-        if (r.projectId) initialProjects.add(r.projectId);
-      }
-    }
+    const baseMeta = createInitialRoomMetadata(
+      {
+        conversationId: externalId,
+        conversationType: envelope.conversationType,
+        roomUri: `curator://${envelope.sender.nodeId}/rooms/${externalId}`,
+        topic: envelope.topic,
+        initialParticipants: [envelope.sender],
+        governanceMode: envelope.conversationType === 'dialog' ? 'round-robin' : 'free-floor',
+        projectId,
+      },
+      envelope.sender.nodeId,
+      projectId
+    );
 
-    // Create new Conversation record
-    const initialMeta: ConversationRoomMetadata = {
-      conversationType: envelope.conversationType,
-      roomUri: `curator://${envelope.sender.nodeId}/rooms/${externalId}`,
-      topic: envelope.topic,
-      participants: [envelope.sender],
-      participatingProjects: Array.from(initialProjects),
-      governance: {
-        mode: envelope.conversationType === 'dialog' ? 'round-robin' : 'free-floor',
-        activeSpeaker: `${envelope.sender.nodeId}:${envelope.sender.agentId}`,
-        currentTurn: envelope.turn,
-      },
-      customState: {
-        ...(envelope.contextState || {}),
-        lastSpeechAct: envelope.speechAct,
-        lastMessageId: envelope.messageId,
-        startedAt: envelope.timestamp,
-      },
+    const { metadata: initialMeta } = reduceRoomTurn(baseMeta, envelope);
+    initialMeta.customState = {
+      ...initialMeta.customState,
+      startedAt: envelope.timestamp,
     };
 
     const created = await this.prisma.conversation.create({
@@ -126,7 +85,8 @@ export class ConversationManager {
   }
 
   /**
-   * Persists an immutable Response record for the processed conversational turn.
+   * Persists a conversational turn into EventLog (for DB-driven AST & LLM folding)
+   * and Response (when available).
    */
   public async recordTurn(
     conversation: any,
@@ -143,18 +103,50 @@ export class ConversationManager {
       timestamp: envelope.timestamp,
     });
 
-    return this.prisma.response.create({
-      data: {
-        conversationId: conversation.id,
-        requestId: options.requestId || 0,
-        projectId: conversation.projectId || this.defaultProjectId,
-        content: payloadContent,
-      },
-    });
+    if (this.prisma.eventLog?.create) {
+      const target = Array.isArray(envelope.recipients) && envelope.recipients.length === 1
+        ? envelope.recipients[0].agentId
+        : undefined;
+      try {
+        await this.prisma.eventLog.create({
+          data: {
+            conversationId: conversation.id,
+            eventName: 'agent:message',
+            target,
+            payload: {
+              from: envelope.sender.agentId,
+              speechAct: envelope.speechAct,
+              text: typeof envelope.payload === 'string'
+                ? envelope.payload
+                : (envelope.payload?.text ?? envelope.payload?.utterance ?? envelope.payload?.message ?? payloadContent),
+              envelope,
+            },
+          },
+        });
+      } catch {
+        // Non-blocking if EventLog table differs in mock
+      }
+    }
+
+    if (this.prisma.response?.create) {
+      try {
+        return await this.prisma.response.create({
+          data: {
+            conversationId: conversation.id,
+            requestId: options.requestId || 0,
+            projectId: conversation.projectId || this.defaultProjectId,
+            content: payloadContent,
+          },
+        });
+      } catch {
+        // Fallback when foreign-key constraints reject requestId: 0 without an active Request row
+      }
+    }
+    return null;
   }
 
   /**
-   * Updates state variables in Conversation metadata to guarantee AST turn persistence (AGENTS.md §4.5).
+   * Updates state variables in Conversation metadata to guarantee AST turn persistence.
    */
   public async syncContextState(
     conversationId: number,

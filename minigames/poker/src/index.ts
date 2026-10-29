@@ -2,6 +2,7 @@ export * from './types.ts';
 export * from './deck/index.ts';
 export * from './engine/pokerEvaluator.ts';
 export * from './engine/pokerEngine.ts';
+export * from './engine/pokerTable.ts';
 export * from './plugins/pokerPlugin.ts';
 export * from './ui/tableRenderer.ts';
 export * from './db/seed.ts';

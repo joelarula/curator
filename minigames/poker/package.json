@@ -26,7 +26,7 @@
     "reset:light": "node src/cli.ts reset",
     "serve": "node src/cli.ts serve",
     "seed": "node src/cli.ts seed",
-    "test": "tsx --test test/concurrent_tables.test.ts test/graphql_tables.test.ts test/poker_minigame.test.ts test/poker_deterministic.test.ts test/poker_game_replay.test.ts",
+    "test": "tsx --test test/poker_table_reducer.test.ts test/concurrent_tables.test.ts test/graphql_tables.test.ts test/poker_minigame.test.ts test/poker_deterministic.test.ts test/poker_game_replay.test.ts",
     "test:replay": "tsx --test test/poker_game_replay.test.ts",
     "test:concurrent": "tsx --test test/concurrent_tables.test.ts",
     "test:graphql": "tsx --test test/graphql_tables.test.ts",

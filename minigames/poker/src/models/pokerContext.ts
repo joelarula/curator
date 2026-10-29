@@ -12,12 +12,12 @@ import type {
   PlayerState,
   PokerGameState,
   PlayerJoinOptions,
-  PlayerStanding,
   AmbientRemark,
 } from '../types.ts';
 import type {
   PokerTool,
 } from './pokerContracts.ts';
+import type { PokerTableCommandInput, PokerTurn, PokerTableEvent } from '../engine/pokerTable.ts';
 import type {
   PokerLobbyChoice,
   PokerTableChoice,
@@ -60,85 +60,18 @@ export interface PokerInitLobbyParams {
   playerName?: string;
 }
 
-export interface PokerJoinLobbyParams {
+/** Table reducer args: the command, applied to `state` (the live `$state.gameState` by default). */
+export interface PokerTableParams {
   state?: WorkflowValue<PokerGameState>;
-  player?: WorkflowValue<PokerInitialPlayerInput | PlayerState>;
-  id?: string;
-  name?: string;
-  instruction?: string;
-  provider?: string;
-  persona?: string;
-  model?: string;
-  isHuman?: boolean;
-  wallet?: number;
-  buyIn?: number;
-  chips?: number;
-  seatIdx?: number;
-}
-
-export interface PokerLeaveLobbyParams {
-  state?: WorkflowValue<PokerGameState>;
-  id: WorkflowValue<string>;
-}
-
-export interface PokerStartHandParams {
-  state?: WorkflowValue<PokerGameState>;
-}
-
-export interface PokerAiDecisionParams {
-  state?: WorkflowValue<PokerGameState>;
-  playerIdx?: WorkflowValue<number>;
-}
-
-export interface PokerApplyActionParams {
-  state?: WorkflowValue<PokerGameState>;
-  action?: WorkflowValue<PlayerAction>;
-}
-
-export interface PokerDealStreetParams {
-  state?: WorkflowValue<PokerGameState>;
-}
-
-export interface PokerFastForwardParams {
-  state?: WorkflowValue<PokerGameState>;
-}
-
-export interface PokerDistributePotsParams {
-  state?: WorkflowValue<PokerGameState>;
-}
-
-export interface PokerRotateDealerParams {
-  state?: WorkflowValue<PokerGameState>;
-}
-
-export interface PokerHumanSpeechParams {
-  state?: WorkflowValue<PokerGameState>;
-  speechAct: WorkflowValue<SpeechAct>;
-  text: WorkflowValue<string>;
-  targetId?: WorkflowValue<string>;
-  speakerId?: WorkflowValue<string>;
-  speakerName?: WorkflowValue<string>;
-}
-
-export interface PokerCheckGameOverParams {
-  state?: WorkflowValue<PokerGameState>;
+  command: WorkflowValue<PokerTableCommandInput>;
 }
 
 export interface PokerGetStandingsParams {
   state?: WorkflowValue<PokerGameState>;
 }
 
-export interface PokerGetChoicesParams {
-  state?: WorkflowValue<PokerGameState>;
-  playerIdx?: WorkflowValue<number>;
-}
-
 /** No parameters: identity and project scope are resolved from the host session. */
 export type PokerListTablesParams = Record<string, never>;
-
-export interface PokerLobbyMenuParams {
-  tables?: WorkflowValue<PokerLobbyTable[]>;
-}
 
 export interface PokerCreateTableParams {
   tableName?: WorkflowValue<string>;
@@ -177,22 +110,8 @@ export interface PokerCloseTableParams {
 }
 
 export interface PokerToolParamsMap {
-  [PokerTool.INIT_LOBBY]: PokerInitLobbyParams;
-  [PokerTool.JOIN_LOBBY]: PokerJoinLobbyParams;
-  [PokerTool.LEAVE_LOBBY]: PokerLeaveLobbyParams;
-  [PokerTool.START_HAND]: PokerStartHandParams;
-  [PokerTool.DEAL_STREET]: PokerDealStreetParams;
-  [PokerTool.FAST_FORWARD]: PokerFastForwardParams;
-  [PokerTool.DISTRIBUTE_POTS]: PokerDistributePotsParams;
-  [PokerTool.ROTATE_DEALER]: PokerRotateDealerParams;
-  [PokerTool.AI_DECISION]: PokerAiDecisionParams;
-  [PokerTool.APPLY_ACTION]: PokerApplyActionParams;
-  [PokerTool.HUMAN_SPEECH]: PokerHumanSpeechParams;
-  [PokerTool.CHECK_GAME_OVER]: PokerCheckGameOverParams;
   [PokerTool.GET_STANDINGS]: PokerGetStandingsParams;
-  [PokerTool.GET_CHOICES]: PokerGetChoicesParams;
   [PokerTool.LIST_TABLES]: PokerListTablesParams;
-  [PokerTool.LOBBY_MENU]: PokerLobbyMenuParams;
   [PokerTool.CREATE_TABLE]: PokerCreateTableParams;
   [PokerTool.GET_BANKROLL]: PokerGetBankrollParams;
   [PokerTool.GET_BUY_IN_OPTIONS]: PokerGetBuyInOptionsParams;
@@ -313,15 +232,8 @@ export interface PokerLobbyContext extends PokerBankrollContext, PokerBootContex
   selectedTable?: PokerTableChoice | { id: string } | string;
 
   // Tool results, each bound explicitly with `{ as }` in the lobby workflow
-  openTables?: { tables: PokerLobbyTable[] };
-  lobbyMenu?: PokerLobbyMenu;
+  openTables?: { tables: PokerLobbyTable[] } & PokerLobbyMenu;
   newTable?: { tableId?: string; [key: string]: any };
-}
-
-/** Hand lifecycle flow: dealing, street progression, settlement, game over. */
-export interface PokerTableContext extends PokerSharedContext {
-  winnerSummary?: string;
-  standings?: PlayerStanding[];
 }
 
 /** Player turn flows (agent, human, action application). */
@@ -336,14 +248,11 @@ export interface PokerTurnContext extends PokerSharedContext {
   choices?: PokerLegalChoice[];
   decision?: PokerTurnDecision;
   recentRemarks?: AmbientRemark[];
-  /** poker_get_choices result, bound with `{ as }` in the human turn */
-  legalChoices?: { choices: PokerLegalChoice[] };
 }
 
 /** Root context of the top-level poker workflow: union of all flow contexts. */
 export interface PokerWorkflowContext
   extends PokerLobbyContext,
-  PokerTableContext,
   PokerTurnContext {
   [key: string]: any;
 }
@@ -353,8 +262,12 @@ export interface PokerWorkflowContext
  * PokerTableShape triples by `pokerTableProjector`.
  */
 export interface PokerWorkflowState {
-  /** Written by every engine tool step (its output is appended to the state log). */
+  /** Written by every table reducer step (its output is appended to the state log). */
   gameState?: PokerGameState;
+  /** The seat that has to decide next and its legal choices; null when nobody has to (written by the reducer). */
+  turn?: PokerTurn | null;
+  /** The events the last reducer step reported; the flow that ran it emits them as they are. */
+  events?: PokerTableEvent[];
   /** The run's table settings, handed to the isolated boot subroutine. */
   tableConfig?: {
     tableId?: string;
@@ -400,7 +313,6 @@ export const ctx: TypedPathProxy<PokerWorkflowContext> = createContextProxy<Poke
 export const lobbyCtx: TypedPathProxy<PokerLobbyContext> = createContextProxy<PokerLobbyContext>('$context');
 export const bankrollCtx: TypedPathProxy<PokerBankrollContext> = createContextProxy<PokerBankrollContext>('$context');
 export const bootCtx: TypedPathProxy<PokerBootContext> = createContextProxy<PokerBootContext>('$context');
-export const tableCtx: TypedPathProxy<PokerTableContext> = createContextProxy<PokerTableContext>('$context');
 export const turnCtx: TypedPathProxy<PokerTurnContext> = createContextProxy<PokerTurnContext>('$context');
 // Game and lifecycle state are read from the event-sourced conversation state, never from request-context copies
 export const gameState: TypedPathProxy<PokerGameState> = createContextProxy<PokerGameState>('$state.gameState');

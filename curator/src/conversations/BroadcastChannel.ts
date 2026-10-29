@@ -1,4 +1,3 @@
-import { EventEmitter } from 'events';
 import type {
   AgentMessageEnvelope,
   AgentEndpoint,
@@ -6,6 +5,7 @@ import type {
   CommunicationForm,
 } from './types.js';
 import { createAgentMessageEnvelope } from './EnvelopeValidator.js';
+import { BaseConversationSession } from './BaseConversationSession.js';
 import type { ConversationManager } from './ConversationManager.js';
 
 export interface BroadcastChannelOptions {
@@ -31,23 +31,21 @@ export interface PublishBroadcastOptions {
  * Works natively within a single node as well as distributed mesh.
  * Provides topic filtering and message deduplication.
  */
-export class BroadcastChannel extends EventEmitter {
-  public readonly topic: string;
+export class BroadcastChannel extends BaseConversationSession {
+  public declare readonly topic: string;
   public readonly sender: AgentEndpoint;
-  public readonly conversationId: string;
   public readonly maxHops: number;
 
-  private manager?: ConversationManager;
   private seenMessageIds: Map<string, number> = new Map();
   private dedupTtlMs: number;
-  private turnCounter: number = 0;
 
   constructor(options: BroadcastChannelOptions) {
-    super();
-    this.topic = options.topic;
+    super({
+      conversationId: options.conversationId || `broadcast_${options.topic.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+      topic: options.topic,
+      manager: options.manager,
+    });
     this.sender = options.sender;
-    this.conversationId = options.conversationId || `broadcast_${options.topic.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-    this.manager = options.manager;
     this.dedupTtlMs = options.dedupTtlMs || 60000;
     this.maxHops = options.maxHops || 5;
   }
@@ -76,46 +74,26 @@ export class BroadcastChannel extends EventEmitter {
     });
 
     this.markSeen(envelope.messageId);
-
-    if (this.manager) {
-      try {
-        const room = await this.manager.findOrCreateRoom(envelope);
-        await this.manager.recordTurn(room, envelope);
-      } catch (err) {
-        this.emit('warn', `Failed to persist broadcast to database: ${err}`);
-      }
-    }
-
+    await this.persistTurn(envelope);
     this.emit('message', envelope);
     return envelope;
   }
 
   /**
    * Ingests an incoming broadcast message.
-   * Drops duplicates or messages with exceeded hop counts.
+   * Drops duplicates or messages with mismatched topics.
    */
   public async handleIncoming(envelope: AgentMessageEnvelope): Promise<boolean> {
-    // Check deduplication
     if (this.isDuplicate(envelope.messageId)) {
       return false;
     }
     this.markSeen(envelope.messageId);
 
-    // Topic check
     if (envelope.topic && !this.matchesTopic(envelope.topic)) {
       return false;
     }
 
-    // Persist to database if manager is configured
-    if (this.manager) {
-      try {
-        const room = await this.manager.findOrCreateRoom(envelope);
-        await this.manager.recordTurn(room, envelope);
-      } catch (err) {
-        this.emit('warn', `Failed to persist incoming broadcast: ${err}`);
-      }
-    }
-
+    await this.persistTurn(envelope);
     this.emit('message', envelope);
     return true;
   }
@@ -131,27 +109,22 @@ export class BroadcastChannel extends EventEmitter {
   private matchesTopic(incomingTopic: string): boolean {
     if (this.topic === '*' || this.topic === incomingTopic) return true;
     if (this.topic.endsWith('*')) {
-      const prefix = this.topic.slice(0, -1);
-      return incomingTopic.startsWith(prefix);
+      return incomingTopic.startsWith(this.topic.slice(0, -1));
     }
     return false;
   }
 
   private isDuplicate(messageId: string): boolean {
-    this.pruneSeen();
-    return this.seenMessageIds.has(messageId);
-  }
-
-  private markSeen(messageId: string): void {
-    this.seenMessageIds.set(messageId, Date.now());
-  }
-
-  private pruneSeen(): void {
     const now = Date.now();
     for (const [id, timestamp] of this.seenMessageIds.entries()) {
       if (now - timestamp > this.dedupTtlMs) {
         this.seenMessageIds.delete(id);
       }
     }
+    return this.seenMessageIds.has(messageId);
+  }
+
+  private markSeen(messageId: string): void {
+    this.seenMessageIds.set(messageId, Date.now());
   }
 }
