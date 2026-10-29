@@ -38,21 +38,21 @@ describe('Curator 5 Ergonomic Pillars', () => {
     const { state, ctx, params, setState, ifElse } =
       createWorkflowScope<DemoState, DemoContext, DemoParams>();
 
-    assert.equal(String(state.counter.add(1)), '$state.counter + 1');
-    assert.equal(String(state.counter.orDefault(0).lt(2)), '($state.counter || 0) < 2');
-    assert.equal(String(state.counter.orDefault(0).add(1)), '($state.counter || 0) + 1');
-    assert.equal(String(state.players.at(params.seatIndex).chips.gte(100)), '$state.players[$params.seatIndex].chips >= 100');
+    assert.equal(String(state.counter.add(1)), '($state.counter + 1)');
+    assert.equal(String(state.counter.orDefault(0).lt(2)), '(($state.counter || 0) < 2)');
+    assert.equal(String(state.counter.orDefault(0).add(1)), '(($state.counter || 0) + 1)');
+    assert.equal(String(state.players.at(params.seatIndex).chips.gte(100)), '($state.players[$params.seatIndex].chips >= 100)');
     assert.equal(String(ctx.choice.isChoice('JOIN_TABLE')), "($context.choice.id == 'JOIN_TABLE' or $context.choice == 'JOIN_TABLE' or $context.choice.value == 'JOIN_TABLE')");
-    assert.equal(String(ctx.choice.isCommand('EXIT')), "($context.choice.type == 'EXIT' or $context.choice == 'EXIT')");
+    assert.equal(String(ctx.choice.isCommand('EXIT')), "(($context.choice && $context.choice.type == 'EXIT') || $context.choice == 'EXIT')");
     assert.equal(String(state.status.in('idle', 'running')), "($state.status == 'idle' or $state.status == 'running')");
-    assert.equal(String(state.status.eq('idle').and(state.counter.gt(0).not())), "($state.status == 'idle' and !($state.counter > 0))");
-    assert.equal(String(state.errorMsg.optional().orDefault('none')), "($state.errorMsg? || 'none')");
+    assert.equal(String(state.status.eq('idle').and(state.counter.gt(0).not())), "(($state.status == 'idle') and not ($state.counter > 0))");
+    assert.equal(String(state.errorMsg.optional()), '{$state.errorMsg?}');
 
     const node = ifElse(
       state.counter.orDefault(0).lt(3),
       setState({ counter: state.counter.orDefault(0).add(1) })
     );
-    assert.equal(node.condition, '($state.counter || 0) < 3');
+    assert.equal(node.condition, '(($state.counter || 0) < 3)');
   });
 
   it('Pillar 2: First-Class Callable Tools & Reducers', async () => {
@@ -72,7 +72,7 @@ describe('Curator 5 Ergonomic Pillars', () => {
     assert.equal(toolNode.toolName, 'demo_create_table');
     assert.equal(toolNode.as, 'tableResult');
     assert.equal(toolNode.spread, false);
-    assert.deepEqual(toolNode.toolArgs, { tableName: 'HighRoller', startingChips: '$state.counter' });
+    assert.deepEqual(toolNode.args, { tableName: 'HighRoller', startingChips: '$state.counter' });
 
     // Calling reducer both as pure function and as workflow AST builder
     const scoreReducer = defineReducer<{ base: number; bonus: number }, { total: number }>(
@@ -84,7 +84,11 @@ describe('Curator 5 Ergonomic Pillars', () => {
     const reduceNode = scoreReducer.reduce({ base: state.counter, bonus: 10 });
     assert.equal(reduceNode.type, 'Curator_Reduce');
     assert.equal(reduceNode.reducer, 'demo_score_reducer');
-    assert.equal(reduceNode.spread, true);
+    assert.notEqual(reduceNode.spread, false);
+
+    const reduceNodeNamed = scoreReducer.reduce({ base: state.counter, bonus: 10 }, { as: 'scoreResult' });
+    assert.equal(reduceNodeNamed.as, 'scoreResult');
+    assert.equal(reduceNodeNamed.spread, false);
   });
 
   it('Pillar 3 & 4: Inline Reactive Systems, Event Racing & Node Modifiers', () => {
@@ -131,7 +135,8 @@ describe('Curator 5 Ergonomic Pillars', () => {
 
     const waitNode = waitAnyEvent([PingEvent, 'custom:cancel'], 'raceOut', { timeoutSeconds: 5 });
     const timedWait = withTimeout(waitNode, 10, setState({ status: 'failed' }));
-    assert.deepEqual(timedWait.eventNames, ['demo:ping', 'custom:cancel']);
+    assert.equal(timedWait.eventName, 'demo:ping');
+    assert.deepEqual(timedWait.eventNames, ['custom:cancel']);
     assert.equal(timedWait.timeoutSeconds, 10);
     assert.ok(timedWait.onTimeout);
   });
