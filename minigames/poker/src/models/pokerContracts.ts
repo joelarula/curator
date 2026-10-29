@@ -55,10 +55,6 @@ export const PokerToolAlias = {
 
 export type PokerToolAliasType = (typeof PokerToolAlias)[keyof typeof PokerToolAlias];
 
-export function isPokerTool(value: unknown): value is PokerToolType {
-  return typeof value === 'string' && Object.values(PokerTool).includes(value as PokerToolType);
-}
-
 // ==========================================
 // 3. Domain Events
 // ==========================================
@@ -117,10 +113,6 @@ export const PokerEvent = {
 } as const;
 
 export type PokerEventType = (typeof PokerEvent)[keyof typeof PokerEvent];
-
-export function isPokerEvent(value: unknown): value is PokerEventType {
-  return typeof value === 'string' && Object.values(PokerEvent).includes(value as PokerEventType);
-}
 
 // ==========================================
 // 4. Session, Actions, Streets & Lobby Constants
@@ -281,24 +273,30 @@ export interface ChoiceOption {
   min?: number;
   max?: number;
   label?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
+
+export type RawChoiceInput = string | (Partial<ChoiceOption> & { type?: string });
+export type RawChoicesPayload =
+  | RawChoiceInput[]
+  | { choices?: RawChoiceInput[]; options?: RawChoiceInput[] }
+  | undefined;
 
 /**
  * Normalizes legal choice options from any AST event payload,
  * accommodating string arrays, nested objects, or options dictionaries.
  */
-export function normalizeChoices(rawChoices: any[] | undefined): ChoiceOption[] {
+export function normalizeChoices(rawChoices: RawChoicesPayload): ChoiceOption[] {
   if (!rawChoices) return [];
-  const list = Array.isArray(rawChoices)
+  const list: RawChoiceInput[] = Array.isArray(rawChoices)
     ? rawChoices
-    : Array.isArray((rawChoices as any)?.choices)
-      ? (rawChoices as any).choices
-      : Array.isArray((rawChoices as any)?.options)
-        ? (rawChoices as any).options
+    : Array.isArray(rawChoices.choices)
+      ? rawChoices.choices
+      : Array.isArray(rawChoices.options)
+        ? rawChoices.options
         : [];
 
-  return list.map((c) => {
+  return list.map((c): ChoiceOption => {
     if (typeof c === 'string') {
       return { action: c, label: c };
     }
@@ -318,7 +316,9 @@ export function normalizeChoices(rawChoices: any[] | undefined): ChoiceOption[] 
  * Robustly extracts PokerGameState from event payloads or table metadata,
  * handling serialized JSON strings (common with SQLite) and direct objects.
  */
-export function extractGameState<T = any>(payload: any): T | null {
+export function extractGameState<T = unknown>(
+  payload: { gameState?: T | string; state?: T | string } | null | undefined
+): T | null {
   if (!payload) return null;
   const raw = payload.gameState !== undefined ? payload.gameState : payload.state;
   if (!raw) return null;

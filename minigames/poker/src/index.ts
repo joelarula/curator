@@ -20,5 +20,6 @@ export * from './models/index.ts';
 export * from './workflows/index.ts';
 export * from './engine/pokerRules.ts';
 export * from './services/pokerTableStore.ts';
+export * from './services/pokerBankrollStore.ts';
 export { getLegalChoices } from './engine/pokerEngine.ts';
 

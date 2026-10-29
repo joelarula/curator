@@ -18,6 +18,7 @@ import {
   withFallback,
   createContextProxy,
   CuratorBuilder,
+  type CuratorExpr,
   type CuratorModuleNode,
   type TypedPathProxy,
 } from '../curator.ts';
@@ -31,7 +32,7 @@ import {
 import {
   Speech, ActionTaken, PhaseSettle, NewRound, ChatterCue, ChatterDone, TablePhase,
 } from '../models/pokerEvents.ts';
-import { PokerChatterMode, TableTalkCommand, type TableTalkState } from '../engine/tableTalk.ts';
+import { PokerChatterMode, TableTalkCommand, type TableTalkCommandInput, type TableTalkState } from '../engine/tableTalk.ts';
 import { pokerTableTalkReducer } from '../plugins/pokerTools.ts';
 import { pokerConfig } from '../pokerConfig.ts';
 import { CHATTER_MODEL, SEAT_HISTORY_EVENTS, seatPersona, seatView } from './agentTurn.ts';
@@ -45,10 +46,10 @@ const local: TypedPathProxy<{ talk: TableTalkState; chatter: { say?: string } }>
  * One gate step: the talk state is updated in `$state.talk` (and this flow's `$context.talk`) via the
  * first-class `pokerTableTalkReducer` (Pillar 2); a cue it produced is announced.
  */
-const talkStep = (command: Record<string, unknown>) => [
+const talkStep = (command: CuratorExpr<TableTalkCommandInput>) => [
   pokerTableTalkReducer.reduce(
     // Null-safe `$config?.poker?.talk`: hosts and harnesses without poker config fall back to the gate's defaults
-    { talk: state.talk, gameState, command: command as any, config: pokerConfig.talk },
+    { talk: state.talk, gameState, command, config: pokerConfig.talk },
     { as: 'talk', spread: false }
   ),
   ifElse(local.talk.cue.isTruthy(), [ChatterCue.emit(local.talk.cue)]),

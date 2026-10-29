@@ -1,44 +1,93 @@
-import { POKER_SHAPE_URIS } from '../models/pokerShapes.ts';
+import { PokerEvent } from '../models/pokerContracts.ts';
+import {
+  PokerBankrollShape,
+  pokerBankrollUri,
+  type BankrollCurrency,
+  type BankrollInfo,
+  type BankrollSummary,
+  type BuyInChoicePayload,
+  type BuyInLimits,
+  type BuyInOptionsResult,
+  type BuyInPreset,
+  type BuyInPresetId,
+  type CashOutResult,
+  type ChipAmountInput,
+  type ChipAmountObject,
+  type DepositBuyInResult,
+  type PokerBankrollDb,
+  type PokerBankrollMetadata,
+  type ReloadBankrollResult,
+} from '../models/pokerShapes.ts';
+import { DEFAULT_TABLE_SETTINGS } from '../pokerConfig.ts';
 
-export interface BankrollInfo {
-  uri: string;
-  userId: string;
-  balance: number;
-  currency: string;
-  updatedAt: string;
+export type {
+  BankrollCurrency,
+  BankrollInfo,
+  BankrollSummary,
+  BuyInChoicePayload,
+  BuyInLimits,
+  BuyInOptionsResult,
+  BuyInPreset,
+  BuyInPresetId,
+  CashOutResult,
+  ChipAmountInput,
+  ChipAmountObject,
+  DepositBuyInResult,
+  PokerBankrollDb,
+  PokerBankrollMetadata,
+  ReloadBankrollResult,
+};
+
+export const DEFAULT_INITIAL_BANKROLL = 10000;
+export const DEFAULT_RELOAD_AMOUNT = 5000;
+export const MAX_RELOAD_AMOUNT = 1_000_000;
+export const DEFAULT_BANKROLL_CURRENCY: BankrollCurrency = 'CHIPS';
+
+const BUY_IN_MIN_BB = 20;
+const BUY_IN_MAX_BB = 100;
+
+export interface BuyInStackTier {
+  id: 'short' | 'standard' | 'deep';
+  bbMultiplier: number;
+  labelSuffix: string;
+  descriptionPrefix: string;
+  aliases: readonly string[];
 }
 
-export interface BuyInPreset {
-  id: string;
-  label: string;
-  description: string;
-  amount: number;
-  aliases: string[];
-  event: string;
-  payload: { id: string; amount: number };
-  value: { id: string; amount: number };
-}
+export const BUY_IN_STACK_TIERS: readonly BuyInStackTier[] = [
+  {
+    id: 'short',
+    bbMultiplier: 25,
+    labelSuffix: '(Short Stack — 25 BB)',
+    descriptionPrefix: 'Conservative stack for tight play',
+    aliases: ['1', 'short', '25bb'],
+  },
+  {
+    id: 'standard',
+    bbMultiplier: 50,
+    labelSuffix: '(Standard Stack — 50 BB) [Recommended]',
+    descriptionPrefix: 'Balanced starting stack',
+    aliases: ['2', 'standard', 'normal', '50bb'],
+  },
+  {
+    id: 'deep',
+    bbMultiplier: 100,
+    labelSuffix: '(Deep Stack — 100 BB)',
+    descriptionPrefix: 'Deep stack for complex post-flop action',
+    aliases: ['3', 'deep', '100bb'],
+  },
+] as const;
 
-export interface BuyInOptionsResult {
-  balance: number;
-  minBuyIn: number;
-  maxBuyIn: number;
-  canAfford: boolean;
-  choices: BuyInPreset[];
-}
-
-const DEFAULT_INITIAL_BANKROLL = 10000;
-const DEFAULT_RELOAD_AMOUNT = 5000;
-const MAX_RELOAD_AMOUNT = 1_000_000;
+const ALL_IN_ALIASES = new Set<string>(['all', 'all-in', 'max', 'all_in_wallet']);
 
 /**
- * Parses a free-form chip amount: 5000, "5000", "$5,000", "5k", { amount }, { value }, { choice }.
+ * Parses a free-form chip amount: 5000, "5000", "$5,000", "5k", { amount }, { payload }, { value }, { choice }.
  * Returns 0 when nothing usable is found.
  */
-export function parseChipAmount(input: any): number {
+export function parseChipAmount(input?: ChipAmountInput): number {
   if (typeof input === 'number') return Number.isFinite(input) && input > 0 ? Math.floor(input) : 0;
-  if (input && typeof input === 'object') {
-    return parseChipAmount(input.amount ?? input.value ?? input.choice ?? input.id);
+  if (typeof input === 'object' && input !== null) {
+    return parseChipAmount(input.amount ?? input.payload ?? input.value ?? input.choice ?? input.id);
   }
   if (typeof input !== 'string') return 0;
   const match = input.trim().toLowerCase().replace(/[\$,\s]/g, '').match(/^(\d+(?:\.\d+)?)(k)?$/);
@@ -47,124 +96,142 @@ export function parseChipAmount(input: any): number {
   return amount > 0 ? Math.floor(amount) : 0;
 }
 
-function parseBankrollMetadata(description?: string | null): Record<string, any> {
+function parseBankrollMetadata(description?: string | null): Partial<PokerBankrollMetadata> {
   if (!description) return {};
   try {
-    return JSON.parse(description);
+    const parsed: unknown = JSON.parse(description);
+    return parsed && typeof parsed === 'object' ? (parsed as Partial<PokerBankrollMetadata>) : {};
   } catch {
     return {};
   }
 }
 
+function toBankrollInfo(uri: string, userId: string, meta: Partial<PokerBankrollMetadata>): BankrollInfo {
+  return {
+    uri,
+    userId,
+    balance: typeof meta.balance === 'number' ? meta.balance : DEFAULT_INITIAL_BANKROLL,
+    currency: meta.currency || DEFAULT_BANKROLL_CURRENCY,
+    updatedAt: meta.updatedAt || new Date().toISOString(),
+  };
+}
+
+export function toBankrollSummary(bankroll: BankrollInfo): BankrollSummary {
+  return {
+    balance: bankroll.balance,
+    currency: bankroll.currency,
+    formattedBalance: `$${bankroll.balance.toLocaleString()}`,
+  };
+}
+
+async function saveBankrollMetadata(
+  prisma: PokerBankrollDb,
+  bankroll: BankrollInfo,
+  balance: number,
+  patch: Partial<PokerBankrollMetadata> = {}
+): Promise<BankrollInfo> {
+  const updatedAt = new Date().toISOString();
+  const meta: PokerBankrollMetadata = {
+    balance,
+    currency: bankroll.currency,
+    ...patch,
+    updatedAt,
+  };
+
+  await prisma.resource.update({
+    where: { uri: bankroll.uri },
+    data: {
+      description: JSON.stringify(meta),
+    },
+  });
+
+  return toBankrollInfo(bankroll.uri, bankroll.userId, meta);
+}
+
 /** Per-user chip wallet; identity is the host user id, nothing else. */
 export async function getOrCreateBankroll(
-  prisma: any,
+  prisma: PokerBankrollDb,
   userId: string,
   projectId?: string | null
 ): Promise<BankrollInfo> {
-  const uri = `${POKER_SHAPE_URIS.BANKROLL_CLASS}:${userId}`;
+  const uri = pokerBankrollUri(userId);
   const initialBalance = DEFAULT_INITIAL_BANKROLL;
 
-  let resource = await prisma.resource.findUnique({
+  const resource = await prisma.resource.findUnique({
     where: { uri },
   });
 
   if (!resource) {
-    const meta = {
+    const meta: PokerBankrollMetadata = {
       balance: initialBalance,
       initialBalance,
-      currency: 'CHIPS',
+      currency: DEFAULT_BANKROLL_CURRENCY,
       updatedAt: new Date().toISOString(),
     };
 
-    resource = await prisma.resource.create({
+    await prisma.resource.create({
       data: {
         uri,
-        title: 'Poker Bankroll',
+        title: PokerBankrollShape.name || 'Poker Bankroll',
         description: JSON.stringify(meta),
         userId,
         projectId: projectId || null,
         existent: true,
       },
     });
-    return {
-      uri,
-      userId,
-      balance: initialBalance,
-      currency: 'CHIPS',
-      updatedAt: meta.updatedAt,
-    };
+    return toBankrollInfo(uri, userId, meta);
   }
 
-  const meta = parseBankrollMetadata(resource.description);
-  const balance = typeof meta.balance === 'number' ? meta.balance : initialBalance;
-
-  return {
-    uri,
-    userId,
-    balance,
-    currency: meta.currency || 'CHIPS',
-    updatedAt: meta.updatedAt || new Date().toISOString(),
-  };
+  return toBankrollInfo(uri, userId, parseBankrollMetadata(resource.description));
 }
 
 export function parseBuyInAmount(
-  input: any,
-  minBuyIn: number = 400,
-  maxBuyIn: number = 2000,
-  balance: number = 10000
+  input?: ChipAmountInput,
+  minBuyIn: number = DEFAULT_TABLE_SETTINGS.bigBlind * BUY_IN_MIN_BB,
+  maxBuyIn: number = DEFAULT_TABLE_SETTINGS.bigBlind * BUY_IN_MAX_BB,
+  balance: number = DEFAULT_INITIAL_BANKROLL
 ): number {
+  const clamp = (amt: number): number => Math.min(balance, Math.max(minBuyIn, Math.min(maxBuyIn, amt)));
+  const defaultBuyIn = DEFAULT_TABLE_SETTINGS.startingChips;
+
   if (input === undefined || input === null || input === '') {
-    return Math.min(balance, Math.max(minBuyIn, 1000));
+    return clamp(defaultBuyIn);
   }
 
   if (typeof input === 'object') {
-    if (typeof input.amount === 'number') {
-      return Math.min(balance, Math.max(minBuyIn, Math.min(maxBuyIn, input.amount)));
-    }
-    if (input.payload && typeof input.payload.amount === 'number') {
-      return Math.min(balance, Math.max(minBuyIn, Math.min(maxBuyIn, input.payload.amount)));
-    }
-    if (input.value && typeof input.value.amount === 'number') {
-      return Math.min(balance, Math.max(minBuyIn, Math.min(maxBuyIn, input.value.amount)));
-    }
+    const explicit = parseChipAmount(input.amount ?? input.payload ?? input.value);
+    if (explicit > 0) return clamp(explicit);
   }
 
-  const raw = String(typeof input === 'object' ? (input.id || input.label || '') : input).trim();
+  const raw = String(typeof input === 'object' ? (input.id ?? input.label ?? '') : input).trim();
   const cleaned = raw.toLowerCase().replace(/[\$,]/g, '');
 
-  if (cleaned === '1' || cleaned === 'short' || cleaned === '25bb') {
-    return Math.min(balance, Math.max(minBuyIn, 500));
-  }
-  if (cleaned === '2' || cleaned === 'standard' || cleaned === 'normal' || cleaned === '50bb') {
-    return Math.min(balance, Math.max(minBuyIn, 1000));
-  }
-  if (cleaned === '3' || cleaned === 'deep' || cleaned === '100bb') {
-    return Math.min(balance, Math.max(minBuyIn, 2000));
-  }
-  if (cleaned === 'all' || cleaned === 'all-in' || cleaned === 'max') {
+  if (ALL_IN_ALIASES.has(cleaned)) {
     return Math.min(balance, maxBuyIn);
   }
 
-  const parsed = Number(cleaned);
-  if (!Number.isNaN(parsed) && parsed > 0) {
-    return Math.min(balance, Math.max(minBuyIn, Math.min(maxBuyIn, parsed)));
+  const matchedTier = BUY_IN_STACK_TIERS.find((tier) => tier.aliases.includes(cleaned));
+  if (matchedTier) {
+    const bbAmount = minBuyIn > 0 ? minBuyIn / BUY_IN_MIN_BB : DEFAULT_TABLE_SETTINGS.bigBlind;
+    return clamp(bbAmount * matchedTier.bbMultiplier);
   }
 
-  return Math.min(balance, Math.max(minBuyIn, 1000));
+  const parsed = parseChipAmount(raw);
+  return clamp(parsed > 0 ? parsed : defaultBuyIn);
 }
 
 export async function depositBuyIn(
-  prisma: any,
+  prisma: PokerBankrollDb,
   userId: string,
-  amount: any,
+  amount?: ChipAmountInput,
   _tableId?: string | number,
   projectId?: string | null,
-  options: { minBuyIn?: number; maxBuyIn?: number } = {}
-): Promise<{ success: boolean; newBalance: number; deposited: number; reason?: string }> {
+  options: Partial<BuyInLimits> = {}
+): Promise<DepositBuyInResult> {
   const bankroll = await getOrCreateBankroll(prisma, userId, projectId);
-  const minBuyIn = options.minBuyIn ?? 400;
-  const maxBuyIn = options.maxBuyIn ?? 2000;
+  const defaultLimits = getBuyInLimits();
+  const minBuyIn = options.minBuyIn ?? defaultLimits.minBuyIn;
+  const maxBuyIn = options.maxBuyIn ?? defaultLimits.maxBuyIn;
   const depositAmt = parseBuyInAmount(amount, minBuyIn, maxBuyIn, bankroll.balance);
 
   if (bankroll.balance < depositAmt) {
@@ -176,163 +243,114 @@ export async function depositBuyIn(
     };
   }
 
-  const newBalance = bankroll.balance - depositAmt;
-  const meta = {
-    balance: newBalance,
-    currency: bankroll.currency,
+  const updated = await saveBankrollMetadata(prisma, bankroll, bankroll.balance - depositAmt, {
     lastDeposit: depositAmt,
-    updatedAt: new Date().toISOString(),
-  };
-
-  await prisma.resource.update({
-    where: { uri: bankroll.uri },
-    data: {
-      description: JSON.stringify(meta),
-    },
   });
 
   return {
     success: true,
-    newBalance,
+    newBalance: updated.balance,
     deposited: depositAmt,
   };
 }
 
 export async function cashOutToBankroll(
-  prisma: any,
+  prisma: PokerBankrollDb,
   userId: string,
   chips: number,
   _tableId?: string | number,
   projectId?: string | null
-): Promise<{ success: boolean; newBalance: number; cashedOut: number }> {
+): Promise<CashOutResult> {
   const bankroll = await getOrCreateBankroll(prisma, userId, projectId);
   const returnChips = Math.max(0, Number(chips) || 0);
-  const newBalance = bankroll.balance + returnChips;
-
-  const meta = {
-    balance: newBalance,
-    currency: bankroll.currency,
+  const updated = await saveBankrollMetadata(prisma, bankroll, bankroll.balance + returnChips, {
     lastCashOut: returnChips,
-    updatedAt: new Date().toISOString(),
-  };
-
-  await prisma.resource.update({
-    where: { uri: bankroll.uri },
-    data: {
-      description: JSON.stringify(meta),
-    },
   });
 
   return {
     success: true,
-    newBalance,
+    newBalance: updated.balance,
     cashedOut: returnChips,
   };
 }
 
 export async function reloadBankroll(
-  prisma: any,
+  prisma: PokerBankrollDb,
   userId: string,
   reloadAmount: number = DEFAULT_RELOAD_AMOUNT,
   projectId?: string | null
-): Promise<BankrollInfo & { added: number }> {
+): Promise<ReloadBankrollResult> {
   const bankroll = await getOrCreateBankroll(prisma, userId, projectId);
-  reloadAmount = Math.min(MAX_RELOAD_AMOUNT, Math.max(0, Math.floor(reloadAmount) || 0));
-  if (reloadAmount === 0) return { ...bankroll, added: 0 };
-  const newBalance = bankroll.balance + reloadAmount;
+  const added = Math.min(MAX_RELOAD_AMOUNT, Math.max(0, Math.floor(reloadAmount) || 0));
+  if (added === 0) return { ...bankroll, added: 0 };
 
-  const meta = {
-    balance: newBalance,
-    currency: bankroll.currency,
-    lastReload: reloadAmount,
-    updatedAt: new Date().toISOString(),
-  };
-
-  await prisma.resource.update({
-    where: { uri: bankroll.uri },
-    data: {
-      description: JSON.stringify(meta),
-    },
+  const updated = await saveBankrollMetadata(prisma, bankroll, bankroll.balance + added, {
+    lastReload: added,
   });
 
   return {
-    uri: bankroll.uri,
-    userId,
-    balance: newBalance,
-    currency: bankroll.currency,
-    updatedAt: meta.updatedAt,
-    added: reloadAmount,
+    ...updated,
+    added,
   };
 }
 
 /** Table buy-in limits derived from the table's big blind (not a wallet concern). */
-export function getBuyInLimits(bbAmount: number = 20): { minBuyIn: number; maxBuyIn: number } {
+export function getBuyInLimits(bbAmount: number = DEFAULT_TABLE_SETTINGS.bigBlind): BuyInLimits {
   return {
-    minBuyIn: bbAmount * 20, // 20 BB e.g. $400
-    maxBuyIn: bbAmount * 100, // 100 BB e.g. $2000
+    minBuyIn: bbAmount * BUY_IN_MIN_BB, // 20 BB e.g. $400
+    maxBuyIn: bbAmount * BUY_IN_MAX_BB, // 100 BB e.g. $2000
+  };
+}
+
+function createBuyInPreset(
+  id: BuyInPresetId,
+  label: string,
+  description: string,
+  amount: number,
+  aliases: string[]
+): BuyInPreset {
+  const payload: BuyInChoicePayload = { id, amount };
+  return {
+    id,
+    label,
+    description,
+    amount,
+    aliases,
+    event: PokerEvent.BUY_IN_CHOICE,
+    payload,
+    value: payload,
   };
 }
 
 export function getBuyInPresets(
   balance: number,
-  bbAmount: number = 20
+  bbAmount: number = DEFAULT_TABLE_SETTINGS.bigBlind
 ): BuyInOptionsResult {
   const { minBuyIn, maxBuyIn } = getBuyInLimits(bbAmount);
   const canAfford = balance >= minBuyIn;
 
-  const standardBuyIns = [
-    {
-      id: 'short',
-      label: `$${bbAmount * 25} (Short Stack — 25 BB)`,
-      description: `Conservative stack for tight play ($${bbAmount * 25})`,
-      amount: bbAmount * 25,
-      aliases: ['1', 'short', String(bbAmount * 25), '25bb'],
-    },
-    {
-      id: 'standard',
-      label: `$${bbAmount * 50} (Standard Stack — 50 BB) [Recommended]`,
-      description: `Balanced starting stack ($${bbAmount * 50})`,
-      amount: bbAmount * 50,
-      aliases: ['2', 'standard', 'normal', String(bbAmount * 50), '50bb'],
-    },
-    {
-      id: 'deep',
-      label: `$${bbAmount * 100} (Deep Stack — 100 BB)`,
-      description: `Deep stack for complex post-flop action ($${bbAmount * 100})`,
-      amount: bbAmount * 100,
-      aliases: ['3', 'deep', String(bbAmount * 100), '100bb'],
-    },
-  ];
-
-  const choices: BuyInPreset[] = [];
-
-  for (const preset of standardBuyIns) {
-    if (preset.amount <= balance) {
-      choices.push({
-        id: preset.id,
-        label: preset.label,
-        description: preset.description,
-        amount: preset.amount,
-        aliases: preset.aliases,
-        event: 'poker:buy_in_choice',
-        payload: { id: preset.id, amount: preset.amount },
-        value: { id: preset.id, amount: preset.amount },
-      });
-    }
-  }
+  const choices: BuyInPreset[] = BUY_IN_STACK_TIERS.map((tier) => {
+    const amount = bbAmount * tier.bbMultiplier;
+    return createBuyInPreset(
+      tier.id,
+      `$${amount} ${tier.labelSuffix}`,
+      `${tier.descriptionPrefix} ($${amount})`,
+      amount,
+      [...tier.aliases.slice(0, -1), String(amount), tier.aliases[tier.aliases.length - 1]]
+    );
+  }).filter((preset) => preset.amount <= balance);
 
   // If user has balance between minBuyIn and first preset, or custom remaining
   if (choices.length === 0 && canAfford) {
-    choices.push({
-      id: 'all_in_wallet',
-      label: `$${balance} (Remaining Bankroll)`,
-      description: `Deposit remaining balance ($${balance})`,
-      amount: balance,
-      aliases: ['1', 'all', String(balance)],
-      event: 'poker:buy_in_choice',
-      payload: { id: 'all_in_wallet', amount: balance },
-      value: { id: 'all_in_wallet', amount: balance },
-    });
+    choices.push(
+      createBuyInPreset(
+        'all_in_wallet',
+        `$${balance} (Remaining Bankroll)`,
+        `Deposit remaining balance ($${balance})`,
+        balance,
+        ['1', 'all', String(balance)]
+      )
+    );
   }
 
   return {

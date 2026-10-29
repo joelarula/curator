@@ -1,45 +1,43 @@
 import type { StateProjector } from '../curator.ts';
+import type { PokerWorkflowState } from '../models/pokerContext.ts';
+import type { PokerLobbyTable } from '../models/pokerLobbyMenu.ts';
 import {
   POKER_SHAPE_URIS,
   POKER_TABLE_STATUS,
+  RESUMABLE_TABLE_STATUSES,
+  TABLE_URI_PREFIX,
+  pokerPlayerUri,
+  pokerSeatUri,
+  pokerTableStatusUri,
+  pokerTableUri,
+  type ActivePokerTablesResult,
+  type PokerResourceRecord,
+  type PokerSeat,
+  type PokerStoreDb,
+  type PokerTableResourceMetadata,
   type PokerTableStatusType,
+  type QueryPokerTablesParams,
+  type SyncPokerTableParams,
 } from '../models/pokerShapes.ts';
-import type { PokerLobbyTable } from '../models/pokerLobbyMenu.ts';
+import { DEFAULT_TABLE_SETTINGS } from '../pokerConfig.ts';
 
 // Menu formatting is pure presentation and lives with the lobby menu models
 export { formatTableChoices } from '../models/pokerLobbyMenu.ts';
+export {
+  pokerTableUri,
+  pokerTableStatusUri,
+  pokerPlayerUri,
+  pokerSeatUri,
+  type PokerSeat,
+  type SyncPokerTableParams,
+  type QueryPokerTablesParams,
+  type ActivePokerTablesResult,
+  type PokerResourceRecord,
+  type PokerStoreDb,
+  type PokerTableResourceMetadata,
+};
 
-export interface PokerSeat {
-  id: string;
-  name?: string;
-  isHuman?: boolean;
-}
-
-export interface SyncPokerTableParams {
-  tableId: string | number;
-  title: string;
-  conversationId: number;
-  projectId: string;
-  userId: string;
-  status?: PokerTableStatusType;
-  maxSeats?: number;
-  players?: PokerSeat[];
-}
-
-export interface QueryPokerTablesParams {
-  projectId: string;
-  userId?: string;
-  playerName?: string;
-}
-
-export interface ActivePokerTablesResult {
-  tables: PokerLobbyTable[];
-}
-
-const TABLE_URI_PREFIX = 'poker:table:';
-export const pokerTableUri = (tableId: string | number) => `${TABLE_URI_PREFIX}${tableId}`;
-export const pokerTableStatusUri = (status: PokerTableStatusType) => `${POKER_SHAPE_URIS.STATUS_PREDICATE}:${status}`;
-const playerUri = (p: PokerSeat) => (p.isHuman ? `poker:player:${p.id}` : `poker:agent:${p.id}`);
+type TableResourceRef = Pick<PokerResourceRecord, 'id' | 'userId' | 'projectId'>;
 
 /** Prisma relation filter for a live `subject -predicate-> object` triple. */
 const triple = (predicateUri: string, object: Record<string, unknown>) => ({
@@ -52,12 +50,12 @@ const triple = (predicateUri: string, object: Record<string, unknown>) => ({
  * Ensures a semantic resource exists in the database.
  */
 async function ensureResource(
-  prisma: any,
+  prisma: PokerStoreDb,
   uri: string,
   title: string,
   userId: string,
   projectId?: string | null
-) {
+): Promise<PokerResourceRecord> {
   const existing = await prisma.resource.findUnique({ where: { uri } });
   if (existing) {
     if (!existing.existent) {
@@ -80,12 +78,12 @@ async function ensureResource(
 }
 
 async function linkTriple(
-  prisma: any,
+  prisma: PokerStoreDb,
   subjectId: number,
   predicateId: number,
   objectId: number,
   projectId?: string | null
-) {
+): Promise<void> {
   await prisma.relation.upsert({
     where: { subjectId_predicateId_objectId: { subjectId, predicateId, objectId } },
     update: { existent: true },
@@ -97,10 +95,10 @@ async function linkTriple(
  * Replaces the table's single `poker:status` triple (maxCount 1 in PokerTableShape).
  */
 async function setTableStatus(
-  prisma: any,
-  table: { id: number; userId: string; projectId?: string | null },
+  prisma: PokerStoreDb,
+  table: TableResourceRef,
   status: PokerTableStatusType
-) {
+): Promise<void> {
   const predicate = await ensureResource(prisma, POKER_SHAPE_URIS.STATUS_PREDICATE, 'status', table.userId, table.projectId);
   const value = await ensureResource(prisma, pokerTableStatusUri(status), status, table.userId, table.projectId);
   await prisma.relation.updateMany({
@@ -115,20 +113,20 @@ async function setTableStatus(
  * Links nobody listed in `before` (e.g. written at table creation) are never retired.
  */
 async function syncSeats(
-  prisma: any,
-  table: { id: number; userId: string; projectId?: string | null },
+  prisma: PokerStoreDb,
+  table: TableResourceRef,
   before: PokerSeat[],
   after: PokerSeat[]
-) {
+): Promise<void> {
   const hasPlayer = await ensureResource(prisma, POKER_SHAPE_URIS.PLAYER_PREDICATE, 'hasPlayer', table.userId, table.projectId);
-  const seated = after.filter((p) => p?.id);
+  const seated = after.filter((p) => p.id);
   for (const p of seated) {
-    const player = await ensureResource(prisma, playerUri(p), p.name || p.id, table.userId, table.projectId);
+    const player = await ensureResource(prisma, pokerSeatUri(p), p.name || p.id, table.userId, table.projectId);
     await linkTriple(prisma, table.id, hasPlayer.id, player.id, table.projectId);
   }
 
-  const seatedUris = new Set(seated.map(playerUri));
-  const leftUris = before.filter((p) => p?.id && !seatedUris.has(playerUri(p))).map(playerUri);
+  const seatedUris = new Set(seated.map(pokerSeatUri));
+  const leftUris = before.filter((p) => p.id && !seatedUris.has(pokerSeatUri(p))).map(pokerSeatUri);
   if (leftUris.length) {
     await prisma.relation.updateMany({
       where: { subjectId: table.id, predicateId: hasPlayer.id, object: { uri: { in: leftUris } } },
@@ -141,7 +139,7 @@ async function syncSeats(
  * The lifecycle status a table conversation's workflow state implies. Ordered by precedence:
  * an explicit close wins over game over, which wins over a crash, which wins over a pause.
  */
-export function deriveTableStatus(state: Record<string, any>): PokerTableStatusType {
+export function deriveTableStatus(state: PokerWorkflowState): PokerTableStatusType {
   if (state.isClosed || state.sessionEnded) return POKER_TABLE_STATUS.CLOSED;
   if (state.gameOver) return POKER_TABLE_STATUS.FINISHED;
   if (state.lastFailure) return POKER_TABLE_STATUS.FAILED;
@@ -149,25 +147,30 @@ export function deriveTableStatus(state: Record<string, any>): PokerTableStatusT
   return POKER_TABLE_STATUS.ACTIVE;
 }
 
-const sameSeats = (a: unknown, b: unknown) => JSON.stringify(a ?? []) === JSON.stringify(b ?? []);
+const sameSeats = (a: PokerSeat[] | undefined, b: PokerSeat[] | undefined): boolean =>
+  JSON.stringify(a ?? []) === JSON.stringify(b ?? []);
 
 /**
  * Keeps a table's PokerTableShape triples in step with its conversation state. Runs inside the
  * transaction of every state event, so the graph never disagrees with the event log.
  */
 export const pokerTableProjector: StateProjector = async ({ db, conversationId, previous, state }) => {
-  const status = deriveTableStatus(state);
-  const statusChanged = status !== deriveTableStatus(previous);
-  const seatsChanged = !sameSeats(previous.seatedPlayers, state.seatedPlayers);
+  const prevState = previous as PokerWorkflowState;
+  const nextState = state as PokerWorkflowState;
+  const storeDb = db as PokerStoreDb;
+
+  const status = deriveTableStatus(nextState);
+  const statusChanged = status !== deriveTableStatus(prevState);
+  const seatsChanged = !sameSeats(prevState.seatedPlayers, nextState.seatedPlayers);
   if (!statusChanged && !seatsChanged) return;
 
-  const table = await db.resource.findFirst({
+  const table = await storeDb.resource.findFirst({
     where: { existent: true, uri: { startsWith: TABLE_URI_PREFIX }, conversations: { some: { id: conversationId } } },
   });
   if (!table) return;
 
-  if (statusChanged) await setTableStatus(db, table, status);
-  if (seatsChanged) await syncSeats(db, table, previous.seatedPlayers ?? [], state.seatedPlayers ?? []);
+  if (statusChanged) await setTableStatus(storeDb, table, status);
+  if (seatsChanged) await syncSeats(storeDb, table, prevState.seatedPlayers ?? [], nextState.seatedPlayers ?? []);
 };
 
 /**
@@ -176,23 +179,27 @@ export const pokerTableProjector: StateProjector = async ({ db, conversationId, 
  * through the native Conversation <-> Resource link. Later changes come from `pokerTableProjector`.
  */
 export async function syncPokerTableResource(
-  prisma: any,
+  prisma: PokerStoreDb | null | undefined,
   params: SyncPokerTableParams
-): Promise<any> {
+): Promise<PokerResourceRecord | null> {
   if (!prisma?.resource) return null;
 
   const uri = pokerTableUri(params.tableId);
+  const metadata: PokerTableResourceMetadata = {
+    shape: POKER_SHAPE_URIS.TABLE_SHAPE,
+    maxSeats: params.maxSeats || DEFAULT_TABLE_SETTINGS.maxSeats,
+  };
   const data = {
     title: params.title,
     userId: params.userId,
     projectId: params.projectId,
-    metadata: { shape: POKER_SHAPE_URIS.TABLE_SHAPE, maxSeats: params.maxSeats || 6 },
+    metadata,
     existent: true,
     conversations: { connect: { id: params.conversationId } },
   };
 
   try {
-    return await prisma.$transaction(async (db: any) => {
+    return await prisma.$transaction(async (db) => {
       const table = await db.resource.upsert({
         where: { uri },
         update: { ...data, deletedAt: null },
@@ -213,22 +220,26 @@ export async function syncPokerTableResource(
  * whose `poker:status` is active or paused, that the user created or sits at (`poker:hasPlayer`).
  */
 export async function queryActivePokerTables(
-  prisma: any,
+  prisma: PokerStoreDb | null | undefined,
   query: QueryPokerTablesParams
 ): Promise<ActivePokerTablesResult> {
   const userId = query.userId?.trim();
   const playerName = query.playerName?.trim();
 
   // Fail closed: without a session project or identity there is nothing to list
-  if (!query.projectId || (!userId && !playerName) || !prisma?.resource) return toTablesResult([]);
+  if (!query.projectId || (!userId && !playerName) || !prisma?.resource) {
+    return { tables: [] };
+  }
 
   const projectScope = { projectId: { in: [query.projectId, 'system'] } };
-  const playerUris = [userId, playerName].filter(Boolean).map((id) => `poker:player:${id}`);
+  const playerUris = [userId, playerName]
+    .filter((id): id is string => Boolean(id))
+    .map((id) => pokerPlayerUri(id, true));
   const seatsUser = triple(POKER_SHAPE_URIS.PLAYER_PREDICATE, {
     OR: [{ uri: { in: playerUris } }, ...(playerName ? [{ title: playerName }] : [])],
   });
 
-  const resumable = [POKER_TABLE_STATUS.ACTIVE, POKER_TABLE_STATUS.PAUSED].map(pokerTableStatusUri);
+  const resumable = RESUMABLE_TABLE_STATUSES.map(pokerTableStatusUri);
 
   const resources = await prisma.resource.findMany({
     where: {
@@ -247,11 +258,12 @@ export async function queryActivePokerTables(
     orderBy: { createdAt: 'asc' },
   });
 
-  return toTablesResult(
-    resources.flatMap((r: any) => r.conversations.map((c: any) => ({ tableId: String(c.id), title: r.title })))
-  );
-}
-
-function toTablesResult(tables: ActivePokerTablesResult['tables']): ActivePokerTablesResult {
-  return { tables };
+  return {
+    tables: resources.flatMap((r) =>
+      (r.conversations ?? []).map((c): PokerLobbyTable => ({
+        tableId: String(c.id),
+        title: r.title ?? `Table #${c.id}`,
+      }))
+    ),
+  };
 }

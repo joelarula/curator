@@ -2,20 +2,13 @@ import {
   seq,
   emitEvents,
   type CuratorAstNode,
-  type CuratorToolNode,
-  type TypedToolArgs,
+  type CuratorExpr,
+  type CuratorToolCallOptions,
 } from '../curator.ts';
+import type { PlayerAction, PlayerJoinOptions } from '../types.ts';
 import { agent_decision } from '../workflows/agentTurn.ts';
 import { ctx, gameState, state, params, setState } from '../models/pokerContext.ts';
 import { SessionExited } from '../models/pokerEvents.ts';
-import type {
-  PokerListTablesParams,
-  PokerCreateTableParams,
-  PokerGetBuyInOptionsParams,
-  PokerDepositBuyInParams,
-  PokerReloadBankrollParams,
-  PokerCloseTableParams,
-} from '../models/pokerContext.ts';
 import {
   PokerEvent,
   PokerModule,
@@ -24,26 +17,22 @@ import {
   PokerSessionReason,
   PokerActionType,
 } from '../models/pokerContracts.ts';
-import { PokerTableCommand } from '../engine/pokerTable.ts';
+import { PokerTableCommand, type PokerTableCommandInput } from '../engine/pokerTable.ts';
 import { pokerConfig, tableSettings, setting, DEFAULT_TABLE_SETTINGS } from '../pokerConfig.ts';
 import {
   pokerTableReducer,
+  pokerGetStandingsTool,
   pokerListTablesTool,
   pokerCreateTableTool,
+  pokerGetBankrollTool,
   pokerGetBuyInOptionsTool,
   pokerDepositBuyInTool,
+  pokerCashOutTool,
   pokerReloadBankrollTool,
   pokerCloseTableTool,
 } from '../plugins/pokerTools.ts';
 
-/**
- * Tool composable options: `as` names the context key the tool result is bound to.
- * A bound result does not also spread its fields into context/state unless `spread: true` is passed.
- */
-export interface PokerToolOptions {
-  as?: unknown;
-  spread?: boolean;
-}
+export type PokerToolOptions = CuratorToolCallOptions;
 
 /**
  * High-level readable predicates for poker game loops and transitions.
@@ -58,8 +47,8 @@ export const pokerPredicates = {
  * One table step: the first-class `pokerTableReducer` (Pillar 2) applies `command` to the live game state,
  * its `gameState`, `turn` and `events` land in `$state`, and the events it reports are emitted as they are.
  */
-const table = (command: Record<string, unknown>): CuratorAstNode[] => [
-  pokerTableReducer.reduce({ state: gameState, command: command as any }),
+const table = (command: CuratorExpr<PokerTableCommandInput>): CuratorAstNode[] => [
+  pokerTableReducer.reduce({ state: gameState, command }),
   emitEvents(state.events),
 ];
 
@@ -97,7 +86,7 @@ export const pokerComposables = {
     }),
   ],
 
-  join_table: (player: unknown = ctx.joinRequest): CuratorAstNode[] =>
+  join_table: (player: CuratorExpr<PlayerJoinOptions> = ctx.joinRequest): CuratorAstNode[] =>
     table({ type: PokerTableCommand.JOIN, player }),
 
   /** Starts a hand unless one is already running. */
@@ -105,29 +94,21 @@ export const pokerComposables = {
     table({ type: PokerTableCommand.START }),
 
   /** Applies a seat's action; the table then deals, settles and starts hands until a seat has to decide. */
-  act: (action: unknown): CuratorAstNode[] =>
+  act: (action: CuratorExpr<PlayerAction>): CuratorAstNode[] =>
     table({ type: PokerTableCommand.ACT, action }),
 
   agent_decision,
 
-  // First-class callable tools (Pillar 2): `defineTool` instances are invoked directly to build `Curator_Tool` nodes
-  list_tables: (args: TypedToolArgs<PokerListTablesParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    pokerListTablesTool(args as any, opts),
-
-  create_table: (args: TypedToolArgs<PokerCreateTableParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    pokerCreateTableTool(args, opts),
-
-  get_buy_in_options: (args: TypedToolArgs<PokerGetBuyInOptionsParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    pokerGetBuyInOptionsTool(args, opts),
-
-  deposit_buy_in: (args: TypedToolArgs<PokerDepositBuyInParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    pokerDepositBuyInTool(args, opts),
-
-  reload_bankroll: (args: TypedToolArgs<PokerReloadBankrollParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    pokerReloadBankrollTool(args, opts),
-
-  close_table: (args: TypedToolArgs<PokerCloseTableParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    pokerCloseTableTool(args, opts),
+  // First-class callable tools (Pillar 2): `defineTool` instances are directly callable to build `Curator_Tool` nodes
+  get_standings: pokerGetStandingsTool,
+  list_tables: pokerListTablesTool,
+  create_table: pokerCreateTableTool,
+  get_bankroll: pokerGetBankrollTool,
+  get_buy_in_options: pokerGetBuyInOptionsTool,
+  deposit_buy_in: pokerDepositBuyInTool,
+  cash_out: pokerCashOutTool,
+  reload_bankroll: pokerReloadBankrollTool,
+  close_table: pokerCloseTableTool,
 
   /** Leaving is an announcement; the `close_on_exit` rule (tableRules) closes the conversation. */
   handle_user_exit: () =>

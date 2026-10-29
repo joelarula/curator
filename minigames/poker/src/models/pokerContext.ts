@@ -5,11 +5,11 @@
 
 import type {
   Card,
-  Street,
   ActionType,
   SpeechAct,
   PlayerAction,
   PlayerState,
+  PlayerStanding,
   PokerGameState,
   PlayerJoinOptions,
   AmbientRemark,
@@ -18,78 +18,88 @@ import type {
   PokerTool,
 } from './pokerContracts.ts';
 import type { PokerTableCommandInput, PokerTurn, PokerTableEvent } from '../engine/pokerTable.ts';
-import type { TableTalkState } from '../engine/tableTalk.ts';
+import type { PokerTalkConfig, TableTalkCommandInput, TableTalkState } from '../engine/tableTalk.ts';
+import type { PokerEngineConfig } from '../pokerConfig.ts';
 import type {
   PokerLobbyChoice,
   PokerTableChoice,
   PokerLobbyActionType,
-  PokerLobbyTable,
   PokerLobbyMenu,
+  PokerReloadChoice,
 } from './pokerLobbyMenu.ts';
+import type {
+  PokerSeat,
+  ActivePokerTablesResult,
+  BankrollSummary,
+  BuyInPreset,
+  BuyInOptionsResult,
+  CashOutResult,
+  ChipAmountInput,
+  DepositBuyInResult,
+  ReloadBankrollToolResult,
+} from './pokerShapes.ts';
 import {
   createContextProxy,
   createWorkflowScope,
   type TypedPathProxy,
-  type CuratorExpr,
 } from '../curator.ts';
 
 // ==========================================
-// 1. Tool Parameter Schemas
+// 1. Reducer & Tool Parameter / Result Schemas
 // ==========================================
-export type WorkflowValue<T> = CuratorExpr<T>;
-
-export interface PokerInitialPlayerInput {
-  id: string;
-  name: string;
-  instruction?: string;
-  provider?: string;
-  persona?: string;
-  model?: string;
-  isHuman?: boolean;
-  chips?: number;
-  wallet?: number;
-  buyIn?: number;
-  seatIdx?: number;
-}
-
-export interface PokerInitLobbyParams {
-  tableId?: WorkflowValue<string>;
-  startingChips?: WorkflowValue<number>;
-  sbAmount?: WorkflowValue<number>;
-  bbAmount?: WorkflowValue<number>;
-  maxSeats?: WorkflowValue<number>;
-  revealHandsOnSettle?: WorkflowValue<boolean>;
-  maxHands?: WorkflowValue<number>;
-  players?: WorkflowValue<PokerInitialPlayerInput[]>;
-  wallets?: Record<string, number>;
-  startingWallets?: Record<string, number>;
-  playerName?: string;
-}
+/**
+ * Pure runtime parameter and result contracts for poker reducers and tools.
+ * `defineReducer<TArgs, TOutput>` and `defineTool<TArgs, TOutput>` automatically lift `TArgs`
+ * into `CuratorExpr<TArgs[K]>` when building workflow AST nodes while passing raw `TArgs` at runtime.
+ */
 
 /** Table reducer args: the command, applied to `state` (the live `$state.gameState` by default). */
 export interface PokerTableParams {
-  state?: WorkflowValue<PokerGameState>;
-  command: WorkflowValue<PokerTableCommandInput>;
+  state?: PokerGameState;
+  command: PokerTableCommandInput;
+}
+
+/** Table-talk gate reducer args (`poker_table_talk`). */
+export interface PokerTableTalkParams {
+  talk?: TableTalkState;
+  gameState?: PokerGameState;
+  command: TableTalkCommandInput;
+  /** `$config.poker.talk`; missing keys fall back to the defaults. */
+  config?: Partial<PokerTalkConfig>;
 }
 
 export interface PokerGetStandingsParams {
-  state?: WorkflowValue<PokerGameState>;
+  state?: PokerGameState;
+}
+
+export interface PokerStandingsResult {
+  standings: PlayerStanding[];
+  message?: string;
 }
 
 /** No parameters: identity and project scope are resolved from the host session. */
-export type PokerListTablesParams = Record<string, never>;
+export type PokerListTablesParams = Record<string, unknown>;
+
+export type PokerListTablesResult = ActivePokerTablesResult & PokerLobbyMenu;
 
 export interface PokerCreateTableParams {
-  tableName?: WorkflowValue<string>;
-  playerName?: WorkflowValue<string>;
-  startingChips?: WorkflowValue<number>;
-  smallBlind?: WorkflowValue<number>;
-  bigBlind?: WorkflowValue<number>;
-  maxSeats?: WorkflowValue<number>;
+  tableName?: string;
+  title?: string;
+  playerName?: string;
+  startingChips?: number;
+  smallBlind?: number;
+  bigBlind?: number;
+  maxSeats?: number;
+}
+
+export interface PokerCreateTableResult {
+  success: boolean;
+  tableId: string;
+  table: { title: string; [key: string]: unknown };
 }
 
 /** Wallet owner is always the host session user; no identity params. */
-export type PokerGetBankrollParams = Record<string, never>;
+export type PokerGetBankrollParams = Record<string, unknown>;
 
 export interface PokerGetBuyInOptionsParams {
   bbAmount?: number;
@@ -97,22 +107,28 @@ export interface PokerGetBuyInOptionsParams {
 
 export interface PokerDepositBuyInParams {
   tableId?: string | number;
-  amount?: number | string;
+  amount: ChipAmountInput;
   bbAmount?: number;
 }
 
 export interface PokerCashOutParams {
   tableId?: string | number;
-  chips?: number;
+  chips: number;
 }
 
 export interface PokerReloadBankrollParams {
   /** Free-form amount: number, "$5,000", "5k" or a reload choice object. */
-  amount?: number | string | Record<string, any>;
+  amount?: ChipAmountInput;
 }
 
 export interface PokerCloseTableParams {
   reason?: string;
+}
+
+export interface PokerCloseTableResult {
+  closed: boolean;
+  conversationId?: number;
+  reason: string;
 }
 
 export interface PokerToolParamsMap {
@@ -125,6 +141,18 @@ export interface PokerToolParamsMap {
   [PokerTool.CASH_OUT]: PokerCashOutParams;
   [PokerTool.RELOAD_BANKROLL]: PokerReloadBankrollParams;
   [PokerTool.CLOSE_TABLE]: PokerCloseTableParams;
+}
+
+export interface PokerToolResultsMap {
+  [PokerTool.GET_STANDINGS]: PokerStandingsResult;
+  [PokerTool.LIST_TABLES]: PokerListTablesResult;
+  [PokerTool.CREATE_TABLE]: PokerCreateTableResult;
+  [PokerTool.GET_BANKROLL]: BankrollSummary;
+  [PokerTool.GET_BUY_IN_OPTIONS]: BuyInOptionsResult;
+  [PokerTool.DEPOSIT_BUY_IN]: DepositBuyInResult;
+  [PokerTool.CASH_OUT]: CashOutResult;
+  [PokerTool.RELOAD_BANKROLL]: ReloadBankrollToolResult;
+  [PokerTool.CLOSE_TABLE]: PokerCloseTableResult;
 }
 
 // ==========================================
@@ -197,31 +225,13 @@ export interface PokerSharedContext {
 
 /** Buy-in sub-flow: bankroll lookup, optional reload and chip deposit. */
 export interface PokerBankrollContext extends PokerSharedContext {
-  buyInChoice?: any;
+  buyInChoice?: BuyInPreset;
   selectedBuyIn?: number;
-  bankroll?: {
-    balance: number;
-    currency: string;
-    formattedBalance: string;
-  };
-  buyInOptions?: {
-    balance: number;
-    minBuyIn: number;
-    maxBuyIn: number;
-    canAfford: boolean;
-    choices: any[];
-  };
-  buyInDeposit?: {
-    success: boolean;
-    newBalance: number;
-    deposited: number;
-  };
-  reloadChoice?: any;
-  reload?: {
-    success: boolean;
-    added: number;
-    balance: number;
-  };
+  bankroll?: BankrollSummary;
+  buyInOptions?: BuyInOptionsResult;
+  buyInDeposit?: DepositBuyInResult;
+  reloadChoice?: PokerReloadChoice | ChipAmountInput;
+  reload?: ReloadBankrollToolResult;
 }
 
 /** Table boot sub-flow: open-table initialization and dynamic seating. */
@@ -238,8 +248,8 @@ export interface PokerLobbyContext extends PokerBankrollContext, PokerBootContex
   selectedTable?: PokerTableChoice | { id: string } | string;
 
   // Tool results, each bound explicitly with `{ as }` in the lobby workflow
-  openTables?: { tables: PokerLobbyTable[] } & PokerLobbyMenu;
-  newTable?: { tableId?: string; [key: string]: any };
+  openTables?: PokerListTablesResult;
+  newTable?: PokerCreateTableResult;
 }
 
 /** Player turn flows (agent, human, action application). */
@@ -281,13 +291,21 @@ export interface PokerWorkflowState {
     sbAmount?: number;
     bbAmount?: number;
     maxSeats?: number;
-    players?: any[];
+    players?: PlayerJoinOptions[];
     playerName?: string;
   };
+  /** Snapshot of `$config.poker` captured when the table boots. */
+  tableSettings?: Partial<PokerEngineConfig>;
+  tableId?: string;
+  selectedBuyIn?: number;
+  lobbyChoice?: PokerLobbyChoice | { id: PokerLobbyActionType; label?: string } | string;
+  selectedTable?: PokerTableChoice | { id: string } | string;
   isPaused?: boolean;
   sessionEnded?: boolean;
   gameOver?: boolean;
   isClosed?: boolean;
+  closingReason?: string;
+  closedAt?: string;
   /** Active state of the table / lobby state machines. */
   tablePhase?: string;
   lobbyPhase?: string;
@@ -299,9 +317,9 @@ export interface PokerWorkflowState {
   turnRejections?: number;
   /** RESUME or EXIT while the table is paused. */
   resumeCmd?: { type: 'RESUME' | 'EXIT' } | string;
-  seatedPlayers?: Array<{ id: string; name?: string; isHuman?: boolean }>;
+  seatedPlayers?: PokerSeat[];
   /** Written by the engine when the table workflow crashes. */
-  lastFailure?: { requestId: number; nodeId: string | null; nodeType: string | null; reason: string; failedAt: string };
+  lastFailure?: { requestId?: number; nodeId?: string | null; nodeType?: string | null; reason: string; failedAt?: string };
   handCount?: number;
   lastWinnerId?: string;
   /** The table-talk gate's memory (budget, cooldowns, the open cue), written by `poker_table_talk`. */
