@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createEnv, runAst } from '../helpers/harness.ts';
 import { validateCuratorAst, unregisterAstExtensionType } from '../../src/engine/CuratorAstValidation.ts';
 import { CuratorRequestProcessor } from '../../src/engine/CuratorRequestProcessor.ts';
-import { setStateNode, reduceNode, type NodeContext, type NodeHandler } from '../../src/engine/nodes/index.ts';
+import { setStateNode, reduceNode, agentNode, type NodeContext, type NodeHandler } from '../../src/engine/nodes/index.ts';
 
 const status = async (env: any, id: number) => (await env.prisma.request.findUnique({ where: { id } })).status;
 
@@ -81,6 +81,25 @@ test('node handler: Reduce only needs the tools service from its fake context', 
     'complete:9:COMPLETED',
   ]);
   await assert.rejects(reduceNode.run({ type: 'Curator_Reduce', reducer: 'nope' }, { id: 10, context: {} }, ctx), /Reducer nope not found/);
+});
+
+test('node handler: Agent runs against a fake LLM provider from ctx.llm (no registry, no database)', async () => {
+  const calls: string[] = [];
+  const seen: any[] = [];
+  const ctx = {
+    llm: { provider: () => ({ providerName: 'fake', generateContent: async (r: any) => { seen.push(r); return { text: '{"move":"fold"}', finishReason: 'stop' }; } }) },
+    interpolateTemplate: async (t: string | undefined) => t,
+    isDynamicExpr: () => false,
+    saveResponse: async (_r: any, content: string) => { calls.push(`save:${content}`); },
+    completeRequest: async (id: number, s?: string) => { calls.push(`complete:${id}:${s}`); },
+  } as unknown as NodeContext;
+  const req: any = { id: 3, context: {} };
+  await agentNode.run({ type: 'Curator_Agent', agentName: 'dealer_bot', prompt: 'Your move?', instruction: 'Play poker.', include_contents: 'none' }, req, ctx);
+  assert.equal(seen.length, 1);
+  assert.deepEqual(seen[0].messages, [{ role: 'user', content: 'Your move?' }]);
+  assert.equal(seen[0].systemPrompt, 'Play poker.');
+  assert.deepEqual(req.context.dealerBot, { move: 'fold' }, 'output is stored under the camelCased agentName');
+  assert.deepEqual(calls, ['save:{"move":"fold"}', 'complete:3:COMPLETED']);
 });
 
 test('maintenance systems: ordered, positionable, and disableable per processor', () => {

@@ -5,6 +5,7 @@
  */
 import type { CuratorEventEmitResult, CuratorReducer } from '../CuratorContracts.js';
 import type { DispatchEventOptions } from '../CuratorRequestProcessor.js';
+import type { ILlmProvider } from '../llm/ILlmProvider.js';
 
 /** Event log, delivery and wait-cursor primitives (`ctx.events`). */
 export interface NodeEventServices {
@@ -39,12 +40,26 @@ export interface ToolAccessResult {
   roles?: string[];
 }
 
+export interface ToolRoleAccessResult {
+  allowed: boolean;
+  reason?: string;
+  roleNames?: string[];
+}
+
+/** LLM provider lookup (`ctx.llm`). */
+export interface NodeLlmServices {
+  /** Provider by name (default provider when omitted); `baseUrl` targets an OpenAI-compatible endpoint. */
+  provider(name?: string, baseUrl?: string): ILlmProvider;
+}
+
 /** Tool / reducer registry and the tool access gate (`ctx.tools`). */
 export interface NodeToolServices {
   get(name: string): any | undefined;
   reducer(name: string): CuratorReducer | undefined;
   /** RBAC and confirmation gate for running `tool` on behalf of `req`. */
   checkAccess(req: any, toolName: string, tool: any): Promise<ToolAccessResult>;
+  /** Role / project check only (no confirmation gate): whether `tool` may be offered to `req`'s actor. */
+  checkRoleAccess(req: any, toolName: string, tool: any): Promise<ToolRoleAccessResult>;
   /** Default lifetime of an approval wait in ms (0 = never expires). */
   approvalTtlMs: number;
   /** Non-serializable values merged into every tool's toolContext (e.g. `{ host }`). */
@@ -65,6 +80,7 @@ export interface NodeContext {
   events: NodeEventServices;
   tools: NodeToolServices;
   calls: NodeCallServices;
+  llm: NodeLlmServices;
   prisma: any;
   /** Clock (epoch ms) used for scheduling and deadlines. */
   now(): number;

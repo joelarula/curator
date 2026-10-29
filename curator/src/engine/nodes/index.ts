@@ -24,3 +24,4 @@ export { graphNode } from './graph.js';
 export { callNode, runCall } from './call.js';
 export { agentRefNode } from './agentRef.js';
 export { actorRefNode } from './actorRef.js';
+export { agentNode, agentOutputKey } from './agent.js';
