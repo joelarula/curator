@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import { provisionSqliteDb } from '../../src/db/sqliteProvisioner.js';
 import { CuratorRequestProcessor } from '../../src/engine/CuratorRequestProcessor.js';
+import { freezeConfig } from '../../src/engine/CuratorEngine.js';
 import { compileCoffeeScriptToAST } from '../../src/engine/CoffeeVerbs.js';
 import { saveScriptVersion } from '../../src/engine/ScriptRegistry.js';
 import { defineTool } from '../../src/tools/CuratorTool.js';
@@ -145,6 +146,8 @@ export interface TestEnv {
   calls: RecordedCall[];
   /** Install a fake LLM as the default ('gemini') provider; restored on cleanup. */
   useLlm: (script: FakeLlmScript) => { requests: LlmRequest[] };
+  /** Set what workflows read as `$config` (replaces the previous value). */
+  setConfig: (config: Record<string, any>) => void;
   cleanup: () => Promise<void>;
 }
 
@@ -182,6 +185,7 @@ export async function createEnv(
     userId: user.id,
     calls,
     useLlm,
+    setConfig: (config) => { (engine as any).config = freezeConfig(structuredClone(config)); },
     cleanup: async () => {
       for (const [key, value] of saved) {
         if (value === undefined) FACTORY_PROVIDERS.delete(key);

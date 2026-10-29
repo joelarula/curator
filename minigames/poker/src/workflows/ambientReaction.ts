@@ -7,25 +7,23 @@
  */
 /**
  * Table talk as systems: speech, salient actions and showdowns go through the table-talk gate
- * (`poker_table_talk`, engine/tableTalk.ts). When it cues a seat, `speak_chatter` lets that seat's persona
+ * (`pokerTableTalkReducer`, engine/tableTalk.ts). When it cues a seat, `speak_chatter` lets that seat's persona
  * say one line (or nothing). The line is a `Speech` one level deeper, so it can feed the gate again until
  * `MAX_DEPTH`; the gate, not the LLM, decides whether talk goes on.
  */
 import {
   defineModule,
   defineSubroutine,
-  ifElse,
-  reduce,
   system,
+  withFallback,
   createContextProxy,
   CuratorBuilder,
   type CuratorModuleNode,
   type TypedPathProxy,
 } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
-import { state, gameState } from '../models/pokerContext.ts';
+import { state, gameState, ifElse, setState } from '../models/pokerContext.ts';
 import {
-  PokerReducer,
   PokerSpeechAct,
   PokerSpeechOrigin,
   PokerTablePhase,
@@ -34,21 +32,26 @@ import {
 import {
   Speech, ActionTaken, PhaseSettle, NewRound, ChatterCue, ChatterDone, TablePhase,
 } from '../models/pokerEvents.ts';
-import { MAX_DEPTH, PokerChatterMode, TableTalkCommand, type TableTalkState } from '../engine/tableTalk.ts';
+import { DEFAULT_TALK_CONFIG, PokerChatterMode, TableTalkCommand, type TableTalkState } from '../engine/tableTalk.ts';
+import { pokerTableTalkReducer } from '../plugins/pokerTools.ts';
 import { SEAT_MODEL, SEAT_HISTORY_EVENTS, seatPersona, seatView } from './agentTurn.ts';
 
+const MAX_DEPTH = DEFAULT_TALK_CONFIG.maxDepth;
 const { modules } = pokerComposables;
 
 /** This flow's own copies: the gate step it ran and the line its seat came up with. */
 const local: TypedPathProxy<{ talk: TableTalkState; chatter: { say?: string } }> = createContextProxy('$context');
 
 /**
- * One gate step: the talk state is updated in `$state.talk` (and this flow's `$context.talk`); a cue it
- * produced is announced. Reading the cue from the flow's own copy keeps concurrent triggers apart.
+ * One gate step: the talk state is updated in `$state.talk` (and this flow's `$context.talk`) via the
+ * first-class `pokerTableTalkReducer` (Pillar 2); a cue it produced is announced.
  */
 const talkStep = (command: Record<string, unknown>) => [
-  reduce(PokerReducer.TABLE_TALK, { talk: String(state.talk), gameState: String(gameState), command }, 'talk', { spread: false }),
-  ifElse(`${local.talk}.cue`, [CuratorBuilder.emitEvent(ChatterCue, String(local.talk.cue))]),
+  pokerTableTalkReducer.reduce(
+    { talk: state.talk, gameState, command: command as any },
+    { as: 'talk', spread: false }
+  ),
+  ifElse(local.talk.cue.isTruthy(), [CuratorBuilder.emitEvent(ChatterCue, String(local.talk.cue))]),
 ];
 
 const speech = Speech.payload('speechEvt');
@@ -119,9 +122,9 @@ export const chatter_line = () => CuratorBuilder.agent({
   prompt: [
     "Current Texas Hold'em Table State:",
     ...seatView(),
-    `Mode: {${cue.mode}?}`,
-    `What happened: {${cue.topic}?}`,
-    `{${cue.replyToName}?} said: "{${cue.replyText}?}"`,
+    `Mode: ${cue.mode.optional()}`,
+    `What happened: ${cue.topic.optional()}`,
+    `${cue.replyToName.optional()} said: "${cue.replyText.optional()}"`,
     'Your line:',
   ].join('\n'),
   history_from: 'conversation',
@@ -129,11 +132,14 @@ export const chatter_line = () => CuratorBuilder.agent({
   output_schema: CHATTER_OUTPUT_SCHEMA,
 });
 
-/** The seat says its line for the cue, one level deeper in the thread, or stays silent. */
+/**
+ * The seat says its line for the cue, one level deeper in the thread, or stays silent.
+ * Wrapped in `withFallback` (Pillar 4) so an LLM error never leaves `talk.open` locked.
+ */
 export const voiceSeat = defineSubroutine('voice_seat', {
   params: { actor: { type: 'object', required: true }, cue: { type: 'object', required: true } },
   body: [
-    chatter_line(),
+    withFallback(chatter_line(), setState({ chatter: { say: '' } } as any)),
     ifElse(`${local.chatter}.say && String(${local.chatter}.say).trim()`, [
       Speech.emit({
         speakerId: cue.speakerId,
@@ -166,7 +172,7 @@ export const speakChatter = defineSubroutine('speak_chatter', [
 ], { params: { cue: { type: 'object' } } });
 
 const tableLive = `!${TablePhase.in(PokerTablePhase.PAUSED, PokerTablePhase.EXITED, PokerTablePhase.GAME_OVER)}`;
-const answerable = `(${speech.depth} || 0) < ${MAX_DEPTH} && ${speech.speechAct} != '${PokerSpeechAct.MONOLOGUE}'`;
+const answerable = speech.depth.orDefault(0).lt(MAX_DEPTH).and(speech.speechAct.ne(PokerSpeechAct.MONOLOGUE));
 const salientAction = `['${PokerActionType.FOLD}', '${PokerActionType.ALL_IN}', '${PokerActionType.RAISE}', 'BET']`
   + `.includes(String((${action.action} && ${action.action}.type) || ${action.action}).toUpperCase())`;
 

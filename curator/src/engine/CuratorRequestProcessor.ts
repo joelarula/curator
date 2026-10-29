@@ -11,7 +11,7 @@ import { superviseAgentLoops, isValidSchedule, isCronDue, isScheduleDue, compute
 export { isValidSchedule, isCronDue, isScheduleDue, computeNextRunDate };
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { CuratorCallNode, CuratorSubscribeNode, CuratorUnsubscribeNode, CuratorParamSpec, CuratorLoopNode, CuratorInlineTool, CuratorReduceNode, CuratorEmitEventsNode } from './CuratorAst.js';
-import type { CuratorEventEmitResult, CuratorEventSpec, CuratorReducer, CuratorStructuredResponse } from './CuratorContracts.js';
+import type { CuratorConfig, CuratorEventEmitResult, CuratorEventSpec, CuratorReducer, CuratorStructuredResponse } from './CuratorContracts.js';
 import { resolveRef, resolveRequestNode, getScriptVersionAst, getEntry, entryAstPath, expandInlineCalls, saveAdhocScript } from './ScriptRegistry.js';
 import { coffeeAstVerbs } from './CoffeeVerbs.js';
 import { toCamelCase } from './builder/CuratorCoreBuilder.js';
@@ -36,7 +36,7 @@ export interface CuratorRequestProcessorOptions {
   /** Maximum nested Curator_Call depth (child mode). Default 16. */
   maxCallDepth?: number;
   /** Tool and reducer registry used for Curator_Tool / Curator_Reduce nodes and direct tool Requests. Default: the global curatorEngine. */
-  engine?: { tools: Map<string, any>; reducers?: Map<string, CuratorReducer> };
+  engine?: { tools: Map<string, any>; reducers?: Map<string, CuratorReducer>; config?: CuratorConfig };
   /** Non-serializable values merged into every tool's toolContext (e.g. `{ host }`). */
   toolContextExtras?: Record<string, any>;
   /** Default lifetime of an approval wait in ms (0 = never expires). Default 24h. Tool nodes may override (`approvalTtlMs`). */
@@ -134,7 +134,7 @@ export class CuratorRequestProcessor {
   private maxCallDepth: number;
   /** Script version of the Request being executed; pins child Requests to the same version. */
   private execScope = new AsyncLocalStorage<{ scriptId?: number | null; scriptVersion?: number | null }>();
-  private engine: { tools: Map<string, any>; reducers?: Map<string, CuratorReducer> };
+  private engine: { tools: Map<string, any>; reducers?: Map<string, CuratorReducer>; config?: CuratorConfig };
   private toolContextExtras: Record<string, any>;
   /** In-process data of direct tool Requests: runtime-only inputs and the raw output/error. */
   private inflight = new Map<number, { runtimeArgs?: Record<string, any>; runtimeContext?: Record<string, any>; broadcastToolEvents?: boolean; raw?: any; error?: any }>();
@@ -1827,7 +1827,7 @@ export class CuratorRequestProcessor {
   }
 
   private isDynamicExpr(v: unknown): v is string {
-    return typeof v === 'string' && (v.startsWith('{{') || v.startsWith('$') || (v.startsWith('(') && v.endsWith('(context)')));
+    return typeof v === 'string' && (v.startsWith('{{') || v.startsWith('$') || (v.startsWith('(') && (v.endsWith('(context)') || /\$(context|state|params)\b/.test(v))));
   }
 
   /** Evaluates `$context...` / `{{ }}` / `(fn)(context)` values of an args object in the caller's context. */
@@ -2906,8 +2906,14 @@ export class CuratorRequestProcessor {
       else instruction = schemaPrompt;
     }
 
-    const provider = LlmFactory.getProvider(ast.provider, ast.baseUrl);
-    const model = ast.model;
+    // Model and provider may come from configuration, e.g. `$config.poker.models.chatter`
+    const resolveSetting = async (v: string | undefined): Promise<string | undefined> => {
+      if (!this.isDynamicExpr(v)) return v;
+      const resolved = await this.evaluateExpressionAsync(v, req);
+      return typeof resolved === 'string' && resolved ? resolved : undefined;
+    };
+    const provider = LlmFactory.getProvider(await resolveSetting(ast.provider), ast.baseUrl);
+    const model = await resolveSetting(ast.model);
 
     // `tools` is either a fixed list or an expression (e.g. "$state.options") re-evaluated on every agent turn,
     // so the set of choices offered to the model can change with the conversation state.
@@ -3509,6 +3515,8 @@ export class CuratorRequestProcessor {
     safeSandbox.$params = req.context.params ?? {};
     safeSandbox.$response = req.context?.$response;
     safeSandbox.$last = req.context?.$last ?? req.context?.$response;
+    // Host/plugin configuration: read-only (frozen by the engine), the same for every flow
+    safeSandbox.$config = this.engine.config ?? {};
 
     const vmContext = vm.createContext(safeSandbox);
     try {

@@ -26,12 +26,17 @@ import type {
   PokerLobbyTable,
   PokerLobbyMenu,
 } from './pokerLobbyMenu.ts';
-import { createContextProxy, type TypedPathProxy } from '../curator.ts';
+import {
+  createContextProxy,
+  createWorkflowScope,
+  type TypedPathProxy,
+  type CuratorExpr,
+} from '../curator.ts';
 
 // ==========================================
 // 1. Tool Parameter Schemas
 // ==========================================
-export type WorkflowValue<T> = T | string;
+export type WorkflowValue<T> = CuratorExpr<T>;
 
 export interface PokerInitialPlayerInput {
   id: string;
@@ -87,27 +92,27 @@ export interface PokerCreateTableParams {
 export type PokerGetBankrollParams = Record<string, never>;
 
 export interface PokerGetBuyInOptionsParams {
-  bbAmount?: WorkflowValue<number>;
+  bbAmount?: number;
 }
 
 export interface PokerDepositBuyInParams {
-  tableId?: WorkflowValue<string | number>;
-  amount?: WorkflowValue<number>;
-  bbAmount?: WorkflowValue<number>;
+  tableId?: string | number;
+  amount?: number | string;
+  bbAmount?: number;
 }
 
 export interface PokerCashOutParams {
-  tableId?: WorkflowValue<string | number>;
-  chips?: WorkflowValue<number>;
+  tableId?: string | number;
+  chips?: number;
 }
 
 export interface PokerReloadBankrollParams {
   /** Free-form amount: number, "$5,000", "5k" or a reload choice object. */
-  amount?: WorkflowValue<number | string>;
+  amount?: number | string | Record<string, any>;
 }
 
 export interface PokerCloseTableParams {
-  reason?: WorkflowValue<string>;
+  reason?: string;
 }
 
 export interface PokerToolParamsMap {
@@ -312,15 +317,30 @@ export interface PokerWorkflowParams {
   [key: string]: any;
 }
 
-export const ctx: TypedPathProxy<PokerWorkflowContext> = createContextProxy<PokerWorkflowContext>('$context');
+/**
+ * Pre-typed workflow scope for Texas Hold'em (Pillar 5: Scoped Context & State Factory).
+ * Binds `state`, `ctx`, `params`, `output`, `setState`, `ifElse`, `whileLoop`, `stateMachine`, and `assign`
+ * to `PokerWorkflowState` and `PokerWorkflowContext` once for all poker workflows.
+ */
+export const pokerScope = createWorkflowScope<PokerWorkflowState, PokerWorkflowContext, PokerWorkflowParams>();
+
+export const {
+  state,
+  ctx,
+  params,
+  output,
+  setState,
+  ifElse,
+  whileLoop,
+  stateMachine,
+  assign,
+} = pokerScope;
+
 export const lobbyCtx: TypedPathProxy<PokerLobbyContext> = createContextProxy<PokerLobbyContext>('$context');
 export const bankrollCtx: TypedPathProxy<PokerBankrollContext> = createContextProxy<PokerBankrollContext>('$context');
 export const bootCtx: TypedPathProxy<PokerBootContext> = createContextProxy<PokerBootContext>('$context');
 export const turnCtx: TypedPathProxy<PokerTurnContext> = createContextProxy<PokerTurnContext>('$context');
 // Game and lifecycle state are read from the event-sourced conversation state, never from request-context copies
-export const gameState: TypedPathProxy<PokerGameState> = createContextProxy<PokerGameState>('$state.gameState');
-export const state: TypedPathProxy<PokerWorkflowState> = createContextProxy<PokerWorkflowState>('$state');
-export const params: TypedPathProxy<PokerWorkflowParams> = createContextProxy<PokerWorkflowParams>('$params');
+export const gameState: TypedPathProxy<PokerGameState> = state.gameState;
 /** The seat an actor handler is playing (Bevy component of the acting entity). */
 export const actor: TypedPathProxy<PlayerState> = createContextProxy<PlayerState>('$params.actor');
-

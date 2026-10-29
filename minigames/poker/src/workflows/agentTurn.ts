@@ -8,18 +8,17 @@
 import {
   defineModule,
   defineSubroutine,
-  ifElse,
   CuratorBuilder,
   type CuratorModuleNode,
   type CuratorAgentNode,
 } from '../curator.ts';
 import { PokerEvent, PokerModule, PokerSpeechAct, PokerSpeechOrigin } from '../models/index.ts';
-import { ctx, actor, gameState, type PokerTurnContext } from '../models/pokerContext.ts';
+import { ctx, actor, gameState, ifElse } from '../models/pokerContext.ts';
 import { Speech } from '../models/pokerEvents.ts';
 import { getRulesDescription } from '../engine/pokerRules.ts';
 
-/** The seat whose turn it is. */
-const activePlayer = `${gameState.players}[${gameState.activePlayerIdx}]`;
+/** The seat whose turn it is (Pillar 1: dynamic proxy indexing via `.at()`). */
+const activePlayer = gameState.players.at(gameState.activePlayerIdx);
 
 export {
   POKER_AI_PROFILES,
@@ -89,16 +88,16 @@ export const SEAT_HISTORY_EVENTS = [PokerEvent.ACTION_TAKEN, PokerEvent.SPEECH];
 
 /** Who the seat (`$params.actor`) is: its persona instruction. */
 export const seatPersona = (): string =>
-  `You are {${actor}.name?}, an autonomous Texas Hold'em poker agent. {${actor}.instruction?}`;
+  `You are ${actor.name.optional()}, an autonomous Texas Hold'em poker agent. ${actor.instruction.optional()}`;
 
 /** What the seat (`$params.actor`) sees: its cards and stack, the board, the pot and the whole table. */
 export const seatView = (): string[] => [
-  `- Your Hole Cards: {${actor}.holeCards?}`,
-  `- Community Board: {${gameState.board}?}`,
-  `- Street: {${gameState.currentStreet}?} | Pot: [chips] {${gameState.pot}?} | Current Bet: [chips] {${gameState.currentBet}?}`,
-  `- Your Stack: [chips] {${actor}.chips?} | Your Street Bet: [chips] {${actor}.streetBet?}`,
-  `- Cost to Call: [chips] {${gameState.currentBet} - ${actor}.streetBet?} | Min Raise: [chips] {${gameState.minRaise}?}`,
-  `- Table: {${gameState}?}`,
+  `- Your Hole Cards: ${actor.holeCards.optional()}`,
+  `- Community Board: ${gameState.board.optional()}`,
+  `- Street: ${gameState.currentStreet.optional()} | Pot: [chips] ${gameState.pot.optional()} | Current Bet: [chips] ${gameState.currentBet.optional()}`,
+  `- Your Stack: [chips] ${actor.chips.optional()} | Your Street Bet: [chips] ${actor.streetBet.optional()}`,
+  `- Cost to Call: [chips] {${gameState.currentBet} - ${actor.streetBet}?} | Min Raise: [chips] ${gameState.minRaise.optional()}`,
+  `- Table: ${gameState.optional()}`,
 ];
 
 /**
@@ -132,15 +131,20 @@ export function agent_decision(options: PokerAgentDecisionOptions = {}): Curator
   });
 }
 
-
-
 /** LLM seat: persona deliberation with optional table talk; returns the decided action. */
 export const aiDecision = defineSubroutine('ai_decision', {
   params: { actor: { type: 'object', required: true } },
   body: [
     agent_decision(),
-    ifElse<PokerTurnContext>((c) => Boolean(c.decision?.speech?.trim()), [
-      Speech.emit({ speakerId: actor.id, speakerName: actor.name, text: ctx.decision.speech, speechAct: PokerSpeechAct.TABLE_TALK, origin: PokerSpeechOrigin.TURN, depth: 0 }),
+    ifElse((c) => Boolean(c.decision?.speech?.trim()), [
+      Speech.emit({
+        speakerId: actor.id,
+        speakerName: actor.name,
+        text: ctx.decision.speech,
+        speechAct: PokerSpeechAct.TABLE_TALK,
+        origin: PokerSpeechOrigin.TURN,
+        depth: 0,
+      }),
     ]),
   ],
   returns: String(ctx.decision.action),

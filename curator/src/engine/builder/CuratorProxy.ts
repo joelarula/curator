@@ -1,47 +1,56 @@
 /**
- * Fluent expression methods available on every TypedPathProxy node.
- * Enables concise, IDE-autocompleted AST expressions without fragile string interpolation.
+ * Fluent expression & condition builder methods available on every `TypedPathProxy<T>`.
+ * Brings Rust/Bevy-style ergonomic sugar to Curator AST expressions while preserving
+ * full TypeScript autocomplete and compile-time path validation.
  */
-export interface ProxyExprMethods<T = any> {
+export interface ProxyExprMethods<T> {
   (): string;
   toString(): string;
   valueOf(): string;
   toJSON(): string;
-  /** `(path == val)` */
-  eq(val: unknown): TypedPathProxy<boolean>;
-  /** `(path != val)` */
-  ne(val: unknown): TypedPathProxy<boolean>;
-  /** `(path > val)` */
-  gt(val: number | string | TypedPathProxy<any>): TypedPathProxy<boolean>;
-  /** `(path >= val)` */
-  gte(val: number | string | TypedPathProxy<any>): TypedPathProxy<boolean>;
-  /** `(path < val)` */
-  lt(val: number | string | TypedPathProxy<any>): TypedPathProxy<boolean>;
-  /** `(path <= val)` */
-  lte(val: number | string | TypedPathProxy<any>): TypedPathProxy<boolean>;
-  /** `((path) + val)` */
-  add(val: number | string | TypedPathProxy<any>): TypedPathProxy<number>;
-  /** `((path) - val)` */
-  sub(val: number | string | TypedPathProxy<any>): TypedPathProxy<number>;
-  /** `((path) || fallback)` */
-  orDefault<D = T>(fallback: D | string | TypedPathProxy<any>): TypedPathProxy<T>;
-  /** `((path) && (other))` */
+  /** Dynamic or static index access into an array/collection proxy: `$arr[$idx]` with element type inference. */
+  at(index: number | string | TypedPathProxy<any>): TypedPathProxy<T extends Array<infer U> ? U : any>;
+  /** Equality check: `($path == value)` */
+  eq(value: T | TypedPathProxy<any> | string | number | boolean | null): TypedPathProxy<boolean>;
+  /** Inequality check: `($path != value)` */
+  ne(value: T | TypedPathProxy<any> | string | number | boolean | null): TypedPathProxy<boolean>;
+  /** Greater-than check: `($path > value)` */
+  gt(value: number | TypedPathProxy<number> | string): TypedPathProxy<boolean>;
+  /** Greater-than-or-equal check: `($path >= value)` */
+  gte(value: number | TypedPathProxy<number> | string): TypedPathProxy<boolean>;
+  /** Less-than check: `($path < value)` */
+  lt(value: number | TypedPathProxy<number> | string): TypedPathProxy<boolean>;
+  /** Less-than-or-equal check: `($path <= value)` */
+  lte(value: number | TypedPathProxy<number> | string): TypedPathProxy<boolean>;
+  /** Addition expression: `(($path || 0) + amount)` */
+  add(amount: number | TypedPathProxy<number> | string): TypedPathProxy<number>;
+  /** Subtraction expression: `(($path || 0) - amount)` */
+  sub(amount: number | TypedPathProxy<number> | string): TypedPathProxy<number>;
+  /** Nullish / falsy fallback expression: `($path || fallback)` */
+  orDefault<D = T>(fallback: D | TypedPathProxy<any>): TypedPathProxy<NonNullable<T> | D>;
+  /** Logical AND: `(($path) and (other))` */
   and(other: unknown): TypedPathProxy<boolean>;
-  /** `((path) || (other))` */
+  /** Logical OR: `(($path) or (other))` */
   or(other: unknown): TypedPathProxy<boolean>;
-  /** `!(path)` */
+  /** Logical NOT: `not ($path)` */
   not(): TypedPathProxy<boolean>;
-  /** `Boolean(path)` */
+  /** Explicit boolean truthiness check: `Boolean($path)` */
   isTruthy(): TypedPathProxy<boolean>;
-  /** `!(path)` */
+  /** Explicit boolean falsiness check: `not ($path)` */
   isFalsy(): TypedPathProxy<boolean>;
-  /** Matches a choice answer `{ id, value }` or bare string against one or more option ids. */
-  isChoice(...ids: string[]): TypedPathProxy<boolean>;
-  /** Matches a command `{ type }` or bare string against one or more command types. */
-  isCommand(...types: string[]): TypedPathProxy<boolean>;
-  /** Checks whether `path` is one of `values`. */
-  in(values: readonly unknown[]): TypedPathProxy<boolean>;
-  /** Safe optional-chained template placeholder `{path?}` for agent prompts/instructions. */
+  /**
+   * Matches a human choice answer whether bound as `{ id, value }` or a bare string id:
+   * `($path.id == 'id' or $path == 'id' or $path.value == 'id')`
+   */
+  isChoice(id: string): TypedPathProxy<boolean>;
+  /**
+   * Matches an action/command whether bound as `{ type: 'CMD' }` or a bare `'CMD'` string:
+   * `(($path && $path.type == 'CMD') || $path == 'CMD')`
+   */
+  isCommand(type: string): TypedPathProxy<boolean>;
+  /** Set membership check: `($path == v1 or $path == v2 ...)` */
+  in(...values: Array<T | string | number>): TypedPathProxy<boolean>;
+  /** Prompt template optional interpolation: `{${path}?}` */
   optional(): string;
   [key: string]: any;
 }
@@ -50,7 +59,7 @@ export interface ProxyExprMethods<T = any> {
  * Recursive TypeScript proxy type that reflects the properties of model T
  * while resolving each property access to its runtime AST expression path string.
  */
-export type TypedPathProxy<T = any> = (T extends (...args: any[]) => any
+export type TypedPathProxy<T> = (T extends (...args: any[]) => any
   ? (...args: Parameters<T>) => ReturnType<T>
   : T extends Array<infer U>
   ? { [index: number]: TypedPathProxy<U>; length: TypedPathProxy<number> } & {
@@ -63,13 +72,14 @@ export type TypedPathProxy<T = any> = (T extends (...args: any[]) => any
   : {}) &
   ProxyExprMethods<T>;
 
-function formatOperand(val: unknown): string {
+function formatLiteral(val: unknown): string {
   if (isPathProxy(val)) return String(val);
   if (typeof val === 'string') {
-    if (val.startsWith('$') || val.startsWith('(') || val.startsWith('!')) return val;
-    return JSON.stringify(val);
+    if (val.startsWith('$') || val.startsWith('(') || val.startsWith('{{')) return val;
+    return `'${val.replace(/'/g, "\\'")}'`;
   }
-  return JSON.stringify(val);
+  if (val === null || val === undefined) return 'null';
+  return String(val);
 }
 
 /**
@@ -89,47 +99,68 @@ export function isPathProxy(val: unknown): boolean {
   return Boolean(val && typeof val === 'function' && (val as any).__isPathProxy === true);
 }
 
-const PROXY_METHODS: Record<string, (root: string) => (...args: any[]) => any> = {
-  eq: (root) => (val: unknown) => createContextProxy<boolean>(`(${root} == ${formatOperand(val)})`),
-  ne: (root) => (val: unknown) => createContextProxy<boolean>(`(${root} != ${formatOperand(val)})`),
-  gt: (root) => (val: unknown) => createContextProxy<boolean>(`(${root} > ${formatOperand(val)})`),
-  gte: (root) => (val: unknown) => createContextProxy<boolean>(`(${root} >= ${formatOperand(val)})`),
-  lt: (root) => (val: unknown) => createContextProxy<boolean>(`(${root} < ${formatOperand(val)})`),
-  lte: (root) => (val: unknown) => createContextProxy<boolean>(`(${root} <= ${formatOperand(val)})`),
-  add: (root) => (val: unknown) => createContextProxy<number>(`((${root}) + ${formatOperand(val)})`),
-  sub: (root) => (val: unknown) => createContextProxy<number>(`((${root}) - ${formatOperand(val)})`),
-  orDefault: (root) => (fallback: unknown) => createContextProxy(`(${root} || ${formatOperand(fallback)})`),
-  and: (root) => (other: unknown) => createContextProxy<boolean>(`((${root}) && (${other}))`),
-  or: (root) => (other: unknown) => createContextProxy<boolean>(`((${root}) || (${other}))`),
-  not: (root) => () => createContextProxy<boolean>(`!(${root})`),
-  isTruthy: (root) => () => createContextProxy<boolean>(`Boolean(${root})`),
-  isFalsy: (root) => () => createContextProxy<boolean>(`!(${root})`),
-  isChoice: (root) => (...ids: string[]) => {
-    const clauses = ids.map((id) => `(${root} && (${root}.id == '${id}' || ${root} == '${id}' || ${root}.value == '${id}'))`);
-    return createContextProxy<boolean>(clauses.length === 1 ? clauses[0] : `(${clauses.join(' || ')})`);
-  },
-  isCommand: (root) => (...types: string[]) => {
-    const clauses = types.map((t) => `((${root} && ${root}.type == '${t}') || ${root} == '${t}')`);
-    return createContextProxy<boolean>(clauses.length === 1 ? clauses[0] : `(${clauses.join(' || ')})`);
-  },
-  in: (root) => (values: readonly unknown[]) => {
-    const clauses = (values || []).map((v) => `${root} == ${formatOperand(v)}`);
-    return createContextProxy<boolean>(clauses.length ? `(${clauses.join(' || ')})` : 'false');
-  },
-  optional: (root) => () => `{${root}?}`,
-};
+const PROXY_METHODS = new Set([
+  'at',
+  'eq',
+  'ne',
+  'gt',
+  'gte',
+  'lt',
+  'lte',
+  'add',
+  'sub',
+  'orDefault',
+  'and',
+  'or',
+  'not',
+  'isTruthy',
+  'isFalsy',
+  'isChoice',
+  'isCommand',
+  'in',
+  'optional',
+]);
 
 /**
- * Creates a typed recursive proxy that resolves property paths to AST expressions.
+ * Creates a typed recursive proxy that resolves property paths and fluent DSL expressions to AST strings.
  * e.g. ctx.gameState.currentStreet => "$context.gameState.currentStreet"
+ *      state.turnRejections.orDefault(0).lt(2) => "(($state.turnRejections || 0) < 2)"
  */
 export function createContextProxy<T = any>(root = '$context'): TypedPathProxy<T> {
+  const paren = (s: string) => (s.includes(' ') && !(s.startsWith('(') && s.endsWith(')')) ? `(${s})` : s);
+  const methods: Record<string, (...args: any[]) => any> = {
+    at: (index: unknown) => createContextProxy(`${paren(root)}[${index}]`),
+    eq: (val: unknown) => createContextProxy(`(${paren(root)} == ${formatLiteral(val)})`),
+    ne: (val: unknown) => createContextProxy(`(${paren(root)} != ${formatLiteral(val)})`),
+    gt: (val: unknown) => createContextProxy(`(${paren(root)} > ${formatLiteral(val)})`),
+    gte: (val: unknown) => createContextProxy(`(${paren(root)} >= ${formatLiteral(val)})`),
+    lt: (val: unknown) => createContextProxy(`(${paren(root)} < ${formatLiteral(val)})`),
+    lte: (val: unknown) => createContextProxy(`(${paren(root)} <= ${formatLiteral(val)})`),
+    add: (val: unknown) => createContextProxy(`(${paren(root)} + ${formatLiteral(val)})`),
+    sub: (val: unknown) => createContextProxy(`(${paren(root)} - ${formatLiteral(val)})`),
+    orDefault: (fallback: unknown) => createContextProxy(`${paren(root)} || ${formatLiteral(fallback)}`),
+    and: (other: unknown) => createContextProxy(`(${paren(root)} and ${other})`),
+    or: (other: unknown) => createContextProxy(`(${paren(root)} or ${other})`),
+    not: () => createContextProxy(`not ${paren(root)}`),
+    isTruthy: () => createContextProxy(`${root}`),
+    isFalsy: () => createContextProxy(`not ${paren(root)}`),
+    isChoice: (id: string) =>
+      createContextProxy(`(${root}.id == '${id}' or ${root} == '${id}' or ${root}.value == '${id}')`),
+    isCommand: (type: string) =>
+      createContextProxy(`((${root} && ${root}.type == '${type}') || ${root} == '${type}')`),
+    in: (...values: unknown[]) =>
+      createContextProxy(`(${values.map((v) => `${root} == ${formatLiteral(v)}`).join(' or ')})`),
+    optional: () => `{${root}?}`,
+  };
+
   const targetObj = Object.assign(() => root, {
     toJSON: () => root,
     toString: () => root,
     valueOf: () => root,
     __isPathProxy: true,
+    ...methods,
   });
+
   const handler: ProxyHandler<any> = {
     get(_target, prop: string | symbol) {
       if (typeof prop === 'symbol') {
@@ -141,13 +172,10 @@ export function createContextProxy<T = any>(root = '$context'): TypedPathProxy<T
       if (strProp === 'toString' || strProp === 'valueOf' || strProp === 'toJSON') {
         return () => root;
       }
-      if (strProp in PROXY_METHODS) {
-        return PROXY_METHODS[strProp](root);
+      if (PROXY_METHODS.has(strProp)) {
+        return methods[strProp];
       }
-      // Bracket indexing if numeric index or dynamic expression path
-      if (/^\d+$/.test(strProp)) {
-        return createContextProxy(`${root}[${strProp}]`);
-      }
+      // Support dynamic bracket indexing when another proxy path is passed: e.g. players[activePlayerIdx]
       if (strProp.startsWith('$') || strProp.includes('.') || strProp.includes('[')) {
         return createContextProxy(`${root}[${strProp}]`);
       }
@@ -163,10 +191,7 @@ export function createContextProxy<T = any>(root = '$context'): TypedPathProxy<T
 /**
  * Declarative condition helpers for building expressions without raw string concatenation.
  */
-export const not = (expr: unknown): TypedPathProxy<boolean> => createContextProxy<boolean>(`!(${expr})`);
-export const and = (...exprs: unknown[]): TypedPathProxy<boolean> =>
-  createContextProxy<boolean>(exprs.map((e) => `(${e})`).join(' && '));
-export const or = (...exprs: unknown[]): TypedPathProxy<boolean> =>
-  createContextProxy<boolean>(exprs.map((e) => `(${e})`).join(' || '));
-export const eq = (a: unknown, b: unknown): TypedPathProxy<boolean> =>
-  createContextProxy<boolean>(`(${a} === ${formatOperand(b)})`);
+export const not = (expr: unknown): string => `!(${expr})`;
+export const and = (...exprs: unknown[]): string => exprs.map((e) => `(${e})`).join(' && ');
+export const or = (...exprs: unknown[]): string => exprs.map((e) => `(${e})`).join(' || ');
+export const eq = (a: unknown, b: unknown): string => `(${a} === ${typeof b === 'string' ? `'${b}'` : JSON.stringify(b)})`;

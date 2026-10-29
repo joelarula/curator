@@ -1,5 +1,5 @@
 import type { SemanticNodeShape } from '../services/SemanticSchemaEngine.js';
-import type { CuratorAgentDefinition, CuratorPluginDefinition, CuratorReducer, CuratorRoleDefinition, CuratorScriptDefinition } from './CuratorContracts.js';
+import type { CuratorAgentDefinition, CuratorConfig, CuratorPluginDefinition, CuratorReducer, CuratorRoleDefinition, CuratorScriptDefinition } from './CuratorContracts.js';
 import type { CuratorAstNode } from './CuratorAst.js';
 import type { CuratorTool } from '../tools/CuratorTool.js';
 import type {
@@ -15,6 +15,28 @@ import { extendCoffeeAstVerbs } from './CoffeeVerbs.js';
 
 export type CuratorPlugin = CuratorPluginDefinition;
 
+const isPlainObject = (v: unknown): v is Record<string, any> =>
+  !!v && typeof v === 'object' && !Array.isArray(v);
+
+/** Deep merge of plain objects (arrays and scalars are replaced); `over` wins. */
+export function mergeConfig(base: CuratorConfig, over: CuratorConfig | undefined): CuratorConfig {
+  if (!over) return base;
+  const out: CuratorConfig = { ...base };
+  for (const [k, v] of Object.entries(over)) {
+    out[k] = isPlainObject(v) && isPlainObject(out[k]) ? mergeConfig(out[k], v) : v;
+  }
+  return out;
+}
+
+/** Freezes a configuration object and everything in it, so workflows can read it but never change it. */
+export function freezeConfig<T>(v: T): T {
+  if (v && typeof v === 'object' && !Object.isFrozen(v)) {
+    Object.freeze(v);
+    for (const child of Object.values(v as any)) freezeConfig(child);
+  }
+  return v;
+}
+
 export class CuratorEngine {
   public tools = new Map<string, CuratorTool>();
   public toolPlugins = new Map<string, string>();
@@ -24,6 +46,16 @@ export class CuratorEngine {
   public agents = new Map<string, CuratorAgentDefinition | CuratorAstNode>();
   public roles = new Map<string, CuratorRoleDefinition>();
   public plugins: CuratorPlugin[] = [];
+  /** What workflows read as `$config`: plugin defaults under host settings. Frozen; replaced on every change. */
+  public config: CuratorConfig = freezeConfig({});
+  private hostConfig: CuratorConfig = {};
+  private pluginConfig: CuratorConfig = {};
+
+  /** Host settings (e.g. from a config file), merged over plugin defaults whenever they register. */
+  public setConfig(values: CuratorConfig) {
+    this.hostConfig = mergeConfig(this.hostConfig, structuredClone(values));
+    this.config = freezeConfig(mergeConfig(this.pluginConfig, this.hostConfig));
+  }
 
   public registerPlugin(plugin: CuratorPlugin) {
     this.plugins.push(plugin);
@@ -41,6 +73,10 @@ export class CuratorEngine {
     }
     if (plugin.reducers) {
       Object.entries(plugin.reducers).forEach(([k, v]) => this.reducers.set(k, v));
+    }
+    if (plugin.config) {
+      this.pluginConfig = mergeConfig(this.pluginConfig, structuredClone(plugin.config));
+      this.config = freezeConfig(mergeConfig(this.pluginConfig, this.hostConfig));
     }
     if (plugin.models) {
       plugin.models.forEach(m => this.models.set(m.uri, m));

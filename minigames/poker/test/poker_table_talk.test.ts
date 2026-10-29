@@ -1,16 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import {
   reduceTableTalk,
+  resolveTalkConfig,
   TableTalkCommand,
-  MAX_DEPTH,
-  HAND_BUDGET,
-  HUMAN_REPLIES_PER_WINDOW,
-  LOCK_TTL,
+  DEFAULT_TALK_CONFIG,
+  type PokerTalkConfig,
   type TableTalkState,
   type TableTalkCommandInput,
 } from '../src/engine/tableTalk.ts';
+import { resolvePokerTalkConfig } from '../src/pokerConfig.ts';
+import { loadPokerConfigFile } from '../src/env.ts';
+
+const { maxDepth: MAX_DEPTH, handBudget: HAND_BUDGET, humanRepliesPerWindow: HUMAN_REPLIES_PER_WINDOW, lockTtl: LOCK_TTL } = DEFAULT_TALK_CONFIG;
 
 const gameState: any = {
   tableId: 'talk_table',
@@ -22,7 +28,8 @@ const gameState: any = {
   ],
 };
 
-const step = (talk: TableTalkState | undefined, command: TableTalkCommandInput) => reduceTableTalk(talk, gameState, command);
+const step = (talk: TableTalkState | undefined, command: TableTalkCommandInput, config?: PokerTalkConfig) =>
+  reduceTableTalk(talk, gameState, command, config);
 const human = (text: string, extra: Record<string, unknown> = {}): TableTalkCommandInput =>
   ({ type: TableTalkCommand.SPEECH, speech: { speakerId: 'hero', speakerName: 'You', text, speechAct: 'TABLE_TALK', ...extra } });
 const done = (talk: TableTalkState) => step(talk, { type: TableTalkCommand.DONE, cueId: talk.open?.cueId });
@@ -149,4 +156,59 @@ test('table talk: an adversarial flood stays bounded (chains never branch or exc
   // 120 triggers in one hand, nobody addressed: the chatter is the hand's budget at most, but not silence
   assert.ok(chatterLines > 0, 'the table does talk');
   assert.ok(chatterLines <= HAND_BUDGET, `chatter within a hand stays on budget (${chatterLines})`);
+});
+
+test('table talk config: profiles, the config file and host options layer over the defaults', () => {
+  const base = resolvePokerTalkConfig();
+  assert.equal(base.seatChattiness.viper, 0.25, 'agent profiles bring their chattiness');
+  assert.equal(base.maxDepth, DEFAULT_TALK_CONFIG.maxDepth);
+
+  const resolved = resolvePokerTalkConfig(
+    { talk: { handBudget: 8, personaChattiness: { shark: 0.9 } }, agents: { viper: { chattiness: 0.1 } } },
+    { talk: { handBudget: 2 } },
+  );
+  assert.equal(resolved.handBudget, 2, 'later layers win');
+  assert.equal(resolved.seatChattiness.viper, 0.1);
+  assert.equal(resolved.seatChattiness.maddog, 0.7, 'untouched seats keep their profile value');
+  assert.equal(resolved.personaChattiness.shark, 0.9);
+  assert.equal(resolved.personaChattiness.maniac, DEFAULT_TALK_CONFIG.personaChattiness.maniac, 'maps merge key by key');
+});
+
+test('table talk config: maxDepth, enabled and seat chattiness change what the gate does', () => {
+  // maxDepth 1: a human line is answered, the answer is not
+  const shallow = resolveTalkConfig({ maxDepth: 1 });
+  const answered = step(undefined, human('MadDog, you are bluffing'), shallow);
+  assert.equal(answered.cue?.depth, 1);
+  const said = step(answered, {
+    type: TableTalkCommand.SPEECH,
+    speech: { speakerId: 'maddog', speakerName: 'MadDog', text: 'Viper, back me up', depth: 1, origin: 'chatter', cueId: answered.cue!.cueId },
+  }, shallow);
+  assert.equal(said.cue, null);
+  assert.equal(said.open, null, 'the spoken line still releases the table');
+
+  assert.equal(step(undefined, human('MadDog?'), resolveTalkConfig({ enabled: false })).cue, null, 'disabled: nobody is cued');
+
+  // A seat with chattiness 0 never joins unprompted, but still answers when addressed
+  const mute = resolveTalkConfig({ seatChattiness: { viper: 0, maddog: 0, barnaby: 0 } });
+  let talk: TableTalkState | undefined;
+  for (let i = 0; i < 30; i++) {
+    talk = step(talk, { type: TableTalkCommand.SETTLE, winnerSummary: 'someone wins' }, mute);
+    assert.equal(talk.cue, null);
+  }
+  assert.equal(step(undefined, human('Viper, talk to me'), mute).cue?.speakerId, 'viper');
+});
+
+test('table talk config: poker.config.json is read from an explicit path', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'poker-config-'));
+  const file = path.join(dir, 'poker.config.json');
+  fs.writeFileSync(file, JSON.stringify({ talk: { handBudget: 6 }, agents: { barnaby: { chattiness: 0.95 } } }));
+  try {
+    const talk = resolvePokerTalkConfig(loadPokerConfigFile(file));
+    assert.equal(talk.handBudget, 6);
+    assert.equal(talk.seatChattiness.barnaby, 0.95);
+    fs.writeFileSync(file, '{ not json');
+    assert.throws(() => loadPokerConfigFile(file), /Invalid poker config/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

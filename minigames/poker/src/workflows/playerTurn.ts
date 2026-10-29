@@ -28,9 +28,13 @@ export const pokerActorHandlers = {
 };
 
 /** True when `path` holds the given command, as an action object or a bare string. */
-export const isCommand = (path: unknown, type: string) => `((${path} && ${path}.type == '${type}') || ${path} == '${type}')`;
+export const isCommand = (path: { isCommand?: (t: string) => any } | unknown, type: string): string =>
+  typeof (path as any)?.isCommand === 'function'
+    ? String((path as any).isCommand(type))
+    : `((${path} && ${path}.type == '${type}') || ${path} == '${type}')`;
 
-const activeSeat = `${gameState.players}[${gameState.activePlayerIdx}]`;
+/** Dynamic proxy indexing (Pillar 1): `TypedPathProxy<PlayerState>` with full property autocomplete. */
+const activeSeat = gameState.players.at(gameState.activePlayerIdx);
 
 /** The active seat's handler decides; the decision lands in `$state.turnAction`. */
 export function decideTurn() {
@@ -43,17 +47,17 @@ export function decideTurn() {
 /** Submits the decision as an ActionIntent and waits for the table rules to resolve it (see tableRules). */
 export function submitTurn() {
   return [
-    ActionIntent.emit({ seatId: `${activeSeat}.id`, action: state.turnAction }),
+    ActionIntent.emit({ seatId: activeSeat.id, action: state.turnAction }),
     ActionResolved.wait(state.turnResolution),
   ];
 }
 
 /** Turn decisions that leave the betting flow instead of being submitted. */
-export const turnPauses = isCommand(state.turnAction, PokerActionType.PAUSE);
-export const turnExits = isCommand(state.turnAction, PokerActionType.EXIT);
+export const turnPauses = String(state.turnAction.isCommand(PokerActionType.PAUSE));
+export const turnExits = String(state.turnAction.isCommand(PokerActionType.EXIT));
 
 /** The rules rejected the submitted action: the seat decides again. */
-export const turnRejected = `not ${state.turnResolution.accepted}`;
+export const turnRejected = String(state.turnResolution.accepted.not());
 
 export const playerTurnAst: CuratorModuleNode = defineModule(modules.PLAYER_TURN, {
   description: 'One seat\'s turn: the actor handler decides, the table rules validate and apply it',

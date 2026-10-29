@@ -6,7 +6,7 @@
  *
  * Why chatter cannot snowball:
  * - one trigger yields at most one cue, and a cue yields at most one line, so talk is a chain, never a tree;
- * - every reply is one level deeper and nothing is cued past `MAX_DEPTH`; monologues are never answered;
+ * - every reply is one level deeper and nothing is cued past `maxDepth`; monologues are never answered;
  * - one cue is open per table at a time, every hand has a line budget, seats cool down, and human lines
  *   are rate-limited.
  * No clock, no randomness: "chance" is a hash of the table, the tick and the seat, so replays are stable.
@@ -14,29 +14,61 @@
 import type { PlayerAction, PokerGameState, PlayerState, SpeechAct } from '../types.ts';
 import { PokerActionType, PokerSpeechAct, PokerSpeechOrigin, type PokerSpeechOriginType } from '../models/pokerContracts.ts';
 
-/** Deepest reply cued: human line (0) → answer (1) → one comeback (2), then the thread ends. */
-export const MAX_DEPTH = 2;
-/** Lines per hand (turn speech and chatter) after which only directly addressed seats are cued. */
-export const HAND_BUDGET = 4;
-/** Ticks a seat stays quiet after speaking, unless it is addressed directly. */
-export const SEAT_COOLDOWN = 3;
-/** Ticks after which an open cue whose flow never reported back is considered dead. */
-export const LOCK_TTL = 6;
-/** Human lines answered per `HUMAN_WINDOW` ticks; spam beyond that gets no answers. */
-export const HUMAN_REPLIES_PER_WINDOW = 3;
-export const HUMAN_WINDOW = 12;
+/**
+ * How lively the table is, set at host setup (`createPokerHost({ talk })` or `poker.config.json`).
+ * Ticks count the triggers the gate has seen (lines, salient actions, showdowns), not time.
+ */
+export interface PokerTalkConfig {
+  /** Off: the gate still keeps its books but never cues anyone. */
+  enabled: boolean;
+  /** Deepest reply cued: human line (0) → answer (1) → one comeback (2), then the thread ends. */
+  maxDepth: number;
+  /** Lines per hand (turn speech and chatter) after which only directly addressed seats are cued. */
+  handBudget: number;
+  /** Ticks a seat stays quiet after speaking, unless it is addressed directly. */
+  seatCooldown: number;
+  /** Ticks after which an open cue whose flow never reported back is considered dead. */
+  lockTtl: number;
+  /** Human lines answered per `humanWindow` ticks; spam beyond that gets no answers. */
+  humanRepliesPerWindow: number;
+  humanWindow: number;
+  /** How readily a seat joins the talk (0..1), by seat id; agent profiles' `chattiness` lands here. */
+  seatChattiness: Record<string, number>;
+  /** Fallback by persona for seats without their own value. */
+  personaChattiness: Record<string, number>;
+  defaultChattiness: number;
+}
 
-/** How readily each persona joins the talk (0..1). */
-export const PERSONA_CHATTINESS: Record<string, number> = {
-  shark: 0.25,
-  rock: 0.2,
-  maniac: 0.7,
-  station: 0.6,
-  caller: 0.5,
-  fish: 0.5,
-  bluffer: 0.6,
+export const DEFAULT_TALK_CONFIG: PokerTalkConfig = {
+  enabled: true,
+  maxDepth: 2,
+  handBudget: 4,
+  seatCooldown: 3,
+  lockTtl: 6,
+  humanRepliesPerWindow: 3,
+  humanWindow: 12,
+  seatChattiness: {},
+  personaChattiness: {
+    shark: 0.25,
+    rock: 0.2,
+    maniac: 0.7,
+    station: 0.6,
+    caller: 0.5,
+    fish: 0.5,
+    bluffer: 0.6,
+  },
+  defaultChattiness: 0.4,
 };
-const DEFAULT_CHATTINESS = 0.4;
+
+/** Defaults overlaid with the given layers (later wins; chattiness maps merge key by key). */
+export function resolveTalkConfig(...layers: Array<Partial<PokerTalkConfig> | undefined>): PokerTalkConfig {
+  return layers.reduce<PokerTalkConfig>((acc, layer) => (layer ? {
+    ...acc,
+    ...layer,
+    seatChattiness: { ...acc.seatChattiness, ...layer.seatChattiness },
+    personaChattiness: { ...acc.personaChattiness, ...layer.personaChattiness },
+  } : acc), DEFAULT_TALK_CONFIG);
+}
 
 /** How a cued seat speaks: answering someone, needling the table, or muttering to itself. */
 export const PokerChatterMode = {
@@ -123,7 +155,6 @@ function roll(key: string): number {
   return (h >>> 0) / 0x100000000;
 }
 
-const chattiness = (seat: PlayerState) => PERSONA_CHATTINESS[String(seat.persona)] ?? DEFAULT_CHATTINESS;
 const shortName = (seat: PlayerState) => String(seat.name || seat.id).split(/[\s(]/)[0];
 const mentions = (text: string, seat: PlayerState) => new RegExp(`\\b${shortName(seat)}\\b`, 'i').test(text);
 
@@ -142,6 +173,7 @@ export function reduceTableTalk(
   rawTalk: Partial<TableTalkState> | null | undefined,
   gameState: Partial<PokerGameState> | null | undefined,
   command: TableTalkCommandInput,
+  config: PokerTalkConfig = DEFAULT_TALK_CONFIG,
 ): TableTalkState {
   const talk: TableTalkState = { ...initialTableTalk(), ...(rawTalk || {}), cue: null };
   talk.lastSpokeAt = { ...talk.lastSpokeAt };
@@ -149,6 +181,8 @@ export function reduceTableTalk(
   const seats: PlayerState[] = (gameState?.players || []) as PlayerState[];
   const agents = seats.filter((s) => !s.isHuman);
   const tableId = String(gameState?.tableId || 'table');
+  const chattiness = (seat: PlayerState) =>
+    config.seatChattiness[seat.id] ?? config.personaChattiness[String(seat.persona)] ?? config.defaultChattiness;
 
   if (command.type === TableTalkCommand.DONE) {
     if (talk.open?.cueId === command.cueId) talk.open = null;
@@ -162,9 +196,9 @@ export function reduceTableTalk(
 
   talk.tick += 1;
   const tick = talk.tick;
-  if (talk.open && tick - talk.open.tick > LOCK_TTL) talk.open = null;
-  const cooled = (seat: PlayerState) => tick - (talk.lastSpokeAt[seat.id] ?? -Infinity) > SEAT_COOLDOWN;
-  const overBudget = talk.handLines >= HAND_BUDGET;
+  if (talk.open && tick - talk.open.tick > config.lockTtl) talk.open = null;
+  const cooled = (seat: PlayerState) => tick - (talk.lastSpokeAt[seat.id] ?? -Infinity) > config.seatCooldown;
+  const overBudget = talk.handLines >= config.handBudget;
   /** First seat, in a stable per-tick order, whose roll beats salience × chattiness. */
   const draw = (candidates: PlayerState[], salience: number, key: string) =>
     [...candidates]
@@ -190,10 +224,10 @@ export function reduceTableTalk(
     const text = String(speech.text || '');
     const others = agents.filter((s) => s.id !== speaker?.id);
     const isWhisper = speech.speechAct === PokerSpeechAct.WHISPER;
-    if (fromHuman) talk.humanTicks = talk.humanTicks.filter((t) => tick - t < HUMAN_WINDOW);
-    const humanThrottled = fromHuman && talk.humanTicks.length >= HUMAN_REPLIES_PER_WINDOW;
+    if (fromHuman) talk.humanTicks = talk.humanTicks.filter((t) => tick - t < config.humanWindow);
+    const humanThrottled = fromHuman && talk.humanTicks.length >= config.humanRepliesPerWindow;
 
-    if (depth + 1 <= MAX_DEPTH && speech.speechAct !== PokerSpeechAct.MONOLOGUE && !humanThrottled) {
+    if (depth + 1 <= config.maxDepth && speech.speechAct !== PokerSpeechAct.MONOLOGUE && !humanThrottled) {
       const addressed = others.find((s) => s.id === speech.targetId) || (isWhisper ? undefined : others.find((s) => mentions(text, s)));
       const base = { mode: PokerChatterMode.REPLY, depth: depth + 1, thread: speech, fromHuman };
       if (isWhisper) {
@@ -223,7 +257,7 @@ export function reduceTableTalk(
     const summary = command.summary || `${command.player} ${type.toLowerCase()}s`;
     if (type === PokerActionType.FOLD) {
       if (actor && !actor.isHuman && cooled(actor) && roll(`${tableId}:${tick}:fold:${actor.id}`) < 0.3 * chattiness(actor)) {
-        pick = { speaker: actor, mode: PokerChatterMode.MONOLOGUE, depth: MAX_DEPTH, speechAct: PokerSpeechAct.MONOLOGUE, topic: `you just folded (${summary})` };
+        pick = { speaker: actor, mode: PokerChatterMode.MONOLOGUE, depth: config.maxDepth, speechAct: PokerSpeechAct.MONOLOGUE, topic: `you just folded (${summary})` };
       }
     } else {
       const salience = type === PokerActionType.ALL_IN ? 0.6 : (type === PokerActionType.RAISE || type === 'BET') ? 0.3 : 0;
@@ -235,7 +269,7 @@ export function reduceTableTalk(
     if (chosen) pick = { speaker: chosen, mode: PokerChatterMode.BANTER, depth: 1, topic: command.winnerSummary || 'the hand was settled' };
   }
 
-  if (!pick || talk.open) return talk;
+  if (!pick || talk.open || !config.enabled || config.maxDepth < 1) return talk;
 
   const thread = pick.thread;
   const cueId = `${tableId}:${tick}:${pick.speaker.id}`;

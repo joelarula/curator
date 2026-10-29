@@ -3,6 +3,8 @@ export * from './deck/index.ts';
 export * from './engine/pokerEvaluator.ts';
 export * from './engine/pokerEngine.ts';
 export * from './engine/pokerTable.ts';
+export * from './engine/tableTalk.ts';
+export * from './pokerConfig.ts';
 export * from './plugins/pokerPlugin.ts';
 export * from './ui/tableRenderer.ts';
 export * from './db/seed.ts';

@@ -5,9 +5,9 @@
  * description: Interactive seat - prompts the human with their legal choices (including pause and exit)
  * ---
  */
-import { defineModule, defineSubroutine, ifElse, choice, type CuratorModuleNode } from '../curator.ts';
+import { defineModule, defineSubroutine, choice, type CuratorModuleNode } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
-import { actor, state, turnCtx } from '../models/pokerContext.ts';
+import { actor, state, turnCtx, ifElse } from '../models/pokerContext.ts';
 import { AwaitingHumanAction } from '../models/pokerEvents.ts';
 
 const { gameState, modules } = pokerComposables;
@@ -18,7 +18,7 @@ export const humanDecision = defineSubroutine('human_decision', {
   body: [
     AwaitingHumanAction.emit({ gameState }),
     ifElse(
-      `(${gameState.currentBet} - ${actor.streetBet}) == 0`,
+      gameState.currentBet.sub(actor.streetBet).eq(0),
       choice('Your turn (Check or Bet):', String(state.turn.choices), { as: turnCtx.turnAction }),
       choice('Your turn (Call, Raise, or Fold):', String(state.turn.choices), { as: turnCtx.turnAction }),
     ),
@@ -30,4 +30,4 @@ export const humanDecision = defineSubroutine('human_decision', {
 /** The human seat's own script: prompts for the active seat. */
 export const humanTurnAst: CuratorModuleNode = defineModule(modules.HUMAN_TURN, {
   description: 'Human seat: legal choices prompt for the active player',
-}, () => [humanDecision({ actor: `${gameState.players}[${gameState.activePlayerIdx}]` })]);
+}, () => [humanDecision({ actor: gameState.players.at(gameState.activePlayerIdx) })]);

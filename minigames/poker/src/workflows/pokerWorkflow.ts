@@ -5,20 +5,17 @@
  * description: Curator Texas Hold'em Autonomous Event-Driven 5-Phase Game Loop Module
  * ---
  */
-import { state } from '../models/pokerContext.ts';
+import { state, ifElse, setState, stateMachine } from '../models/pokerContext.ts';
 import { PokerActionType, PokerTablePhase } from '../models/pokerContracts.ts';
 import { GameOver, TablePaused, TableResumed, ResumeAction, TablePhase } from '../models/pokerEvents.ts';
 import {
   defineModule,
   seq,
-  ifElse,
-  stateMachine,
-  setState,
   type CuratorModuleNode,
 } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
 import { buildTableBootStep } from './pokerLobby.ts';
-import { decideTurn, submitTurn, isCommand, turnPauses, turnExits, turnRejected } from './playerTurn.ts';
+import { decideTurn, submitTurn, turnPauses, turnExits, turnRejected } from './playerTurn.ts';
 
 const {
   gameState,
@@ -29,7 +26,7 @@ const {
   steps,
 } = pokerComposables;
 
-const resumes = isCommand(state.resumeCmd, PokerActionType.RESUME);
+const resumes = state.resumeCmd.isCommand(PokerActionType.RESUME);
 
 // The next seat decides while the session lasts; otherwise the summary (exit closes rather than finishes).
 const sessionTransitions = [
@@ -73,7 +70,7 @@ export function buildTablePhases() {
       ],
       next: [
         { to: PokerTablePhase.BETTING, when: resumes },
-        { to: PokerTablePhase.EXITED, when: isCommand(state.resumeCmd, PokerActionType.EXIT) },
+        { to: PokerTablePhase.EXITED, when: state.resumeCmd.isCommand(PokerActionType.EXIT) },
         { to: PokerTablePhase.PAUSED },
       ],
     },
@@ -97,4 +94,3 @@ export function buildPokerWorkflowModule(): CuratorModuleNode {
 }
 
 export const pokerWorkflowAst = buildPokerWorkflowModule();
-

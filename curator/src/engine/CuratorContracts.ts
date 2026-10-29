@@ -112,6 +112,9 @@ export interface CuratorEventSpec {
   targetAgentId?: number | string;
 }
 
+/** Read-only configuration workflows see as `$config` (plain JSON, namespaced by plugin or domain). */
+export type CuratorConfig = Record<string, any>;
+
 export interface CuratorPluginDefinition {
   name: string;
   version?: string;
@@ -119,6 +122,11 @@ export interface CuratorPluginDefinition {
   tools?: Record<string, CuratorTool> | CuratorTool[];
   /** Pure functions workflows run with `reduce(name, args)` (see CuratorReducer). */
   reducers?: Record<string, CuratorReducer>;
+  /**
+   * Default configuration, keyed by namespace (e.g. `{ poker: { talk: {...} } }`). Workflows read it as
+   * `$config.<namespace>...`; values the host sets with `engine.setConfig` win over these defaults.
+   */
+  config?: CuratorConfig;
   models?: SemanticNodeShape[];
   scripts?: Record<string, CuratorScriptInput> | CuratorScriptInput[];
   agents?: Record<string, CuratorAgentDefinition | CuratorAstNode>;

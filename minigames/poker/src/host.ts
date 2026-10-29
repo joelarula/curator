@@ -4,7 +4,8 @@ import { createCuratorHost, type CuratorHost } from './curatorHost.ts';
 import { curatorEngine, LlmFactory } from './curator.ts';
 import { pokerPlugin } from './plugins/pokerPlugin.ts';
 import { geminiPlugin } from '@curator/plugin-llm-gemini';
-import { getGeminiApiKey } from './env.ts';
+import { getGeminiApiKey, loadPokerConfigFile } from './env.ts';
+import { resolvePokerConfig, POKER_CONFIG_NAMESPACE, type PokerConfig } from './pokerConfig.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,6 +28,10 @@ export interface PokerHostOptions {
   enableGemini?: boolean;
   apiKey?: string;
   llmProvider?: any;
+  /** Path of the poker config file (default: `POKER_CONFIG`, then `poker.config.json` in cwd or the module root). */
+  configPath?: string;
+  /** Settings layered over the config file (`talk`, `agents`). */
+  config?: PokerConfig;
 }
 
 /**
@@ -39,6 +44,9 @@ export async function createPokerHost(options: PokerHostOptions = {}): Promise<C
     options.databasePath ||
     process.env.CURATOR_DATABASE_PATH ||
     DEFAULT_POKER_DB;
+
+  // What workflows read as `$config.poker`: the config file, then these options, over the defaults
+  const pokerConfig = resolvePokerConfig(loadPokerConfigFile(options.configPath), options.config);
 
   return createCuratorHost({
     name: options.name || 'poker',
@@ -74,6 +82,7 @@ export async function createPokerHost(options: PokerHostOptions = {}): Promise<C
         }
       }
       curatorEngine.registerPlugin(pokerPlugin);
+      curatorEngine.setConfig({ [POKER_CONFIG_NAMESPACE]: pokerConfig });
       return curatorEngine;
     },
   });

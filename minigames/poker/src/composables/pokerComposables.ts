@@ -1,14 +1,11 @@
 import {
-  CuratorBuilder,
   seq,
-  setState,
-  reduce,
   emitEvents,
   type CuratorAstNode,
   type CuratorToolNode,
 } from '../curator.ts';
 import { agent_decision } from '../workflows/agentTurn.ts';
-import { ctx, gameState, state, params } from '../models/pokerContext.ts';
+import { ctx, gameState, state, params, setState } from '../models/pokerContext.ts';
 import { SessionExited } from '../models/pokerEvents.ts';
 import type {
   PokerListTablesParams,
@@ -23,11 +20,19 @@ import {
   PokerModule,
   PokerStep,
   PokerTool,
-  PokerReducer,
   PokerSessionReason,
   PokerActionType,
 } from '../models/pokerContracts.ts';
 import { PokerTableCommand } from '../engine/pokerTable.ts';
+import {
+  pokerTableReducer,
+  pokerListTablesTool,
+  pokerCreateTableTool,
+  pokerGetBuyInOptionsTool,
+  pokerDepositBuyInTool,
+  pokerReloadBankrollTool,
+  pokerCloseTableTool,
+} from '../plugins/pokerTools.ts';
 
 /**
  * Tool composable options: `as` names the context key the tool result is bound to.
@@ -38,24 +43,21 @@ export interface PokerToolOptions {
   spread?: boolean;
 }
 
-const bindResult = (opts: PokerToolOptions): [unknown, { spread?: boolean }] =>
-  [opts.as, { spread: opts.spread ?? !opts.as }];
-
 /**
  * High-level readable predicates for poker game loops and transitions.
- * Built with typed path proxies to eliminate fragile literal strings.
+ * Built with fluent typed path proxies (Pillar 1) to eliminate fragile literal strings.
  */
 export const pokerPredicates = {
-  is_game_active: `not ${state.sessionEnded} and not ${state.gameState.gameOver}`,
-  table_needs_players: `not ${state.gameState} or ${state.gameState.players.length} < 2`,
+  is_game_active: String(state.sessionEnded.not().and(state.gameState.gameOver.not())),
+  table_needs_players: String(state.gameState.not().or(state.gameState.players.length.lt(2))),
 };
 
 /**
- * One table step: the table reducer (engine/pokerTable.ts) applies `command` to the live game state, its
- * `gameState`, `turn` and `events` land in `$state`, and the events it reports are emitted as they are.
+ * One table step: the first-class `pokerTableReducer` (Pillar 2) applies `command` to the live game state,
+ * its `gameState`, `turn` and `events` land in `$state`, and the events it reports are emitted as they are.
  */
 const table = (command: Record<string, unknown>): CuratorAstNode[] => [
-  reduce(PokerReducer.TABLE, { state: String(gameState), command }),
+  pokerTableReducer.reduce({ state: gameState, command: command as any }),
   emitEvents(state.events),
 ];
 
@@ -77,13 +79,13 @@ export const pokerComposables = {
     table({
       type: PokerTableCommand.BOOT,
       config: {
-        tableId: `${state.tableConfig.tableId} || 'poker:high_roller_lounge'`,
-        startingChips: `${state.tableConfig.startingChips} || 1000`,
-        sbAmount: `${state.tableConfig.sbAmount} || 10`,
-        bbAmount: `${state.tableConfig.bbAmount} || 20`,
-        maxSeats: `${state.tableConfig.maxSeats} || 6`,
+        tableId: state.tableConfig.tableId.orDefault('poker:high_roller_lounge'),
+        startingChips: state.tableConfig.startingChips.orDefault(1000),
+        sbAmount: state.tableConfig.sbAmount.orDefault(10),
+        bbAmount: state.tableConfig.bbAmount.orDefault(20),
+        maxSeats: state.tableConfig.maxSeats.orDefault(6),
         players: String(state.tableConfig.players),
-        playerName: `${state.tableConfig.playerName} || 'You'`,
+        playerName: state.tableConfig.playerName.orDefault('You'),
       },
     }),
 
@@ -100,23 +102,24 @@ export const pokerComposables = {
 
   agent_decision,
 
+  // First-class callable tools (Pillar 2): `defineTool` instances are invoked directly to build `Curator_Tool` nodes
   list_tables: (args: Partial<PokerListTablesParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.LIST_TABLES, args, ...bindResult(opts)),
+    pokerListTablesTool(args as any, opts),
 
   create_table: (args: Partial<PokerCreateTableParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.CREATE_TABLE, args, ...bindResult(opts)),
+    pokerCreateTableTool(args, opts),
 
   get_buy_in_options: (args: Partial<PokerGetBuyInOptionsParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.GET_BUY_IN_OPTIONS, args, ...bindResult(opts)),
+    pokerGetBuyInOptionsTool(args, opts),
 
   deposit_buy_in: (args: Partial<PokerDepositBuyInParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.DEPOSIT_BUY_IN, args, ...bindResult(opts)),
+    pokerDepositBuyInTool(args, opts),
 
   reload_bankroll: (args: Partial<PokerReloadBankrollParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.RELOAD_BANKROLL, args, ...bindResult(opts)),
+    pokerReloadBankrollTool(args, opts),
 
   close_table: (args: Partial<PokerCloseTableParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
-    CuratorBuilder.tool(PokerTool.CLOSE_TABLE, args, ...bindResult(opts)),
+    pokerCloseTableTool(args, opts),
 
   /** Leaving is an announcement; the `close_on_exit` rule (tableRules) closes the conversation. */
   handle_user_exit: () =>

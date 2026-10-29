@@ -13,7 +13,9 @@ import {
 } from '../../../curator/test/helpers/harness.ts';
 import { POKER_WORKFLOW_ASTS } from '../src/session/pokerSession.ts';
 import '../src/composables/pokerComposables.ts';
-import { reduceTableTalk, MAX_DEPTH } from '../src/engine/tableTalk.ts';
+import { reduceTableTalk, DEFAULT_TALK_CONFIG } from '../src/engine/tableTalk.ts';
+
+const MAX_DEPTH = DEFAULT_TALK_CONFIG.maxDepth;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

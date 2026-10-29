@@ -115,6 +115,7 @@ export interface CuratorInlineTool {
 export interface CuratorAgentNode extends CuratorBaseNode {
   type: typeof CuratorNodeType.Agent;
   agentName?: string;
+  /** Model id, or a `$` expression resolved per call (e.g. `$config.poker.models.seat`). */
   model?: string;
   instruction?: string;
   prompt?: string;
@@ -129,8 +130,8 @@ export interface CuratorAgentNode extends CuratorBaseNode {
   history_events?: string[];
   /** Fixed list, or an expression such as "$state.options" evaluated on every turn (dynamic set of choices). */
   tools?: (string | CuratorInlineTool)[] | string;
-  /** 'gemini' (default) | 'local' (OpenAI-compatible endpoint, e.g. llama.cpp) */
-  provider?: 'gemini' | 'local';
+  /** 'gemini' (default) | 'local' (OpenAI-compatible endpoint, e.g. llama.cpp), or a `$` expression resolved per call (e.g. `$config.poker.provider`). */
+  provider?: 'gemini' | 'local' | (string & {});
   /** Base URL for local provider, e.g. 'http://localhost:8080' */
   baseUrl?: string;
   input_schema?: Record<string, any>;
