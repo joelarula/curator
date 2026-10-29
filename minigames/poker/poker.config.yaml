@@ -1,0 +1,37 @@
+# Poker host settings, read by createPokerHost and handed to workflows as $config.poker.
+# Lookup: createPokerHost({ configPath }), then $POKER_CONFIG, then poker.config.yaml / .yml / .json in the
+# working directory, then this module's root. Host options (createPokerHost({ config })) win over this file.
+# A table copies these settings when it boots and keeps them for the rest of its game.
+# Every key is optional; the values below are the built-in defaults.
+
+table:
+  # Used when a table is opened without its own values (the lobby and CLI may set them per table)
+  startingChips: 1000
+  smallBlind: 10
+  bigBlind: 20
+  maxSeats: 6
+
+rules:
+  # Illegal actions a seat may send back per turn before the engine coerces one to a legal move
+  maxTurnRejections: 2
+
+talk:
+  # Table talk is a chain, never a tree: each line can cue at most one reply, one level deeper
+  enabled: true
+  maxDepth: 2               # human line (0) -> answer (1) -> one comeback (2), then the thread ends
+  handBudget: 4             # lines per hand (turn speech + chatter) before only addressed seats answer
+  seatCooldown: 3           # triggers a seat stays quiet after speaking, unless addressed
+  lockTtl: 6                # triggers after which a cue that never reported back is dropped
+  humanRepliesPerWindow: 3  # human lines answered per humanWindow triggers
+  humanWindow: 12
+  defaultChattiness: 0.4    # 0..1, for seats with neither their own value nor a known persona
+  # personaChattiness: { shark: 0.25, maniac: 0.7, station: 0.6 }
+
+models:
+  seat: gemini-2.5-flash    # turn decisions, unless a seat names its own model
+  # chatter: gemini-2.5-flash-lite   # table talk; defaults to the seat model
+
+# Per agent profile (viper, maddog, barnaby, ...); profiles carry their own defaults
+# agents:
+#   viper: { chattiness: 0.25 }
+#   maddog: { chattiness: 0.7 }

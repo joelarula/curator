@@ -13,6 +13,7 @@
 import { defineModule, defineSubroutine, system, type CuratorModuleNode } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
 import { state, ifElse, setState } from '../models/pokerContext.ts';
+import { DEFAULT_RULES_SETTINGS, tableSettings, setting } from '../pokerConfig.ts';
 import { PokerTablePhase, PokerSessionReason } from '../models/pokerContracts.ts';
 import {
   ActionIntent, ActionValidated, ActionRejected, ActionResolved, SessionExited, TablePhase,
@@ -23,8 +24,12 @@ const { act, close_table, modules } = pokerComposables;
 const intent = ActionIntent.payload();
 const validated = ActionValidated.payload();
 
-/** Illegal intents a seat may send back per turn before the engine coerces the action to a legal one. */
-export const MAX_TURN_REJECTIONS = 2;
+/**
+ * Illegal intents a seat may send back per turn before the engine coerces the action to a legal one:
+ * `rules.maxTurnRejections` of the settings the table booted with.
+ */
+export const MAX_TURN_REJECTIONS = DEFAULT_RULES_SETTINGS.maxTurnRejections;
+const maxRejections = setting(tableSettings.rules.maxTurnRejections, MAX_TURN_REJECTIONS);
 const rejections = state.turnRejections.orDefault(0);
 
 // The table reducer keeps the deciding seat's legal choices in `$state.turn`
@@ -41,7 +46,7 @@ export const validateAction = defineSubroutine('validate_action', [
     isLegal,
     ActionValidated.emit({ seatId: intent.seatId, action: intent.action }),
     ifElse(
-      rejections.lt(MAX_TURN_REJECTIONS),
+      rejections.lt(maxRejections),
       [
         setState({ turnRejections: rejections.add(1) }),
         ActionRejected.emit({ seatId: intent.seatId, action: intent.action, reason: 'illegal action' }),

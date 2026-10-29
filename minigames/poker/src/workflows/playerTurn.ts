@@ -39,7 +39,7 @@ const activeSeat = gameState.players.at(gameState.activePlayerIdx);
 /** The active seat's handler decides; the decision lands in `$state.turnAction`. */
 export function decideTurn() {
   return actorRef(activeSeat, pokerActorHandlers, {
-    kind: `($actor.isHuman || $actor.isInteractive) ? '${PokerActorKind.HUMAN}' : '${PokerActorKind.LLM}'`,
+    kind: (a) => a.isHuman.or(a.isInteractive).ternary(PokerActorKind.HUMAN, PokerActorKind.LLM),
     as: state.turnAction,
   });
 }
@@ -53,11 +53,11 @@ export function submitTurn() {
 }
 
 /** Turn decisions that leave the betting flow instead of being submitted. */
-export const turnPauses = String(state.turnAction.isCommand(PokerActionType.PAUSE));
-export const turnExits = String(state.turnAction.isCommand(PokerActionType.EXIT));
+export const turnPauses = state.turnAction.isCommand(PokerActionType.PAUSE);
+export const turnExits = state.turnAction.isCommand(PokerActionType.EXIT);
 
 /** The rules rejected the submitted action: the seat decides again. */
-export const turnRejected = String(state.turnResolution.accepted.not());
+export const turnRejected = state.turnResolution.accepted.not();
 
 export const playerTurnAst: CuratorModuleNode = defineModule(modules.PLAYER_TURN, {
   description: 'One seat\'s turn: the actor handler decides, the table rules validate and apply it',

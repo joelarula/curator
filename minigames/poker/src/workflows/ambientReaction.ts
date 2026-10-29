@@ -47,11 +47,11 @@ const local: TypedPathProxy<{ talk: TableTalkState; chatter: { say?: string } }>
  */
 const talkStep = (command: Record<string, unknown>) => [
   pokerTableTalkReducer.reduce(
-    // `?.`: hosts and harnesses without poker config fall back to the gate's defaults
-    { talk: state.talk, gameState, command: command as any, config: `${pokerConfig}?.talk` as any },
+    // Null-safe `$config?.poker?.talk`: hosts and harnesses without poker config fall back to the gate's defaults
+    { talk: state.talk, gameState, command: command as any, config: pokerConfig.talk },
     { as: 'talk', spread: false }
   ),
-  ifElse(local.talk.cue.isTruthy(), [CuratorBuilder.emitEvent(ChatterCue, String(local.talk.cue))]),
+  ifElse(local.talk.cue.isTruthy(), [ChatterCue.emit(local.talk.cue)]),
 ];
 
 const speech = Speech.payload('speechEvt');
@@ -63,29 +63,29 @@ const cue = ChatterCue.payload('cue');
 
 export const onTableSpeech = defineSubroutine('on_table_speech', talkStep({
   type: TableTalkCommand.SPEECH,
-  speech: String(speech),
+  speech,
 }), { params: { speechEvt: { type: 'object' } } });
 
 export const onTableAction = defineSubroutine('on_table_action', talkStep({
   type: TableTalkCommand.ACTION,
-  player: String(action.player),
-  action: String(action.action),
-  summary: String(action.summary),
+  player: action.player,
+  action: action.action,
+  summary: action.summary,
 }), { params: { actionEvt: { type: 'object' } } });
 
 export const onTableSettle = defineSubroutine('on_table_settle', talkStep({
   type: TableTalkCommand.SETTLE,
-  winnerSummary: String(settle.winnerSummary),
+  winnerSummary: settle.winnerSummary,
 }), { params: { settleEvt: { type: 'object' } } });
 
 export const onTalkNewHand = defineSubroutine('on_talk_new_hand', talkStep({
   type: TableTalkCommand.NEW_HAND,
-  handNumber: String(round.handNumber),
+  handNumber: round.handNumber,
 }), { params: { roundEvt: { type: 'object' } } });
 
 export const onChatterDone = defineSubroutine('on_chatter_done', talkStep({
   type: TableTalkCommand.DONE,
-  cueId: String(done.cueId),
+  cueId: done.cueId,
 }), { params: { doneEvt: { type: 'object' } } });
 
 export const CHATTER_OUTPUT_SCHEMA: Record<string, any> = {
@@ -140,7 +140,7 @@ export const voiceSeat = defineSubroutine('voice_seat', {
   params: { actor: { type: 'object', required: true }, cue: { type: 'object', required: true } },
   body: [
     withFallback(chatter_line(), setState({ chatter: { say: '' } } as any)),
-    ifElse(`${local.chatter}.say && String(${local.chatter}.say).trim()`, [
+    ifElse(local.chatter.say.nonEmpty(), [
       Speech.emit({
         speakerId: cue.speakerId,
         speakerName: cue.speakerName,
@@ -158,29 +158,31 @@ export const voiceSeat = defineSubroutine('voice_seat', {
 });
 
 /** The cued seat, as it sits at the table now. */
-const cuedSeat = `${gameState.players}.find((p) => p.id == ${cue.speakerId})`;
+const cuedSeat = gameState.players.find((p) => p.id.eq(cue.speakerId));
 /** The cue still holds the table (no newer cue took it over) and its seat is still there. */
-const holdsTable = `(!${state.talk}.open || ${state.talk}.open.cueId == ${cue.cueId}) && !!${cuedSeat}`;
+const holdsTable = state.talk.open.not().or(state.talk.open.cueId.eq(cue.cueId)).and(cuedSeat.isTruthy());
 
 /**
  * Speaks a cue through its seat, then releases the table. A cue that lost the table to a concurrent one,
  * or whose seat has left, stays silent.
  */
 export const speakChatter = defineSubroutine('speak_chatter', [
-  ifElse(holdsTable, [voiceSeat({ actor: cuedSeat, cue: String(cue) })]),
+  ifElse(holdsTable, [voiceSeat({ actor: cuedSeat, cue })]),
   ChatterDone.emit({ cueId: cue.cueId }),
 ], { params: { cue: { type: 'object' } } });
 
-const tableLive = `!${TablePhase.in(PokerTablePhase.PAUSED, PokerTablePhase.EXITED, PokerTablePhase.GAME_OVER)}`;
-const salientAction = `['${PokerActionType.FOLD}', '${PokerActionType.ALL_IN}', '${PokerActionType.RAISE}', 'BET']`
-  + `.includes(String((${action.action} && ${action.action}.type) || ${action.action}).toUpperCase())`;
+const tableLive = TablePhase.notIn(PokerTablePhase.PAUSED, PokerTablePhase.EXITED, PokerTablePhase.GAME_OVER);
+const salientAction = action.action.type
+  .orDefault(action.action)
+  .upper()
+  .in(PokerActionType.FOLD, PokerActionType.ALL_IN, PokerActionType.RAISE, 'BET');
 
 export const ambientReactionAst: CuratorModuleNode = defineModule(modules.AMBIENT_REACTION, {
   description: 'Table talk: the gate decides who chats, the cued seat finds the words',
 }, () => {
   // Every line goes through the gate: it alone applies the configured depth, budget and locks
   system({ on: Speech, runIf: tableLive, run: onTableSpeech, as: 'speechEvt' });
-  system({ on: ActionTaken, runIf: `${tableLive} && ${salientAction}`, run: onTableAction, as: 'actionEvt' });
+  system({ on: ActionTaken, runIf: tableLive.and(salientAction), run: onTableAction, as: 'actionEvt' });
   system({ on: PhaseSettle, runIf: tableLive, run: onTableSettle, as: 'settleEvt' });
   system({ on: NewRound, run: onTalkNewHand, as: 'roundEvt' });
   system({ on: ChatterCue, runIf: tableLive, run: speakChatter, as: 'cue' });

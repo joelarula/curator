@@ -70,9 +70,13 @@ export const bootTableSub = defineSubroutine('boot_table', () => [
     ]),
   ),
   // Seats only (no chips or cards): projected into the table's poker:hasPlayer triples
-  setState((c) => ({
-    seatedPlayers: (c.state?.gameState?.players || []).map((p: any) => ({ id: p.id, name: p.name, isHuman: Boolean(p.isHuman) })),
-  })),
+  setState({
+    seatedPlayers: gameState.players.map((p) => ({
+      id: p.id,
+      name: p.name,
+      isHuman: p.isHuman.toBoolean(),
+    })),
+  }),
   TableReady.emit({ tableId: gameState.tableId, playerCount: gameState.players.length }),
 ]);
 
@@ -82,20 +86,20 @@ export const bootTableSub = defineSubroutine('boot_table', () => [
  */
 export function buildTableBootStep() {
   return ifElse(
-    (c) => !c.state?.gameState && !c.sessionEnded,
+    state.gameState.not().and(bootCtx.sessionEnded.not()),
     seq(steps.BOOT_TABLE, [
       // The boot subroutine is an isolated child call: hand it the run's table config through state
-      setState((c) => ({
+      setState({
         tableConfig: {
-          tableId: c.tableId,
-          startingChips: c.startingChips,
-          sbAmount: c.sbAmount,
-          bbAmount: c.bbAmount,
-          maxSeats: c.maxSeats,
-          players: c.players,
-          playerName: c.playerName,
+          tableId: bootCtx.tableId,
+          startingChips: bootCtx.startingChips,
+          sbAmount: bootCtx.sbAmount,
+          bbAmount: bootCtx.bbAmount,
+          maxSeats: bootCtx.maxSeats,
+          players: bootCtx.players,
+          playerName: bootCtx.playerName,
         },
-      })),
+      }),
       bootTableSub(),
     ]),
   );
@@ -119,7 +123,7 @@ export function buildLobbyPhases() {
         list_tables({}, { as: lobbyCtxProxy.openTables }),
         input('Lobby Options:', [
           LobbyChoices.NEW,
-          { ...LobbyChoices.RESUME, when: String(lobbyCtxProxy.openTables.tables.length.gt(0)) },
+          { ...LobbyChoices.RESUME, when: lobbyCtxProxy.openTables.tables.length.gt(0) },
           LobbyChoices.EXIT,
         ], { as: lobbyCtxProxy.lobbyChoice }),
       ],
@@ -132,7 +136,7 @@ export function buildLobbyPhases() {
     },
     [PokerLobbyPhase.PICK_TABLE]: {
       // list_tables already built the table choices (with Back) for the open tables
-      run: input('Select Table:', String(lobbyCtxProxy.openTables.tableChoices), { as: lobbyCtxProxy.selectedTable }),
+      run: input('Select Table:', lobbyCtxProxy.openTables.tableChoices, { as: lobbyCtxProxy.selectedTable }),
       next: [
         { to: PokerLobbyPhase.MENU, when: state.selectedTable.isChoice(lobbyActions.BACK) },
         { to: PokerLobbyPhase.BUY_IN },
@@ -145,7 +149,7 @@ export function buildLobbyPhases() {
     [PokerLobbyPhase.NEW_TABLE]: {
       run: [
         create_table({ playerName: lobbyCtxProxy.playerName }, { as: lobbyCtxProxy.newTable }),
-        setState((c) => ({ tableId: c.newTable?.tableId || `poker:table_${crypto.randomUUID()}` })),
+        setState({ tableId: lobbyCtxProxy.newTable.tableId }),
       ],
       next: PokerLobbyPhase.BUY_IN,
     },
@@ -168,7 +172,7 @@ export function buildLobbyPhases() {
     [PokerLobbyPhase.DEPOSIT]: {
       run: [
         loadBuyInOptions(),
-        input('Enter Buy-In amount (or select preset):', String(bankrollCtx.buyInOptions.choices), { as: bankrollCtx.buyInChoice }),
+        input('Enter Buy-In amount (or select preset):', bankrollCtx.buyInOptions.choices, { as: bankrollCtx.buyInChoice }),
         deposit_buy_in({
           tableId: state.tableId,
           bbAmount: bankrollCtx.bbAmount.orDefault(20),

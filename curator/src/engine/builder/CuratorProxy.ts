@@ -218,7 +218,7 @@ export function createContextProxy<T = any>(root = '$context'): TypedPathProxy<T
     lte: (val: unknown) => createContextProxy(`(${paren(root)} <= ${formatLiteral(val)})`),
     add: (val: unknown) => createContextProxy(`(${paren(root)} + ${formatLiteral(val)})`),
     sub: (val: unknown) => createContextProxy(`(${paren(root)} - ${formatLiteral(val)})`),
-    orDefault: (fallback: unknown) => createContextProxy(`${paren(root)} || ${formatLiteral(fallback)}`),
+    orDefault: (fallback: unknown) => createContextProxy(`(${paren(root)} || ${formatLiteral(fallback)})`),
     and: (other: unknown) => createContextProxy(`(${paren(root)} and ${other})`),
     or: (other: unknown) => createContextProxy(`(${paren(root)} or ${other})`),
     not: () => createContextProxy(`not ${paren(root)}`),

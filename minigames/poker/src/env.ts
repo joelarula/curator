@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { findConfigFile, loadConfigFile } from '@curator/agent-server';
 import type { PokerConfig } from './pokerConfig.ts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -45,29 +46,24 @@ export function getGeminiApiKey(): string | undefined {
   return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
 }
 
-export const POKER_CONFIG_FILE = 'poker.config.json';
+/** Base name of the poker config file: `poker.config.yaml`, `.yml` or `.json`. */
+export const POKER_CONFIG_BASENAME = 'poker.config';
 
 /**
- * Finds the poker config file: an explicit path, then `POKER_CONFIG`, then `poker.config.json` in the
- * working directory or the poker module root.
+ * Finds the poker config file: an explicit path, then `POKER_CONFIG`, then `poker.config.yaml` / `.yml` /
+ * `.json` in the working directory, then in the poker module root.
  */
 export function findPokerConfigFile(explicitPath?: string): string | undefined {
   loadEnvFiles();
   if (explicitPath) return path.resolve(explicitPath);
   if (process.env.POKER_CONFIG) return path.resolve(process.env.POKER_CONFIG);
-  return [path.resolve(process.cwd(), POKER_CONFIG_FILE), path.resolve(__dirname, '..', POKER_CONFIG_FILE)]
-    .find((candidate) => fs.existsSync(candidate));
+  return findConfigFile(POKER_CONFIG_BASENAME, [process.cwd(), path.resolve(__dirname, '..')]);
 }
 
 /** Reads the poker config file; none found is an empty config, an explicit path that is missing or broken throws. */
 export function loadPokerConfigFile(explicitPath?: string): PokerConfig {
   const file = findPokerConfigFile(explicitPath);
-  if (!file) return {};
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8')) as PokerConfig;
-  } catch (e: any) {
-    throw new Error(`Invalid poker config ${file}: ${e?.message || e}`);
-  }
+  return file ? (loadConfigFile(file) as PokerConfig) : {};
 }
 
 // Redirect noisy library warnings (e.g. @google/genai redundant key notice)

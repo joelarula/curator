@@ -772,8 +772,9 @@ export class CuratorCoreBuilder {
   /**
    * Attaches an error recovery / fallback AST node (`.catch()` / Bevy `on_error`).
    */
-  static withFallback<T extends CuratorAstNode>(node: T, fallback: CuratorAstNode | CuratorAstNode[] | any): T {
-    return { ...node, onError: resolveBuilderNode(fallback) };
+  static withFallback<T extends CuratorAstNode | CuratorAstNode[]>(node: T, fallback: CuratorAstNode | CuratorAstNode[] | any): CuratorAstNode {
+    const resolved = resolveBuilderNode(node)!;
+    return { ...resolved, onError: resolveBuilderNode(fallback) };
   }
 
   /**
@@ -790,14 +791,22 @@ export class CuratorCoreBuilder {
   /**
    * Attaches an entry and/or exit action hook to any AST node (Bevy `with_entry` / `with_exit`).
    */
-  static withHooks<T extends CuratorAstNode>(
+  static withHooks<T extends CuratorAstNode | CuratorAstNode[]>(
     node: T,
-    hooks: { entry?: CuratorAstNode | CuratorAstNode[] | any; exit?: CuratorAstNode | CuratorAstNode[] | any }
-  ): T {
+    hooks: {
+      entry?: CuratorAstNode | CuratorAstNode[] | any;
+      exit?: CuratorAstNode | CuratorAstNode[] | any;
+      onEnter?: CuratorAstNode | CuratorAstNode[] | any;
+      onExit?: CuratorAstNode | CuratorAstNode[] | any;
+    }
+  ): CuratorAstNode {
+    const resolved = resolveBuilderNode(node)!;
+    const entryNode = hooks.entry ?? hooks.onEnter;
+    const exitNode = hooks.exit ?? hooks.onExit;
     return {
-      ...node,
-      ...(hooks.entry ? { entryAction: resolveBuilderNode(hooks.entry) } : {}),
-      ...(hooks.exit ? { exitAction: resolveBuilderNode(hooks.exit) } : {}),
+      ...resolved,
+      ...(entryNode ? { entryAction: resolveBuilderNode(entryNode) } : {}),
+      ...(exitNode ? { exitAction: resolveBuilderNode(exitNode) } : {}),
     };
   }
 }

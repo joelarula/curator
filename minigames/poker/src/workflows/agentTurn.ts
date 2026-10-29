@@ -8,15 +8,16 @@
 import {
   defineModule,
   defineSubroutine,
+  withFallback,
   CuratorBuilder,
   type CuratorModuleNode,
   type CuratorAgentNode,
 } from '../curator.ts';
 import { PokerEvent, PokerModule, PokerSpeechAct, PokerSpeechOrigin } from '../models/index.ts';
-import { ctx, actor, gameState, ifElse } from '../models/pokerContext.ts';
+import { ctx, actor, gameState, ifElse, setState } from '../models/pokerContext.ts';
 import { Speech } from '../models/pokerEvents.ts';
 import { getRulesDescription } from '../engine/pokerRules.ts';
-import { DEFAULT_SEAT_MODEL } from '../pokerConfig.ts';
+import { DEFAULT_SEAT_MODEL, pokerConfig } from '../pokerConfig.ts';
 
 /** The seat whose turn it is (Pillar 1: dynamic proxy indexing via `.at()`). */
 const activePlayer = gameState.players.at(gameState.activePlayerIdx);
@@ -86,9 +87,16 @@ export const POKER_AGENT_PROTOCOL = [
  * The model a seat (`$params.actor`) thinks with, resolved per call: the seat's own `model`, then
  * `$config.poker.models.seat`, then the default.
  */
-export const SEAT_MODEL = `${actor.model} || $config.poker?.models?.seat || '${DEFAULT_SEAT_MODEL}'`;
+export const SEAT_MODEL = String(
+  actor.model.orDefault(pokerConfig.models.seat).orDefault(DEFAULT_SEAT_MODEL)
+);
 /** The model a seat talks with between decisions: its own, then `models.chatter`, then the seat model. */
-export const CHATTER_MODEL = `${actor.model} || $config.poker?.models?.chatter || $config.poker?.models?.seat || '${DEFAULT_SEAT_MODEL}'`;
+export const CHATTER_MODEL = String(
+  actor.model
+    .orDefault(pokerConfig.models.chatter)
+    .orDefault(pokerConfig.models.seat)
+    .orDefault(DEFAULT_SEAT_MODEL)
+);
 /** What a seat remembers of the table: every action and every line said. */
 export const SEAT_HISTORY_EVENTS = [PokerEvent.ACTION_TAKEN, PokerEvent.SPEECH];
 
@@ -102,7 +110,7 @@ export const seatView = (): string[] => [
   `- Community Board: ${gameState.board.optional()}`,
   `- Street: ${gameState.currentStreet.optional()} | Pot: [chips] ${gameState.pot.optional()} | Current Bet: [chips] ${gameState.currentBet.optional()}`,
   `- Your Stack: [chips] ${actor.chips.optional()} | Your Street Bet: [chips] ${actor.streetBet.optional()}`,
-  `- Cost to Call: [chips] {${gameState.currentBet} - ${actor.streetBet}?} | Min Raise: [chips] ${gameState.minRaise.optional()}`,
+  `- Cost to Call: [chips] ${gameState.currentBet.subTemplate(actor.streetBet)} | Min Raise: [chips] ${gameState.minRaise.optional()}`,
   `- Table: ${gameState.optional()}`,
 ];
 
@@ -141,8 +149,8 @@ export function agent_decision(options: PokerAgentDecisionOptions = {}): Curator
 export const aiDecision = defineSubroutine('ai_decision', {
   params: { actor: { type: 'object', required: true } },
   body: [
-    agent_decision(),
-    ifElse((c) => Boolean(c.decision?.speech?.trim()), [
+    withFallback(agent_decision(), setState({ decision: { action: { type: 'fold' } } } as any)),
+    ifElse(ctx.decision.speech.nonEmpty(), [
       Speech.emit({
         speakerId: actor.id,
         speakerName: actor.name,
@@ -153,7 +161,7 @@ export const aiDecision = defineSubroutine('ai_decision', {
       }),
     ]),
   ],
-  returns: String(ctx.decision.action),
+  returns: ctx.decision.action,
 });
 
 /** The LLM seat's own script: deliberates for the active seat. */

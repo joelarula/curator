@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import {
   defineModule,
   defineEvent,
+  defineStates,
   defineReducer,
   defineTool,
   createWorkflowScope,
+  actorRef,
   waitAnyEvent,
   raceEvents,
   withFallback,
@@ -17,24 +19,33 @@ import {
   CuratorAccessLevel,
 } from '../src/index.js';
 
+interface DemoPlayer {
+  id: string;
+  name: string;
+  chips: number;
+  isHuman?: boolean;
+}
+
 interface DemoState {
   counter: number;
   status: 'idle' | 'running' | 'failed';
-  players: Array<{ id: string; chips: number }>;
+  players: DemoPlayer[];
   errorMsg?: string;
 }
 
 interface DemoContext {
   choice?: string | { id: string; value: string };
   tableResult?: { tableId: string };
+  winnerEvent?: { sender?: string; responder?: string; _eventName?: string };
 }
 
 interface DemoParams {
   seatIndex: number;
+  targetId: string;
 }
 
 describe('Curator 5 Ergonomic Pillars', () => {
-  it('Pillar 1 & 5: createWorkflowScope and Rich Typed Proxy DSL', () => {
+  it('Pillar 1 & 5: createWorkflowScope, Rich Typed Proxy DSL, Array/String/Ternary & Callback Proxies', () => {
     const { state, ctx, params, setState, ifElse } =
       createWorkflowScope<DemoState, DemoContext, DemoParams>();
 
@@ -47,12 +58,47 @@ describe('Curator 5 Ergonomic Pillars', () => {
     assert.equal(String(state.status.in('idle', 'running')), "($state.status == 'idle' or $state.status == 'running')");
     assert.equal(String(state.status.eq('idle').and(state.counter.gt(0).not())), "(($state.status == 'idle') and not ($state.counter > 0))");
     assert.equal(String(state.errorMsg.optional()), '{$state.errorMsg?}');
+    assert.equal(String(state.errorMsg.nonEmpty()), 'Boolean($state.errorMsg && String($state.errorMsg).trim())');
+    assert.equal(String(state.errorMsg.upper()), "String($state.errorMsg || '').toUpperCase()");
+    assert.equal(String(state.status.eq('idle').ternary('READY', 'BUSY')), "(($state.status == 'idle') ? 'READY' : 'BUSY')");
 
-    const node = ifElse(
+    // Higher-order collection proxy methods (.find, .findBy, .some, .map)
+    assert.equal(
+      String(state.players.find((p) => p.id.eq(params.targetId))),
+      '($state.players || []).find((__item) => (__item.id == $params.targetId))'
+    );
+    assert.equal(
+      String(state.players.findBy('id', params.targetId)),
+      '($state.players || []).find((__item) => __item.id == $params.targetId)'
+    );
+    assert.equal(
+      String(state.players.some((p) => p.chips.gt(500))),
+      '($state.players || []).some((__item) => (__item.chips > 500))'
+    );
+    assert.equal(
+      String(state.players.map((p) => ({ id: p.id, isHuman: p.isHuman.toBoolean() }))),
+      '($state.players || []).map((__item) => ({ "id": __item.id, "isHuman": Boolean(__item.isHuman) }))'
+    );
+
+    // Proxy methods work both directly AND inside `(c) => ...` callbacks
+    const directNode = ifElse(
       state.counter.orDefault(0).lt(3),
       setState({ counter: state.counter.orDefault(0).add(1) })
     );
-    assert.equal(node.condition, '(($state.counter || 0) < 3)');
+    assert.equal(directNode.condition, '(($state.counter || 0) < 3)');
+
+    const callbackNode = ifElse(
+      (c) => c.state.counter.orDefault(0).lt(3),
+      setState((c) => ({ counter: c.state.counter.orDefault(0).add(1) }))
+    );
+    assert.equal(callbackNode.condition, '(($state.counter || 0) < 3)');
+    assert.deepEqual((callbackNode.thenBranch as any).state, { counter: '(($state.counter || 0) + 1)' });
+
+    // Typed actorRef kind callback
+    const actorNode = actorRef(state.players.at(0), { human: '#h', llm: '#ai' }, {
+      kind: (a) => a.isHuman.ternary('human', 'llm'),
+    });
+    assert.equal(actorNode.kind, "($actor.isHuman ? 'human' : 'llm')");
   });
 
   it('Pillar 2: First-Class Callable Tools & Reducers', async () => {
@@ -94,7 +140,8 @@ describe('Curator 5 Ergonomic Pillars', () => {
   it('Pillar 3 & 4: Inline Reactive Systems, Event Racing & Node Modifiers', () => {
     const PingEvent = defineEvent<{ sender: string }>('demo:ping');
     const PongEvent = defineEvent<{ responder: string }>('demo:pong');
-    const { state, setState } = createWorkflowScope<DemoState, DemoContext, DemoParams>();
+    const Phase = defineStates<'idle' | 'running' | 'failed'>('status');
+    const { state, ctx, setState, ifElse } = createWorkflowScope<DemoState, DemoContext, DemoParams>();
 
     const mod = defineModule('demo_reactive', () => {
       // Inline Event.on callback auto-synthesizes a subroutine in module scope
@@ -102,26 +149,32 @@ describe('Curator 5 Ergonomic Pillars', () => {
         PongEvent.emit({ responder: payload.sender })
       );
 
-      // Inline system() callback with typed proxy runIf and payload
+      // Inline system() callback with typed proxy runIf (using Phase.notIn) and payload
       system({
         on: PongEvent,
-        runIf: state.status.eq('running'),
+        runIf: Phase.notIn('idle', 'failed'),
         run: (payload) => setState({ errorMsg: payload.responder }),
       });
 
-      const racedWait = raceEvents([PingEvent, PongEvent], 'winnerEvent', {
+      const racedWait = raceEvents([PingEvent, PongEvent], ctx.winnerEvent, {
         timeoutSeconds: 15,
         onTimeout: setState({ status: 'failed' }),
       });
 
+      const branchOnWinner = ifElse(
+        PingEvent.is(ctx.winnerEvent),
+        setState({ errorMsg: ctx.winnerEvent.sender }),
+        setState({ errorMsg: ctx.winnerEvent.responder })
+      );
+
       const resilientStep = withHooks(
         withFallback(
-          racedWait,
+          [racedWait, branchOnWinner],
           setState({ status: 'failed', errorMsg: 'fallback_triggered' })
         ),
         {
-          onEnter: setState({ status: 'running' }),
-          onExit: setState({ counter: state.counter.add(1) }),
+          entry: setState({ status: 'running' }),
+          exit: setState({ counter: state.counter.add(1) }),
         }
       );
 

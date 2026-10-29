@@ -343,7 +343,7 @@ export interface CuratorChoiceItem {
   roles?: string[];
   blocking?: boolean;
   /** Expression evaluated when the prompt is presented; the choice is offered only when it is truthy. */
-  when?: string;
+  when?: string | any;
 }
 
 export interface CuratorHumanInputNode extends CuratorBaseNode {

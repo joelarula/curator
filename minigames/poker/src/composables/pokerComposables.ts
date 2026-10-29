@@ -24,6 +24,7 @@ import {
   PokerActionType,
 } from '../models/pokerContracts.ts';
 import { PokerTableCommand } from '../engine/pokerTable.ts';
+import { pokerConfig, tableSettings, setting, DEFAULT_TABLE_SETTINGS } from '../pokerConfig.ts';
 import {
   pokerTableReducer,
   pokerListTablesTool,
@@ -74,20 +75,26 @@ export const pokerComposables = {
 
   table,
 
-  /** Seats the table from the run's table config (handed over through `$state.tableConfig`). */
-  boot_table: (): CuratorAstNode[] =>
-    table({
+  /**
+   * Seats the table from the run's table config (handed over through `$state.tableConfig`). The table first
+   * keeps a copy of `$config.poker` as `$state.tableSettings`, so it plays on with the settings it booted
+   * with; values the run does not set come from its `table` section.
+   */
+  boot_table: (): CuratorAstNode[] => [
+    setState({ tableSettings: pokerConfig }),
+    ...table({
       type: PokerTableCommand.BOOT,
       config: {
         tableId: state.tableConfig.tableId.orDefault('poker:high_roller_lounge'),
-        startingChips: state.tableConfig.startingChips.orDefault(1000),
-        sbAmount: state.tableConfig.sbAmount.orDefault(10),
-        bbAmount: state.tableConfig.bbAmount.orDefault(20),
-        maxSeats: state.tableConfig.maxSeats.orDefault(6),
+        startingChips: state.tableConfig.startingChips.orDefault(setting(tableSettings.table.startingChips, DEFAULT_TABLE_SETTINGS.startingChips)),
+        sbAmount: state.tableConfig.sbAmount.orDefault(setting(tableSettings.table.smallBlind, DEFAULT_TABLE_SETTINGS.smallBlind)),
+        bbAmount: state.tableConfig.bbAmount.orDefault(setting(tableSettings.table.bigBlind, DEFAULT_TABLE_SETTINGS.bigBlind)),
+        maxSeats: state.tableConfig.maxSeats.orDefault(setting(tableSettings.table.maxSeats, DEFAULT_TABLE_SETTINGS.maxSeats)),
         players: state.tableConfig.players,
         playerName: state.tableConfig.playerName.orDefault('You'),
       },
     }),
+  ],
 
   join_table: (player: unknown = ctx.joinRequest): CuratorAstNode[] =>
     table({ type: PokerTableCommand.JOIN, player }),

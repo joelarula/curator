@@ -19,12 +19,12 @@ export const humanDecision = defineSubroutine('human_decision', {
     AwaitingHumanAction.emit({ gameState }),
     ifElse(
       gameState.currentBet.sub(actor.streetBet).eq(0),
-      choice('Your turn (Check or Bet):', String(state.turn.choices), { as: turnCtx.turnAction }),
-      choice('Your turn (Call, Raise, or Fold):', String(state.turn.choices), { as: turnCtx.turnAction }),
+      choice('Your turn (Check or Bet):', state.turn.choices, { as: turnCtx.turnAction }),
+      choice('Your turn (Call, Raise, or Fold):', state.turn.choices, { as: turnCtx.turnAction }),
     ),
   ],
   // The choice is bound into state as well as context
-  returns: '$state.turnAction',
+  returns: state.turnAction,
 });
 
 /** The human seat's own script: prompts for the active seat. */

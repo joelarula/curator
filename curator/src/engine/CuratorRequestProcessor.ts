@@ -1173,12 +1173,16 @@ export class CuratorRequestProcessor {
       if (matches && target && this.identityOf(waitReq) !== target) continue;
       if (matches) {
         logger.debug(`[CuratorRequestProcessor] Waking up request ${waitReq.id} waiting for event ${eventName}`);
-        const value = opts.waitValue ? opts.waitValue(payload) : payload;
+        let value = opts.waitValue ? opts.waitValue(payload) : payload;
+        const isMultiWait = Array.isArray(ctx?.waitEvents) && ctx.waitEvents.length > 1;
+        if (isMultiWait && value && typeof value === 'object' && !Array.isArray(value) && value._eventName === undefined) {
+          value = { ...value, _eventName: eventName };
+        }
 
         const aliasKey = ctx.payloadAlias || ctx.choiceAs || ctx.as;
-        let newState = {};
+        let newState: Record<string, any> = isMultiWait ? { lastWokenEvent: eventName } : {};
         if (aliasKey) {
-           newState = { [aliasKey]: value };
+           newState = { ...newState, [aliasKey]: value };
         }
 
         const updatedContext = { ...ctx };
@@ -1187,8 +1191,11 @@ export class CuratorRequestProcessor {
         delete updatedContext.payloadAlias;
         updatedContext.__humanInputReceived__ = true;
         updatedContext.__wokenByEvent__ = eventName;
-        if (aliasKey) {
-           updatedContext[aliasKey] = value;
+        if (isMultiWait) {
+          updatedContext.lastWokenEvent = eventName;
+        }
+        if (aliasKey || isMultiWait) {
+           if (aliasKey) updatedContext[aliasKey] = value;
            updatedContext.state = { ...(updatedContext.state || {}), ...newState };
 
            await this.writeState(waitReq.conversationId, ctx?.__scope, newState);
@@ -1310,9 +1317,15 @@ export class CuratorRequestProcessor {
         // Emitted while this flow was between waits: deliver it as if it had woken us.
         logger.debug(`[CuratorRequestProcessor] Request ${req.id} consumed buffered event '${missed.eventName}' (#${missed.id}).`);
         await this.advanceEventCursor(req.id, missed.id);
-        const value = missed.payload;
-        if (ast.payloadAlias) {
-          await this.writeState(req.conversationId, this.parseContext(req.context).__scope, { [ast.payloadAlias]: value });
+        let value = missed.payload;
+        if (allEvents.length > 1 && value && typeof value === 'object' && !Array.isArray(value) && value._eventName === undefined) {
+          value = { ...value, _eventName: missed.eventName };
+        }
+        const patch: Record<string, any> = {};
+        if (allEvents.length > 1) patch.lastWokenEvent = missed.eventName;
+        if (ast.payloadAlias) patch[ast.payloadAlias] = value;
+        if (Object.keys(patch).length > 0) {
+          await this.writeState(req.conversationId, this.parseContext(req.context).__scope, patch);
         }
         await this.saveResponse(req, typeof value === 'string' ? value : JSON.stringify(value ?? {}));
         await this.completeRequest(req.id, 'COMPLETED');
@@ -1827,7 +1840,13 @@ export class CuratorRequestProcessor {
   }
 
   private isDynamicExpr(v: unknown): v is string {
-    return typeof v === 'string' && (v.startsWith('{{') || v.startsWith('$') || (v.startsWith('(') && (v.endsWith('(context)') || /\$(context|state|params)\b/.test(v))));
+    return (
+      typeof v === 'string' &&
+      (v.startsWith('{{') ||
+        v.startsWith('$') ||
+        (v.startsWith('(') && v.endsWith('(context)')) ||
+        (/^(?:\(|not\s+|!|Boolean\(|String\()/.test(v) && /\$(?:context|state|params|config|actor)\b/.test(v)))
+    );
   }
 
   /** Evaluates `$context...` / `{{ }}` / `(fn)(context)` values of an args object in the caller's context. */
@@ -3480,6 +3499,13 @@ export class CuratorRequestProcessor {
       .replace(/\bnot\s+/g, '!')
       .replace(/\s+and\s+/g, ' && ')
       .replace(/\s+or\s+/g, ' || ');
+
+    // Make property chains on $state, $context, $params, $config, $actor, and __item null-safe (`?.`)
+    // so missing intermediate objects evaluate to `undefined` instead of throwing a TypeError in the VM.
+    cleanExpr = cleanExpr.replace(
+      /(\$(?:state|context|params|config|actor|last|response)\b|__item\d*\b)((?:\??\.[a-zA-Z_$][\w$]*|\[[^\]]+\])+)/g,
+      (_match, root, chain) => `${root}${chain.replace(/\.(?=[a-zA-Z_$])/g, '?.')}`
+    );
 
     // Build sandbox: start with state keys at top level, then add well-known aliases,
     // then spread the full req.context so any named tool output (e.g. `discovery`) is accessible.
