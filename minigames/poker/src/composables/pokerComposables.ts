@@ -1,6 +1,5 @@
 import {
   seq,
-  emitEvents,
   type CuratorAstNode,
   type CuratorExpr,
   type CuratorToolCallOptions,
@@ -19,8 +18,8 @@ import {
 } from '../models/pokerContracts.ts';
 import { PokerTableCommand, type PokerTableCommandInput } from '../engine/pokerTable.ts';
 import { pokerConfig, tableSettings, setting, DEFAULT_TABLE_SETTINGS } from '../pokerConfig.ts';
+import { pokerTable } from '../plugins/pokerNodes.ts';
 import {
-  pokerTableReducer,
   pokerGetStandingsTool,
   pokerListTablesTool,
   pokerCreateTableTool,
@@ -44,12 +43,11 @@ export const pokerPredicates = {
 };
 
 /**
- * One table step: the first-class `pokerTableReducer` (Pillar 2) applies `command` to the live game state,
+ * One table step, as one `Poker_Table` node: the table reducer applies `command` to the live game state,
  * its `gameState`, `turn` and `events` land in `$state`, and the events it reports are emitted as they are.
  */
 const table = (command: CuratorExpr<PokerTableCommandInput>): CuratorAstNode[] => [
-  pokerTableReducer.reduce({ state: gameState, command }),
-  emitEvents(state.events),
+  pokerTable({ state: gameState, command }),
 ];
 
 /**

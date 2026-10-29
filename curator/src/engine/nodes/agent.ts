@@ -210,7 +210,9 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
                     conversationId: req.conversationId,
                     userId: req.userId,
                     projectId: req.projectId,
-                    prisma: ctx.prisma
+                    prisma: ctx.prisma,
+                    service: ctx.service,
+                    tryService: ctx.tryService
                   }
                 });
                 toolOutput = typeof res === 'string' ? res : JSON.stringify(res);

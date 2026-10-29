@@ -13,9 +13,11 @@ import { PokerTableShape, PokerBankrollShape } from '../models/pokerShapes.ts';
 import { pokerTableProjector } from '../services/pokerTableStore.ts';
 import { POKER_AGENT_PROFILES } from '../workflows/agentProfiles.ts';
 import { pokerTools, pokerReducers } from './pokerTools.ts';
+import { pokerNodeHandlers } from './pokerNodes.ts';
 import { resolvePokerConfig, POKER_CONFIG_NAMESPACE } from '../pokerConfig.ts';
 
 export * from './pokerTools.ts';
+export * from './pokerNodes.ts';
 
 const SCRIPT_DESCRIPTIONS: Record<string, string> = {
   [PokerModule.WORKFLOW]: 'Texas Holdem master game loop and table manager AST workflow',
@@ -90,6 +92,8 @@ export const pokerPlugin: CuratorPlugin = {
   ],
   tools: pokerTools,
   reducers: pokerReducers,
+  /** Table steps run as `Poker_Table` nodes (reducer + state + events in one request). */
+  nodeHandlers: pokerNodeHandlers,
   /** Defaults for `$config.poker`; the host layers `poker.config.json` and its options over them. */
   config: { [POKER_CONFIG_NAMESPACE]: resolvePokerConfig() },
   models: [PokerTableShape, PokerBankrollShape],

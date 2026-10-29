@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import type { CuratorToolNode } from '../engine/CuratorAst.js';
+import type { ServiceKey } from '../engine/nodes/NodeHandler.js';
 import { CuratorCoreBuilder, type CuratorExpr, type TypedPathProxy } from '../engine/builder/CuratorCoreBuilder.js';
 
 export type CuratorJsonSchema = Record<string, unknown>;
@@ -25,6 +26,9 @@ export interface CuratorToolContext {
   userId?: number | string;
   projectId?: number | string;
   prisma?: PrismaClient | any;
+  /** Host and plugin services (`defineService`); set when the tool runs inside a processor, absent for local calls. */
+  service?: <T>(key: ServiceKey<T>) => T;
+  tryService?: <T>(key: ServiceKey<T>) => T | undefined;
   [key: string]: unknown;
 }
 

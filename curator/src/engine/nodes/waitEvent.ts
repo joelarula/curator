@@ -50,7 +50,6 @@ export const waitEventNode: NodeHandler<any> = {
     }
     if (req.context?.__humanInputReceived__) {
       delete req.context.__humanInputReceived__;
-      delete req.context.__wokenByEvent__;
       // Woken by dispatchEvent: the payload is already bound to the alias in context/state.
       const received = ast.payloadAlias ? req.context[ast.payloadAlias] : req.context.input;
       await ctx.saveResponse(req, typeof received === 'string' ? received : JSON.stringify(received ?? {}));

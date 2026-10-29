@@ -306,9 +306,11 @@ test('Reactive Poker Workflow AST: Validates dynamic poker state machine workflo
   assert.equal(ast.name, 'poker_workflow');
   assert.equal(ast.main.type, 'Curator_Sequential');
   assert.equal(ast.main.name, 'poker:dynamic_engine');
-  // Dealing and settling happen inside the table reducer: the flow reaches the engine through one tool
+  // Dealing and settling happen inside the table reducer: the flow reaches the engine only through
+  // `Poker_Table` nodes (each runs the poker_table_command reducer and emits what it reports)
   const json = JSON.stringify(ast);
-  assert(json.includes('poker_table_command'));
+  assert(json.includes('"type":"Poker_Table"'));
+  assert(!json.includes('"reducer":"poker_table_command"'), 'table steps are Poker_Table nodes, not bare reduce nodes');
   for (const removed of ['poker_start_hand', 'poker_deal_street', 'poker_distribute_pots', 'poker_rotate_dealer', 'poker_check_game_over']) {
     assert(!json.includes(removed), `${removed} is no longer a workflow step`);
   }

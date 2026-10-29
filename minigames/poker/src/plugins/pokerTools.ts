@@ -5,7 +5,7 @@ import {
   type CuratorToolContext,
   CuratorAccessLevel,
 } from '../curator.ts';
-import type { CuratorHost } from '../curatorHost.ts';
+import { CuratorHostService, type CuratorHost } from '../curatorHost.ts';
 import {
   PokerTool,
   PokerReducer,
@@ -55,14 +55,13 @@ import {
 export type { PokerTableTalkParams };
 
 export interface PokerToolContext extends CuratorToolContext {
-  host?: CuratorHost;
-  toolContext?: { host?: CuratorHost };
   context?: { playerName?: string; sessionId?: string; [key: string]: unknown };
   state?: { gameState?: PokerGameState } | PokerGameState;
 }
 
+/** The running host (a service the host provides); absent when a tool runs outside a host, e.g. locally in a shell. */
 function resolveToolHost(ctx?: PokerToolContext): CuratorHost | undefined {
-  return ctx?.toolContext?.host ?? ctx?.host;
+  return ctx?.tryService?.(CuratorHostService);
 }
 
 function resolveGameState(args?: PokerGetStandingsParams, ctx?: PokerToolContext): PokerGameState | null {

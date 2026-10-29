@@ -7,6 +7,38 @@ import type { CuratorEventEmitResult, CuratorReducer } from '../CuratorContracts
 import type { DispatchEventOptions } from '../CuratorRequestProcessor.js';
 import type { ILlmProvider } from '../llm/ILlmProvider.js';
 
+/**
+ * Typed handle for a plugin-provided service (like a Bevy resource type). Keys are compared by identity,
+ * so two plugins can never collide on a name; `name` is only used in error messages.
+ */
+export interface ServiceKey<T> {
+  readonly name: string;
+  /** Type carrier only; never set. */
+  readonly __service?: T;
+}
+
+export function defineService<T>(name: string): ServiceKey<T> {
+  return Object.freeze({ name }) as ServiceKey<T>;
+}
+
+export interface ServiceBinding<T = any> {
+  key: ServiceKey<T>;
+  value: T;
+}
+
+/** Pairs a service key with its implementation, for `services` lists of plugins and processor options. */
+export function provide<T>(key: ServiceKey<T>, value: T): ServiceBinding<T> {
+  return { key, value };
+}
+
+/** Lookup of plugin / host services, shared by node handlers and maintenance systems. */
+export interface ServiceAccess {
+  /** The service bound to `key`; throws when nothing provides it. */
+  service<T>(key: ServiceKey<T>): T;
+  /** The service bound to `key`, or undefined (for optional dependencies). */
+  tryService<T>(key: ServiceKey<T>): T | undefined;
+}
+
 /** Event log, delivery and wait-cursor primitives (`ctx.events`). */
 export interface NodeEventServices {
   /** Logs an event, starts matching subscriptions and resumes matching waits. */
@@ -75,8 +107,11 @@ export interface NodeCallServices {
   astStorage: 'reference' | 'snapshot';
 }
 
-/** Engine primitives a node handler may use. Implemented by `CuratorRequestProcessor`. */
-export interface NodeContext {
+/**
+ * Engine primitives a node handler may use. Implemented by `CuratorRequestProcessor`.
+ * Built-in concerns live in focused services (`events`, `tools`, `calls`, `llm`); plugin concerns are reached with `service(key)`.
+ */
+export interface NodeContext extends ServiceAccess {
   events: NodeEventServices;
   tools: NodeToolServices;
   calls: NodeCallServices;
@@ -119,7 +154,7 @@ export interface NodeHandler<N = any> {
 }
 
 /** Engine state a maintenance system may use. */
-export interface MaintenanceContext {
+export interface MaintenanceContext extends ServiceAccess {
   prisma: any;
   now(): number;
   emit(type: string, payload: any): void;

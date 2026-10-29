@@ -14,6 +14,11 @@ import {
 import { POKER_WORKFLOW_ASTS } from '../src/session/pokerSession.ts';
 import '../src/composables/pokerComposables.ts';
 import { reduceTableTalk, resolveTalkConfig, DEFAULT_TALK_CONFIG } from '../src/engine/tableTalk.ts';
+import { pokerNodeHandlers } from '../src/plugins/pokerNodes.ts';
+
+/** The harness engine is a canned registry, not a CuratorEngine, so the plugin's node types are passed in. */
+const pokerEnv = (name: string, canned: Record<string, (args: any) => any>) =>
+  createEnv(name, canned, { nodeHandlers: pokerNodeHandlers });
 
 const MAX_DEPTH = DEFAULT_TALK_CONFIG.maxDepth;
 
@@ -64,7 +69,7 @@ const tableCommands = (env: any, type?: string) =>
   env.calls.filter((c: any) => c.reducer === 'poker_table_command' && (!type || c.args?.command?.type === type));
 
 test('Poker Deterministic Harness: Module compilation and version registration', async () => {
-  const env = await createEnv('poker_det_compile', createPokerCannedTools());
+  const env = await pokerEnv('poker_det_compile', createPokerCannedTools());
   try {
     const modules = [
       'poker_lobby',
@@ -97,7 +102,7 @@ test('Poker Deterministic Harness: Module compilation and version registration',
 
 test('Poker Deterministic Harness: poker_lobby initializes table and emits table_ready', async () => {
   const canned = createPokerCannedTools();
-  const env = await createEnv('poker_det_lobby', canned);
+  const env = await pokerEnv('poker_det_lobby', canned);
   try {
     const lobbyAst = await loadScriptAst('poker_lobby');
     const saved = await saveScript(env, 'poker_lobby', lobbyAst);
@@ -145,7 +150,7 @@ test('Poker Deterministic Harness: poker_lobby initializes table and emits table
 
 test('Poker Deterministic Harness: agent_turn executes AI decision tool and action dispatch', async () => {
   const canned = createPokerCannedTools();
-  const env = await createEnv('poker_det_agent', canned);
+  const env = await pokerEnv('poker_det_agent', canned);
   try {
     env.useLlm([
       {
@@ -200,7 +205,7 @@ test('Poker Deterministic Harness: agent_turn executes AI decision tool and acti
 test('Poker Deterministic Harness: rules systems validate and apply an intent; ambient reacts to the action', async () => {
   const turn = { seatId: 'p1', choices: [{ id: 'call', action: { type: 'CALL', amount: 20 } }, { id: 'fold', action: { type: 'FOLD' } }] };
   // The applied action keeps the seat to act, so the next intents are validated against the same choices
-  const env = await createEnv('poker_det_rules', createPokerCannedTools((command) => ({
+  const env = await pokerEnv('poker_det_rules', createPokerCannedTools((command) => ({
     turn,
     events: [{ name: 'poker:action_taken', payload: { player: 'Alice', action: command.action, summary: 'Alice acts.', gameState: cannedMockTable } }],
   })));
@@ -257,7 +262,7 @@ const talkGate = {
 };
 
 test('Poker Deterministic Harness: $config.poker reaches the table-talk gate and the chatter model', async () => {
-  const env = await createEnv('poker_det_talk_config', talkGate);
+  const env = await pokerEnv('poker_det_talk_config', talkGate);
   try {
     env.setConfig({ poker: { talk: { maxDepth: 1 }, models: { chatter: 'chatter-from-config' } } });
     await saveScript(env, 'ambient_reaction', await loadScriptAst('ambient_reaction'));
@@ -298,7 +303,7 @@ test('Poker Deterministic Harness: $config.poker reaches the table-talk gate and
 
 test('Poker Deterministic Harness: a table boots with $config.poker table settings and keeps them', async () => {
   const turn = { seatId: 'p1', choices: [{ id: 'call', action: { type: 'CALL', amount: 20 } }] };
-  const env = await createEnv('poker_det_table_settings', createPokerCannedTools(() => ({ turn })));
+  const env = await pokerEnv('poker_det_table_settings', createPokerCannedTools(() => ({ turn })));
   try {
     const { pokerComposables } = await import('../src/composables/pokerComposables.ts');
     const { resolvePokerConfig } = await import('../src/pokerConfig.ts');
@@ -329,7 +334,7 @@ test('Poker Deterministic Harness: a table boots with $config.poker table settin
 });
 
 test('Poker Deterministic Harness: table talk with an always-talking LLM ends after MAX_DEPTH lines', async () => {
-  const env = await createEnv('poker_det_table_talk', talkGate);
+  const env = await pokerEnv('poker_det_table_talk', talkGate);
   try {
     await saveScript(env, 'ambient_reaction', await loadScriptAst('ambient_reaction'));
     const { appendStatePatch } = await import('../src/curator.ts');
@@ -387,7 +392,7 @@ test('Poker Deterministic Harness: applying an action emits everything the table
     { name: 'poker:phase_settle', payload: { winnerSummary: 'Alice wins $60!', gameState: snapshot('SHOWDOWN') } },
     { name: 'poker:new_round', payload: { handNumber: 2, gameState: snapshot('PREFLOP') } },
   ];
-  const env = await createEnv('poker_det_announce', createPokerCannedTools(() => ({ events: reported })));
+  const env = await pokerEnv('poker_det_announce', createPokerCannedTools(() => ({ events: reported })));
   try {
     await saveScript(env, 'poker_rules', await loadScriptAst('poker_rules'));
     await runAst(env, { type: 'Curator_EmitEvent', eventName: 'poker:action_validated', payload: { seatId: 'p1', action: { type: 'CALL' } } });
@@ -457,7 +462,7 @@ test('Poker Typed TypeScript Workflows: All 6 modules validate and run determini
   assert.equal(ambientReactionAst.subscriptions?.length, 6);
 
   const canned = createPokerCannedTools();
-  const env = await createEnv('poker_det_ts_workflow', canned);
+  const env = await pokerEnv('poker_det_ts_workflow', canned);
   try {
     const saved = await saveScript(env, 'poker_workflow_ts', pokerWorkflowAst);
     assert.ok(saved.scriptId > 0);

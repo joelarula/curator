@@ -26,6 +26,12 @@ export const PokerReducer = {
   TABLE_TALK: 'poker_table_talk',
 } as const;
 
+/** AST node types the plugin registers (Bevy systems); they run in the workflow like built-in nodes. */
+export const PokerNodeType = {
+  /** One table step: runs the table reducer, writes its output to `$state`, then emits its events. */
+  TABLE: 'Poker_Table',
+} as const;
+
 /** Tools: everything that touches the database or the session user. */
 export const PokerTool = {
   GET_STANDINGS: 'poker_get_standings',

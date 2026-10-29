@@ -13,6 +13,8 @@ import type {
 import YAML from 'yaml';
 import { LlmFactory } from './llm/LlmFactory.js';
 import { extendCoffeeAstVerbs } from './CoffeeVerbs.js';
+import { NodeRegistry } from './nodes/NodeRegistry.js';
+import type { MaintenanceSystem, ServiceKey } from './nodes/NodeHandler.js';
 
 export type CuratorPlugin = CuratorPluginDefinition;
 
@@ -46,6 +48,12 @@ export class CuratorEngine {
   public scripts = new Map<string, CuratorScriptDefinition>();
   public agents = new Map<string, CuratorAgentDefinition | CuratorAstNode>();
   public roles = new Map<string, CuratorRoleDefinition>();
+  /** Plugin node types; processors fall back to these after their own handlers. */
+  public nodes = new NodeRegistry();
+  /** Plugin services by key (identity), reached from handlers with `ctx.service(key)`. */
+  public services = new Map<ServiceKey<any>, any>();
+  /** Plugin maintenance systems, run after each processor's own ones. */
+  public maintenanceSystems: MaintenanceSystem[] = [];
   public plugins: CuratorPlugin[] = [];
   /**
    * What workflows read as `$config`, lowest layer first: script defaults (module `config`, front matter
@@ -136,6 +144,21 @@ export class CuratorEngine {
     }
     if (plugin.vocabularies) {
       extendCoffeeAstVerbs(plugin.vocabularies);
+    }
+    // Services first, so a plugin's own node handlers and systems can rely on them.
+    // Registering the same plugin again is a no-op for these; only a different implementation conflicts.
+    for (const { key, value } of plugin.services ?? []) {
+      if (this.services.has(key) && this.services.get(key) !== value) throw new Error(`[CuratorEngine] Service '${key.name}' is already provided (plugin ${plugin.name})`);
+      this.services.set(key, value);
+    }
+    for (const handler of plugin.nodeHandlers ?? []) {
+      if (this.nodes.get(handler.type) !== handler) this.nodes.register(handler);
+    }
+    for (const system of plugin.maintenanceSystems ?? []) {
+      const existing = this.maintenanceSystems.find(s => s.name === system.name);
+      if (existing === system) continue;
+      if (existing) throw new Error(`[CuratorEngine] Maintenance system '${system.name}' is already registered (plugin ${plugin.name})`);
+      this.maintenanceSystems.push(system);
     }
     if (typeof plugin.onInit === 'function') {
       try {

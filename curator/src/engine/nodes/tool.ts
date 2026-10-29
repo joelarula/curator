@@ -89,6 +89,8 @@ export const toolNode: NodeHandler<CuratorToolNode> = {
           prisma: ctx.prisma,
           context: req.context,
           state: req.context?.state,
+          service: ctx.service,
+          tryService: ctx.tryService,
           ...(inflight?.runtimeContext || {})
         }
       });

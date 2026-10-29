@@ -13,6 +13,7 @@ import {
 import { CuratorHostEvents } from './events/CuratorHostEvents.js';
 import { seedAgentsAndTools } from './seed/seedAgentsAndTools.js';
 import { resolveHostPolicy } from './hostPolicy.js';
+import { CuratorHostService } from './hostService.js';
 import type { CuratorHost, CuratorHostConfig, SeedResult, HostRunToolOptions, HostEmitEventOptions } from './types.js';
 
 export async function createCuratorHost(config: CuratorHostConfig): Promise<CuratorHost> {
@@ -474,6 +475,8 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
       return userRoles.map((ur: any) => ur.role?.name).filter(Boolean);
     },
   };
+  processor.provideService(CuratorHostService, host);
+  /** @deprecated Read the host with `ctx.service(CuratorHostService)`; kept for tools that read `ctx.host`. */
   toolContextExtras.host = host;
 
   // 7. Seed tools, scripts, and agents if not already in database (idempotent setup)

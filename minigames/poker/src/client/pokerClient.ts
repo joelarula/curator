@@ -161,7 +161,7 @@ export async function runPokerClientUi(
     const unsubscribe = channel.on(async (event: any) => {
       const { type, payload } = event;
 
-      const extractedState = extractGameState(payload);
+      const extractedState = extractGameState<PokerGameState>(payload);
       if (extractedState) {
         currentGameState = extractedState;
       }

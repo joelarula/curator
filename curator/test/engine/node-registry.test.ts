@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { createEnv, runAst } from '../helpers/harness.ts';
 import { validateCuratorAst, unregisterAstExtensionType } from '../../src/engine/CuratorAstValidation.ts';
 import { CuratorRequestProcessor } from '../../src/engine/CuratorRequestProcessor.ts';
-import { setStateNode, reduceNode, agentNode, type NodeContext, type NodeHandler } from '../../src/engine/nodes/index.ts';
+import { setStateNode, reduceNode, agentNode, defineService, provide, type NodeContext, type NodeHandler } from '../../src/engine/nodes/index.ts';
+import { CuratorEngine } from '../../src/engine/CuratorEngine.ts';
 
 const status = async (env: any, id: number) => (await env.prisma.request.findUnique({ where: { id } })).status;
 
@@ -100,6 +101,77 @@ test('node handler: Agent runs against a fake LLM provider from ctx.llm (no regi
   assert.equal(seen[0].systemPrompt, 'Play poker.');
   assert.deepEqual(req.context.dealerBot, { move: 'fold' }, 'output is stored under the camelCased agentName');
   assert.deepEqual(calls, ['save:{"move":"fold"}', 'complete:3:COMPLETED']);
+});
+
+// A plugin in the Bevy sense: it adds a node type (system), the service it depends on (resource) and a poll pass.
+interface Bank { balance(player: string): number; withdraw(player: string, amount: number): void }
+const BankKey = defineService<Bank>('poker.bank');
+const payoutNode: NodeHandler<{ type: 'Poker_Payout'; player: string; amount: number }> = {
+  type: 'Poker_Payout',
+  async run(node, req, ctx) {
+    const bank = ctx.service(BankKey);
+    bank.withdraw(node.player, node.amount);
+    await ctx.saveResponse(req, `paid ${node.amount}, left ${bank.balance(node.player)}`);
+    await ctx.completeRequest(req.id, 'COMPLETED');
+  },
+};
+const makeBank = (start: number): Bank & { ledger: number } => ({
+  ledger: start,
+  balance() { return this.ledger; },
+  withdraw(_p, amount) { this.ledger -= amount; },
+});
+
+test('plugins: node types, services and maintenance systems contributed through registerPlugin', async () => {
+  const engine = new CuratorEngine();
+  const bank = makeBank(100);
+  const ticks: string[] = [];
+  engine.registerPlugin({
+    name: 'poker-test',
+    services: [provide(BankKey, bank)],
+    nodeHandlers: [payoutNode],
+    maintenanceSystems: [{ name: 'poker.audit', run: async (ctx) => { ticks.push(`audit:${ctx.service(BankKey).balance('p1')}`); } }],
+  });
+  const env = await createEnv('node_registry_plugin_services', {}, { engine });
+  try {
+    const { requestId } = await runAst(env, { type: 'Curator_Sequential', name: 's', subAgents: [
+      { type: 'Poker_Payout', player: 'p1', amount: 30 },
+      { type: 'Poker_Payout', player: 'p1', amount: 20 },
+    ] });
+    assert.equal(await status(env, requestId), 'COMPLETED');
+    assert.equal(bank.ledger, 50);
+    const contents = (await env.prisma.response.findMany({ orderBy: { id: 'asc' } })).map((r: any) => r.content);
+    assert.deepEqual(contents.filter((c: string) => c.startsWith('paid')), ['paid 30, left 70', 'paid 20, left 50']);
+
+    // Plugin systems join the schedule after the processor's own ones and can be disabled per processor.
+    assert.equal(env.processor.maintenanceSystems().at(-1), 'poker.audit');
+    const p = env.processor as any;
+    for (const system of p.scheduledMaintenance()) if (system.name === 'poker.audit') await system.run(p.maintenanceContext);
+    assert.deepEqual(ticks, ['audit:50'], 'plugin systems reach plugin services');
+    assert.equal(env.processor.removeMaintenanceSystem('poker.audit'), true);
+    assert.equal(env.processor.maintenanceSystems().includes('poker.audit'), false);
+    assert.deepEqual(engine.maintenanceSystems.map(s => s.name), ['poker.audit'], 'other processors keep it');
+    assert.throws(() => engine.registerPlugin({ name: 'dup', services: [provide(BankKey, makeBank(0))] }), /already provided/);
+  } finally {
+    engine.nodes.unregister('Poker_Payout');
+    await env.cleanup();
+  }
+});
+
+test('services: processor services win over plugin services; missing services fail with the key name', async () => {
+  const engine = new CuratorEngine();
+  engine.registerPlugin({ name: 'bank-plugin', services: [provide(BankKey, makeBank(100))] });
+  const hostBank = makeBank(10);
+  const processor = new CuratorRequestProcessor({}, { engine, services: [provide(BankKey, hostBank)] });
+  const ctx = (processor as any).nodeContext as NodeContext;
+  assert.equal(ctx.service(BankKey), hostBank);
+
+  const Missing = defineService<string>('poker.missing');
+  assert.equal(ctx.tryService(Missing), undefined);
+  assert.throws(() => ctx.service(Missing), /No service provides 'poker.missing'/);
+  processor.provideService(Missing, 'late');
+  assert.equal(ctx.service(Missing), 'late');
+  // Same name, different key: keys compare by identity, so plugins cannot collide.
+  assert.equal(ctx.tryService(defineService<Bank>('poker.bank')), undefined);
 });
 
 test('maintenance systems: ordered, positionable, and disableable per processor', () => {

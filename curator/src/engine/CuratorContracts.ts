@@ -3,6 +3,7 @@ import type { CuratorAstNode } from './CuratorAst.js';
 import type { CuratorTool } from '../tools/CuratorTool.js';
 import type { SemanticNodeShape } from '../services/SemanticSchemaEngine.js';
 import type { StateProjector } from './ConversationStateLog.js';
+import type { NodeHandler, ServiceBinding, MaintenanceSystem } from './nodes/NodeHandler.js';
 
 export type JsonRecord = Record<string, unknown>;
 
@@ -141,6 +142,12 @@ export interface CuratorPluginDefinition {
   mcp?: CuratorPluginMcpPolicy;
   /** Read models derived from conversation state; run inside every state event's transaction. */
   stateProjectors?: StateProjector[];
+  /** Plugin AST node types (names must not start with 'Curator_'); usable anywhere in a workflow. */
+  nodeHandlers?: NodeHandler[];
+  /** Services node handlers and maintenance systems reach with `ctx.service(key)`; build entries with `provide(key, value)`. */
+  services?: ServiceBinding[];
+  /** Passes appended (in registration order) to every processor's poll schedule. */
+  maintenanceSystems?: MaintenanceSystem[];
   onInit?: (context: any) => Promise<void> | void;
   onDestroy?: () => Promise<void> | void;
 }

@@ -22,7 +22,7 @@ import {
   graphNode, callNode, agentRefNode, actorRefNode,
   agentNode, agentOutputKey,
 } from './nodes/index.js';
-import type { NodeContext, NodeHandler, MaintenanceContext, MaintenanceSystem, InflightToolCall, ToolAccessResult, ToolRoleAccessResult } from './nodes/index.js';
+import type { NodeContext, NodeHandler, MaintenanceContext, MaintenanceSystem, InflightToolCall, ToolAccessResult, ToolRoleAccessResult, ServiceBinding, ServiceKey } from './nodes/index.js';
 // Audit trail = Request/Response rows (see AuditService for the derived read view).
 
 export interface CuratorRequestProcessorOptions {
@@ -35,7 +35,7 @@ export interface CuratorRequestProcessorOptions {
   /** Maximum nested Curator_Call depth (child mode). Default 16. */
   maxCallDepth?: number;
   /** Tool and reducer registry used for Curator_Tool / Curator_Reduce nodes and direct tool Requests. Default: the global curatorEngine. */
-  engine?: { tools: Map<string, any>; reducers?: Map<string, CuratorReducer>; config?: CuratorConfig };
+  engine?: ProcessorEngine;
   /** Non-serializable values merged into every tool's toolContext (e.g. `{ host }`). */
   toolContextExtras?: Record<string, any>;
   /** Default lifetime of an approval wait in ms (0 = never expires). Default 24h. Tool nodes may override (`approvalTtlMs`). */
@@ -46,8 +46,20 @@ export interface CuratorRequestProcessorOptions {
   now?: () => number;
   /** Additional node handlers (plugin node types, or built-in overrides). */
   nodeHandlers?: NodeHandler[];
-  /** Names of built-in maintenance systems to skip in the poll loop (e.g. ['pruneReadOnlyRequests']). */
+  /** Names of maintenance systems (built-in or plugin) to skip in the poll loop (e.g. ['pruneReadOnlyRequests']). */
   disabledMaintenance?: string[];
+  /** Host services for this processor's handlers and systems; they take precedence over plugin services. */
+  services?: ServiceBinding[];
+}
+
+/** Registries the processor reads; `curatorEngine` by default. Plugin node types, services and systems are optional. */
+export interface ProcessorEngine {
+  tools: Map<string, any>;
+  reducers?: Map<string, CuratorReducer>;
+  config?: CuratorConfig;
+  nodes?: { get(type: string): NodeHandler | undefined };
+  services?: Map<ServiceKey<any>, any>;
+  maintenanceSystems?: MaintenanceSystem[];
 }
 
 export type CuratorRequestOriginKind = 'AST' | 'REPL' | 'CLI' | 'API' | 'MCP' | 'GRAPHQL';
@@ -137,7 +149,7 @@ export class CuratorRequestProcessor {
   private maxCallDepth: number;
   /** Script version of the Request being executed; pins child Requests to the same version. */
   private execScope = new AsyncLocalStorage<{ scriptId?: number | null; scriptVersion?: number | null }>();
-  private engine: { tools: Map<string, any>; reducers?: Map<string, CuratorReducer>; config?: CuratorConfig };
+  private engine: ProcessorEngine;
   private toolContextExtras: Record<string, any>;
   /** In-process data of direct tool Requests: runtime-only inputs and the raw output/error. */
   private inflight = new Map<number, InflightToolCall>();
@@ -150,6 +162,10 @@ export class CuratorRequestProcessor {
   private nodeContext!: NodeContext;
   /** Ordered passes run at the start of every poll tick. */
   private maintenance: MaintenanceSystem[] = [];
+  /** Maintenance systems switched off for this processor (applies to plugin systems too). */
+  private disabledMaintenance = new Set<string>();
+  /** Host services for this processor (checked before the engine's plugin services). */
+  private services = new Map<ServiceKey<any>, any>();
   private maintenanceContext!: MaintenanceContext;
 
   constructor(prisma: any, options: CuratorRequestProcessorOptions = {}) {
@@ -181,12 +197,31 @@ export class CuratorRequestProcessor {
     this.maxConcurrency = explicitConcurrency ?? defaultConcurrency;
     logger.debug(`[CuratorRequestProcessor] Concurrency limit initialized to ${this.maxConcurrency} (DB Pool: ${this.poolLimit}, Reserved for Web: ${this.reserveWebConnections})`);
 
+    for (const { key, value } of options.services ?? []) this.services.set(key, value);
     this.initNodes(options.nodeHandlers ?? []);
     this.initMaintenance(options.disabledMaintenance ?? []);
   }
 
+  /** Processor services first, then plugin services registered on the engine (including later registrations). */
+  private tryService<T>(key: ServiceKey<T>): T | undefined {
+    return this.services.has(key) ? this.services.get(key) : this.engine.services?.get(key);
+  }
+
+  private service<T>(key: ServiceKey<T>): T {
+    const value = this.tryService(key);
+    if (value === undefined) throw new Error(`No service provides '${key.name}' (add it to a plugin's services or the processor's services option)`);
+    return value;
+  }
+
+  /** Binds (or replaces) a service for this processor's node handlers and maintenance systems. */
+  public provideService<T>(key: ServiceKey<T>, value: T) {
+    this.services.set(key, value);
+  }
+
   private initNodes(extra: NodeHandler[]) {
     this.nodeContext = {
+      service: (key) => this.service(key),
+      tryService: (key) => this.tryService(key),
       events: {
         dispatch: (eventName, payload, req, targetAgentId, opts) => this.dispatchEvent(eventName, payload, req, targetAgentId, opts),
         addOrigin: (payload, req) => this.addEventOrigin(payload, req),
@@ -229,7 +264,7 @@ export class CuratorRequestProcessor {
       resolveHandler: (handler, req) => this.resolveHandler(handler, req),
     };
 
-    // Extracted handlers (engine/nodes/*) plus built-ins still implemented as methods below.
+    // Built-in node types; plugin types registered on the engine are looked up after these (see processRequest).
     const builtins: NodeHandler[] = [
       sequentialNode, parallelNode, joinNode, routeNode, scriptNode, setStateNode, assignNode, ifElseNode, whileNode, loopNode, forEachNode,
       interruptNode, emitEventNode, emitEventsNode, subscribeNode, unsubscribeNode, waitEventNode, humanInputNode, toolNode, reduceNode,
@@ -245,7 +280,14 @@ export class CuratorRequestProcessor {
   }
 
   private initMaintenance(disabled: string[]) {
-    this.maintenanceContext = { prisma: this.prisma, now: () => this.clock(), emit: (type, payload) => this.emit(type, payload) };
+    this.maintenanceContext = {
+      prisma: this.prisma,
+      now: () => this.clock(),
+      emit: (type, payload) => this.emit(type, payload),
+      service: (key) => this.service(key),
+      tryService: (key) => this.tryService(key),
+    };
+    this.disabledMaintenance = new Set(disabled);
     const builtins: MaintenanceSystem[] = [
       { name: 'unlockStaleRequests', run: () => this.unlockStaleRequests() },
       { name: 'pollScheduledAgents', run: () => this.pollScheduledAgents() },
@@ -254,7 +296,14 @@ export class CuratorRequestProcessor {
       { name: 'pruneReadOnlyRequests', run: async () => { await this.pruneReadOnlyRequests(); } },
       { name: 'resumeUserResponses', run: () => this.resumeUserRespondedRequests() },
     ];
-    this.maintenance = builtins.filter(s => !disabled.includes(s.name));
+    this.maintenance = builtins.filter(s => !this.disabledMaintenance.has(s.name));
+  }
+
+  /** This processor's systems, then the engine's plugin systems, minus disabled ones. */
+  private scheduledMaintenance(): MaintenanceSystem[] {
+    const own = new Set(this.maintenance.map(s => s.name));
+    const plugin = (this.engine.maintenanceSystems ?? []).filter(s => !own.has(s.name) && !this.disabledMaintenance.has(s.name));
+    return [...this.maintenance, ...plugin];
   }
 
   /**
@@ -270,14 +319,16 @@ export class CuratorRequestProcessor {
     else this.maintenance.splice(position.before ? idx : idx + 1, 0, system);
   }
 
+  /** Removes a system from this processor's schedule (a plugin system is disabled for this processor). */
   public removeMaintenanceSystem(name: string): boolean {
-    const before = this.maintenance.length;
+    const scheduled = this.scheduledMaintenance().some(s => s.name === name);
     this.maintenance = this.maintenance.filter(s => s.name !== name);
-    return this.maintenance.length !== before;
+    this.disabledMaintenance.add(name);
+    return scheduled;
   }
 
   public maintenanceSystems(): string[] {
-    return this.maintenance.map(s => s.name);
+    return this.scheduledMaintenance().map(s => s.name);
   }
 
   private emit(type: string, payload: any) {
@@ -758,7 +809,7 @@ export class CuratorRequestProcessor {
       }
 
       // Maintenance systems, in order (see initMaintenance / registerMaintenanceSystem).
-      for (const system of this.maintenance) await system.run(this.maintenanceContext);
+      for (const system of this.scheduledMaintenance()) await system.run(this.maintenanceContext);
 
       // 2. Check available concurrency capacity before taking new tasks
       const availableSlots = this.getAvailableConcurrencySlots();
@@ -1048,7 +1099,7 @@ export class CuratorRequestProcessor {
           return;
         }
 
-        const handler = this.nodes.get(ast.type);
+        const handler = this.nodes.get(ast.type) ?? this.engine.nodes?.get(ast.type);
         if (!handler) {
           logger.warn(`[CuratorRequestProcessor] Request ${req.id} has unknown AST type: ${(ast as any).type}. Skipping.`);
           await this.saveResponse(req, `ERROR: unknown AST type '${(ast as any).type}'`);
@@ -1214,7 +1265,6 @@ export class CuratorRequestProcessor {
         delete updatedContext.waitEvents;
         delete updatedContext.payloadAlias;
         updatedContext.__humanInputReceived__ = true;
-        updatedContext.__wokenByEvent__ = eventName;
         if (isMultiWait) {
           updatedContext.lastWokenEvent = eventName;
         }
