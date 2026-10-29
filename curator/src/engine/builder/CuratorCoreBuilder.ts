@@ -644,9 +644,6 @@ export class CuratorCoreBuilder {
    * Supports whole-object closure (ctx) => ({ ... }) or object with closure properties.
    */
   static setState<T = any>(stateOrFn: Record<string, any> | ((ctx: T) => Partial<T> | Record<string, any>)): CuratorSetStateNode {
-    if (typeof stateOrFn === 'function') {
-      return { type: CuratorNodeType.SetState, state: `(${stateOrFn.toString()})(context)` };
-    }
     return { type: CuratorNodeType.SetState, state: serializeClosure(stateOrFn) };
   }
 

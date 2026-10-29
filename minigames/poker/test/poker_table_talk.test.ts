@@ -13,7 +13,8 @@ import {
   type TableTalkState,
   type TableTalkCommandInput,
 } from '../src/engine/tableTalk.ts';
-import { resolvePokerTalkConfig } from '../src/pokerConfig.ts';
+import { fileURLToPath } from 'node:url';
+import { resolvePokerTalkConfig, resolvePokerConfig, DEFAULT_TABLE_SETTINGS, DEFAULT_SEAT_MODEL } from '../src/pokerConfig.ts';
 import { loadPokerConfigFile } from '../src/env.ts';
 
 const { maxDepth: MAX_DEPTH, handBudget: HAND_BUDGET, humanRepliesPerWindow: HUMAN_REPLIES_PER_WINDOW, lockTtl: LOCK_TTL } = DEFAULT_TALK_CONFIG;
@@ -207,8 +208,25 @@ test('table talk config: poker.config.json is read from an explicit path', () =>
     assert.equal(talk.handBudget, 6);
     assert.equal(talk.seatChattiness.barnaby, 0.95);
     fs.writeFileSync(file, '{ not json');
-    assert.throws(() => loadPokerConfigFile(file), /Invalid poker config/);
+    assert.throws(() => loadPokerConfigFile(file), /Invalid config file/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('poker config: poker.config.yaml is read, and the shipped one equals the built-in defaults', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'poker-config-'));
+  const file = path.join(dir, 'poker.config.yaml');
+  fs.writeFileSync(file, ['table:', '  startingChips: 500', 'rules:', '  maxTurnRejections: 0', 'models:', '  chatter: small-model', ''].join('\n'));
+  try {
+    const resolved = resolvePokerConfig(loadPokerConfigFile(file));
+    assert.deepEqual(resolved.table, { ...DEFAULT_TABLE_SETTINGS, startingChips: 500 });
+    assert.equal(resolved.rules.maxTurnRejections, 0, '0 is a value, not a missing one');
+    assert.deepEqual(resolved.models, { seat: DEFAULT_SEAT_MODEL, chatter: 'small-model' });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  const shipped = fileURLToPath(new URL('../poker.config.yaml', import.meta.url));
+  assert.deepEqual(resolvePokerConfig(loadPokerConfigFile(shipped)), resolvePokerConfig(), 'poker.config.yaml documents the defaults');
 });

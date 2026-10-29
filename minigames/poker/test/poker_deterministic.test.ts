@@ -296,6 +296,38 @@ test('Poker Deterministic Harness: $config.poker reaches the table-talk gate and
   }
 });
 
+test('Poker Deterministic Harness: a table boots with $config.poker table settings and keeps them', async () => {
+  const turn = { seatId: 'p1', choices: [{ id: 'call', action: { type: 'CALL', amount: 20 } }] };
+  const env = await createEnv('poker_det_table_settings', createPokerCannedTools(() => ({ turn })));
+  try {
+    const { pokerComposables } = await import('../src/composables/pokerComposables.ts');
+    const { resolvePokerConfig } = await import('../src/pokerConfig.ts');
+    const { appendStatePatch, stateAt } = await import('../src/curator.ts');
+    env.setConfig({ poker: resolvePokerConfig({ table: { startingChips: 500, bigBlind: 50 }, rules: { maxTurnRejections: 0 } }) });
+
+    // The run sets only its table id and small blind; everything else comes from the table settings
+    await appendStatePatch(env.prisma, env.conversationId, { set: { tableConfig: { tableId: 'cfg_table', sbAmount: 25 } } });
+    await runAst(env, { type: 'Curator_Sequential', name: 'boot', subAgents: pokerComposables.boot_table() });
+    const boot = tableCommands(env, 'boot')[0]?.args.command.config;
+    assert.deepEqual(
+      { startingChips: boot?.startingChips, sbAmount: boot?.sbAmount, bbAmount: boot?.bbAmount, maxSeats: boot?.maxSeats },
+      { startingChips: 500, sbAmount: 25, bbAmount: 50, maxSeats: 6 },
+    );
+    assert.equal((await stateAt(env.prisma, env.conversationId)).tableSettings?.rules?.maxTurnRejections, 0, 'settings copied at boot');
+
+    // Changing the host config later does not change the running table: it still rejects nothing
+    env.setConfig({ poker: resolvePokerConfig({ rules: { maxTurnRejections: 5 } }) });
+    await saveScript(env, 'poker_rules', await loadScriptAst('poker_rules'));
+    await appendStatePatch(env.prisma, env.conversationId, {
+      set: { tablePhase: 'SUBMIT', turn, gameState: { ...cannedMockTable, tableId: 'cfg_table' } },
+    });
+    await runAst(env, { type: 'Curator_EmitEvent', eventName: 'poker:action_intent', payload: { seatId: 'p1', action: { type: 'CHECK' } } });
+    assert.equal(tableCommands(env, 'act').length, 1, 'maxTurnRejections 0: the illegal intent is coerced at once');
+  } finally {
+    await env.cleanup();
+  }
+});
+
 test('Poker Deterministic Harness: table talk with an always-talking LLM ends after MAX_DEPTH lines', async () => {
   const env = await createEnv('poker_det_table_talk', talkGate);
   try {
