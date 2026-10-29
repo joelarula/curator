@@ -1,5 +1,5 @@
-import { defineTool, type CuratorPluginDefinition } from '@curator/agent-server';
-import type { CuratorHost } from '@curator/host';
+import { defineTool, type CuratorPluginDefinition, type CuratorToolContext } from '@curator/agent-server';
+import { CuratorHostService, type CuratorHost } from '@curator/host';
 
 export interface McpOrchestrationPluginOptions {
   host?: CuratorHost;
@@ -8,6 +8,8 @@ export interface McpOrchestrationPluginOptions {
 
 export function mcpOrchestrationPlugin(options: McpOrchestrationPluginOptions): CuratorPluginDefinition {
   const { host, prisma } = options;
+  /** The host running the tool (its service), else the one this plugin was created with. */
+  const resolveHost = (ctx: CuratorToolContext): CuratorHost | undefined => ctx.tryService?.(CuratorHostService) ?? host;
 
   const trigger_agent = defineTool({
     name: 'trigger_agent',
@@ -23,7 +25,7 @@ export function mcpOrchestrationPlugin(options: McpOrchestrationPluginOptions): 
       required: ['name'],
     },
     execute: async (args, ctx) => {
-      const activeHost = (ctx.host as CuratorHost) || host;
+      const activeHost = resolveHost(ctx);
       if (!activeHost) {
         throw new Error('CuratorHost instance is required to trigger agents');
       }
@@ -129,7 +131,7 @@ export function mcpOrchestrationPlugin(options: McpOrchestrationPluginOptions): 
       required: ['requestId'],
     },
     execute: async (args, ctx) => {
-      const activeHost = (ctx.host as CuratorHost) || host;
+      const activeHost = resolveHost(ctx);
       if (!activeHost) throw new Error('CuratorHost instance is required to pause requests');
       const requestId = Number(args.requestId);
       const paused = await activeHost.pauseRequest(requestId);
@@ -150,7 +152,7 @@ export function mcpOrchestrationPlugin(options: McpOrchestrationPluginOptions): 
       required: ['requestId'],
     },
     execute: async (args, ctx) => {
-      const activeHost = (ctx.host as CuratorHost) || host;
+      const activeHost = resolveHost(ctx);
       if (!activeHost) throw new Error('CuratorHost instance is required to resume requests');
       const requestId = Number(args.requestId);
       const resumed = await activeHost.resumeRequest(requestId);

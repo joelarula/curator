@@ -91,7 +91,7 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
   const events = new CuratorHostEvents();
 
   // 5. Instantiate RequestProcessor
-  // `host` is attached after construction (the processor keeps this object by reference).
+  // The host itself reaches tools as a service (`CuratorHostService`), provided once it is built.
   const toolContextExtras: Record<string, any> = config.domainDb ? { domainDb: config.domainDb } : {};
   const processor = new (CuratorRequestProcessor as any)(prisma, {
     astStorage: policy.astStorage,
@@ -476,8 +476,6 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
     },
   };
   processor.provideService(CuratorHostService, host);
-  /** @deprecated Read the host with `ctx.service(CuratorHostService)`; kept for tools that read `ctx.host`. */
-  toolContextExtras.host = host;
 
   // 7. Seed tools, scripts, and agents if not already in database (idempotent setup)
   if (config.autoSeed !== false) {
