@@ -28,9 +28,20 @@ import {
   type CuratorGraphTransition,
   type CuratorActorRefNode,
 } from '../CuratorAst.js';
-import { toVarName, type TypedPathProxy, createContextProxy, isPathProxy, not, and, or, eq } from './CuratorProxy.js';
+import {
+  toVarName,
+  type TypedPathProxy,
+  createContextProxy,
+  createCallbackContextProxy,
+  isPathProxy,
+  containsPathProxy,
+  not,
+  and,
+  or,
+  eq,
+} from './CuratorProxy.js';
 
-export { CuratorNodeType, toVarName, createContextProxy, isPathProxy, type TypedPathProxy };
+export { CuratorNodeType, toVarName, createContextProxy, createCallbackContextProxy, isPathProxy, type TypedPathProxy };
 
 /**
  * Converts a string (e.g. 'PokerAgent', 'poker-agent', 'poker_agent') to camelCase.
@@ -43,29 +54,54 @@ export function toCamelCase(str?: string): string {
 }
 
 /**
- * Recursively serializes JavaScript functions to `(${fn.toString()})(context)` for AST runtime evaluation.
- * If the value is a TypedPathProxy, returns its expression path string directly.
+ * Recursively serializes JavaScript functions to `(${fn.toString()})(context)` for AST runtime evaluation,
+ * or resolves callbacks that return `TypedPathProxy` trees directly into declarative AST paths.
  */
-export function serializeClosure(val: any): any {
+export function serializeClosure(val: any, defaultRoot = '$context'): any {
   if (isPathProxy(val)) {
     return String(val);
   }
   if (typeof val === 'function') {
+    try {
+      const probe = val(createCallbackContextProxy(defaultRoot));
+      if (isPathProxy(probe)) {
+        return String(probe);
+      }
+      if (
+        probe &&
+        typeof probe === 'object' &&
+        containsPathProxy(probe) &&
+        !val.toString().includes('randomUUID') &&
+        !val.toString().includes('Date.')
+      ) {
+        return serializeClosure(probe, defaultRoot);
+      }
+    } catch (_) {
+      // Fall back to runtime closure serialization
+    }
     return `(${val.toString()})(context)`;
   }
   if (val && typeof val === 'object' && !Array.isArray(val) && !(val instanceof RegExp) && !(val instanceof Date)) {
     const res: Record<string, any> = {};
     for (const [k, v] of Object.entries(val)) {
-      res[k] = serializeClosure(v);
+      res[k] = serializeClosure(v, defaultRoot);
     }
     return res;
   }
   return val;
 }
 
-export function serializeExpr(expr: unknown): string {
+export function serializeExpr(expr: unknown, defaultRoot = '$context'): string {
   if (isPathProxy(expr)) return String(expr);
-  if (typeof expr === 'function') return `(${expr.toString()})(context)`;
+  if (typeof expr === 'function') {
+    try {
+      const probe = (expr as (c: any) => unknown)(createCallbackContextProxy(defaultRoot));
+      if (isPathProxy(probe)) return String(probe);
+    } catch (_) {
+      // Fall back to runtime closure serialization
+    }
+    return `(${expr.toString()})(context)`;
+  }
   return String(expr);
 }
 
@@ -299,17 +335,21 @@ export class CuratorCoreBuilder {
    * Dispatch to the handler registered for the actor's kind (Bevy `register_agent_system`).
    * The handler subroutine receives the actor as `$params.actor`; its result lands under `as`.
    */
-  static actorRef<TContext = any>(
-    actor: string | TypedPathProxy<any> | any,
+  static actorRef<TActor = any>(
+    actor: string | TypedPathProxy<TActor> | any,
     handlers: Record<string, string | { ref: string }>,
-    options: { kind?: string | TypedPathProxy<any> | ((ctx: TContext & { $actor: any }) => string); args?: Record<string, any>; as?: string | TypedPathProxy<any> | any } = {}
+    options: {
+      kind?: string | TypedPathProxy<any> | ((actor: TypedPathProxy<TActor> & { $actor: any }) => string | TypedPathProxy<any>);
+      args?: Record<string, any>;
+      as?: string | TypedPathProxy<any> | any;
+    } = {}
   ): CuratorActorRefNode {
     const node: CuratorActorRefNode = {
       type: CuratorNodeType.ActorRef,
       actor: String(actor),
       handlers: Object.fromEntries(Object.entries(handlers).map(([kind, h]) => [kind, typeof h === 'string' ? h : h.ref])),
     };
-    if (options.kind) node.kind = serializeExpr(options.kind);
+    if (options.kind) node.kind = serializeExpr(options.kind, '$actor');
     if (options.args) node.args = options.args;
     if (options.as) node.as = toVarName(options.as);
     return node;
@@ -454,6 +494,8 @@ export class CuratorCoreBuilder {
         subroutines?: Record<string, CuratorSubroutine | TypedSubroutine> | TypedSubroutine[];
         subscriptions?: CuratorSubscribeNode[];
         description?: string;
+        /** Configuration defaults, keyed by namespace; workflows read them as `$config.<namespace>`. */
+        config?: Record<string, any>;
       },
     maybeSetup?: () => CuratorAstNode | CuratorAstNode[] | any
   ): CuratorModuleNode {
@@ -484,6 +526,7 @@ export class CuratorCoreBuilder {
         name,
         ...(scope.description ? { description: scope.description } : {}),
         ...(scope.params ? { params: scope.params } : {}),
+        ...(meta.config ? { config: meta.config } : {}),
         main: mainNode,
         ...(Object.keys(scope.subroutines).length > 0 ? { subroutines: scope.subroutines } : {}),
         ...(scope.subscriptions.length > 0 ? { subscriptions: scope.subscriptions } : {}),
@@ -854,8 +897,11 @@ export function defineReducer<TArgs extends Record<string, any> = Record<string,
 /** Typed event handle (Bevy `Message`): one name, one payload shape, used to emit, wait and subscribe. */
 export interface CuratorEventDef<P extends Record<string, any> = Record<string, any>> {
   readonly name: string;
-  /** Payload fields are checked against P; values may be expressions. */
-  emit(payload?: { [K in keyof P]?: CuratorExpr<P[K]> } | ((ctx: any) => Partial<P>), target?: number | string | ((ctx: any) => number | string)): CuratorEmitEventNode;
+  /** Payload fields are checked against P; values may be expressions or a TypedPathProxy<P>. */
+  emit(
+    payload?: { [K in keyof P]?: CuratorExpr<P[K]> } | TypedPathProxy<P> | ((ctx: any) => Partial<P>),
+    target?: number | string | ((ctx: any) => number | string)
+  ): CuratorEmitEventNode;
   wait(as?: string | TypedPathProxy<any>, options?: { timeoutSeconds?: number; replay?: boolean; onTimeout?: CuratorAstNode }): CuratorWaitEventNode;
   /** Registers `handler` (a subroutine or inline `(payload) => ...` callback) for this event in the enclosing module. */
   on(
@@ -864,6 +910,8 @@ export interface CuratorEventDef<P extends Record<string, any> = Record<string, 
   ): CuratorSubscribeNode;
   /** Typed view of the payload inside a handler: `$params.<as>`. */
   payload(as?: string): TypedPathProxy<P>;
+  /** True when a raced `waitAnyEvent` / `raceEvents` result was woken by this event. */
+  is(raceResult?: TypedPathProxy<any> | string): TypedPathProxy<boolean>;
   toString(): string;
 }
 
@@ -874,6 +922,10 @@ export function defineEvent<P extends Record<string, any> = Record<string, any>>
     wait: (as, options) => CuratorCoreBuilder.waitEvent(name, as, options),
     on: (handler, options) => onEvent<P>(name, handler, options),
     payload: (as = 'event') => createContextProxy<P>(`$params.${as}`),
+    is: (raceResult) =>
+      raceResult
+        ? createContextProxy<boolean>(`((${raceResult} && ${raceResult}._eventName == '${name}') || $state.lastWokenEvent == '${name}')`)
+        : createContextProxy<boolean>(`($state.lastWokenEvent == '${name}')`),
     toString: () => name,
   };
 }
@@ -888,7 +940,9 @@ export interface CuratorTrigger {
 export interface CuratorStates<S extends string = string> {
   readonly key: string;
   /** Run condition: the machine is currently in one of `states`. */
-  in(...states: S[]): string;
+  in(...states: S[]): TypedPathProxy<boolean>;
+  /** Run condition: the machine is NOT currently in any of `states`. */
+  notIn(...states: S[]): TypedPathProxy<boolean>;
   /** Trigger: `state` was entered (Bevy `OnEnter`). */
   entered(state: S): CuratorTrigger;
   /** Trigger: `state` was left (Bevy `OnExit`). */
@@ -900,9 +954,12 @@ export interface CuratorStates<S extends string = string> {
 
 export function defineStates<S extends string>(key: string, _states?: Record<string, S>): CuratorStates<S> {
   const changed = defineEvent<{ from: S | null; to: S | '__end__' }>(`state:${key}`);
+  const inFn = (...states: S[]): TypedPathProxy<boolean> =>
+    createContextProxy<boolean>(`(${states.map((s) => `$state.${key} == '${s}'`).join(' or ')})`);
   return {
     key,
-    in: (...states) => `(${states.map((s) => `$state.${key} == '${s}'`).join(' or ')})`,
+    in: inFn,
+    notIn: (...states) => inFn(...states).not(),
     entered: (state) => ({ name: changed.name, when: `event.to == '${state}'` }),
     exited: (state) => ({ name: changed.name, when: `event.from == '${state}'` }),
     changed,
@@ -927,9 +984,7 @@ export interface CuratorSystemSpec<P extends Record<string, any> = Record<string
  */
 export function system<P extends Record<string, any> = Record<string, any>>(spec: CuratorSystemSpec<P>): CuratorSubscribeNode {
   const trigger: CuratorTrigger = typeof spec.on === 'string' ? { name: spec.on } : spec.on;
-  const runIf = typeof spec.runIf === 'function' && !isPathProxy(spec.runIf)
-    ? `(${spec.runIf.toString()})(context)`
-    : spec.runIf ? String(spec.runIf) : undefined;
+  const runIf = spec.runIf ? serializeExpr(spec.runIf) : undefined;
   const when = [trigger.when, runIf].filter(Boolean).map((c) => `(${c})`).join(' and ');
   return onEvent<P>(trigger.name, spec.run, {
     ...(spec.as ? { as: spec.as } : {}),

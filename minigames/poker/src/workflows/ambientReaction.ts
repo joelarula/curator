@@ -9,7 +9,7 @@
  * Table talk as systems: speech, salient actions and showdowns go through the table-talk gate
  * (`pokerTableTalkReducer`, engine/tableTalk.ts). When it cues a seat, `speak_chatter` lets that seat's persona
  * say one line (or nothing). The line is a `Speech` one level deeper, so it can feed the gate again until
- * `MAX_DEPTH`; the gate, not the LLM, decides whether talk goes on.
+ * the configured `maxDepth` (`$config.poker.talk`); the gate, not the LLM, decides whether talk goes on.
  */
 import {
   defineModule,
@@ -24,7 +24,6 @@ import {
 import { pokerComposables } from '../composables/pokerComposables.ts';
 import { state, gameState, ifElse, setState } from '../models/pokerContext.ts';
 import {
-  PokerSpeechAct,
   PokerSpeechOrigin,
   PokerTablePhase,
   PokerActionType,
@@ -32,11 +31,11 @@ import {
 import {
   Speech, ActionTaken, PhaseSettle, NewRound, ChatterCue, ChatterDone, TablePhase,
 } from '../models/pokerEvents.ts';
-import { DEFAULT_TALK_CONFIG, PokerChatterMode, TableTalkCommand, type TableTalkState } from '../engine/tableTalk.ts';
+import { PokerChatterMode, TableTalkCommand, type TableTalkState } from '../engine/tableTalk.ts';
 import { pokerTableTalkReducer } from '../plugins/pokerTools.ts';
-import { SEAT_MODEL, SEAT_HISTORY_EVENTS, seatPersona, seatView } from './agentTurn.ts';
+import { pokerConfig } from '../pokerConfig.ts';
+import { CHATTER_MODEL, SEAT_HISTORY_EVENTS, seatPersona, seatView } from './agentTurn.ts';
 
-const MAX_DEPTH = DEFAULT_TALK_CONFIG.maxDepth;
 const { modules } = pokerComposables;
 
 /** This flow's own copies: the gate step it ran and the line its seat came up with. */
@@ -48,7 +47,8 @@ const local: TypedPathProxy<{ talk: TableTalkState; chatter: { say?: string } }>
  */
 const talkStep = (command: Record<string, unknown>) => [
   pokerTableTalkReducer.reduce(
-    { talk: state.talk, gameState, command: command as any },
+    // `?.`: hosts and harnesses without poker config fall back to the gate's defaults
+    { talk: state.talk, gameState, command: command as any, config: `${pokerConfig}?.talk` as any },
     { as: 'talk', spread: false }
   ),
   ifElse(local.talk.cue.isTruthy(), [CuratorBuilder.emitEvent(ChatterCue, String(local.talk.cue))]),
@@ -116,7 +116,7 @@ export const POKER_CHATTER_PROTOCOL = [
 export const chatter_line = () => CuratorBuilder.agent({
   agentName: 'PokerAgent',
   as: 'chatter',
-  model: SEAT_MODEL,
+  model: CHATTER_MODEL,
   provider: 'gemini',
   instruction: [seatPersona(), POKER_CHATTER_PROTOCOL].join('\n\n'),
   prompt: [
@@ -172,14 +172,14 @@ export const speakChatter = defineSubroutine('speak_chatter', [
 ], { params: { cue: { type: 'object' } } });
 
 const tableLive = `!${TablePhase.in(PokerTablePhase.PAUSED, PokerTablePhase.EXITED, PokerTablePhase.GAME_OVER)}`;
-const answerable = speech.depth.orDefault(0).lt(MAX_DEPTH).and(speech.speechAct.ne(PokerSpeechAct.MONOLOGUE));
 const salientAction = `['${PokerActionType.FOLD}', '${PokerActionType.ALL_IN}', '${PokerActionType.RAISE}', 'BET']`
   + `.includes(String((${action.action} && ${action.action}.type) || ${action.action}).toUpperCase())`;
 
 export const ambientReactionAst: CuratorModuleNode = defineModule(modules.AMBIENT_REACTION, {
   description: 'Table talk: the gate decides who chats, the cued seat finds the words',
 }, () => {
-  system({ on: Speech, runIf: `${tableLive} && ${answerable}`, run: onTableSpeech, as: 'speechEvt' });
+  // Every line goes through the gate: it alone applies the configured depth, budget and locks
+  system({ on: Speech, runIf: tableLive, run: onTableSpeech, as: 'speechEvt' });
   system({ on: ActionTaken, runIf: `${tableLive} && ${salientAction}`, run: onTableAction, as: 'actionEvt' });
   system({ on: PhaseSettle, runIf: tableLive, run: onTableSettle, as: 'settleEvt' });
   system({ on: NewRound, run: onTalkNewHand, as: 'roundEvt' });

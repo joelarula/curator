@@ -13,7 +13,7 @@ import {
 } from '../../../curator/test/helpers/harness.ts';
 import { POKER_WORKFLOW_ASTS } from '../src/session/pokerSession.ts';
 import '../src/composables/pokerComposables.ts';
-import { reduceTableTalk, DEFAULT_TALK_CONFIG } from '../src/engine/tableTalk.ts';
+import { reduceTableTalk, resolveTalkConfig, DEFAULT_TALK_CONFIG } from '../src/engine/tableTalk.ts';
 
 const MAX_DEPTH = DEFAULT_TALK_CONFIG.maxDepth;
 
@@ -251,10 +251,53 @@ test('Poker Deterministic Harness: rules systems validate and apply an intent; a
   }
 });
 
+/** The table-talk gate as the plugin registers it: `$config.poker.talk` arrives as `config`. */
+const talkGate = {
+  poker_table_talk: (args: any) => reduceTableTalk(args.talk, args.gameState, args.command, resolveTalkConfig(args.config || undefined)) as any,
+};
+
+test('Poker Deterministic Harness: $config.poker reaches the table-talk gate and the chatter model', async () => {
+  const env = await createEnv('poker_det_talk_config', talkGate);
+  try {
+    env.setConfig({ poker: { talk: { maxDepth: 1 }, models: { chatter: 'chatter-from-config' } } });
+    await saveScript(env, 'ambient_reaction', await loadScriptAst('ambient_reaction'));
+    const { appendStatePatch } = await import('../src/curator.ts');
+    await appendStatePatch(env.prisma, env.conversationId, {
+      set: {
+        tablePhase: 'BETTING',
+        gameState: {
+          tableId: 'table_talk_config',
+          players: [
+            { id: 'hero', name: 'You (Hero)', isHuman: true },
+            { id: 'viper', name: 'Viper (Shark)', persona: 'shark' },
+            { id: 'maddog', name: 'MadDog (Maniac)', persona: 'maniac' },
+          ],
+        },
+      },
+    });
+    const llm = env.useLlm(() => JSON.stringify({ say: 'Viper, MadDog - answer me!' }));
+
+    await runAst(env, {
+      type: 'Curator_EmitEvent',
+      eventName: 'poker:speech',
+      payload: { speakerId: 'hero', speakerName: 'You', text: 'MadDog, you are bluffing', speechAct: 'TABLE_TALK' },
+    });
+
+    const reducerConfigs = env.calls.filter((c: any) => c.reducer === 'poker_table_talk').map((c: any) => c.args.config);
+    assert.ok(reducerConfigs.length > 0 && reducerConfigs.every((c: any) => c?.maxDepth === 1), 'the gate gets $config.poker.talk');
+    const lines = (await env.prisma.eventLog.findMany({ where: { eventName: 'poker:speech' }, orderBy: { id: 'asc' } }))
+      .map((e: any) => (typeof e.payload === 'string' ? JSON.parse(e.payload) : e.payload))
+      .filter((p: any) => p.origin === 'chatter');
+    assert.deepEqual(lines.map((p: any) => p.depth), [1], 'maxDepth 1: one answer, no comeback');
+    assert.equal(llm.requests.length, 1);
+    assert.equal(llm.requests[0]?.model, 'chatter-from-config', 'the chatter model comes from $config.poker.models');
+  } finally {
+    await env.cleanup();
+  }
+});
+
 test('Poker Deterministic Harness: table talk with an always-talking LLM ends after MAX_DEPTH lines', async () => {
-  const env = await createEnv('poker_det_table_talk', {
-    poker_table_talk: (args: any) => reduceTableTalk(args.talk, args.gameState, args.command) as any,
-  });
+  const env = await createEnv('poker_det_table_talk', talkGate);
   try {
     await saveScript(env, 'ambient_reaction', await loadScriptAst('ambient_reaction'));
     const { appendStatePatch } = await import('../src/curator.ts');

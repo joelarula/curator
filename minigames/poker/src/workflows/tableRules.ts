@@ -28,7 +28,9 @@ export const MAX_TURN_REJECTIONS = 2;
 const rejections = state.turnRejections.orDefault(0);
 
 // The table reducer keeps the deciding seat's legal choices in `$state.turn`
-const isLegal = `(${state.turn}.choices || []).some((c) => c.action && c.action.type == (${intent.action}.type || ${intent.action}))`;
+const isLegal = state.turn.choices.some((c) =>
+  c.action.and(c.action.type.eq(intent.action.type.orDefault(intent.action)))
+);
 
 /**
  * Accepts the intent when its action type is among the seat's legal choices. An illegal one goes back
@@ -41,7 +43,7 @@ export const validateAction = defineSubroutine('validate_action', [
     ifElse(
       rejections.lt(MAX_TURN_REJECTIONS),
       [
-        setState({ turnRejections: `{{${rejections.add(1)}}}` }),
+        setState({ turnRejections: rejections.add(1) }),
         ActionRejected.emit({ seatId: intent.seatId, action: intent.action, reason: 'illegal action' }),
         ActionResolved.emit({ seatId: intent.seatId, accepted: false, reason: 'illegal action' }),
       ],

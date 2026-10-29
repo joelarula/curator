@@ -1,3 +1,5 @@
+export type ElemOf<T> = T extends ReadonlyArray<infer U> ? U : any;
+
 /**
  * Fluent expression & condition builder methods available on every `TypedPathProxy<T>`.
  * Brings Rust/Bevy-style ergonomic sugar to Curator AST expressions while preserving
@@ -9,7 +11,7 @@ export interface ProxyExprMethods<T> {
   valueOf(): string;
   toJSON(): string;
   /** Dynamic or static index access into an array/collection proxy: `$arr[$idx]` with element type inference. */
-  at(index: number | string | TypedPathProxy<any>): TypedPathProxy<T extends Array<infer U> ? U : any>;
+  at(index: number | string | TypedPathProxy<any>): TypedPathProxy<ElemOf<T>>;
   /** Equality check: `($path == value)` */
   eq(value: T | TypedPathProxy<any> | string | number | boolean | null): TypedPathProxy<boolean>;
   /** Inequality check: `($path != value)` */
@@ -34,10 +36,22 @@ export interface ProxyExprMethods<T> {
   or(other: unknown): TypedPathProxy<boolean>;
   /** Logical NOT: `not ($path)` */
   not(): TypedPathProxy<boolean>;
-  /** Explicit boolean truthiness check: `Boolean($path)` */
+  /** Explicit boolean truthiness check */
   isTruthy(): TypedPathProxy<boolean>;
   /** Explicit boolean falsiness check: `not ($path)` */
   isFalsy(): TypedPathProxy<boolean>;
+  /** Explicit boolean coercion: `Boolean($path)` */
+  toBoolean(): TypedPathProxy<boolean>;
+  /** True when a string path is defined and non-empty after trimming: `Boolean($path && String($path).trim())` */
+  nonEmpty(): TypedPathProxy<boolean>;
+  /** Uppercase string expression: `String($path || '').toUpperCase()` */
+  upper(): TypedPathProxy<string>;
+  /** Lowercase string expression: `String($path || '').toLowerCase()` */
+  lower(): TypedPathProxy<string>;
+  /** Trimmed string expression: `String($path || '').trim()` */
+  trim(): TypedPathProxy<string>;
+  /** Ternary conditional expression: `($path ? whenTrue : whenFalse)` */
+  ternary<A, B>(whenTrue: A, whenFalse: B): TypedPathProxy<A | B>;
   /**
    * Matches a human choice answer whether bound as `{ id, value }` or a bare string id:
    * `($path.id == 'id' or $path == 'id' or $path.value == 'id')`
@@ -52,6 +66,22 @@ export interface ProxyExprMethods<T> {
   in(...values: Array<T | string | number>): TypedPathProxy<boolean>;
   /** Prompt template optional interpolation: `{${path}?}` */
   optional(): string;
+  /** Prompt template subtraction interpolation: `{${path} - ${other}?}` */
+  subTemplate(other: unknown): string;
+  /** Array `.find((itemProxy) => cond)` returning a typed element proxy */
+  find(predicate: (item: TypedPathProxy<ElemOf<T>>) => unknown): TypedPathProxy<ElemOf<T>>;
+  /** Array `.findBy(key, value)` shorthand for `.find((item) => item[key].eq(value))` */
+  findBy<K extends keyof ElemOf<T> & string>(key: K, value: unknown): TypedPathProxy<ElemOf<T>>;
+  /** Array `.some((itemProxy) => cond)` returning a typed boolean proxy */
+  some(predicate: (item: TypedPathProxy<ElemOf<T>>) => unknown): TypedPathProxy<boolean>;
+  /** Array `.someBy(key, value)` shorthand for `.some((item) => item[key].eq(value))` */
+  someBy<K extends keyof ElemOf<T> & string>(key: K, value: unknown): TypedPathProxy<boolean>;
+  /** Array `.every((itemProxy) => cond)` returning a typed boolean proxy */
+  every(predicate: (item: TypedPathProxy<ElemOf<T>>) => unknown): TypedPathProxy<boolean>;
+  /** Array `.filter((itemProxy) => cond)` returning a typed array proxy */
+  filter(predicate: (item: TypedPathProxy<ElemOf<T>>) => unknown): TypedPathProxy<T>;
+  /** Array `.map((itemProxy) => shape)` returning a typed mapped array proxy */
+  map<R>(mapper: (item: TypedPathProxy<ElemOf<T>>) => R): TypedPathProxy<R[]>;
   [key: string]: any;
 }
 
@@ -61,10 +91,8 @@ export interface ProxyExprMethods<T> {
  */
 export type TypedPathProxy<T> = (T extends (...args: any[]) => any
   ? (...args: Parameters<T>) => ReturnType<T>
-  : T extends Array<infer U>
-  ? { [index: number]: TypedPathProxy<U>; length: TypedPathProxy<number> } & {
-      [K in keyof T]: TypedPathProxy<T[K]>;
-    }
+  : T extends ReadonlyArray<infer U>
+  ? { [index: number]: TypedPathProxy<U>; length: TypedPathProxy<number> }
   : T extends object
   ? {
       [K in keyof T]-?: TypedPathProxy<NonNullable<T[K]>>;
@@ -75,7 +103,7 @@ export type TypedPathProxy<T> = (T extends (...args: any[]) => any
 function formatLiteral(val: unknown): string {
   if (isPathProxy(val)) return String(val);
   if (typeof val === 'string') {
-    if (val.startsWith('$') || val.startsWith('(') || val.startsWith('{{')) return val;
+    if (val.startsWith('$') || val.startsWith('(') || val.startsWith('{{') || val.startsWith('__item')) return val;
     return `'${val.replace(/'/g, "\\'")}'`;
   }
   if (val === null || val === undefined) return 'null';
@@ -99,6 +127,44 @@ export function isPathProxy(val: unknown): boolean {
   return Boolean(val && typeof val === 'function' && (val as any).__isPathProxy === true);
 }
 
+/**
+ * Checks whether an object or value recursively contains at least one TypedPathProxy.
+ */
+export function containsPathProxy(val: unknown): boolean {
+  if (isPathProxy(val)) return true;
+  if (Array.isArray(val)) return val.some(containsPathProxy);
+  if (val && typeof val === 'object' && !(val instanceof RegExp) && !(val instanceof Date)) {
+    return Object.values(val).some(containsPathProxy);
+  }
+  return false;
+}
+
+let lambdaDepth = 0;
+
+function serializeProxyReturn(val: unknown): string {
+  if (isPathProxy(val)) return String(val);
+  if (Array.isArray(val)) {
+    return `[${val.map(serializeProxyReturn).join(', ')}]`;
+  }
+  if (val && typeof val === 'object' && !(val instanceof RegExp) && !(val instanceof Date)) {
+    const entries = Object.entries(val).map(([k, v]) => `${JSON.stringify(k)}: ${serializeProxyReturn(v)}`);
+    return `({ ${entries.join(', ')} })`;
+  }
+  return formatLiteral(val);
+}
+
+function runItemLambda(fn: (item: any) => unknown): { varName: string; bodyStr: string } {
+  const varName = lambdaDepth === 0 ? '__item' : `__item${lambdaDepth}`;
+  lambdaDepth++;
+  try {
+    const itemProxy = createContextProxy(varName);
+    const res = fn(itemProxy);
+    return { varName, bodyStr: serializeProxyReturn(res) };
+  } finally {
+    lambdaDepth--;
+  }
+}
+
 const PROXY_METHODS = new Set([
   'at',
   'eq',
@@ -115,10 +181,24 @@ const PROXY_METHODS = new Set([
   'not',
   'isTruthy',
   'isFalsy',
+  'toBoolean',
+  'nonEmpty',
+  'upper',
+  'lower',
+  'trim',
+  'ternary',
   'isChoice',
   'isCommand',
   'in',
   'optional',
+  'subTemplate',
+  'find',
+  'findBy',
+  'some',
+  'someBy',
+  'every',
+  'filter',
+  'map',
 ]);
 
 /**
@@ -142,15 +222,47 @@ export function createContextProxy<T = any>(root = '$context'): TypedPathProxy<T
     and: (other: unknown) => createContextProxy(`(${paren(root)} and ${other})`),
     or: (other: unknown) => createContextProxy(`(${paren(root)} or ${other})`),
     not: () => createContextProxy(`not ${paren(root)}`),
-    isTruthy: () => createContextProxy(`${root}`),
+    isTruthy: () => createContextProxy(`Boolean(${root})`),
     isFalsy: () => createContextProxy(`not ${paren(root)}`),
+    toBoolean: () => createContextProxy(`Boolean(${root})`),
+    nonEmpty: () => createContextProxy(`Boolean(${paren(root)} && String(${root}).trim())`),
+    upper: () => createContextProxy(`String(${paren(root)} || '').toUpperCase()`),
+    lower: () => createContextProxy(`String(${paren(root)} || '').toLowerCase()`),
+    trim: () => createContextProxy(`String(${paren(root)} || '').trim()`),
+    ternary: (whenTrue: unknown, whenFalse: unknown) =>
+      createContextProxy(`(${paren(root)} ? ${formatLiteral(whenTrue)} : ${formatLiteral(whenFalse)})`),
     isChoice: (id: string) =>
       createContextProxy(`(${root}.id == '${id}' or ${root} == '${id}' or ${root}.value == '${id}')`),
     isCommand: (type: string) =>
       createContextProxy(`((${root} && ${root}.type == '${type}') || ${root} == '${type}')`),
     in: (...values: unknown[]) =>
-      createContextProxy(`(${values.map((v) => `${root} == ${formatLiteral(v)}`).join(' or ')})`),
+      createContextProxy(`(${values.map((v) => `${paren(root)} == ${formatLiteral(v)}`).join(' or ')})`),
     optional: () => `{${root}?}`,
+    subTemplate: (other: unknown) => `{${root} - ${other}?}`,
+    find: (predicate: (item: any) => unknown) => {
+      const { varName, bodyStr } = runItemLambda(predicate);
+      return createContextProxy(`(${paren(root)} || []).find((${varName}) => ${bodyStr})`);
+    },
+    findBy: (key: string, value: unknown) =>
+      createContextProxy(`(${paren(root)} || []).find((__item) => __item.${key} == ${formatLiteral(value)})`),
+    some: (predicate: (item: any) => unknown) => {
+      const { varName, bodyStr } = runItemLambda(predicate);
+      return createContextProxy(`(${paren(root)} || []).some((${varName}) => ${bodyStr})`);
+    },
+    someBy: (key: string, value: unknown) =>
+      createContextProxy(`(${paren(root)} || []).some((__item) => __item.${key} == ${formatLiteral(value)})`),
+    every: (predicate: (item: any) => unknown) => {
+      const { varName, bodyStr } = runItemLambda(predicate);
+      return createContextProxy(`(${paren(root)} || []).every((${varName}) => ${bodyStr})`);
+    },
+    filter: (predicate: (item: any) => unknown) => {
+      const { varName, bodyStr } = runItemLambda(predicate);
+      return createContextProxy(`(${paren(root)} || []).filter((${varName}) => ${bodyStr})`);
+    },
+    map: (mapper: (item: any) => unknown) => {
+      const { varName, bodyStr } = runItemLambda(mapper);
+      return createContextProxy(`(${paren(root)} || []).map((${varName}) => ${bodyStr})`);
+    },
   };
 
   const targetObj = Object.assign(() => root, {
@@ -186,6 +298,24 @@ export function createContextProxy<T = any>(root = '$context'): TypedPathProxy<T
     },
   };
   return new Proxy(targetObj, handler) as any;
+}
+
+/**
+ * Creates a context proxy suitable for evaluating `(ctx) => ...` callbacks at build time:
+ * `ctx.state` resolves to `$state`, `ctx.params` to `$params`, `ctx.$actor` to `$actor`,
+ * and any other `ctx.foo` to `$context.foo`.
+ */
+export function createCallbackContextProxy<T = any>(defaultRoot = '$context'): TypedPathProxy<T> {
+  const base = createContextProxy<T>(defaultRoot);
+  return new Proxy(base as any, {
+    get(target, prop: string | symbol, receiver) {
+      if (prop === 'state') return createContextProxy('$state');
+      if (prop === 'params') return createContextProxy('$params');
+      if (prop === '$actor') return createContextProxy('$actor');
+      if (prop === '$config') return createContextProxy('$config');
+      return Reflect.get(target, prop, receiver);
+    },
+  });
 }
 
 /**

@@ -48,8 +48,8 @@ export interface PokerToolOptions {
  * Built with fluent typed path proxies (Pillar 1) to eliminate fragile literal strings.
  */
 export const pokerPredicates = {
-  is_game_active: String(state.sessionEnded.not().and(state.gameState.gameOver.not())),
-  table_needs_players: String(state.gameState.not().or(state.gameState.players.length.lt(2))),
+  is_game_active: state.sessionEnded.not().and(state.gameState.gameOver.not()),
+  table_needs_players: state.gameState.not().or(state.gameState.players.length.lt(2)),
 };
 
 /**
@@ -84,13 +84,13 @@ export const pokerComposables = {
         sbAmount: state.tableConfig.sbAmount.orDefault(10),
         bbAmount: state.tableConfig.bbAmount.orDefault(20),
         maxSeats: state.tableConfig.maxSeats.orDefault(6),
-        players: String(state.tableConfig.players),
+        players: state.tableConfig.players,
         playerName: state.tableConfig.playerName.orDefault('You'),
       },
     }),
 
   join_table: (player: unknown = ctx.joinRequest): CuratorAstNode[] =>
-    table({ type: PokerTableCommand.JOIN, player: String(player) }),
+    table({ type: PokerTableCommand.JOIN, player }),
 
   /** Starts a hand unless one is already running. */
   start_hand: (): CuratorAstNode[] =>
@@ -98,7 +98,7 @@ export const pokerComposables = {
 
   /** Applies a seat's action; the table then deals, settles and starts hands until a seat has to decide. */
   act: (action: unknown): CuratorAstNode[] =>
-    table({ type: PokerTableCommand.ACT, action: String(action) }),
+    table({ type: PokerTableCommand.ACT, action }),
 
   agent_decision,
 

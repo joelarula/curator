@@ -468,6 +468,11 @@ export interface CuratorModuleNode extends CuratorBaseNode {
   subroutines?: Record<string, CuratorSubroutine>;
   /** Static subscriptions, materialized into EventSubscription rows when the Script is saved. */
   subscriptions?: CuratorSubscribeNode[];
+  /**
+   * Configuration defaults the module ships with, keyed by namespace (`{ poker: { talk: {...} } }`).
+   * Registered plugins contribute them to `$config` below plugin and host settings.
+   */
+  config?: Record<string, any>;
 }
 
 /**

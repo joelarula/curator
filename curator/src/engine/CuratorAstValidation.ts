@@ -212,6 +212,7 @@ const schema: Record<string, any> = {
         name: { type: 'string', minLength: 1 },
         description: { type: 'string' },
         params: { type: 'object' },
+        config: { type: 'object' },
         main: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' },
         subroutines: {
           type: 'object',

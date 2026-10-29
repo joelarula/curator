@@ -10,6 +10,7 @@ import type {
   LlmCreateCacheRequest,
   LlmCacheInfo,
 } from './llm/ILlmProvider.js';
+import YAML from 'yaml';
 import { LlmFactory } from './llm/LlmFactory.js';
 import { extendCoffeeAstVerbs } from './CoffeeVerbs.js';
 
@@ -46,15 +47,27 @@ export class CuratorEngine {
   public agents = new Map<string, CuratorAgentDefinition | CuratorAstNode>();
   public roles = new Map<string, CuratorRoleDefinition>();
   public plugins: CuratorPlugin[] = [];
-  /** What workflows read as `$config`: plugin defaults under host settings. Frozen; replaced on every change. */
+  /**
+   * What workflows read as `$config`, lowest layer first: script defaults (module `config`, front matter
+   * `config:`), plugin `config`, host settings. Frozen; replaced on every change.
+   */
   public config: CuratorConfig = freezeConfig({});
-  private hostConfig: CuratorConfig = {};
+  private scriptConfig: CuratorConfig = {};
   private pluginConfig: CuratorConfig = {};
+  private hostConfig: CuratorConfig = {};
 
-  /** Host settings (e.g. from a config file), merged over plugin defaults whenever they register. */
+  /** Host settings (e.g. from a config file), merged over script and plugin defaults whenever they register. */
   public setConfig(values: CuratorConfig) {
     this.hostConfig = mergeConfig(this.hostConfig, structuredClone(values));
-    this.config = freezeConfig(mergeConfig(this.pluginConfig, this.hostConfig));
+    this.refreshConfig();
+  }
+
+  private refreshConfig() {
+    this.config = freezeConfig(mergeConfig(mergeConfig(this.scriptConfig, this.pluginConfig), this.hostConfig));
+  }
+
+  private addScriptConfig(config: unknown) {
+    if (isPlainObject(config)) this.scriptConfig = mergeConfig(this.scriptConfig, structuredClone(config));
   }
 
   public registerPlugin(plugin: CuratorPlugin) {
@@ -76,7 +89,6 @@ export class CuratorEngine {
     }
     if (plugin.config) {
       this.pluginConfig = mergeConfig(this.pluginConfig, structuredClone(plugin.config));
-      this.config = freezeConfig(mergeConfig(this.pluginConfig, this.hostConfig));
     }
     if (plugin.models) {
       plugin.models.forEach(m => this.models.set(m.uri, m));
@@ -91,6 +103,7 @@ export class CuratorEngine {
         if (typeof rawDef === 'string') {
           const header = this.parseScriptHeader(rawDef, cleanFallback);
           const name = header.id || cleanFallback;
+          this.addScriptConfig(header.config);
           this.scripts.set(name, {
             name,
             description: header.description || '',
@@ -99,10 +112,12 @@ export class CuratorEngine {
           });
         } else if (rawDef && typeof rawDef === 'object') {
           const name = (rawDef as any).name || cleanFallback;
+          this.addScriptConfig((rawDef as any).ast?.config);
           this.scripts.set(name, rawDef as CuratorScriptDefinition);
         }
       }
     }
+    if (plugin.config || plugin.scripts) this.refreshConfig();
     if (plugin.agents) {
       Object.entries(plugin.agents).forEach(([k, v]) => this.agents.set(k, v));
     }
@@ -220,19 +235,19 @@ export class CuratorEngine {
 
     const yamlMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
     if (yamlMatch) {
-      this.extractHeaderKeyValues(yamlMatch[1], meta);
+      this.readHeaderBlock(yamlMatch[1], meta);
       return meta;
     }
 
     const commentYamlMatch = content.match(/^#\s*---\r?\n([\s\S]*?)\r?\n#\s*---\r?\n?/);
     if (commentYamlMatch) {
-      this.extractHeaderKeyValues(commentYamlMatch[1], meta);
+      this.readHeaderBlock(commentYamlMatch[1].replace(/^#[ \t]?/gm, ''), meta);
       return meta;
     }
 
     const blockMatch = content.match(/^###\r?\n([\s\S]*?)\r?\n###\r?\n?/);
     if (blockMatch) {
-      this.extractHeaderKeyValues(blockMatch[1], meta);
+      this.readHeaderBlock(blockMatch[1], meta);
       return meta;
     }
 
@@ -248,6 +263,27 @@ export class CuratorEngine {
     }
 
     return meta;
+  }
+
+  /**
+   * A header block is YAML (so it may carry nested values such as a `config:` mapping); `id` and
+   * `description` stay strings. A block YAML cannot read falls back to flat `key: value` lines.
+   */
+  private readHeaderBlock(block: string, target: Record<string, any>): void {
+    let parsed: unknown;
+    try {
+      parsed = YAML.parse(block);
+    } catch {
+      parsed = undefined;
+    }
+    if (!isPlainObject(parsed)) {
+      this.extractHeaderKeyValues(block, target);
+      return;
+    }
+    Object.assign(target, parsed);
+    for (const key of ['id', 'description']) {
+      if (target[key] != null && typeof target[key] !== 'string') target[key] = String(target[key]);
+    }
   }
 
   private extractHeaderKeyValues(block: string, target: Record<string, any>): void {

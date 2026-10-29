@@ -16,6 +16,7 @@ import { PokerEvent, PokerModule, PokerSpeechAct, PokerSpeechOrigin } from '../m
 import { ctx, actor, gameState, ifElse } from '../models/pokerContext.ts';
 import { Speech } from '../models/pokerEvents.ts';
 import { getRulesDescription } from '../engine/pokerRules.ts';
+import { DEFAULT_SEAT_MODEL } from '../pokerConfig.ts';
 
 /** The seat whose turn it is (Pillar 1: dynamic proxy indexing via `.at()`). */
 const activePlayer = gameState.players.at(gameState.activePlayerIdx);
@@ -81,8 +82,13 @@ export const POKER_AGENT_PROTOCOL = [
   "- Include your private strategic reasoning in 'innerMonologue'.",
 ].join('\n');
 
-/** The model seats think and talk with. */
-export const SEAT_MODEL = 'gemini-2.5-flash';
+/**
+ * The model a seat (`$params.actor`) thinks with, resolved per call: the seat's own `model`, then
+ * `$config.poker.models.seat`, then the default.
+ */
+export const SEAT_MODEL = `${actor.model} || $config.poker?.models?.seat || '${DEFAULT_SEAT_MODEL}'`;
+/** The model a seat talks with between decisions: its own, then `models.chatter`, then the seat model. */
+export const CHATTER_MODEL = `${actor.model} || $config.poker?.models?.chatter || $config.poker?.models?.seat || '${DEFAULT_SEAT_MODEL}'`;
 /** What a seat remembers of the table: every action and every line said. */
 export const SEAT_HISTORY_EVENTS = [PokerEvent.ACTION_TAKEN, PokerEvent.SPEECH];
 
