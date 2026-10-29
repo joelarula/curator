@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createEnv, runAst } from '../helpers/harness.ts';
 import { validateCuratorAst, unregisterAstExtensionType } from '../../src/engine/CuratorAstValidation.ts';
 import { CuratorRequestProcessor } from '../../src/engine/CuratorRequestProcessor.ts';
-import { setStateNode, type NodeContext, type NodeHandler } from '../../src/engine/nodes/index.ts';
+import { setStateNode, reduceNode, type NodeContext, type NodeHandler } from '../../src/engine/nodes/index.ts';
 
 const status = async (env: any, id: number) => (await env.prisma.request.findUnique({ where: { id } })).status;
 
@@ -62,6 +62,25 @@ test('node handler: SetState runs against a fake context', async () => {
     'save:{"status":"State updated","state":{"a":1}}',
     'complete:7:COMPLETED',
   ]);
+});
+
+test('node handler: Reduce only needs the tools service from its fake context', async () => {
+  const calls: string[] = [];
+  const ctx = {
+    tools: { reducer: (name: string) => (name === 'sum' ? (a: any) => ({ total: a.x + a.y }) : undefined) },
+    isDynamicExpr: () => false,
+    evaluateArgs: async (args: any) => args,
+    prisma: { request: { update: async ({ data }: any) => { calls.push(`context:${JSON.stringify(data.context)}`); } } },
+    saveResponse: async (_r: any, content: string) => { calls.push(`save:${content}`); },
+    completeRequest: async (id: number, s?: string) => { calls.push(`complete:${id}:${s}`); },
+  } as unknown as NodeContext;
+  await reduceNode.run({ type: 'Curator_Reduce', reducer: 'sum', args: { x: 2, y: 3 }, as: 'out' }, { id: 9, context: {} }, ctx);
+  assert.deepEqual(calls, [
+    'context:{"out":{"total":5},"total":5}',
+    'save:{"total":5}',
+    'complete:9:COMPLETED',
+  ]);
+  await assert.rejects(reduceNode.run({ type: 'Curator_Reduce', reducer: 'nope' }, { id: 10, context: {} }, ctx), /Reducer nope not found/);
 });
 
 test('maintenance systems: ordered, positionable, and disableable per processor', () => {

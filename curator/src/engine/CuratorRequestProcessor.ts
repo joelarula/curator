@@ -4,16 +4,15 @@ const Ajv = (AjvModule as any).default || AjvModule;
 import { curatorEngine } from './CuratorEngine.js';
 import { curatorContext } from './CuratorContext.js';
 
-import type { CuratorAstNode, CuratorAgentNode, CuratorSequentialNode, CuratorParallelNode, CuratorJoinNode, CuratorToolNode, CuratorScriptNode, CuratorRouteNode, CuratorGraphNode, CuratorGraphTransition, CuratorActorRefNode } from './CuratorAst.js';
+import type { CuratorAstNode, CuratorAgentNode } from './CuratorAst.js';
 import { logger } from '../utils/logger.js';
-import { validateCuratorAst, isCuratorAstNode, parseCuratorRef, AST_LIMITS } from './CuratorAstValidation.js';
+import { validateCuratorAst, parseCuratorRef } from './CuratorAstValidation.js';
 import { superviseAgentLoops, isValidSchedule, isCronDue, isScheduleDue, computeNextRunDate } from './AgentScheduleSupervisor.js';
 export { isValidSchedule, isCronDue, isScheduleDue, computeNextRunDate };
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { CuratorCallNode, CuratorSubscribeNode, CuratorUnsubscribeNode, CuratorParamSpec, CuratorLoopNode, CuratorInlineTool, CuratorReduceNode, CuratorEmitEventsNode } from './CuratorAst.js';
-import type { CuratorConfig, CuratorEventEmitResult, CuratorEventSpec, CuratorReducer, CuratorStructuredResponse } from './CuratorContracts.js';
-import { resolveRef, resolveRequestNode, getScriptVersionAst, getEntry, entryAstPath, expandInlineCalls, saveAdhocScript } from './ScriptRegistry.js';
-import { coffeeAstVerbs } from './CoffeeVerbs.js';
+import type { CuratorInlineTool } from './CuratorAst.js';
+import type { CuratorConfig, CuratorEventEmitResult, CuratorReducer, CuratorStructuredResponse } from './CuratorContracts.js';
+import { resolveRequestNode, getScriptVersionAst, getEntry, entryAstPath, expandInlineCalls, saveAdhocScript } from './ScriptRegistry.js';
 import { toCamelCase } from './builder/CuratorCoreBuilder.js';
 import type { Prisma } from '@prisma/client';
 import { LlmFactory } from './llm/LlmFactory.js';
@@ -23,8 +22,12 @@ import { appendStatePatch, STATE_SEQ_KEY } from './ConversationStateLog.js';
 import { recordDeadLetter, TERMINAL_STATUSES } from './DeadLetters.js';
 import { AgentRoleService } from '../services/AgentRoleService.js';
 import { ApprovalService } from '../services/ApprovalService.js';
-import { NodeRegistry, sequentialNode, setStateNode, assignNode, ifElseNode } from './nodes/index.js';
-import type { NodeContext, NodeHandler, MaintenanceContext, MaintenanceSystem } from './nodes/index.js';
+import {
+  NodeRegistry, sequentialNode, parallelNode, joinNode, routeNode, scriptNode, setStateNode, assignNode, ifElseNode, whileNode, loopNode, forEachNode,
+  interruptNode, emitEventNode, emitEventsNode, subscribeNode, unsubscribeNode, waitEventNode, humanInputNode, toolNode, reduceNode,
+  graphNode, callNode, agentRefNode, actorRefNode,
+} from './nodes/index.js';
+import type { NodeContext, NodeHandler, MaintenanceContext, MaintenanceSystem, InflightToolCall, ToolAccessResult } from './nodes/index.js';
 // Audit trail = Request/Response rows (see AuditService for the derived read view).
 import { SecretService } from '../services/SecretService.js';
 
@@ -143,7 +146,7 @@ export class CuratorRequestProcessor {
   private engine: { tools: Map<string, any>; reducers?: Map<string, CuratorReducer>; config?: CuratorConfig };
   private toolContextExtras: Record<string, any>;
   /** In-process data of direct tool Requests: runtime-only inputs and the raw output/error. */
-  private inflight = new Map<number, { runtimeArgs?: Record<string, any>; runtimeContext?: Record<string, any>; broadcastToolEvents?: boolean; raw?: any; error?: any }>();
+  private inflight = new Map<number, InflightToolCall>();
   private approvalTtlMs: number;
   private retention: { readOnlyRequests: 'keep' | 'prune'; readOnlyTtlMs: number };
   private lastPruneAt = 0;
@@ -190,11 +193,29 @@ export class CuratorRequestProcessor {
 
   private initNodes(extra: NodeHandler[]) {
     this.nodeContext = {
+      events: {
+        dispatch: (eventName, payload, req, targetAgentId, opts) => this.dispatchEvent(eventName, payload, req, targetAgentId, opts),
+        addOrigin: (payload, req) => this.addEventOrigin(payload, req),
+        resolveCursor: (reqId, conversationId, replay) => this.resolveEventCursor(reqId, conversationId, replay),
+        advanceCursor: (reqId, seq) => this.advanceEventCursor(reqId, seq),
+        flowChain: (reqId) => this.flowChain(reqId),
+        identityOf: (req) => this.identityOf(req),
+      },
+      tools: {
+        get: (name) => this.engine.tools.get(name),
+        reducer: (name) => this.engine.reducers?.get(name),
+        checkAccess: (req, toolName, tool) => this.checkToolAccess(req, toolName, tool),
+        approvalTtlMs: this.approvalTtlMs,
+        contextExtras: this.toolContextExtras,
+        inflight: (requestId) => this.inflight.get(requestId),
+      },
+      calls: { maxDepth: this.maxCallDepth, astStorage: this.astStorage },
       prisma: this.prisma,
       now: () => this.clock(),
       emit: (type, payload) => this.emit(type, payload),
       saveResponse: (req, content) => this.saveResponse(req, content),
       completeRequest: (id, status, skipNotify) => this.completeRequest(id, status, skipNotify),
+      failRequest: (req, reason) => this.failRequest(req, reason),
       spawnChildAndParkParent: (req, childData, patch, status) => this.spawnChildAndParkParent(req, childData, patch, status),
       createRequest: (args) => this.createValidatedRequest(args),
       resolveScheduledAt: (node) => this.resolveScheduledAt(node),
@@ -202,37 +223,22 @@ export class CuratorRequestProcessor {
       isDynamicExpr: (v): v is string => this.isDynamicExpr(v),
       evaluateExpression: (expr, req) => this.evaluateExpressionAsync(expr, req),
       evaluateArgs: (args, req, literalArgs) => this.evaluateArgs(args, req, literalArgs),
+      interpolateTemplate: (template, req) => this.interpolateTemplate(template, req),
+      getConversationState: (conv) => this.getConversationState(conv),
       readState: async (conversationId, scope) => {
         const conv = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
         return this.stateView(this.getConversationState(conv), scope);
       },
       writeState: async (conversationId, scope, updates) => { await this.writeState(conversationId, scope, updates); },
+      resolveHandler: (handler, req) => this.resolveHandler(handler, req),
     };
 
     // Extracted handlers (engine/nodes/*) plus built-ins still implemented as methods below.
     const builtins: NodeHandler[] = [
-      sequentialNode, setStateNode, assignNode, ifElseNode,
+      sequentialNode, parallelNode, joinNode, routeNode, scriptNode, setStateNode, assignNode, ifElseNode, whileNode, loopNode, forEachNode,
+      interruptNode, emitEventNode, emitEventsNode, subscribeNode, unsubscribeNode, waitEventNode, humanInputNode, toolNode, reduceNode,
+      graphNode, callNode, agentRefNode, actorRefNode,
       { type: 'Curator_Agent', run: (ast, req) => this.executeAgent(ast, req) },
-      { type: 'Curator_Parallel', run: (ast, req) => this.handleParallel(ast, req) },
-      { type: 'Curator_Join', run: (ast, req) => this.handleJoin(ast, req) },
-      { type: 'Curator_Tool', run: (ast, req) => this.handleTool(ast, req) },
-      { type: 'Curator_Reduce', run: (ast, req) => this.handleReduce(ast, req) },
-      { type: 'Curator_Script', run: (ast, req) => this.handleScript(ast, req) },
-      { type: 'Curator_Route', run: (ast, req) => this.handleRoute(ast, req) },
-      { type: 'Curator_HumanInput', run: (ast, req) => this.handleHumanInput(ast, req) },
-      { type: 'Curator_WaitEvent', run: (ast, req) => this.handleWaitEvent(ast, req) },
-      { type: 'Curator_Graph', run: (ast, req) => this.handleGraph(ast, req) },
-      { type: 'Curator_AgentRef', run: (ast, req) => this.handleAgentRef(req, ast, req.context) },
-      { type: 'Curator_ActorRef', run: (ast, req) => this.handleActorRef(ast, req) },
-      { type: 'Curator_Interrupt', run: (ast, req) => this.handleInterrupt(ast, req) },
-      { type: 'Curator_EmitEvent', run: (ast, req) => this.handleEmitEvent(ast, req) },
-      { type: 'Curator_EmitEvents', run: (ast, req) => this.handleEmitEvents(ast, req) },
-      { type: 'Curator_While', run: (ast, req) => this.handleWhile(ast, req) },
-      { type: 'Curator_Loop', run: (ast, req) => this.handleLoop(ast, req) },
-      { type: 'Curator_ForEach', run: (ast, req) => this.handleForEach(ast, req) },
-      { type: 'Curator_Call', run: (ast, req) => this.handleCall(ast, req) },
-      { type: 'Curator_Subscribe', run: (ast, req) => this.handleSubscribe(ast, req) },
-      { type: 'Curator_Unsubscribe', run: (ast, req) => this.handleUnsubscribe(ast, req) },
     ];
     for (const handler of builtins) this.nodes.register(handler);
     for (const handler of extra) this.nodes.register(handler, { override: this.nodes.has(handler.type) });
@@ -1086,57 +1092,6 @@ export class CuratorRequestProcessor {
     }
   }
 
-  private async handleEmitEvent(node: any, req: any) {
-    logger.debug(`[CuratorRequestProcessor] Emitting event: ${node.eventName}`);
-    
-    // Evaluate dynamic payload
-    let payload = node.payload ?? req.context?.input;
-    if (this.isDynamicExpr(node.payload)) {
-      payload = await this.evaluateExpressionAsync(node.payload, req);
-    } else if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
-      payload = await this.evaluateArgs(payload, req);
-    }
-    this.addEventOrigin(payload, req);
-    this.emit(node.eventName, payload);
-
-    // Evaluate dynamic targetAgentId
-    let targetAgentId = node.targetAgentId;
-    if (typeof targetAgentId === 'string' && this.isDynamicExpr(targetAgentId)) {
-      targetAgentId = await this.evaluateExpressionAsync(targetAgentId, req);
-    }
-
-    const result = await this.dispatchEvent(node.eventName, payload, req, targetAgentId);
-    const record: CuratorStructuredResponse = { type: 'EVENT_EMITTED', ok: true, event: result };
-    await this.saveResponse(req, JSON.stringify(record));
-    await this.completeRequest(req.id, 'COMPLETED');
-  }
-
-  /**
-   * Curator_EmitEvents: emits a list computed at run time (`[{ name, payload?, targetAgentId? }]`), in order.
-   * The payloads are data (e.g. reducer output): they are not evaluated as expressions.
-   */
-  private async handleEmitEvents(node: CuratorEmitEventsNode, req: any) {
-    const list = await this.evaluateExpressionAsync(node.events, req);
-    if (list != null && !Array.isArray(list)) {
-      throw new Error(`Curator_EmitEvents: '${node.events}' must evaluate to an array of { name, payload }`);
-    }
-    const events: CuratorEventEmitResult[] = [];
-    for (const spec of (list || []) as CuratorEventSpec[]) {
-      if (!spec || typeof spec.name !== 'string' || !spec.name) {
-        throw new Error(`Curator_EmitEvents: every event needs a name (got ${JSON.stringify(spec)})`);
-      }
-      const payload = spec.payload && typeof spec.payload === 'object' && !Array.isArray(spec.payload)
-        ? { ...spec.payload }
-        : spec.payload;
-      this.addEventOrigin(payload, req);
-      this.emit(spec.name, payload);
-      events.push(await this.dispatchEvent(spec.name, payload, req, spec.targetAgentId as any));
-    }
-    const record: CuratorStructuredResponse = { type: 'EVENTS_EMITTED', ok: true, events };
-    await this.saveResponse(req, JSON.stringify(record));
-    await this.completeRequest(req.id, 'COMPLETED');
-  }
-
   /** Stamps an object payload with the conversation (as `conversationId` / `tableId`) and session it was emitted from. */
   private addEventOrigin(payload: any, req: any) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
@@ -1366,75 +1321,6 @@ export class CuratorRequestProcessor {
     return before?.id ?? 0;
   }
 
-  private async handleWaitEvent(ast: any, req: any) {
-    const allEvents: string[] = Array.from(new Set([ast.eventName, ...(Array.isArray(ast.eventNames) ? ast.eventNames : [])].filter(Boolean)));
-    if (this.prisma.eventLog && !req.context?.__humanInputReceived__) {
-      const cursor = await this.resolveEventCursor(req.id, req.conversationId, !!ast.replay);
-      const identity = this.identityOf(req);
-      const myFlow = await this.flowChain(req.id);
-      // The emitting flow never hears its own events, but events other flows logged meanwhile are kept.
-      const candidates = await this.prisma.eventLog.findMany({
-        where: {
-          conversationId: req.conversationId,
-          eventName: allEvents.length === 1 ? allEvents[0] : { in: allEvents },
-          id: { gt: cursor },
-          OR: identity ? [{ target: null }, { target: identity }] : [{ target: null }],
-        },
-        orderBy: { id: 'asc' },
-      });
-      let missed: any = null;
-      for (const c of candidates) {
-        if (c.source != null) {
-          const theirs = c.source === req.id ? myFlow : await this.flowChain(c.source);
-          if ([...theirs].some((id) => myFlow.has(id))) continue;
-        }
-        missed = c;
-        break;
-      }
-      if (missed) {
-        // Emitted while this flow was between waits: deliver it as if it had woken us.
-        logger.debug(`[CuratorRequestProcessor] Request ${req.id} consumed buffered event '${missed.eventName}' (#${missed.id}).`);
-        await this.advanceEventCursor(req.id, missed.id);
-        let value = missed.payload;
-        if (allEvents.length > 1 && value && typeof value === 'object' && !Array.isArray(value) && value._eventName === undefined) {
-          value = { ...value, _eventName: missed.eventName };
-        }
-        const patch: Record<string, any> = {};
-        if (allEvents.length > 1) patch.lastWokenEvent = missed.eventName;
-        if (ast.payloadAlias) patch[ast.payloadAlias] = value;
-        if (Object.keys(patch).length > 0) {
-          await this.writeState(req.conversationId, this.parseContext(req.context).__scope, patch);
-        }
-        await this.saveResponse(req, typeof value === 'string' ? value : JSON.stringify(value ?? {}));
-        await this.completeRequest(req.id, 'COMPLETED');
-        return;
-      }
-      await this.advanceEventCursor(req.id, cursor);
-    }
-    if (req.context?.__humanInputReceived__) {
-      delete req.context.__humanInputReceived__;
-      delete req.context.__wokenByEvent__;
-      // Woken by dispatchEvent: the payload is already bound to the alias in context/state.
-      const received = ast.payloadAlias ? req.context[ast.payloadAlias] : req.context.input;
-      await this.saveResponse(req, typeof received === 'string' ? received : JSON.stringify(received ?? {}));
-      await this.completeRequest(req.id, 'COMPLETED');
-      return;
-    }
-    logger.debug(`[CuratorRequestProcessor] Request ${req.id} paused, waiting for event '${allEvents.join(' | ')}'.`);
-    const updatedContext: any = {
-      ...(req.context || {}),
-      waitEvent: ast.eventName,
-      ...(allEvents.length > 1 ? { waitEvents: allEvents } : {}),
-      payloadAlias: ast.payloadAlias,
-    };
-    delete updatedContext.waitDeadline;
-    if (ast.timeoutSeconds > 0) updatedContext.waitDeadline = new Date(this.clock() + ast.timeoutSeconds * 1000).toISOString();
-    await this.prisma.request.update({
-      where: { id: req.id },
-      data: { status: 'WAITING_FOR_EVENT', context: updatedContext }
-    });
-  }
-
   /**
    * Parses a node's `scheduledAt` field into a Date for use in Request.scheduledAt.
    * Supports:
@@ -1462,402 +1348,6 @@ export class CuratorRequestProcessor {
     // Try ISO parse
     const d = new Date(raw);
     return isNaN(d.getTime()) ? undefined : d;
-  }
-
-  private async handleParallel(ast: CuratorParallelNode, req: any) {
-    const subAgents = ast.subAgents;
-    if (!subAgents || subAgents.length === 0) { await this.completeRequest(req.id, 'COMPLETED'); return; }
-
-    const parentScope = this.parseContext(req.context).__scope;
-    const joinReq = await this.createValidatedRequest({
-      data: {
-        userId: req.userId,
-        projectId: req.projectId,
-        agentId: req.agentId,
-        scriptId: req.scriptId,
-        conversationId: req.conversationId,
-        status: 'NEW',
-        pendingDependencies: subAgents.length,
-        notifyId: req.notifyId,
-        ast: { type: 'Curator_Join', name: `${ast.name || 'parallel'}_join` },
-        ...(parentScope != null ? { context: { __joinScope: parentScope } } : {})
-      }
-    });
-
-    for (const [i, sub] of subAgents.entries()) {
-      let nodeAst = sub as any;
-      if (ast.prompt && !nodeAst.prompt) nodeAst.prompt = ast.prompt;
-      // Isolated branches get a private scope named after the branch (unique within this parallel).
-      const branchContext = ast.isolate
-        ? { ...this.parseContext(req.context), __scope: String(nodeAst.name ?? `branch${i}`) }
-        : req.context;
-      await this.createValidatedRequest({
-        data: {
-          userId: req.userId,
-          projectId: req.projectId,
-          agentId: req.agentId,
-          scriptId: req.scriptId,
-          conversationId: req.conversationId,
-          status: 'NEW',
-          pendingDependencies: 0,
-          notifyId: joinReq.id,
-          ast: nodeAst,
-          context: branchContext,
-          priority: nodeAst.priority ?? 0,
-          scheduledAt: this.resolveScheduledAt(nodeAst) ?? null
-        }
-      });
-    }
-    // The join node assumes responsibility for notifying our parent.
-    await this.prisma.request.update({ where: { id: req.id }, data: { notifyId: null } });
-    await this.completeRequest(req.id, 'COMPLETED', true);
-  }
-
-  private async handleJoin(ast: CuratorJoinNode, req: any) {
-    logger.debug(`[CuratorRequestProcessor] Executing Join Node for request ${req.id}`);
-    const children = await this.prisma.request.findMany({
-      where: { notifyId: req.id, status: 'COMPLETED' },
-      include: { responses: { orderBy: { createdAt: 'desc' }, take: 1 } }
-    });
-    if (children.length === 0) {
-      await this.saveResponse(req, `ERROR: all parallel branches failed`);
-      await this.completeRequest(req.id, 'FAILED');
-      return;
-    }
-    const combinedTexts = children.map((c: any) => c.responses[0]?.content || '').join('\n\n---\n\n');
-    await this.saveResponse(req, `[Joined Output]\n${combinedTexts}`);
-    await this.completeRequest(req.id, 'COMPLETED');
-  }
-
-  private async handleRoute(ast: CuratorRouteNode, req: any) {
-    const context = req.context || {};
-    
-    // Phase 1: Evaluate the router logic
-    if (!context.routeDecided) {
-      logger.debug(`[CuratorRequestProcessor] Route Node (Phase 1) for request ${req.id} - inserting router node.`);
-      await this.spawnChildAndParkParent(req, { ast: { ...ast.router } }, { routeDecided: true }, 'NEW');
-      return;
-    }
-
-    // Phase 2: Execute the sub-agent based on the router's decision
-    logger.debug(`[CuratorRequestProcessor] Route Node (Phase 2) for request ${req.id} - making decision.`);
-    
-    let decision = String(context.input || '').trim();
-    try {
-      const parsed = JSON.parse(decision);
-      if (parsed && typeof parsed === 'object') {
-        decision = parsed.route || parsed.output || parsed.text || decision;
-      }
-    } catch (e) {}
-
-    logger.debug(`[CuratorRequestProcessor] Route decision: '${decision}'`);
-
-    const targetAst = ast.subAgents[decision] || (ast.defaultRoute ? ast.subAgents[ast.defaultRoute] : null);
-
-    if (!targetAst) {
-      logger.warn(`[CuratorRequestProcessor] Route Node ${req.id} decision '${decision}' matched no subAgent and no defaultRoute.`);
-      await this.saveResponse(req, `[Route Failed: No Match for '${decision}']`);
-      await this.completeRequest(req.id, 'COMPLETED');
-      return;
-    }
-
-    // Pass the input along to the target AST if it needs it
-    let nodeAst = { ...targetAst } as any;
-
-    // Spawn the subAgent and connect it directly to the parent's notifyId
-    await this.createValidatedRequest({
-      data: {
-        userId: req.userId,
-        conversationId: req.conversationId,
-        status: 'NEW',
-        pendingDependencies: 0,
-        notifyId: req.notifyId,
-        ast: nodeAst,
-        context: { input: req.context?.input }
-      }
-    });
-
-    await this.saveResponse(req, `[Route Decided: ${decision}]`);
-    // The routed child assumes responsibility for notifying our parent.
-    await this.completeRequest(req.id, 'COMPLETED', true);
-  }
-
-  private async handleGraph(ast: CuratorGraphNode, req: any) {
-    // nextNode is only held across an onExit hook; drop it so it never leaks into later phases.
-    const { nextNode: pendingNext, ...context } = req.context || {};
-    let waitingFor = context.waitingFor;
-    let stateData = context.stateData || context.input || '';
-    let nextNode: string | undefined;
-    let activeNode: string = context.activeNode
-      || (Array.isArray(ast.startNode) ? await this.resolveGraphTransition(ast.startNode, stateData, req) : ast.startNode);
-
-    // Spawn one child (state body, router or hook) and park the graph until it completes.
-    // Children see the graph's context (minus its bookkeeping) with the current state output as input.
-    const { activeNode: _a, stateData: _s, waitingFor: _w, ...childContext } = this.parseContext(context);
-    const awaitChild = async (child: CuratorAstNode, phase: string, extra: Record<string, any> = {}) => {
-      await this.createValidatedRequest({
-        data: {
-          userId: req.userId,
-          conversationId: req.conversationId,
-          projectId: req.projectId,
-          agentId: req.agentId,
-          scriptId: req.scriptId,
-          status: 'NEW',
-          pendingDependencies: 0,
-          notifyId: req.id,
-          ast: child as any,
-          context: { ...childContext, input: stateData }
-        }
-      });
-
-      await this.prisma.request.update({
-        where: { id: req.id },
-        data: {
-          pendingDependencies: 1,
-          context: { ...context, activeNode, stateData, waitingFor: phase, ...extra },
-          status: 'NEW',
-          lockedBy: null,
-          lockedAt: null
-        }
-      });
-    };
-
-    // With a stateKey the active state is mirrored into state and every transition is announced
-    // as `state:<stateKey>` { from, to } (Bevy StateTransitionEvent), so systems can react to it.
-    const enterState = async (from: string | null, to: string) => {
-      if (!ast.stateKey) return;
-      await this.writeState(req.conversationId, this.parseContext(req.context).__scope, { [ast.stateKey]: to });
-      await this.dispatchEvent(`state:${ast.stateKey}`, { from, to }, req);
-    };
-
-    // Phase 1: Wake up and figure out the next state
-    if (waitingFor === 'NODE') {
-      // A state node just finished. Save its output to stateData.
-      stateData = req.context?.input || stateData;
-      logger.debug(`[CuratorRequestProcessor] Graph Node ${req.id} finished state '${activeNode}'.`);
-
-      const edge = ast.edges ? ast.edges[activeNode] : null;
-      if (edge && typeof edge === 'object' && !Array.isArray(edge)) {
-        logger.debug(`[CuratorRequestProcessor] Graph Node ${req.id} spawning conditional router for '${activeNode}'.`);
-        await awaitChild(edge, 'ROUTER');
-        return;
-      }
-      nextNode = await this.resolveGraphTransition(edge, stateData, req);
-      logger.debug(`[CuratorRequestProcessor] Graph Node ${req.id} transitioning '${activeNode}' -> '${nextNode}'.`);
-    } else if (waitingFor === 'ROUTER') {
-      // A conditional router just finished evaluating the state.
-      // Its output was merged into Conversation.state. If it returned a raw string,
-      // completeRequest merged it into the 'output' property.
-      try {
-        const parsed = JSON.parse(req.context?.input || '{}');
-        nextNode = (parsed.output || req.context?.input)?.trim() || '';
-      } catch(e) {
-        nextNode = req.context?.input?.trim() || '';
-      }
-      logger.debug(`[CuratorRequestProcessor] Graph Node ${req.id} routed to '${nextNode}'.`);
-    } else if (waitingFor === 'EXIT') {
-      nextNode = pendingNext;
-    }
-
-    // Phase 2: Leave the current state (OnExit), then move to the next one
-    if (nextNode !== undefined) {
-      const exitHook = waitingFor !== 'EXIT' ? ast.onExit?.[activeNode] : undefined;
-      if (exitHook) {
-        logger.debug(`[CuratorRequestProcessor] Graph Node ${req.id} running onExit for '${activeNode}'.`);
-        await awaitChild(exitHook, 'EXIT', { nextNode });
-        return;
-      }
-      const from = activeNode;
-      activeNode = nextNode;
-      waitingFor = null;
-      await enterState(from, activeNode);
-    }
-
-    // Phase 3: Enter the active state (OnEnter), then execute its body
-    if (activeNode === '__end__') {
-      logger.debug(`[CuratorRequestProcessor] Graph Node ${req.id} reached terminal state.`);
-      await this.saveResponse(req, stateData);
-      await this.completeRequest(req.id, 'COMPLETED');
-      return;
-    }
-
-    const targetAst = ast.nodes[activeNode];
-    if (!targetAst) {
-      logger.warn(`[CuratorRequestProcessor] Graph Node ${req.id} tried to enter unknown state '${activeNode}'.`);
-      await this.saveResponse(req, `[Graph Failed: Unknown state '${activeNode}']\n${stateData}`);
-      await this.completeRequest(req.id, 'COMPLETED');
-      return;
-    }
-
-    if (waitingFor !== 'ENTER') {
-      // The start state is entered without a transition, so mirror it here.
-      if (!waitingFor && nextNode === undefined) await enterState(null, activeNode);
-      const enterHook = ast.onEnter?.[activeNode];
-      if (enterHook) {
-        logger.debug(`[CuratorRequestProcessor] Graph Node ${req.id} running onEnter for '${activeNode}'.`);
-        await awaitChild(enterHook, 'ENTER');
-        return;
-      }
-    }
-
-    logger.debug(`[CuratorRequestProcessor] Graph Node ${req.id} executing state '${activeNode}'.`);
-    await awaitChild({ ...targetAst } as any, 'NODE');
-  }
-
-  /** Resolves a static or guarded graph edge; guards see the state's output as `output`/`input`. */
-  private async resolveGraphTransition(edge: string | CuratorGraphTransition[] | null | undefined, stateData: any, req: any): Promise<string> {
-    if (!edge) return '__end__';
-    if (typeof edge === 'string') return edge;
-    if (!Array.isArray(edge)) return '__end__';
-
-    let output: any = stateData;
-    if (typeof stateData === 'string') {
-      try {
-        const parsed = JSON.parse(stateData);
-        if (parsed && typeof parsed === 'object') output = parsed;
-      } catch (_) {}
-    }
-    for (const transition of edge) {
-      if (!transition.when) return transition.to;
-      const guardReq = { ...req, context: { ...this.parseContext(req.context), input: output, output } };
-      if (await this.evaluateExpressionAsync(transition.when, guardReq)) return transition.to;
-    }
-    return '__end__';
-  }
-
-  private async handleHumanInput(ast: any, req: any) {
-    if (req.context?.__humanInputReceived__) {
-      delete req.context.__humanInputReceived__;
-      const asKey = ast.as || req.context.choiceAs || req.context.as;
-      const inputVal = asKey ? req.context[asKey] : req.context.input;
-      const responseStr = typeof inputVal === 'string' ? inputVal : JSON.stringify(inputVal || {});
-      await this.saveResponse(req, responseStr);
-      await this.completeRequest(req.id, 'COMPLETED');
-      return;
-    }
-
-    let prompt = ast.prompt;
-    if (this.isDynamicExpr(prompt)) {
-      prompt = await this.evaluateExpressionAsync(prompt, req);
-    } else if (typeof prompt === 'string') {
-      prompt = (await this.interpolateTemplate(prompt, req)) || prompt;
-    }
-
-    // Evaluate dynamic choices expression if provided as string or closure
-    let choices = ast.choices;
-    if (typeof choices === 'string' && (choices.startsWith('$') || choices.startsWith('(') || choices.startsWith('context.') || choices.startsWith('state.'))) {
-      choices = await this.evaluateExpressionAsync(choices, req);
-    } else if (typeof choices === 'function') {
-      choices = choices(req.context);
-    }
-
-    // Normalize choices array: convert strings to rich choice objects if needed
-    if (Array.isArray(choices)) {
-      choices = choices.map((c: any) => {
-        if (typeof c === 'string') {
-          return { id: c, label: c, value: c };
-        }
-        return c;
-      });
-
-      // Conditional choices: offer a choice only while its `when` expression holds
-      const offered: any[] = [];
-      for (const c of choices) {
-        if (c && typeof c.when === 'string') {
-          const { when, ...rest } = c;
-          if (await this.evaluateExpressionAsync(when, req)) offered.push(rest);
-        } else {
-          offered.push(c);
-        }
-      }
-      choices = offered;
-    }
-
-    logger.debug(`[CuratorRequestProcessor] Request ${req.id} presenting prompt/choices (${choices?.length ?? 0} choices) to ${ast.targetUserId ? `user ${ast.targetUserId}` : 'any user'} (${ast.inputType || 'choices'}).`);
-
-    const choicePayload = {
-      requestId: req.id,
-      prompt,
-      inputType: ast.inputType || 'choices',
-      choices: choices || [],
-      targetUserId: ast.targetUserId ?? null,
-      as: ast.as,
-      blocking: ast.blocking !== false,
-      timeoutSeconds: ast.timeoutSeconds,
-      conversationId: req.conversationId,
-    };
-
-    // Store choices and metadata in request context
-    const updatedContext = {
-      ...(req.context || {}),
-      targetUserId: ast.targetUserId ?? null,
-      activeChoices: choices || [],
-      choicePrompt: prompt,
-      choiceAs: ast.as,
-      as: ast.as || (req.context as any)?.as,
-      waitEvent: 'curator:choice',
-    };
-
-    // Emit real-time choice event to pub/sub channels and client shells
-    this.emit('curator:human_input', choicePayload);
-    this.emit('curator:choices', choicePayload);
-
-    // If non-blocking, record response immediately and complete
-    if (ast.blocking === false) {
-      await this.saveResponse(req, JSON.stringify({ prompt, choices }));
-      await this.completeRequest(req.id, 'COMPLETED');
-      return;
-    }
-
-    // Blocking: suspend request awaiting human response or event
-    delete (updatedContext as any).waitDeadline;
-    if (ast.timeoutSeconds > 0) {
-      (updatedContext as any).waitDeadline = new Date(this.clock() + ast.timeoutSeconds * 1000).toISOString();
-    }
-    await this.prisma.request.update({
-      where: { id: req.id },
-      data: { status: 'WAITING_FOR_USER', context: updatedContext }
-    });
-  }
-
-  /**
-   * Curator_AgentRef is normalized to Curator_Call through the agent's Script
-   * (Agent has no AST of its own); the child Request runs with the agent as actor.
-   */
-  private async handleAgentRef(req: any, ast: any, context: any) {
-    if (context?.callPending) return this.handleCall({ type: 'Curator_Call', ref: '', as: ast.as } as any, req);
-
-    const agentDef = ast.agentName
-      ? await this.prisma.agent.findFirst({
-          where: { OR: [{ id: ast.agentName }, { name: ast.agentName }] },
-          include: { script: { select: { name: true } } }
-        })
-      : null;
-    if (!agentDef?.script?.name) {
-      const reason = !ast.agentName ? 'Missing agentName parameter' : `Agent '${ast.agentName}' not found or has no script`;
-      logger.error(`[CuratorRequestProcessor] AgentRef failed for request ${req.id}: ${reason}`);
-      await this.saveResponse(req, `[Agent Error] ${reason}`);
-      await this.completeRequest(req.id, 'FAILED');
-      return;
-    }
-    return this.handleCall(
-      { type: 'Curator_Call', ref: agentDef.script.name, args: { input: '$context.input' }, as: ast.as } as any,
-      req,
-      { agentId: agentDef.id }
-    );
-  }
-
-  /** Curator_ActorRef: the actor's kind picks the registered handler, which runs as a child Call. */
-  private async handleActorRef(ast: CuratorActorRefNode, req: any) {
-    if (this.parseContext(req.context).callPending) return this.handleCall({ type: 'Curator_Call', ref: '', as: ast.as } as any, req);
-
-    const actor = await this.evaluateExpressionAsync(ast.actor, req);
-    const kind = await this.evaluateExpressionAsync(ast.kind ?? '$actor.kind', { ...req, context: { ...this.parseContext(req.context), $actor: actor } });
-    const ref = ast.handlers[String(kind)] ?? ast.handlers.default;
-    if (!ref) return this.failRequest(req, `ActorRef: no handler for kind '${kind}'`);
-    logger.debug(`[CuratorRequestProcessor] ActorRef ${req.id} dispatching kind '${kind}' to '${ref}'.`);
-    // The actor is already resolved: bind it as a param instead of re-evaluating its fields as expressions.
-    return this.handleCall({ type: 'Curator_Call', ref, args: ast.args, as: ast.as } as any, req, { params: { actor } });
   }
 
   /** Q4: composite ad-hoc root ASTs become anonymous ScriptVersions; versioned roots record their version. */
@@ -1909,16 +1399,6 @@ export class CuratorRequestProcessor {
       }
     }
     return out;
-  }
-
-  /** Binds call args to declared params (defaults, required). Undeclared args pass through. */
-  private async bindParams(spec: Record<string, CuratorParamSpec> | undefined, args: Record<string, any> | undefined, req: any, preset: Record<string, any> = {}) {
-    const params = { ...(await this.evaluateArgs(args, req)), ...preset };
-    for (const [name, p] of Object.entries(spec || {})) {
-      if (params[name] === undefined && p?.default !== undefined) params[name] = p.default;
-      if (params[name] === undefined && p?.required) throw new Error(`Missing required param '${name}'`);
-    }
-    return params;
   }
 
   private async failRequest(req: any, reason: string) {
@@ -2010,92 +1490,6 @@ export class CuratorRequestProcessor {
     }
   }
 
-  /**
-   * Curator_Call (child mode): the callee runs as its own Request (parentId/notifyId = caller) with an
-   * isolated context `{ params }`. Phase 2 writes the callee's result to `as`.
-   * Inline calls never reach here: they are macro-expanded when the node is resolved.
-   */
-  private async handleCall(ast: CuratorCallNode, req: any, opts: { agentId?: string; params?: Record<string, any> } = {}) {
-    const ctx = (typeof req.context === 'string' ? JSON.parse(req.context) : req.context) || {};
-
-    if (ctx.callPending) {
-      // Phase 2: the callee chain finished; the latest Response of a request that notified us is the result.
-      const last = await this.prisma.request.findFirst({
-        where: { notifyId: req.id, status: 'COMPLETED', responses: { some: {} } },
-        orderBy: { id: 'desc' },
-        include: { responses: { orderBy: { createdAt: 'desc' }, take: 1 } }
-      });
-      let result: any = last?.responses?.[0]?.content ?? null;
-      if (typeof result === 'string') {
-        try { result = JSON.parse(result); } catch { /* plain text result */ }
-      }
-      if (ctx.callReturns && last) {
-        const lastCtx = typeof last.context === 'string' ? JSON.parse(last.context) : last.context;
-        result = await this.evaluateExpressionAsync(ctx.callReturns, { conversationId: last.conversationId, context: lastCtx || {} });
-      }
-      const as = ast.as ?? ctx.callAs;
-      const { callPending: _p, callReturns: _r, callAs: _a, ...rest } = ctx;
-      const newContext: any = { ...rest };
-      if (as) {
-        newContext[as] = result;
-        await this.writeState(req.conversationId, null, { [as]: result });
-        const conv = await this.prisma.conversation.findUnique({ where: { id: req.conversationId } });
-        newContext.state = this.getConversationState(conv);
-      }
-      await this.prisma.request.update({ where: { id: req.id }, data: { context: newContext } });
-      await this.saveResponse(req, typeof result === 'string' ? result : JSON.stringify(result ?? null));
-      await this.completeRequest(req.id, 'COMPLETED');
-      return;
-    }
-
-    const depth = (ctx.callDepth ?? 0) + 1;
-    if (depth > this.maxCallDepth) return this.failRequest(req, `Call depth ${depth} exceeds maxCallDepth ${this.maxCallDepth} at '${ast.ref}'`);
-
-    let target: Awaited<ReturnType<typeof resolveRef>>;
-    let params: Record<string, any>;
-    let astPath: string;
-    let rootAst: CuratorAstNode;
-    try {
-      target = await resolveRef(this.prisma, ast.ref, { scriptId: req.scriptId, scriptVersion: req.scriptVersion });
-      params = await this.bindParams(target.params, ast.args, req, opts.params);
-      rootAst = (await getScriptVersionAst(this.prisma, target.scriptId, target.version)).ast;
-      astPath = entryAstPath(rootAst, target.entry);
-    } catch (err: any) {
-      return this.failRequest(req, `Call '${ast.ref}': ${err.message}`);
-    }
-
-    // Park the caller first so a fast callee can never complete before we are WAITING.
-    await this.prisma.request.update({
-      where: { id: req.id },
-      data: {
-        status: 'WAITING', pendingDependencies: 1, lockedBy: null, lockedAt: null,
-        context: { ...ctx, callPending: true, callReturns: target.returns ?? null, callAs: ast.as ?? null }
-      }
-    });
-
-    await this.createValidatedRequest({
-      data: {
-        userId: req.userId,
-        projectId: req.projectId,
-        conversationId: req.conversationId,
-        parentId: req.id,
-        notifyId: req.id,
-        scriptId: target.scriptId,
-        scriptVersion: target.version,
-        agentId: opts.agentId ?? req.agentId ?? undefined,
-        status: 'NEW',
-        pendingDependencies: 0,
-        ast: this.astStorage === 'snapshot'
-          ? (rootAst.type === 'Curator_Module' ? expandInlineCalls(target.node, rootAst as any) : target.node)
-          : undefined,
-        // Isolated: the callee sees only its params (plus conversation state), never the caller's context.
-        context: { params, input: params.input, origin: 'AST', ref: ast.ref, astPath, callDepth: depth }
-      }
-    });
-    // No Response while parked: the poller treats a WAITING Request with a Response as answered.
-    // Lineage is the child's parentId; the result Response is written in phase 2.
-  }
-
   /** Resolves a handler ref to its Script row id and entry (local refs use the executing script). */
   private async resolveHandler(handler: string, req: any): Promise<{ scriptId: number; entry: string | null }> {
     const parsed = parseCuratorRef(handler);
@@ -2107,105 +1501,6 @@ export class CuratorRequestProcessor {
     const script = await this.prisma.script.findUnique({ where: { name: parsed.script }, select: { id: true } });
     if (!script) throw new Error(`Script '${parsed.script}' not found`);
     return { scriptId: script.id, entry: parsed.entry ?? null };
-  }
-
-  /** Dynamic Curator_Subscribe: materializes a conversation-scoped EventSubscription bound to the handler's Script. */
-  private async handleSubscribe(ast: CuratorSubscribeNode, req: any) {
-    if (!this.prisma.eventSubscription) return this.failRequest(req, 'EventSubscription model is not available');
-    if (ast.scope === 'project') {
-      return this.failRequest(req, `Project-scoped subscriptions must be declared in Curator_Module.subscriptions (static)`);
-    }
-    try {
-      const { scriptId, entry } = await this.resolveHandler(ast.handler, req);
-      const where = { scriptId, entry, eventName: ast.eventName, conversationId: req.conversationId };
-      const data = {
-        isActive: true,
-        when: ast.when ?? null,
-        payloadAs: ast.as ?? null,
-        userId: req.userId,
-        projectId: req.projectId ?? null,
-        agentId: req.agentId ?? null
-      };
-      const found = await this.prisma.eventSubscription.findFirst({ where });
-      const row = found
-        ? await this.prisma.eventSubscription.update({ where: { id: found.id }, data })
-        : await this.prisma.eventSubscription.create({ data: { ...where, ...data } });
-      const record: CuratorStructuredResponse = {
-        type: 'SUBSCRIBED',
-        ok: true,
-        metadata: { subscriptionId: row.id, eventName: ast.eventName, handler: ast.handler }
-      };
-      await this.saveResponse(req, JSON.stringify(record));
-      await this.completeRequest(req.id, 'COMPLETED');
-    } catch (err: any) {
-      return this.failRequest(req, `Subscribe '${ast.eventName}': ${err.message}`);
-    }
-  }
-
-  /** Dynamic Curator_Unsubscribe: deactivates conversation-scoped subscriptions (all, or for one handler). */
-  private async handleUnsubscribe(ast: CuratorUnsubscribeNode, req: any) {
-    if (!this.prisma.eventSubscription) return this.failRequest(req, 'EventSubscription model is not available');
-    try {
-      const handlerWhere = ast.handler ? await this.resolveHandler(ast.handler, req) : {};
-      const res = await this.prisma.eventSubscription.updateMany({
-        where: { eventName: ast.eventName, conversationId: req.conversationId, isActive: true, ...handlerWhere },
-        data: { isActive: false }
-      });
-      const record: CuratorStructuredResponse = {
-        type: 'UNSUBSCRIBED',
-        ok: true,
-        metadata: { eventName: ast.eventName, handler: ast.handler ?? null, count: res?.count ?? 0 }
-      };
-      await this.saveResponse(req, JSON.stringify(record));
-      await this.completeRequest(req.id, 'COMPLETED');
-    } catch (err: any) {
-      return this.failRequest(req, `Unsubscribe '${ast.eventName}': ${err.message}`);
-    }
-  }
-
-  private async handleScript(ast: CuratorScriptNode, req: any) {
-    if (req.context?.spawnedChild) {
-      // Phase 2: Child finished. Output is in req.context.input.
-      const outputStr = typeof req.context.input === 'string' ? req.context.input : JSON.stringify(req.context.input || {});
-      await this.saveResponse(req, outputStr);
-      await this.completeRequest(req.id, 'COMPLETED');
-      return;
-    }
-
-    logger.debug(`[CuratorRequestProcessor] Executing Script Node (${ast.language || 'javascript'}) for request ${req.id}`);
-    const sandbox = {
-      console,
-      input: req.context?.input || '',
-      context: req.context || {},
-      ...coffeeAstVerbs,
-    };
-    const context = vm.createContext(sandbox);
-    try {
-      let codeToExecute = ast.code;
-      if (ast.language === 'coffeescript') {
-        const coffee = (await import('coffeescript')).default;
-        codeToExecute = coffee.compile(ast.code, { bare: true, header: false });
-      }
-      const output = vm.runInContext(codeToExecute, context);
-      
-      if (isCuratorAstNode(output)) {
-        logger.debug(`[CuratorRequestProcessor] Script generated a valid AST node of type ${output.type}. Spawning as child...`);
-        await this.spawnChildAndParkParent(
-          req,
-          { ast: output, context: { ...req.context, spawnedChild: false, input: req.context?.input } },
-          { spawnedChild: true }
-        );
-        return;
-      }
-      
-      const result = typeof output === 'string' ? output : JSON.stringify(output);
-      await this.saveResponse(req, result);
-      await this.completeRequest(req.id, 'COMPLETED');
-    } catch(e: any) {
-      const result = `[Script Error] ${e.message}`;
-      await this.saveResponse(req, result);
-      await this.completeRequest(req.id, 'COMPLETED');
-    }
   }
 
   private async resolveActorPermissions(actor: { userId?: string; agentId?: string }): Promise<Set<string>> {
@@ -2290,7 +1585,7 @@ export class CuratorRequestProcessor {
     }
   }
 
-  private async checkToolAccess(req: any, toolName: string, tool: any): Promise<{ allowed: boolean; requiresConfirmation: boolean; reason?: string; approvalScope?: string; roles?: string[] }> {
+  private async checkToolAccess(req: any, toolName: string, tool: any): Promise<ToolAccessResult> {
     const accessLevel = (tool as any).accessLevel || 'safe_write';
     const requiresConfirmation = (tool as any).requiresConfirmation || (tool as any).requiresHumanApproval || accessLevel === 'destructive' || accessLevel === 'elevated';
 
@@ -2493,308 +1788,6 @@ export class CuratorRequestProcessor {
     const deleted = await this.prisma.request.deleteMany({ where: { id: { in: ids } } });
     logger.debug(`[CuratorRequestProcessor] Retention: pruned ${deleted.count} read-only tool request(s) older than ${cutoff.toISOString()}.`);
     return deleted.count;
-  }
-
-  private async handleTool(ast: CuratorToolNode, req: any) {
-    logger.debug(`[CuratorRequestProcessor] Executing Tool '${ast.toolName}' for request ${req.id}`);
-    const tool = this.engine.tools.get(ast.toolName);
-    if (!tool) throw new Error(`Tool ${ast.toolName} not found in dynamic registry.`);
-
-    let toolArgs = ast.args || { url: req.context?.input || '' };
-    // Direct calls (REPL/CLI/API) carry literal args: a value like "$100" must not be evaluated.
-    const literalArgs = req.context?.literalArgs === true;
-    const inflight = this.inflight.get(req.id);
-    
-    // Evaluate string expressions in toolArgs — supports both {{expr}} templates and (fn)(context) patterns
-    let evaluatedArgs: Record<string, any> = {};
-    if (this.isDynamicExpr(toolArgs)) {
-      const resolved = await this.evaluateExpressionAsync(toolArgs, req);
-      evaluatedArgs = (resolved && typeof resolved === 'object' && !Array.isArray(resolved)) ? resolved : { input: resolved };
-    } else if (toolArgs && typeof toolArgs === 'object') {
-      evaluatedArgs = await this.evaluateArgs(toolArgs, req, literalArgs);
-    }
-
-    // RBAC & Tool confirmation gate
-    const accessCheck = await this.checkToolAccess(req, ast.toolName, tool);
-    if (!accessCheck.allowed) {
-      if (accessCheck.requiresConfirmation) {
-        logger.debug(`[CuratorRequestProcessor] Request ${req.id} pausing on WAITING_FOR_USER for tool '${ast.toolName}'.`);
-        const ttlMs = ast.approvalTtlMs ?? (tool as any).approvalTtlMs ?? this.approvalTtlMs;
-        const expiresAt = ttlMs > 0 ? new Date(this.clock() + ttlMs).toISOString() : undefined;
-        await this.prisma.request.update({
-          where: { id: req.id },
-          data: {
-            status: 'WAITING_FOR_USER',
-            lockedBy: null,
-            lockedAt: null,
-            context: {
-              ...req.context,
-              pendingToolCall: {
-                name: ast.toolName,
-                args: evaluatedArgs,
-                as: ast.as,
-                expiresAt,
-                onExpired: ast.onApprovalExpired ?? 'fail'
-              },
-              reason: accessCheck.reason
-            }
-          }
-        });
-        // Audit record only: the poller never treats this Response as the approval (see pendingToolCall guard).
-        await this.saveResponse(req, JSON.stringify({
-          type: 'APPROVAL_REQUIRED', ok: false, tool: ast.toolName, reason: accessCheck.reason, expiresAt
-        } satisfies CuratorStructuredResponse));
-        return;
-      } else {
-        await this.saveResponse(req, JSON.stringify({
-          type: 'TOOL_BLOCKED', ok: false, tool: ast.toolName, reason: accessCheck.reason, roles: accessCheck.roles
-        } satisfies CuratorStructuredResponse));
-        await this.completeRequest(req.id, 'FAILED');
-        return;
-      }
-    }
-
-    let result = '';
-    let rawOutput: any = undefined;
-    let hydratedSecrets = new Map<string, string>();
-    try {
-      // Late-binding secret hydration: replaces $secret:XYZ, {{secrets.XYZ}}, etc.
-      const hydration = await SecretService.hydrate(evaluatedArgs, {
-        projectId: req.projectId,
-        userId: req.userId,
-        agentId: req.agentId,
-        prisma: this.prisma
-      });
-      hydratedSecrets = hydration.secretsMap;
-
-      rawOutput = await tool.runAsync({
-        args: { ...hydration.hydrated, ...(inflight?.runtimeArgs || {}) },
-        toolContext: {
-          ...this.toolContextExtras,
-          conversationId: req.conversationId,
-          userId: req.userId,
-          agentId: req.agentId,
-          projectId: req.projectId,
-          prisma: this.prisma,
-          context: req.context,
-          state: req.context?.state,
-          ...(inflight?.runtimeContext || {})
-        }
-      });
-      if (inflight) inflight.raw = rawOutput;
-      result = typeof rawOutput === 'string' ? rawOutput : JSON.stringify(rawOutput);
-
-      if (rawOutput && typeof rawOutput === 'object' && (rawOutput as any).event && inflight?.broadcastToolEvents !== false) {
-        const evt = (rawOutput as any).event;
-        const eventName = typeof evt === 'string' ? evt : evt.name;
-        const payload = typeof evt === 'object' && evt.payload !== undefined ? evt.payload : rawOutput;
-        this.emit(eventName, payload);
-      }
-    } catch(e: any) {
-      if (inflight) inflight.error = e;
-      result = `[Tool Error] ${e.message}`;
-    }
-
-    // Egress scrubbing: mask any reflected secrets before writing to DB responses or context
-    result = SecretService.mask(result, hydratedSecrets);
-
-    // Store tool output in req.context under a short name derived from the tool name.
-    // This is best-effort: if the DB update fails (e.g. P2028), we still proceed with
-    // saveResponse + completeRequest using the in-memory context.
-    if (rawOutput !== undefined) {
-      const sanitizedOutput = typeof rawOutput === 'string'
-        ? SecretService.mask(rawOutput, hydratedSecrets)
-        : SecretService.sanitizeContext(rawOutput, hydratedSecrets);
-      const updatedContext = { ...(req.context || {}) };
-      // An approved wait is consumed once the tool has run.
-      delete updatedContext.pendingToolCall;
-      updatedContext[ast.toolName] = sanitizedOutput;
-
-      // Allow AST node (`as` / `outputKey`) or tool definition (`outputKey` / `contextKey`) to define an alias
-      const toolAlias = (ast as any).as || (ast as any).outputKey || (tool as any)?.outputKey || (tool as any)?.contextKey;
-      if (toolAlias && typeof toolAlias === 'string') {
-        updatedContext[toolAlias] = sanitizedOutput;
-      }
-
-      if ((ast as any).spread !== false && sanitizedOutput && typeof sanitizedOutput === 'object' && !Array.isArray(sanitizedOutput)) {
-        Object.assign(updatedContext, sanitizedOutput);
-      }
-      req.context = updatedContext;
-      try {
-        await this.prisma.request.update({
-          where: { id: req.id },
-          data: { context: updatedContext }
-        });
-      } catch (ctxErr: any) {
-        // Non-fatal: context update failed. In-memory context is still correct for
-        // completeRequest → notifyId propagation within this same processing cycle.
-        logger.warn(`[CuratorRequestProcessor] Context update skipped for req ${req.id}: ${ctxErr.message}`);
-      }
-    }
-
-    // Consume ONETIME approval if used
-    if (accessCheck.approvalScope === 'ONETIME' && req.context) {
-      delete req.context.__humanApproved__;
-      if (Array.isArray(req.context.__approvedTools__)) {
-        req.context.__approvedTools__ = req.context.__approvedTools__.filter((t: string) => t !== ast.toolName);
-      }
-    }
-
-    // The Response below is the audit record of this tool execution.
-    await this.saveResponse(req, result);
-    await this.completeRequest(req.id, 'COMPLETED');
-  }
-
-  /**
-   * Curator_Reduce: runs a plugin's pure reducer on the evaluated args. No RBAC, approval or tool events;
-   * the output is bound like tool output (context here, conversation state on completion).
-   */
-  private async handleReduce(ast: CuratorReduceNode, req: any) {
-    const reducer = this.engine.reducers?.get(ast.reducer);
-    if (!reducer) throw new Error(`Reducer ${ast.reducer} not found in dynamic registry.`);
-
-    let args: Record<string, any> = {};
-    if (this.isDynamicExpr(ast.args)) {
-      const resolved = await this.evaluateExpressionAsync(ast.args as string, req);
-      args = (resolved && typeof resolved === 'object' && !Array.isArray(resolved)) ? resolved : { input: resolved };
-    } else if (ast.args && typeof ast.args === 'object') {
-      args = await this.evaluateArgs(ast.args, req);
-    }
-
-    const output = reducer(args);
-    if (!output || typeof output !== 'object' || Array.isArray(output)) {
-      throw new Error(`Reducer ${ast.reducer} must return an object`);
-    }
-
-    const updatedContext = { ...(req.context || {}) };
-    if (ast.as) updatedContext[ast.as] = output;
-    if (ast.spread !== false) Object.assign(updatedContext, output);
-    req.context = updatedContext;
-    await this.prisma.request.update({ where: { id: req.id }, data: { context: updatedContext } });
-
-    await this.saveResponse(req, JSON.stringify(output));
-    await this.completeRequest(req.id, 'COMPLETED');
-  }
-
-  /**
-   * Curator_Interrupt handler — Play / Pause / Stop for a conversation.
-   *
-   * mode: 'stop'  (default) — cancels all NEW requests below cancelBelowPriority, then runs handler.
-   * mode: 'pause'           — suspends (PAUSED status) all NEW requests below priority, runs handler, then resumes them.
-   * mode: 'play'            — resumes all PAUSED requests in this conversation.
-   */
-  private async handleInterrupt(ast: any, req: any) {
-    const priority: number = ast.priority ?? 100;
-    const cancelThreshold: number = ast.cancelBelowPriority ?? priority;
-    const mode: 'stop' | 'pause' | 'play' = ast.mode ?? 'stop';
-
-    logger.debug(`[CuratorRequestProcessor] Interrupt (mode=${mode}, priority=${priority}) for conversation ${req.conversationId}`);
-
-    if (mode === 'play') {
-      // Resume all PAUSED requests in this conversation
-      const resumed = await this.prisma.request.updateMany({
-        where: {
-          conversationId: req.conversationId,
-          status: 'PAUSED'
-        },
-        data: { status: 'NEW', lockedBy: null, lockedAt: null }
-      });
-      logger.debug(`[CuratorRequestProcessor] Resumed ${resumed.count} paused requests.`);
-      await this.saveResponse(req, JSON.stringify({ status: 'play', resumed: resumed.count }));
-      await this.completeRequest(req.id, 'COMPLETED');
-      return;
-    }
-
-    if (mode === 'pause') {
-      // Wake-up after the handler: the pause already happened on the first pass.
-      if (req.context?.interruptHandled) {
-        await this.saveResponse(req, JSON.stringify({ status: 'pause', handled: true }));
-        await this.completeRequest(req.id, 'COMPLETED');
-        return;
-      }
-
-      // Suspend all NEW requests below threshold
-      const paused = await this.prisma.request.updateMany({
-        where: {
-          conversationId: req.conversationId,
-          status: 'NEW',
-          priority: { lt: cancelThreshold }
-        },
-        data: { status: 'PAUSED' }
-      });
-      logger.debug(`[CuratorRequestProcessor] Paused ${paused.count} requests.`);
-
-      // Run handler if provided
-      if (ast.handler) {
-        await this.createValidatedRequest({
-          data: {
-            userId: req.userId,
-            conversationId: req.conversationId,
-            status: 'NEW',
-            priority,
-            pendingDependencies: 0,
-            notifyId: req.id,
-            ast: ast.handler
-          }
-        });
-        // Park until the handler finishes; `interruptHandled` makes the wake-up complete instead of pausing again.
-        // No Response while parked: the poller treats a WAITING Request with a Response as answered.
-        await this.prisma.request.update({
-          where: { id: req.id },
-          data: { status: 'WAITING', pendingDependencies: 1, lockedBy: null, lockedAt: null, context: { ...(req.context || {}), interruptHandled: true } }
-        });
-      } else {
-        await this.saveResponse(req, JSON.stringify({ status: 'pause', paused: paused.count }));
-        await this.completeRequest(req.id, 'COMPLETED');
-      }
-      return;
-    }
-
-    // mode === 'stop': cancel all pending requests below threshold
-    const cancelled = await this.prisma.request.updateMany({
-      where: {
-        conversationId: req.conversationId,
-        status: 'NEW',
-        priority: { lt: cancelThreshold }
-      },
-      data: { status: 'FAILED' }
-    });
-    logger.debug(`[CuratorRequestProcessor] Cancelled ${cancelled.count} lower-priority requests.`);
-
-    // Run the interrupt handler at high priority
-    if (ast.handler) {
-      // If resume is provided, handler notifies the resume node
-      let notifyId = req.notifyId;
-      if (ast.resume) {
-        const resumeReq = await this.createValidatedRequest({
-          data: {
-            userId: req.userId,
-            conversationId: req.conversationId,
-            status: 'NEW',
-            priority: 0,
-            pendingDependencies: 1,
-            notifyId: req.notifyId,
-            ast: ast.resume
-          }
-        });
-        notifyId = resumeReq.id;
-      }
-
-      await this.createValidatedRequest({
-        data: {
-          userId: req.userId,
-          conversationId: req.conversationId,
-          status: 'NEW',
-          priority,
-          pendingDependencies: 0,
-          notifyId,
-          ast: ast.handler
-        }
-      });
-    }
-
-    await this.saveResponse(req, JSON.stringify({ status: 'stop', cancelled: cancelled.count }));
-    await this.completeRequest(req.id, 'COMPLETED');
   }
 
   private async interpolateTemplate(template: string | undefined, req: any): Promise<string | undefined> {
@@ -3577,122 +2570,4 @@ export class CuratorRequestProcessor {
     }
   }
 
-  private async handleWhile(ast: any, req: any) {
-    logger.debug(`[CuratorRequestProcessor] Handling While node for ${req.id}`);
-    
-    // We need fresh state to evaluate condition properly across iterations
-    const conv = await this.prisma.conversation.findUnique({ where: { id: req.conversationId } });
-    req.context = req.context || {};
-    req.context.state = this.getConversationState(conv);
-
-    const conditionResult = await this.evaluateExpressionAsync(ast.condition, req);
-    
-    if (conditionResult) {
-      await this.spawnChildAndParkParent(req, { ast: ast.body, context: req.context });
-    } else {
-      await this.saveResponse(req, `While loop finished.`);
-      await this.completeRequest(req.id, 'COMPLETED');
-    }
-  }
-
-  /**
-   * Curator_Loop: runs `agent` once per iteration (`$context.iteration`, 1-based).
-   * Stop conditions: `while` (checked before each iteration), `over` (iterate a collection, item bound to `as`),
-   * `until` (checked after each iteration) and `maxIterations`.
-   * With `schedule` it is the scheduler subtype: each iteration is queued for the next due time
-   * (the loop then runs until cancelled unless bounded).
-   */
-  private async handleLoop(ast: CuratorLoopNode, req: any) {
-    const ctx = req.context || {};
-    const running = !!ctx.loopRunning;
-    const completed: number = running ? (ctx.loopIteration ?? 0) : 0;
-
-    if (ast.schedule && !isValidSchedule(ast.schedule)) {
-      return this.failRequest(req, `Loop schedule '${ast.schedule}' is not a valid cron or interval expression`);
-    }
-
-    const conv = await this.prisma.conversation.findUnique({ where: { id: req.conversationId } });
-    req.context = { ...ctx, state: this.getConversationState(conv), iteration: completed };
-
-    let collection: any[] | undefined = ctx.loopCollection;
-    if (ast.over && !running) {
-      collection = await this.evaluateExpressionAsync(ast.over, req);
-      if (!Array.isArray(collection)) return this.failRequest(req, `Loop 'over' expression did not evaluate to an array`);
-    }
-
-    const limit = ast.maxIterations ?? (ast.schedule ? Infinity : AST_LIMITS.maxLoopIterations);
-    let stop: string | null = null;
-    if (running && completed >= limit) stop = 'maxIterations';
-    else if (running && ast.until && await this.evaluateExpressionAsync(ast.until, req)) stop = 'until';
-    else if (collection && completed >= collection.length) stop = 'over';
-    else if (ast.while && !(await this.evaluateExpressionAsync(ast.while, req))) stop = 'while';
-    if (stop) {
-      await this.saveResponse(req, `Loop finished after ${completed} iteration(s) (${stop}).`);
-      await this.completeRequest(req.id, 'COMPLETED');
-      return;
-    }
-
-    const iteration = completed + 1;
-    const { loopIteration, loopRunning, loopCollection, ...inherited } = ctx;
-    const itemContext = collection ? { [ast.as || 'item']: collection[completed], index: completed } : {};
-    const body: any = ast.prompt && !(ast.agent as any).prompt ? { ...ast.agent, prompt: ast.prompt } : ast.agent;
-    const runNow = !ast.schedule || (ast.immediate && iteration === 1);
-    await this.createValidatedRequest({
-      data: {
-        ast: body,
-        context: { ...inherited, ...itemContext, iteration },
-        projectId: req.projectId,
-        agentId: req.agentId,
-        scriptId: req.scriptId,
-        conversationId: req.conversationId,
-        userId: req.userId || 1,
-        status: 'NEW',
-        pendingDependencies: 0,
-        notifyId: req.id,
-        scheduledAt: runNow ? null : computeNextRunDate(ast.schedule!, new Date(this.clock()))
-      }
-    });
-    await this.prisma.request.update({
-      where: { id: req.id },
-      data: {
-        status: 'WAITING',
-        lockedBy: null,
-        lockedAt: null,
-        pendingDependencies: 1,
-        context: { ...ctx, loopIteration: iteration, loopRunning: true, ...(collection ? { loopCollection: collection } : {}) }
-      }
-    });
-  }
-
-  private async handleForEach(ast: any, req: any) {
-    logger.debug(`[CuratorRequestProcessor] Handling ForEach node for ${req.id}`);
-    
-    let collection = req.context?.forEachCollection;
-    if (!collection) {
-      collection = await this.evaluateExpressionAsync(ast.collectionExpression, req);
-    }
-
-    if (!Array.isArray(collection) || collection.length === 0) {
-      await this.saveResponse(req, `ForEach finished (empty).`);
-      await this.completeRequest(req.id, 'COMPLETED');
-      return;
-    }
-
-    let currentIndex = req.context?.forEachIndex || 0;
-    
-    if (currentIndex >= collection.length) {
-      await this.saveResponse(req, `ForEach finished.`);
-      await this.completeRequest(req.id, 'COMPLETED');
-      return;
-    }
-
-    const item = collection[currentIndex];
-    const iteratorName = ast.iteratorName || 'item';
-    
-    await this.spawnChildAndParkParent(
-      req,
-      { ast: ast.body, context: { ...req.context, [iteratorName]: item }, parentId: req.id },
-      { forEachIndex: currentIndex + 1, forEachCollection: collection }
-    );
-  }
 }
