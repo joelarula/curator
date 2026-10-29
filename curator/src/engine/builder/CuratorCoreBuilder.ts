@@ -395,10 +395,13 @@ export class CuratorCoreBuilder {
    * Wait synchronously for a Pub/Sub event to be emitted.
    */
   static waitEvent(
-    event: string | { name: string },
+    event: string | { name: string } | Array<string | { name: string }>,
     payloadAlias?: string | TypedPathProxy<any> | any,
-    options: { timeoutSeconds?: number; replay?: boolean } = {}
+    options: { timeoutSeconds?: number; replay?: boolean; onTimeout?: CuratorAstNode } = {}
   ): CuratorWaitEventNode {
+    if (Array.isArray(event)) {
+      return CuratorCoreBuilder.waitAnyEvent(event, payloadAlias, options);
+    }
     const eventName = typeof event === 'string' ? event : event.name;
     const cleanAlias = toVarName(payloadAlias);
     return {
@@ -407,6 +410,30 @@ export class CuratorCoreBuilder {
       ...(cleanAlias ? { payloadAlias: cleanAlias } : {}),
       ...(options?.timeoutSeconds ? { timeoutSeconds: options.timeoutSeconds } : {}),
       ...(options?.replay ? { replay: true } : {}),
+      ...(options?.onTimeout ? { onTimeout: options.onTimeout } : {}),
+    };
+  }
+
+  /**
+   * Wait for the FIRST event among `events` to be emitted (race / "first wins" semantics, like Bevy `listen_any_event`).
+   */
+  static waitAnyEvent(
+    events: Array<string | { name: string }>,
+    payloadAlias?: string | TypedPathProxy<any> | any,
+    options: { timeoutSeconds?: number; replay?: boolean; onTimeout?: CuratorAstNode } = {}
+  ): CuratorWaitEventNode {
+    const names = events.map((e) => (typeof e === 'string' ? e : e.name)).filter(Boolean);
+    if (names.length === 0) throw new Error('waitAnyEvent requires at least one event');
+    const [primary, ...rest] = names;
+    const cleanAlias = toVarName(payloadAlias);
+    return {
+      type: CuratorNodeType.WaitEvent,
+      eventName: primary,
+      ...(rest.length > 0 ? { eventNames: rest } : {}),
+      ...(cleanAlias ? { payloadAlias: cleanAlias } : {}),
+      ...(options?.timeoutSeconds ? { timeoutSeconds: options.timeoutSeconds } : {}),
+      ...(options?.replay ? { replay: true } : {}),
+      ...(options?.onTimeout ? { onTimeout: options.onTimeout } : {}),
     };
   }
 
@@ -686,6 +713,38 @@ export class CuratorCoreBuilder {
    */
   static secret(key: string): string {
     return `$secret:${key}`;
+  }
+
+  /**
+   * Attaches an error recovery / fallback AST node (`.catch()` / Bevy `on_error`).
+   */
+  static withFallback<T extends CuratorAstNode>(node: T, fallback: CuratorAstNode | CuratorAstNode[] | any): T {
+    return { ...node, onError: resolveBuilderNode(fallback) };
+  }
+
+  /**
+   * Attaches a timeout and optional timeout fallback AST node to a wait/input node.
+   */
+  static withTimeout<T extends CuratorAstNode>(node: T, timeoutSeconds: number, onTimeout?: CuratorAstNode | CuratorAstNode[] | any): T {
+    return {
+      ...node,
+      timeoutSeconds,
+      ...(onTimeout ? { onTimeout: resolveBuilderNode(onTimeout) } : {}),
+    };
+  }
+
+  /**
+   * Attaches an entry and/or exit action hook to any AST node (Bevy `with_entry` / `with_exit`).
+   */
+  static withHooks<T extends CuratorAstNode>(
+    node: T,
+    hooks: { entry?: CuratorAstNode | CuratorAstNode[] | any; exit?: CuratorAstNode | CuratorAstNode[] | any }
+  ): T {
+    return {
+      ...node,
+      ...(hooks.entry ? { entryAction: resolveBuilderNode(hooks.entry) } : {}),
+      ...(hooks.exit ? { exitAction: resolveBuilderNode(hooks.exit) } : {}),
+    };
   }
 }
 

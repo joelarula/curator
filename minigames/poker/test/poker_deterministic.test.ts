@@ -264,7 +264,7 @@ test('Poker Deterministic Harness: table talk with an always-talking LLM ends af
           players: [
             { id: 'hero', name: 'You (Hero)', isHuman: true },
             { id: 'viper', name: 'Viper (Shark)', persona: 'shark', instruction: 'Cold shark.' },
-            { id: 'maddog', name: 'MadDog (Maniac)', persona: 'maniac', instruction: 'Loud maniac.' },
+            { id: 'maddog', name: 'MadDog (Maniac)', persona: 'maniac', instruction: 'Loud maniac.', holeCards: ['As', 'Kd'], chips: 740 },
             { id: 'barnaby', name: 'Barnaby (Station)', persona: 'station', instruction: 'Folksy station.' },
           ],
         },
@@ -286,6 +286,12 @@ test('Poker Deterministic Harness: table talk with an always-talking LLM ends af
     assert.deepEqual(lines.map((p: any) => p.depth), [1, 2], 'one answer, one comeback, then the thread ends');
     assert.ok(new Set(lines.map((p: any) => p.threadId)).size === 1, 'one thread');
     assert.equal(llm.requests.length, MAX_DEPTH, 'one LLM call per line');
+    // The seat talks as itself: its persona and its own view of the table, as on its turn
+    const firstPrompt = JSON.stringify(llm.requests[0]);
+    assert.match(firstPrompt, /You are MadDog \(Maniac\)/);
+    assert.match(firstPrompt, /Loud maniac\./);
+    assert.match(firstPrompt, /Your Hole Cards: .*As.*Kd/);
+    assert.match(firstPrompt, /Your Stack: \[chips\] 740/);
     assert.equal((await payloads('poker:chatter_done')).length, MAX_DEPTH);
 
     const { stateAt } = await import('../src/curator.ts');

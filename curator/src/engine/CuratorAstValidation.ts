@@ -17,6 +17,10 @@ const baseProperties = {
   exclude_from_history: { type: 'boolean' },
   scheduledAt: { type: 'string', minLength: 1 },
   priority: { type: 'number' },
+  onError: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' },
+  entryAction: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' },
+  exitAction: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' },
+  onTimeout: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' },
 };
 
 /** Subroutine reference: 'script', 'script#sub' or '#sub'. */
@@ -166,7 +170,7 @@ const schema: Record<string, any> = {
     },
     {
       type: 'object',
-      properties: { ...baseProperties, type: { const: 'Curator_WaitEvent' }, eventName: { type: 'string', minLength: 1 }, payloadAlias: { type: 'string' }, timeoutSeconds: { type: 'number' }, replay: { type: 'boolean' } },
+      properties: { ...baseProperties, type: { const: 'Curator_WaitEvent' }, eventName: { type: 'string', minLength: 1 }, eventNames: { type: 'array', items: { type: 'string', minLength: 1 } }, payloadAlias: { type: 'string' }, timeoutSeconds: { type: 'number' }, replay: { type: 'boolean' } },
       required: ['type', 'eventName'],
       additionalProperties: false,
     },

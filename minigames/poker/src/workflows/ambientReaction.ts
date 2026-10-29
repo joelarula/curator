@@ -25,7 +25,6 @@ import {
 import { pokerComposables } from '../composables/pokerComposables.ts';
 import { state, gameState } from '../models/pokerContext.ts';
 import {
-  PokerEvent,
   PokerReducer,
   PokerSpeechAct,
   PokerSpeechOrigin,
@@ -36,6 +35,7 @@ import {
   Speech, ActionTaken, PhaseSettle, NewRound, ChatterCue, ChatterDone, TablePhase,
 } from '../models/pokerEvents.ts';
 import { MAX_DEPTH, PokerChatterMode, TableTalkCommand, type TableTalkState } from '../engine/tableTalk.ts';
+import { SEAT_MODEL, SEAT_HISTORY_EVENTS, seatPersona, seatView } from './agentTurn.ts';
 
 const { modules } = pokerComposables;
 
@@ -95,41 +95,44 @@ export const CHATTER_OUTPUT_SCHEMA: Record<string, any> = {
   },
 };
 
-/** The cued seat's voice: a cheap model, one line, persona first. */
+/** How a seat talks between decisions; who it is, what it sees and remembers are the same as on its turn. */
+export const POKER_CHATTER_PROTOCOL = [
+  'This is table talk, not a decision: never reveal your hole cards and never announce an action.',
+  'Let what you see and remember colour the line (a bad beat, a big pot, who has been pushing whom), in character.',
+  'Say one short line (max ~20 words), or return an empty "say" when your persona would keep quiet.',
+  'Modes:',
+  `- ${PokerChatterMode.REPLY}: answer the line you were given, directly.`,
+  `- ${PokerChatterMode.BANTER}: a quip, needle or reaction aimed at the table about what just happened.`,
+  `- ${PokerChatterMode.MONOLOGUE}: mutter to yourself; address nobody.`,
+].join('\n');
+
+/**
+ * The cued seat's voice (`$params.actor`: the seat, `$params.cue`: the cue): the same persona, view of the
+ * table, memory of the hand and model as its turn decisions; only the task is a line instead of an action.
+ */
 export const chatter_line = () => CuratorBuilder.agent({
-  agentName: 'PokerTableTalk',
+  agentName: 'PokerAgent',
   as: 'chatter',
-  model: 'gemini-2.5-flash-lite',
+  model: SEAT_MODEL,
   provider: 'gemini',
-  instruction: [
-    `You are {${cue.speakerName}?} at a Texas Hold'em table. {${cue.instruction}?}`,
-    'This is small talk between hands and bets, not a decision: never reveal your hole cards or announce an action.',
-    'Say one short line in character (max ~20 words), or return an empty "say" when your persona would keep quiet.',
-    'Modes:',
-    `- ${PokerChatterMode.REPLY}: answer the line you were given, directly.`,
-    `- ${PokerChatterMode.BANTER}: a quip, needle or reaction aimed at the table about what just happened.`,
-    `- ${PokerChatterMode.MONOLOGUE}: mutter to yourself; address nobody.`,
-  ].join('\n'),
+  instruction: [seatPersona(), POKER_CHATTER_PROTOCOL].join('\n\n'),
   prompt: [
+    "Current Texas Hold'em Table State:",
+    ...seatView(),
     `Mode: {${cue.mode}?}`,
     `What happened: {${cue.topic}?}`,
     `{${cue.replyToName}?} said: "{${cue.replyText}?}"`,
     'Your line:',
   ].join('\n'),
   history_from: 'conversation',
-  history_events: [PokerEvent.ACTION_TAKEN, PokerEvent.SPEECH],
+  history_events: SEAT_HISTORY_EVENTS,
   output_schema: CHATTER_OUTPUT_SCHEMA,
 });
 
-/** The cue still holds the table (no newer cue took it over). */
-const holdsTable = `!${state.talk}.open || ${state.talk}.open.cueId == ${cue.cueId}`;
-
-/**
- * Speaks a cue: the seat says its line one level deeper in the thread (or stays silent), then releases
- * the table. A cue that lost the table to a concurrent one stays silent.
- */
-export const speakChatter = defineSubroutine('speak_chatter', [
-  ifElse(holdsTable, [
+/** The seat says its line for the cue, one level deeper in the thread, or stays silent. */
+export const voiceSeat = defineSubroutine('voice_seat', {
+  params: { actor: { type: 'object', required: true }, cue: { type: 'object', required: true } },
+  body: [
     chatter_line(),
     ifElse(`${local.chatter}.say && String(${local.chatter}.say).trim()`, [
       Speech.emit({
@@ -145,7 +148,20 @@ export const speakChatter = defineSubroutine('speak_chatter', [
         cueId: cue.cueId,
       }),
     ]),
-  ]),
+  ],
+});
+
+/** The cued seat, as it sits at the table now. */
+const cuedSeat = `${gameState.players}.find((p) => p.id == ${cue.speakerId})`;
+/** The cue still holds the table (no newer cue took it over) and its seat is still there. */
+const holdsTable = `(!${state.talk}.open || ${state.talk}.open.cueId == ${cue.cueId}) && !!${cuedSeat}`;
+
+/**
+ * Speaks a cue through its seat, then releases the table. A cue that lost the table to a concurrent one,
+ * or whose seat has left, stays silent.
+ */
+export const speakChatter = defineSubroutine('speak_chatter', [
+  ifElse(holdsTable, [voiceSeat({ actor: cuedSeat, cue: String(cue) })]),
   ChatterDone.emit({ cueId: cue.cueId }),
 ], { params: { cue: { type: 'object' } } });
 

@@ -1,7 +1,20 @@
 import type { PrismaClient } from '@prisma/client';
+import type { CuratorToolNode } from '../engine/CuratorAst.js';
+import { CuratorCoreBuilder, type CuratorExpr, type TypedPathProxy } from '../engine/builder/CuratorCoreBuilder.js';
 
 export type CuratorJsonSchema = Record<string, unknown>;
 export type CuratorToolOutput = unknown;
+
+export type TypedToolArgs<TArgs> = TArgs extends Record<string, any>
+  ? { [K in keyof TArgs]?: CuratorExpr<TArgs[K]> } & Record<string, any>
+  : Record<string, any>;
+
+export interface CuratorToolCallOptions {
+  /** Context/state key to bind the tool output to. When set, `spread` defaults to `false`. */
+  as?: string | TypedPathProxy<any> | unknown;
+  /** Whether top-level fields of the tool output are also merged into context/state. */
+  spread?: boolean;
+}
 
 /**
  * Base interface for all Curator tools.
@@ -36,7 +49,12 @@ export interface McpToolExposure {
   description?: string;
 }
 
-export interface CuratorTool {
+export interface CuratorTool<TArgs = Record<string, unknown>, TOutput = CuratorToolOutput> {
+  /**
+   * Directly callable in workflow AST definitions (like Bevy `register_curator_tool::<T>`):
+   * produces a typed `Curator_Tool` AST node with IDE autocomplete on `TArgs`.
+   */
+  (args?: TypedToolArgs<TArgs> | ((ctx: any) => Partial<TArgs>), options?: CuratorToolCallOptions): CuratorToolNode;
   readonly name: string;
   readonly description: string;
   readonly parameters: CuratorJsonSchema;
@@ -51,7 +69,10 @@ export interface CuratorTool {
   runAsync(input: {
     args: Record<string, unknown>;
     toolContext: CuratorToolContext;
-  }): Promise<CuratorToolOutput>;
+  }): Promise<TOutput>;
+
+  /** Builds a `Curator_Tool` AST node (explicit alias for calling the tool directly). */
+  call(args?: TypedToolArgs<TArgs> | ((ctx: any) => Partial<TArgs>), options?: CuratorToolCallOptions): CuratorToolNode;
 
   /** Returns a genai-compatible tool declaration for agentic tool-calling loops */
   toGenAiDeclaration(): {
@@ -68,8 +89,8 @@ export interface CuratorTool {
   };
 }
 
-/** Helper to build a CuratorTool from a plain function */
-export function defineTool<TArgs = Record<string, unknown>>(opts: {
+/** Helper to build a callable CuratorTool from a plain function */
+export function defineTool<TArgs = Record<string, unknown>, TOutput = CuratorToolOutput>(opts: {
   name: string;
   description: string;
   parameters: CuratorJsonSchema;
@@ -80,11 +101,26 @@ export function defineTool<TArgs = Record<string, unknown>>(opts: {
   mcp?: McpToolExposure;
   usage?: string;
   aliases?: string[];
-  execute: (args: TArgs, ctx: CuratorToolContext) => Promise<CuratorToolOutput>;
-}): CuratorTool {
+  execute: (args: TArgs, ctx: CuratorToolContext) => Promise<TOutput>;
+}): CuratorTool<TArgs, TOutput> {
   const requiresApproval = opts.requiresHumanApproval ?? opts.requiresConfirmation ?? false;
-  return {
-    name: opts.name,
+  const buildNode = (
+    args?: TypedToolArgs<TArgs> | ((ctx: any) => Partial<TArgs>),
+    options: CuratorToolCallOptions = {}
+  ): CuratorToolNode => {
+    const spread = options.spread ?? (options.as === undefined);
+    return CuratorCoreBuilder.tool(opts.name, args as any, options.as, { spread });
+  };
+
+  const fn = function (
+    args?: TypedToolArgs<TArgs> | ((ctx: any) => Partial<TArgs>),
+    options?: CuratorToolCallOptions
+  ): CuratorToolNode {
+    return buildNode(args, options);
+  } as unknown as CuratorTool<TArgs, TOutput>;
+
+  Object.defineProperty(fn, 'name', { value: opts.name, configurable: true, enumerable: true });
+  Object.assign(fn, {
     description: opts.description,
     parameters: opts.parameters,
     accessLevel: opts.accessLevel ?? 'safe_write',
@@ -94,7 +130,8 @@ export function defineTool<TArgs = Record<string, unknown>>(opts: {
     mcp: opts.mcp,
     usage: opts.usage,
     aliases: opts.aliases,
-    async runAsync({ args, toolContext }): Promise<CuratorToolOutput> {
+    call: buildNode,
+    async runAsync({ args, toolContext }: { args: Record<string, unknown>; toolContext: CuratorToolContext }): Promise<TOutput> {
       return opts.execute(args as TArgs, toolContext);
     },
     toGenAiDeclaration() {
@@ -111,5 +148,7 @@ export function defineTool<TArgs = Record<string, unknown>>(opts: {
         inputSchema: opts.parameters ?? { type: 'object', properties: {} },
       };
     },
-  };
+  });
+
+  return fn;
 }

@@ -82,8 +82,6 @@ export interface TableTalkCue {
   cueId: string;
   speakerId: string;
   speakerName: string;
-  persona?: string;
-  instruction?: string;
   mode: PokerChatterModeType;
   speechAct: SpeechAct;
   /** Depth of the line this cue produces. */
@@ -249,8 +247,6 @@ export function reduceTableTalk(
     cueId,
     speakerId: pick.speaker.id,
     speakerName: pick.speaker.name,
-    persona: pick.speaker.persona,
-    instruction: pick.speaker.instruction,
     mode: pick.mode,
     speechAct: pick.speechAct
       ?? (pick.mode === PokerChatterMode.BANTER ? PokerSpeechAct.BANTER : PokerSpeechAct.TABLE_TALK),

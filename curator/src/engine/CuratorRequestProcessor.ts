@@ -939,6 +939,17 @@ export class CuratorRequestProcessor {
           return;
         }
 
+        // Lifecycle hooks (entryAction / exitAction): expand once into a sequential wrapper around the core node.
+        if ((ast.entryAction || ast.exitAction) && !(req.context as any)?.__hooksExpanded__) {
+          const { entryAction, exitAction, ...coreNode } = ast as any;
+          const steps: CuratorAstNode[] = [];
+          if (entryAction) steps.push(entryAction);
+          steps.push(coreNode as CuratorAstNode);
+          if (exitAction) steps.push(exitAction);
+          await this.handleSequential({ type: 'Curator_Sequential', subAgents: steps }, { ...req, context: { ...(req.context || {}), __hooksExpanded__: true } });
+          return;
+        }
+
         switch (ast.type) {
           case 'Curator_Agent': return await this.executeAgent(ast, req);
           case 'Curator_Sequential': return await this.handleSequential(ast, req);
@@ -1157,7 +1168,8 @@ export class CuratorRequestProcessor {
     for (const waitReq of waitingRequests) {
       if (opts.targetRequestId !== undefined && waitReq.id !== opts.targetRequestId) continue;
       const ctx = waitReq.context as any;
-      const matches = ctx?.waitEvent === eventName || (opts.matchWait?.(ctx?.waitEvent, eventName, payload) ?? false);
+      const waitingEvents = Array.isArray(ctx?.waitEvents) && ctx.waitEvents.length > 0 ? ctx.waitEvents : (ctx?.waitEvent ? [ctx.waitEvent] : []);
+      const matches = waitingEvents.includes(eventName) || (opts.matchWait?.(ctx?.waitEvent, eventName, payload) ?? false);
       if (matches && target && this.identityOf(waitReq) !== target) continue;
       if (matches) {
         logger.debug(`[CuratorRequestProcessor] Waking up request ${waitReq.id} waiting for event ${eventName}`);
@@ -1171,8 +1183,10 @@ export class CuratorRequestProcessor {
 
         const updatedContext = { ...ctx };
         delete updatedContext.waitEvent;
+        delete updatedContext.waitEvents;
         delete updatedContext.payloadAlias;
         updatedContext.__humanInputReceived__ = true;
+        updatedContext.__wokenByEvent__ = eventName;
         if (aliasKey) {
            updatedContext[aliasKey] = value;
            updatedContext.state = { ...(updatedContext.state || {}), ...newState };
@@ -1268,6 +1282,7 @@ export class CuratorRequestProcessor {
   }
 
   private async handleWaitEvent(ast: any, req: any) {
+    const allEvents: string[] = Array.from(new Set([ast.eventName, ...(Array.isArray(ast.eventNames) ? ast.eventNames : [])].filter(Boolean)));
     if (this.prisma.eventLog && !req.context?.__humanInputReceived__) {
       const cursor = await this.resolveEventCursor(req.id, req.conversationId, !!ast.replay);
       const identity = this.identityOf(req);
@@ -1275,7 +1290,9 @@ export class CuratorRequestProcessor {
       // The emitting flow never hears its own events, but events other flows logged meanwhile are kept.
       const candidates = await this.prisma.eventLog.findMany({
         where: {
-          conversationId: req.conversationId, eventName: ast.eventName, id: { gt: cursor },
+          conversationId: req.conversationId,
+          eventName: allEvents.length === 1 ? allEvents[0] : { in: allEvents },
+          id: { gt: cursor },
           OR: identity ? [{ target: null }, { target: identity }] : [{ target: null }],
         },
         orderBy: { id: 'asc' },
@@ -1291,7 +1308,7 @@ export class CuratorRequestProcessor {
       }
       if (missed) {
         // Emitted while this flow was between waits: deliver it as if it had woken us.
-        logger.debug(`[CuratorRequestProcessor] Request ${req.id} consumed buffered event '${ast.eventName}' (#${missed.id}).`);
+        logger.debug(`[CuratorRequestProcessor] Request ${req.id} consumed buffered event '${missed.eventName}' (#${missed.id}).`);
         await this.advanceEventCursor(req.id, missed.id);
         const value = missed.payload;
         if (ast.payloadAlias) {
@@ -1305,14 +1322,20 @@ export class CuratorRequestProcessor {
     }
     if (req.context?.__humanInputReceived__) {
       delete req.context.__humanInputReceived__;
+      delete req.context.__wokenByEvent__;
       // Woken by dispatchEvent: the payload is already bound to the alias in context/state.
       const received = ast.payloadAlias ? req.context[ast.payloadAlias] : req.context.input;
       await this.saveResponse(req, typeof received === 'string' ? received : JSON.stringify(received ?? {}));
       await this.completeRequest(req.id, 'COMPLETED');
       return;
     }
-    logger.debug(`[CuratorRequestProcessor] Request ${req.id} paused, waiting for event '${ast.eventName}'.`);
-    const updatedContext: any = { ...(req.context || {}), waitEvent: ast.eventName, payloadAlias: ast.payloadAlias };
+    logger.debug(`[CuratorRequestProcessor] Request ${req.id} paused, waiting for event '${allEvents.join(' | ')}'.`);
+    const updatedContext: any = {
+      ...(req.context || {}),
+      waitEvent: ast.eventName,
+      ...(allEvents.length > 1 ? { waitEvents: allEvents } : {}),
+      payloadAlias: ast.payloadAlias,
+    };
     delete updatedContext.waitDeadline;
     if (ast.timeoutSeconds > 0) updatedContext.waitDeadline = new Date(this.clock() + ast.timeoutSeconds * 1000).toISOString();
     await this.prisma.request.update({
@@ -2337,12 +2360,35 @@ export class CuratorRequestProcessor {
       logger.debug(`[CuratorRequestProcessor] Human prompt on request ${req.id} timed out.`);
       const nextCtx: any = { ...ctx };
       delete nextCtx.waitEvent;
+      delete nextCtx.waitEvents;
       delete nextCtx.waitDeadline;
       delete nextCtx.payloadAlias;
       await this.prisma.request.update({ where: { id: req.id }, data: { context: nextCtx } });
       req.context = nextCtx;
       const record: CuratorStructuredResponse = { type: isEventWait ? 'WAIT_TIMEOUT' : 'HUMAN_TIMEOUT', ok: false, deadline: ctx.waitDeadline, reason: isEventWait ? ctx.waitEvent : ctx.choicePrompt };
       await this.saveResponse(req, JSON.stringify(record));
+
+      const reqAst = this.parseAst(req.ast);
+      if (reqAst?.onTimeout) {
+        await this.createValidatedRequest({
+          data: {
+            userId: req.userId,
+            projectId: req.projectId,
+            agentId: req.agentId,
+            scriptId: req.scriptId,
+            conversationId: req.conversationId,
+            status: 'NEW',
+            pendingDependencies: 0,
+            notifyId: req.notifyId,
+            ast: reqAst.onTimeout,
+            context: nextCtx,
+          },
+        });
+        await this.prisma.request.update({ where: { id: req.id }, data: { notifyId: null } });
+        await this.completeRequest(req.id, 'COMPLETED', true);
+        continue;
+      }
+
       await this.completeRequest(req.id, 'COMPLETED');
     }
   }
@@ -3148,6 +3194,29 @@ export class CuratorRequestProcessor {
   private async handleUnsuccessful(req: any, status: string, skipNotify: boolean) {
     const last = await this.prisma.response.findFirst({ where: { requestId: req.id }, orderBy: { id: 'desc' } });
     const reason = last?.content ?? `Request ended ${status} without a recorded reason`;
+    const reqAst = this.parseAst(req.ast);
+
+    if (status === 'FAILED' && reqAst?.onError && !skipNotify) {
+      logger.debug(`[CuratorRequestProcessor] Request ${req.id} failed, spawning onError fallback AST.`);
+      await this.cancelOrphans(req.id);
+      await this.createValidatedRequest({
+        data: {
+          userId: req.userId,
+          projectId: req.projectId,
+          agentId: req.agentId,
+          scriptId: req.scriptId,
+          conversationId: req.conversationId,
+          status: 'NEW',
+          pendingDependencies: 0,
+          notifyId: req.notifyId,
+          ast: reqAst.onError,
+          context: { ...this.parseContext(req.context), lastError: reason },
+        },
+      });
+      await this.prisma.request.update({ where: { id: req.id }, data: { notifyId: null } });
+      return;
+    }
+
     await recordDeadLetter(this.prisma, req, status, reason);
     if (status === 'FAILED' && !req.notifyId && !req.parentId) await this.recordWorkflowFailure(req, reason);
     await this.cancelOrphans(req.id);

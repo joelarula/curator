@@ -20,6 +20,23 @@ export interface CuratorBaseNode {
    * Default: 0
    */
   priority?: number;
+  /**
+   * Optional error recovery / fallback AST node (Bevy `on_error` / `.catch()`).
+   * If this node fails, the processor executes `onError` instead of poisoning downstream requests.
+   */
+  onError?: CuratorAstNode;
+  /**
+   * Optional node run before this node executes (Bevy `with_entry`).
+   */
+  entryAction?: CuratorAstNode;
+  /**
+   * Optional node run after this node completes (Bevy `with_exit`).
+   */
+  exitAction?: CuratorAstNode;
+  /**
+   * Optional fallback AST node executed when a wait/input/approval times out.
+   */
+  onTimeout?: CuratorAstNode;
 }
 
 /**
@@ -146,6 +163,8 @@ export interface CuratorEmitEventsNode extends CuratorBaseNode {
 export interface CuratorWaitEventNode extends CuratorBaseNode {
   type: typeof CuratorNodeType.WaitEvent;
   eventName: string;
+  /** Additional event names that also satisfy this wait ("first wins" / race semantics, like Bevy `listen_any_event`). */
+  eventNames?: string[];
   payloadAlias?: string;
   /** Give up after this long; completes with a WAIT_TIMEOUT Response and binds nothing to the alias. */
   timeoutSeconds?: number;

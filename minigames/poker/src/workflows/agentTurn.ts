@@ -82,37 +82,51 @@ export const POKER_AGENT_PROTOCOL = [
   "- Include your private strategic reasoning in 'innerMonologue'.",
 ].join('\n');
 
+/** The model seats think and talk with. */
+export const SEAT_MODEL = 'gemini-2.5-flash';
+/** What a seat remembers of the table: every action and every line said. */
+export const SEAT_HISTORY_EVENTS = [PokerEvent.ACTION_TAKEN, PokerEvent.SPEECH];
+
+/** Who the seat (`$params.actor`) is: its persona instruction. */
+export const seatPersona = (): string =>
+  `You are {${actor}.name?}, an autonomous Texas Hold'em poker agent. {${actor}.instruction?}`;
+
+/** What the seat (`$params.actor`) sees: its cards and stack, the board, the pot and the whole table. */
+export const seatView = (): string[] => [
+  `- Your Hole Cards: {${actor}.holeCards?}`,
+  `- Community Board: {${gameState.board}?}`,
+  `- Street: {${gameState.currentStreet}?} | Pot: [chips] {${gameState.pot}?} | Current Bet: [chips] {${gameState.currentBet}?}`,
+  `- Your Stack: [chips] {${actor}.chips?} | Your Street Bet: [chips] {${actor}.streetBet?}`,
+  `- Cost to Call: [chips] {${gameState.currentBet} - ${actor}.streetBet?} | Min Raise: [chips] {${gameState.minRaise}?}`,
+  `- Table: {${gameState}?}`,
+];
+
 /**
  * The LLM decision for the seat being played (`$params.actor`): persona instruction, the engine's
  * rules, the turn's numbers, and the shared table conversation as history.
  */
 export function agent_decision(options: PokerAgentDecisionOptions = {}): CuratorAgentNode {
   const instruction = options.instruction ?? [
-    `You are {${actor}.name?}, an autonomous Texas Hold'em poker agent. {${actor}.instruction?}`,
+    seatPersona(),
     getRulesDescription(),
     POKER_AGENT_PROTOCOL,
   ].join('\n\n');
 
   const prompt = options.prompt ?? [
     "Current Texas Hold'em Turn State:",
-    `- Your Hole Cards: {${actor}.holeCards?}`,
-    `- Community Board: {${gameState.board}?}`,
-    `- Street: {${gameState.currentStreet}?} | Pot: [chips] {${gameState.pot}?} | Current Bet: [chips] {${gameState.currentBet}?}`,
-    `- Your Stack: [chips] {${actor}.chips?} | Your Street Bet: [chips] {${actor}.streetBet?}`,
-    `- Cost to Call: [chips] {${gameState.currentBet} - ${actor}.streetBet?} | Min Raise: [chips] {${gameState.minRaise}?}`,
-    `- Table: {${gameState}?}`,
+    ...seatView(),
     "Decide on your legal poker action and optionally include in-character table talk in 'speech'.",
   ].join('\n');
 
   return CuratorBuilder.agent({
     agentName: options.agentName ?? 'PokerAgent',
     as: options.as ?? 'decision',
-    model: options.model ?? 'gemini-2.5-flash',
+    model: options.model ?? SEAT_MODEL,
     provider: options.provider ?? 'gemini',
     instruction,
     prompt,
     history_from: 'conversation',
-    history_events: [PokerEvent.ACTION_TAKEN, PokerEvent.SPEECH],
+    history_events: SEAT_HISTORY_EVENTS,
     output_schema: options.output_schema ?? POKER_DECISION_OUTPUT_SCHEMA,
     ...(options.tools ? { tools: options.tools } : {}),
   });
