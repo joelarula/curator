@@ -5,6 +5,7 @@
 import { defineEvent, defineStates } from '../curator.ts';
 import type { PlayerAction, PlayerStanding, PokerGameState, SpeechAct, Street } from '../types.ts';
 import { PokerEvent, PokerTablePhase, PokerLobbyPhase, TABLE_PHASE_KEY, LOBBY_PHASE_KEY } from './pokerContracts.ts';
+import type { TableTalkCue, TableTalkSpeech } from '../engine/tableTalk.ts';
 
 type TableRef = { tableId: string };
 
@@ -34,7 +35,12 @@ export const TableResumed = defineEvent<TableRef>(PokerEvent.TABLE_RESUMED);
 export const SessionExited = defineEvent<{ reason: string }>(PokerEvent.SESSION_EXITED);
 
 // Table talk
-export const Speech = defineEvent<{ speakerId?: string; speakerName: string; text: string; speechAct: SpeechAct; targetId?: string }>(PokerEvent.SPEECH);
+/** A line said at the table; `depth`, `origin`, `threadId`, `replyToId` and `cueId` are set by turn decisions and chatter. */
+export const Speech = defineEvent<TableTalkSpeech & { speakerName: string; text: string; speechAct: SpeechAct }>(PokerEvent.SPEECH);
+/** The table-talk gate picked a seat to say something; only its `speak_chatter` system answers it. */
+export const ChatterCue = defineEvent<TableTalkCue>(PokerEvent.CHATTER_CUE);
+/** A cue's flow finished (spoke or stayed silent); releases the table for the next cue. */
+export const ChatterDone = defineEvent<{ cueId: string }>(PokerEvent.CHATTER_DONE);
 export const AmbientSpoken = defineEvent<{ speaker: string; speechAct: SpeechAct; text: string }>(PokerEvent.AMBIENT_SPOKEN);
 export const AmbientEvaluated = defineEvent<{ player: string; action: PlayerAction }>(PokerEvent.AMBIENT_EVALUATED);
 

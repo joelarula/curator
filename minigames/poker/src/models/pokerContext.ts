@@ -18,6 +18,7 @@ import type {
   PokerTool,
 } from './pokerContracts.ts';
 import type { PokerTableCommandInput, PokerTurn, PokerTableEvent } from '../engine/pokerTable.ts';
+import type { TableTalkState } from '../engine/tableTalk.ts';
 import type {
   PokerLobbyChoice,
   PokerTableChoice,
@@ -298,6 +299,8 @@ export interface PokerWorkflowState {
   lastFailure?: { requestId: number; nodeId: string | null; nodeType: string | null; reason: string; failedAt: string };
   handCount?: number;
   lastWinnerId?: string;
+  /** The table-talk gate's memory (budget, cooldowns, the open cue), written by `poker_table_talk`. */
+  talk?: TableTalkState;
   [key: string]: any;
 }
 

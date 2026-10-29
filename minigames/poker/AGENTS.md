@@ -30,11 +30,13 @@ Table states are only what is not deterministic: `BOOT → BETTING → SUBMIT`, 
 - **Reducers for rules, tools for I/O:** workflows reach the engine only through the `poker_table_command` reducer (the `table(...)` composables; no RBAC or tool record). Bankroll, table listing/creation and closing are tools because they touch the DB and the session user. Pure helpers stay TypeScript functions; do not register a tool or reducer per engine step.
 - **Events carry their own snapshot and imply no order or timing:** UIs render an event from its payload's `gameState`, not from the latest state.
 - **Speech is an event**, never a state-mutating tool (`poker:speech`, `poker:ambient_spoken`).
+- **Only the table-talk gate starts chatter.** `reduceTableTalk` (`engine/tableTalk.ts`, reducer `poker_table_talk`) turns speech, salient actions and showdowns into at most one `ChatterCue`; `speak_chatter` (`ambientReaction.ts`) lets the cued seat say one line (or nothing) one level deeper. Never emit `Speech` in reaction to `Speech` outside the gate: depth (`MAX_DEPTH`), one open cue per table, a per-hand line budget, seat cooldowns and a human rate limit are what keep chatter from echoing itself. Turn speech carries `origin: 'turn', depth: 0`.
 - **No procedural runners:** never write imperative callback-based game simulators; workflows run only as compiled ASTs.
 - **Typed enums over string literals** (`PokerActionType`, `PokerStreet`, `PokerSpeechAct`, `PokerTablePhase`, …). Closures passed to the builder are serialized into the VM, so embed enum values via template strings instead of referencing them inside closures.
 
 ## Verification
 - `npx tsx --test test/poker_table_reducer.test.ts` (table reducer, no host), `npm run test:deterministic` (deterministic harness, rules pipeline) and `npm run test:replay` (full games, pause/resume/exit on a fake LLM).
 - `npx tsx --test test/poker_rbac.test.ts` (RBAC enforcement).
+- `npx tsx --test test/poker_table_talk.test.ts` (table-talk gate: depth, lock, budget, whispers, flood bounds).
 - After changing `curator` builder/engine code, rebuild it (`npm --prefix ../../curator run build`): poker imports its `dist`.
 - `test/concurrent_tables.test.ts` calls the real Gemini API when `GOOGLE_API_KEY` is set in `.env`.

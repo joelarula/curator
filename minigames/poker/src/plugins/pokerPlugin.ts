@@ -33,6 +33,7 @@ import {
 import type { PokerGameState } from '../types.ts';
 import { getPokerStandings } from '../engine/pokerEngine.ts';
 import { reduceTable } from '../engine/pokerTable.ts';
+import { reduceTableTalk } from '../engine/tableTalk.ts';
 import { PokerTableShape, PokerBankrollShape } from '../models/pokerShapes.ts';
 import { queryActivePokerTables, pokerTableProjector } from '../services/pokerTableStore.ts';
 import {
@@ -86,6 +87,7 @@ function extractGameState(args: any, ctx: any): PokerGameState {
  */
 export const pokerReducers: Record<string, CuratorReducer> = {
   [PokerReducer.TABLE]: (args) => reduceTable((args as PokerTableParams).state as PokerGameState, (args as PokerTableParams).command as any),
+  [PokerReducer.TABLE_TALK]: (args) => reduceTableTalk(args.talk, args.gameState, args.command) as unknown as Record<string, any>,
 };
 
 export const pokerGetStandingsTool = defineTool<PokerGetStandingsParams>({

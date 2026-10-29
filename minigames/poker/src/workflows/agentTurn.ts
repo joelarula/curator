@@ -13,7 +13,7 @@ import {
   type CuratorModuleNode,
   type CuratorAgentNode,
 } from '../curator.ts';
-import { PokerEvent, PokerModule, PokerSpeechAct } from '../models/index.ts';
+import { PokerEvent, PokerModule, PokerSpeechAct, PokerSpeechOrigin } from '../models/index.ts';
 import { ctx, actor, gameState, type PokerTurnContext } from '../models/pokerContext.ts';
 import { Speech } from '../models/pokerEvents.ts';
 import { getRulesDescription } from '../engine/pokerRules.ts';
@@ -112,7 +112,7 @@ export function agent_decision(options: PokerAgentDecisionOptions = {}): Curator
     instruction,
     prompt,
     history_from: 'conversation',
-    history_events: [PokerEvent.ACTION_TAKEN, PokerEvent.SPEECH, PokerEvent.AMBIENT_SPOKEN],
+    history_events: [PokerEvent.ACTION_TAKEN, PokerEvent.SPEECH],
     output_schema: options.output_schema ?? POKER_DECISION_OUTPUT_SCHEMA,
     ...(options.tools ? { tools: options.tools } : {}),
   });
@@ -126,7 +126,7 @@ export const aiDecision = defineSubroutine('ai_decision', {
   body: [
     agent_decision(),
     ifElse<PokerTurnContext>((c) => Boolean(c.decision?.speech?.trim()), [
-      Speech.emit({ speakerId: actor.id, speakerName: actor.name, text: ctx.decision.speech, speechAct: PokerSpeechAct.TABLE_TALK }),
+      Speech.emit({ speakerId: actor.id, speakerName: actor.name, text: ctx.decision.speech, speechAct: PokerSpeechAct.TABLE_TALK, origin: PokerSpeechOrigin.TURN, depth: 0 }),
     ]),
   ],
   returns: String(ctx.decision.action),

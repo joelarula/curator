@@ -13,6 +13,7 @@ import {
 } from '../../../curator/test/helpers/harness.ts';
 import { POKER_WORKFLOW_ASTS } from '../src/session/pokerSession.ts';
 import '../src/composables/pokerComposables.ts';
+import { reduceTableTalk, MAX_DEPTH } from '../src/engine/tableTalk.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -228,7 +229,8 @@ test('Poker Deterministic Harness: rules systems validate and apply an intent; a
     assert.deepEqual(tableCommands(env, 'act').map((c: any) => c.args.command.action), [{ type: 'CALL', amount: 20 }]);
     assert.equal((await resolutions()).at(-1)?.accepted, true);
     const names = (await env.prisma.eventLog.findMany({ orderBy: { id: 'asc' } })).map((e: any) => e.eventName);
-    assert.ok(names.indexOf('poker:action_taken') < names.indexOf('poker:ambient_evaluated'), 'ambient reacts after the action is taken');
+    assert.ok(names.includes('poker:action_taken'));
+    assert.ok(!names.includes('poker:chatter_cue'), 'a plain call is not worth table talk');
 
     // A seat that keeps sending illegal intents is sent back a bounded number of times, then coerced
     await intent({ type: 'CHECK' });
@@ -242,6 +244,52 @@ test('Poker Deterministic Harness: rules systems validate and apply an intent; a
     await appendStatePatch(env.prisma, env.conversationId, { set: { tablePhase: 'BETTING' } });
     await intent({ type: 'CALL', amount: 20 });
     assert.equal(tableCommands(env, 'act').length, 2);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('Poker Deterministic Harness: table talk with an always-talking LLM ends after MAX_DEPTH lines', async () => {
+  const env = await createEnv('poker_det_table_talk', {
+    poker_table_talk: (args: any) => reduceTableTalk(args.talk, args.gameState, args.command) as any,
+  });
+  try {
+    await saveScript(env, 'ambient_reaction', await loadScriptAst('ambient_reaction'));
+    const { appendStatePatch } = await import('../src/curator.ts');
+    await appendStatePatch(env.prisma, env.conversationId, {
+      set: {
+        tablePhase: 'BETTING',
+        gameState: {
+          tableId: 'table_talk',
+          players: [
+            { id: 'hero', name: 'You (Hero)', isHuman: true },
+            { id: 'viper', name: 'Viper (Shark)', persona: 'shark', instruction: 'Cold shark.' },
+            { id: 'maddog', name: 'MadDog (Maniac)', persona: 'maniac', instruction: 'Loud maniac.' },
+            { id: 'barnaby', name: 'Barnaby (Station)', persona: 'station', instruction: 'Folksy station.' },
+          ],
+        },
+      },
+    });
+    // Worst case: every seat always talks and always calls out someone by name
+    const llm = env.useLlm(() => JSON.stringify({ say: 'Viper, MadDog, Barnaby - answer me!' }));
+
+    await runAst(env, {
+      type: 'Curator_EmitEvent',
+      eventName: 'poker:speech',
+      payload: { speakerId: 'hero', speakerName: 'You', text: 'MadDog, you are bluffing', speechAct: 'TABLE_TALK' },
+    });
+
+    const payloads = async (name: string) => (await env.prisma.eventLog.findMany({ where: { eventName: name }, orderBy: { id: 'asc' } }))
+      .map((e: any) => (typeof e.payload === 'string' ? JSON.parse(e.payload) : e.payload));
+    const lines = (await payloads('poker:speech')).filter((p: any) => p.origin === 'chatter');
+    assert.equal(lines[0]?.speakerId, 'maddog', 'the addressed seat answers first');
+    assert.deepEqual(lines.map((p: any) => p.depth), [1, 2], 'one answer, one comeback, then the thread ends');
+    assert.ok(new Set(lines.map((p: any) => p.threadId)).size === 1, 'one thread');
+    assert.equal(llm.requests.length, MAX_DEPTH, 'one LLM call per line');
+    assert.equal((await payloads('poker:chatter_done')).length, MAX_DEPTH);
+
+    const { stateAt } = await import('../src/curator.ts');
+    assert.equal((await stateAt(env.prisma, env.conversationId)).talk?.open ?? null, null, 'the table is released');
   } finally {
     await env.cleanup();
   }
@@ -323,7 +371,7 @@ test('Poker Typed TypeScript Workflows: All 6 modules validate and run determini
 
   assert.equal(ambientReactionAst.type, 'Curator_Module');
   assert.equal(ambientReactionAst.name, 'ambient_reaction');
-  assert.equal(ambientReactionAst.subscriptions?.length, 2);
+  assert.equal(ambientReactionAst.subscriptions?.length, 6);
 
   const canned = createPokerCannedTools();
   const env = await createEnv('poker_det_ts_workflow', canned);

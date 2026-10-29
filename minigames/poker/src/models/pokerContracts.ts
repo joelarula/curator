@@ -22,6 +22,8 @@ export type PokerRole = (typeof PokerRole)[keyof typeof PokerRole];
 export const PokerReducer = {
   /** The table reducer (engine/pokerTable.ts): the only way flows reach the deterministic engine. */
   TABLE: 'poker_table_command',
+  /** The table-talk gate (engine/tableTalk.ts): the only way chatter starts. */
+  TABLE_TALK: 'poker_table_talk',
 } as const;
 
 /** Tools: everything that touches the database or the session user. */
@@ -109,6 +111,8 @@ export const PokerEvent = {
   SPEECH_RESPONSE: 'poker:speech_response',
   AMBIENT_SPOKEN: 'poker:ambient_spoken',
   AMBIENT_EVALUATED: 'poker:ambient_evaluated',
+  CHATTER_CUE: 'poker:chatter_cue',
+  CHATTER_DONE: 'poker:chatter_done',
   ACTORS_LIST: 'poker:actors_list',
 } as const;
 
@@ -168,9 +172,20 @@ export const PokerSpeechAct = {
   BANTER: 'BANTER',
   PROVOKE: 'PROVOKE',
   GOSSIP: 'GOSSIP',
+  /** Muttered to oneself: never answered. */
+  MONOLOGUE: 'MONOLOGUE',
 } as const;
 
 export type SpeechAct = (typeof PokerSpeechAct)[keyof typeof PokerSpeechAct] | string;
+
+/** Who produced a line of speech: a person, a seat's turn decision, or the table-talk gate's chatter. */
+export const PokerSpeechOrigin = {
+  HUMAN: 'human',
+  TURN: 'turn',
+  CHATTER: 'chatter',
+} as const;
+
+export type PokerSpeechOriginType = (typeof PokerSpeechOrigin)[keyof typeof PokerSpeechOrigin];
 
 export const PokerGameOverResult = {
   GAME_OVER: 'GAME_OVER',
