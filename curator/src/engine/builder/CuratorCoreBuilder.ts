@@ -855,8 +855,19 @@ export function onEvent<P = any>(
   return node;
 }
 
-/** A payload field given as a literal, an expression string or a path proxy. */
-export type CuratorExpr<T = any> = T | string | TypedPathProxy<any>;
+/**
+ * A value or nested object/array structure where any leaf or branch may be given
+ * as its literal type `T`, an expression string, or a `TypedPathProxy`.
+ */
+export type CuratorExpr<T = any> =
+  | T
+  | string
+  | TypedPathProxy<any>
+  | (T extends ReadonlyArray<infer U>
+      ? ReadonlyArray<CuratorExpr<U>>
+      : T extends object
+      ? { [K in keyof T]?: CuratorExpr<T[K]> }
+      : never);
 
 /**
  * First-class callable pure reducer (like Bevy `System` / pure reducer):

@@ -3,6 +3,7 @@ import {
   emitEvents,
   type CuratorAstNode,
   type CuratorToolNode,
+  type TypedToolArgs,
 } from '../curator.ts';
 import { agent_decision } from '../workflows/agentTurn.ts';
 import { ctx, gameState, state, params, setState } from '../models/pokerContext.ts';
@@ -110,22 +111,22 @@ export const pokerComposables = {
   agent_decision,
 
   // First-class callable tools (Pillar 2): `defineTool` instances are invoked directly to build `Curator_Tool` nodes
-  list_tables: (args: Partial<PokerListTablesParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
+  list_tables: (args: TypedToolArgs<PokerListTablesParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
     pokerListTablesTool(args as any, opts),
 
-  create_table: (args: Partial<PokerCreateTableParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
+  create_table: (args: TypedToolArgs<PokerCreateTableParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
     pokerCreateTableTool(args, opts),
 
-  get_buy_in_options: (args: Partial<PokerGetBuyInOptionsParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
+  get_buy_in_options: (args: TypedToolArgs<PokerGetBuyInOptionsParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
     pokerGetBuyInOptionsTool(args, opts),
 
-  deposit_buy_in: (args: Partial<PokerDepositBuyInParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
+  deposit_buy_in: (args: TypedToolArgs<PokerDepositBuyInParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
     pokerDepositBuyInTool(args, opts),
 
-  reload_bankroll: (args: Partial<PokerReloadBankrollParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
+  reload_bankroll: (args: TypedToolArgs<PokerReloadBankrollParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
     pokerReloadBankrollTool(args, opts),
 
-  close_table: (args: Partial<PokerCloseTableParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
+  close_table: (args: TypedToolArgs<PokerCloseTableParams> = {}, opts: PokerToolOptions = {}): CuratorToolNode =>
     pokerCloseTableTool(args, opts),
 
   /** Leaving is an announcement; the `close_on_exit` rule (tableRules) closes the conversation. */

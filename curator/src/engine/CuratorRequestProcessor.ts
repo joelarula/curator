@@ -23,6 +23,8 @@ import { appendStatePatch, STATE_SEQ_KEY } from './ConversationStateLog.js';
 import { recordDeadLetter, TERMINAL_STATUSES } from './DeadLetters.js';
 import { AgentRoleService } from '../services/AgentRoleService.js';
 import { ApprovalService } from '../services/ApprovalService.js';
+import { NodeRegistry, sequentialNode, setStateNode, assignNode, ifElseNode } from './nodes/index.js';
+import type { NodeContext, NodeHandler, MaintenanceContext, MaintenanceSystem } from './nodes/index.js';
 // Audit trail = Request/Response rows (see AuditService for the derived read view).
 import { SecretService } from '../services/SecretService.js';
 
@@ -45,6 +47,10 @@ export interface CuratorRequestProcessorOptions {
   retention?: { readOnlyRequests?: 'keep' | 'prune'; readOnlyTtlMs?: number };
   /** Clock (epoch ms) for scheduling, wait deadlines and approval expiry. Default Date.now; injectable for deterministic tests. */
   now?: () => number;
+  /** Additional node handlers (plugin node types, or built-in overrides). */
+  nodeHandlers?: NodeHandler[];
+  /** Names of built-in maintenance systems to skip in the poll loop (e.g. ['pruneReadOnlyRequests']). */
+  disabledMaintenance?: string[];
 }
 
 export type CuratorRequestOriginKind = 'AST' | 'REPL' | 'CLI' | 'API' | 'MCP' | 'GRAPHQL';
@@ -142,6 +148,12 @@ export class CuratorRequestProcessor {
   private retention: { readOnlyRequests: 'keep' | 'prune'; readOnlyTtlMs: number };
   private lastPruneAt = 0;
   private clock: () => number;
+  /** AST node type → handler. */
+  private nodes = new NodeRegistry();
+  private nodeContext!: NodeContext;
+  /** Ordered passes run at the start of every poll tick. */
+  private maintenance: MaintenanceSystem[] = [];
+  private maintenanceContext!: MaintenanceContext;
 
   constructor(prisma: any, options: CuratorRequestProcessorOptions = {}) {
     this.prisma = prisma;
@@ -171,6 +183,100 @@ export class CuratorRequestProcessor {
     
     this.maxConcurrency = explicitConcurrency ?? defaultConcurrency;
     logger.debug(`[CuratorRequestProcessor] Concurrency limit initialized to ${this.maxConcurrency} (DB Pool: ${this.poolLimit}, Reserved for Web: ${this.reserveWebConnections})`);
+
+    this.initNodes(options.nodeHandlers ?? []);
+    this.initMaintenance(options.disabledMaintenance ?? []);
+  }
+
+  private initNodes(extra: NodeHandler[]) {
+    this.nodeContext = {
+      prisma: this.prisma,
+      now: () => this.clock(),
+      emit: (type, payload) => this.emit(type, payload),
+      saveResponse: (req, content) => this.saveResponse(req, content),
+      completeRequest: (id, status, skipNotify) => this.completeRequest(id, status, skipNotify),
+      spawnChildAndParkParent: (req, childData, patch, status) => this.spawnChildAndParkParent(req, childData, patch, status),
+      createRequest: (args) => this.createValidatedRequest(args),
+      resolveScheduledAt: (node) => this.resolveScheduledAt(node),
+      parseContext: (ctx) => this.parseContext(ctx),
+      isDynamicExpr: (v): v is string => this.isDynamicExpr(v),
+      evaluateExpression: (expr, req) => this.evaluateExpressionAsync(expr, req),
+      evaluateArgs: (args, req, literalArgs) => this.evaluateArgs(args, req, literalArgs),
+      readState: async (conversationId, scope) => {
+        const conv = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
+        return this.stateView(this.getConversationState(conv), scope);
+      },
+      writeState: async (conversationId, scope, updates) => { await this.writeState(conversationId, scope, updates); },
+    };
+
+    // Extracted handlers (engine/nodes/*) plus built-ins still implemented as methods below.
+    const builtins: NodeHandler[] = [
+      sequentialNode, setStateNode, assignNode, ifElseNode,
+      { type: 'Curator_Agent', run: (ast, req) => this.executeAgent(ast, req) },
+      { type: 'Curator_Parallel', run: (ast, req) => this.handleParallel(ast, req) },
+      { type: 'Curator_Join', run: (ast, req) => this.handleJoin(ast, req) },
+      { type: 'Curator_Tool', run: (ast, req) => this.handleTool(ast, req) },
+      { type: 'Curator_Reduce', run: (ast, req) => this.handleReduce(ast, req) },
+      { type: 'Curator_Script', run: (ast, req) => this.handleScript(ast, req) },
+      { type: 'Curator_Route', run: (ast, req) => this.handleRoute(ast, req) },
+      { type: 'Curator_HumanInput', run: (ast, req) => this.handleHumanInput(ast, req) },
+      { type: 'Curator_WaitEvent', run: (ast, req) => this.handleWaitEvent(ast, req) },
+      { type: 'Curator_Graph', run: (ast, req) => this.handleGraph(ast, req) },
+      { type: 'Curator_AgentRef', run: (ast, req) => this.handleAgentRef(req, ast, req.context) },
+      { type: 'Curator_ActorRef', run: (ast, req) => this.handleActorRef(ast, req) },
+      { type: 'Curator_Interrupt', run: (ast, req) => this.handleInterrupt(ast, req) },
+      { type: 'Curator_EmitEvent', run: (ast, req) => this.handleEmitEvent(ast, req) },
+      { type: 'Curator_EmitEvents', run: (ast, req) => this.handleEmitEvents(ast, req) },
+      { type: 'Curator_While', run: (ast, req) => this.handleWhile(ast, req) },
+      { type: 'Curator_Loop', run: (ast, req) => this.handleLoop(ast, req) },
+      { type: 'Curator_ForEach', run: (ast, req) => this.handleForEach(ast, req) },
+      { type: 'Curator_Call', run: (ast, req) => this.handleCall(ast, req) },
+      { type: 'Curator_Subscribe', run: (ast, req) => this.handleSubscribe(ast, req) },
+      { type: 'Curator_Unsubscribe', run: (ast, req) => this.handleUnsubscribe(ast, req) },
+    ];
+    for (const handler of builtins) this.nodes.register(handler);
+    for (const handler of extra) this.nodes.register(handler, { override: this.nodes.has(handler.type) });
+  }
+
+  /** Registers (or, with `override`, replaces) the handler for an AST node type. */
+  public registerNodeHandler(handler: NodeHandler, opts: { override?: boolean } = {}) {
+    this.nodes.register(handler, opts);
+  }
+
+  private initMaintenance(disabled: string[]) {
+    this.maintenanceContext = { prisma: this.prisma, now: () => this.clock(), emit: (type, payload) => this.emit(type, payload) };
+    const builtins: MaintenanceSystem[] = [
+      { name: 'unlockStaleRequests', run: () => this.unlockStaleRequests() },
+      { name: 'pollScheduledAgents', run: () => this.pollScheduledAgents() },
+      { name: 'expireApprovalWaits', run: () => this.expireApprovalWaits() },
+      { name: 'expireHumanWaits', run: () => this.expireHumanWaits() },
+      { name: 'pruneReadOnlyRequests', run: async () => { await this.pruneReadOnlyRequests(); } },
+      { name: 'resumeUserResponses', run: () => this.resumeUserRespondedRequests() },
+    ];
+    this.maintenance = builtins.filter(s => !disabled.includes(s.name));
+  }
+
+  /**
+   * Adds a maintenance system to the poll schedule, by default at the end.
+   * `before` / `after` name an existing system to position it relative to.
+   */
+  public registerMaintenanceSystem(system: MaintenanceSystem, position: { before?: string; after?: string } = {}) {
+    if (this.maintenance.some(s => s.name === system.name)) throw new Error(`Maintenance system '${system.name}' is already registered`);
+    const anchor = position.before ?? position.after;
+    const idx = anchor ? this.maintenance.findIndex(s => s.name === anchor) : -1;
+    if (anchor && idx === -1) throw new Error(`Unknown maintenance system '${anchor}'`);
+    if (idx === -1) this.maintenance.push(system);
+    else this.maintenance.splice(position.before ? idx : idx + 1, 0, system);
+  }
+
+  public removeMaintenanceSystem(name: string): boolean {
+    const before = this.maintenance.length;
+    this.maintenance = this.maintenance.filter(s => s.name !== name);
+    return this.maintenance.length !== before;
+  }
+
+  public maintenanceSystems(): string[] {
+    return this.maintenance.map(s => s.name);
   }
 
   private emit(type: string, payload: any) {
@@ -590,6 +696,61 @@ export class CuratorRequestProcessor {
     } catch (_) {}
   }
 
+  /** Wakes requests WAITING_FOR_USER that just received a response (maintenance system). */
+  private async resumeUserRespondedRequests() {
+    const userRespondedRequests = await this.prisma.request.findMany({
+      where: {
+        status: { in: ['WAITING', 'WAITING_FOR_USER'] },
+        responses: { some: {} } // Has at least one response
+      },
+      include: { responses: { orderBy: { createdAt: 'desc' }, take: 1 } },
+      take: 5
+    });
+
+    for (const req of userRespondedRequests) {
+      // Approval waits are resumed only by an approval (approveRequest) or by expiry, never by a Response.
+      if ((req.context as any)?.pendingToolCall) continue;
+
+      // System records written on the parked Request itself (prompt, approval notice, ...) are not human input.
+      const latest = (req as any).responses?.[0];
+      let latestParsed: any = null;
+      try { latestParsed = typeof latest?.content === 'string' ? JSON.parse(latest.content) : null; } catch (_) {}
+      if (CuratorRequestProcessor.isStructuredRecord(latestParsed) && latestParsed.type !== 'CHOICE_RECEIVED') continue;
+
+      // Check targetUserId — if set, only a response from that specific user counts
+      const targetUserId = (req.context as any)?.targetUserId;
+      if (targetUserId) {
+        const latestResponse = (req as any).responses?.[0];
+        if (!latestResponse || latestResponse.userId !== targetUserId) {
+          continue; // Not yet answered by the right player
+        }
+      }
+
+      logger.debug(`[CuratorRequestProcessor] Request ${req.id} received human input. Resuming...`);
+      // We lock it briefly so another worker doesn't double-complete it
+      await this.prisma.request.update({
+        where: { id: req.id },
+        data: { status: 'WAITING', lockedBy: this.workerId, lockedAt: new Date() }
+      });
+
+      const latestResponse = (req as any).responses?.[0];
+      let inputContent = latestResponse?.content;
+      let parsedContent: any = inputContent;
+      try {
+        parsedContent = JSON.parse(inputContent);
+      } catch (_) {}
+
+      const asKey = (req.context as any)?.choiceAs || (req.context as any)?.as;
+      if (asKey) {
+        req.context = req.context || {};
+        req.context[asKey] = parsedContent;
+      }
+
+      // This invokes the same merge-and-notify flow as if an agent finished!
+      await this.completeRequest(req.id, 'COMPLETED');
+    }
+  }
+
   private async pollRequests() {
     if (this.isStopped || !this.timer) return;
     if (this.isPolling) return;
@@ -599,68 +760,8 @@ export class CuratorRequestProcessor {
         return;
       }
 
-      await this.unlockStaleRequests();
-
-      // 0. Poll enabled scheduled agents if due
-      await this.pollScheduledAgents();
-
-      // 0b. Expire approval waits past their deadline; prune old read-only direct tool Requests (if enabled)
-      await this.expireApprovalWaits();
-      await this.expireHumanWaits();
-      await this.pruneReadOnlyRequests();
-
-      // 1. Wake up requests that were WAITING_FOR_USER and just received a response
-      const userRespondedRequests = await this.prisma.request.findMany({
-        where: {
-          status: { in: ['WAITING', 'WAITING_FOR_USER'] },
-          responses: { some: {} } // Has at least one response
-        },
-        include: { responses: { orderBy: { createdAt: 'desc' }, take: 1 } },
-        take: 5
-      });
-
-      for (const req of userRespondedRequests) {
-        // Approval waits are resumed only by an approval (approveRequest) or by expiry, never by a Response.
-        if ((req.context as any)?.pendingToolCall) continue;
-
-        // System records written on the parked Request itself (prompt, approval notice, ...) are not human input.
-        const latest = (req as any).responses?.[0];
-        let latestParsed: any = null;
-        try { latestParsed = typeof latest?.content === 'string' ? JSON.parse(latest.content) : null; } catch (_) {}
-        if (CuratorRequestProcessor.isStructuredRecord(latestParsed) && latestParsed.type !== 'CHOICE_RECEIVED') continue;
-
-        // Check targetUserId — if set, only a response from that specific user counts
-        const targetUserId = (req.context as any)?.targetUserId;
-        if (targetUserId) {
-          const latestResponse = (req as any).responses?.[0];
-          if (!latestResponse || latestResponse.userId !== targetUserId) {
-            continue; // Not yet answered by the right player
-          }
-        }
-
-        logger.debug(`[CuratorRequestProcessor] Request ${req.id} received human input. Resuming...`);
-        // We lock it briefly so another worker doesn't double-complete it
-        await this.prisma.request.update({
-          where: { id: req.id },
-          data: { status: 'WAITING', lockedBy: this.workerId, lockedAt: new Date() }
-        });
-
-        const latestResponse = (req as any).responses?.[0];
-        let inputContent = latestResponse?.content;
-        let parsedContent: any = inputContent;
-        try {
-          parsedContent = JSON.parse(inputContent);
-        } catch (_) {}
-
-        const asKey = (req.context as any)?.choiceAs || (req.context as any)?.as;
-        if (asKey) {
-          req.context = req.context || {};
-          req.context[asKey] = parsedContent;
-        }
-
-        // This invokes the same merge-and-notify flow as if an agent finished!
-        await this.completeRequest(req.id, 'COMPLETED');
-      }
+      // Maintenance systems, in order (see initMaintenance / registerMaintenanceSystem).
+      for (const system of this.maintenance) await system.run(this.maintenanceContext);
 
       // 2. Check available concurrency capacity before taking new tasks
       const availableSlots = this.getAvailableConcurrencySlots();
@@ -946,41 +1047,18 @@ export class CuratorRequestProcessor {
           if (entryAction) steps.push(entryAction);
           steps.push(coreNode as CuratorAstNode);
           if (exitAction) steps.push(exitAction);
-          await this.handleSequential({ type: 'Curator_Sequential', subAgents: steps }, { ...req, context: { ...(req.context || {}), __hooksExpanded__: true } });
+          await this.nodes.get('Curator_Sequential')!.run({ type: 'Curator_Sequential', subAgents: steps }, { ...req, context: { ...(req.context || {}), __hooksExpanded__: true } }, this.nodeContext);
           return;
         }
 
-        switch (ast.type) {
-          case 'Curator_Agent': return await this.executeAgent(ast, req);
-          case 'Curator_Sequential': return await this.handleSequential(ast, req);
-          case 'Curator_Parallel': return await this.handleParallel(ast, req);
-          case 'Curator_Join': return await this.handleJoin(ast, req);
-          case 'Curator_Tool': return await this.handleTool(ast, req);
-          case 'Curator_Reduce': return await this.handleReduce(ast, req);
-          case 'Curator_Script': return await this.handleScript(ast, req);
-          case 'Curator_Route': return await this.handleRoute(ast, req);
-          case 'Curator_HumanInput': return await this.handleHumanInput(ast, req);
-          case 'Curator_WaitEvent': return await this.handleWaitEvent(ast, req);
-          case 'Curator_Graph': return await this.handleGraph(ast, req);
-          case 'Curator_AgentRef': return await this.handleAgentRef(req, ast, req.context);
-          case 'Curator_ActorRef': return await this.handleActorRef(ast, req);
-          case 'Curator_SetState': return await this.handleSetState(ast, req);
-          case 'Curator_Interrupt': return await this.handleInterrupt(ast, req);
-          case 'Curator_EmitEvent': return await this.handleEmitEvent(ast, req);
-          case 'Curator_EmitEvents': return await this.handleEmitEvents(ast, req);
-          case 'Curator_Assign': return await this.handleAssign(ast, req);
-          case 'Curator_IfElse': return await this.handleIfElse(ast, req);
-          case 'Curator_While': return await this.handleWhile(ast, req);
-          case 'Curator_Loop': return await this.handleLoop(ast, req);
-          case 'Curator_ForEach': return await this.handleForEach(ast, req);
-          case 'Curator_Call': return await this.handleCall(ast, req);
-          case 'Curator_Subscribe': return await this.handleSubscribe(ast, req);
-          case 'Curator_Unsubscribe': return await this.handleUnsubscribe(ast, req);
-          default:
-            logger.warn(`[CuratorRequestProcessor] Request ${req.id} has unknown AST type: ${(ast as any).type}. Skipping.`);
-            await this.saveResponse(req, `ERROR: unknown AST type '${(ast as any).type}'`);
-            await this.completeRequest(req.id, 'SKIPPED');
+        const handler = this.nodes.get(ast.type);
+        if (!handler) {
+          logger.warn(`[CuratorRequestProcessor] Request ${req.id} has unknown AST type: ${(ast as any).type}. Skipping.`);
+          await this.saveResponse(req, `ERROR: unknown AST type '${(ast as any).type}'`);
+          await this.completeRequest(req.id, 'SKIPPED');
+          return;
         }
+        return await handler.run(ast, req, this.nodeContext);
       }));
     } catch (error: any) {
       const msg = error.message || String(error);
@@ -1384,39 +1462,6 @@ export class CuratorRequestProcessor {
     // Try ISO parse
     const d = new Date(raw);
     return isNaN(d.getTime()) ? undefined : d;
-  }
-
-  private async handleSequential(ast: CuratorSequentialNode, req: any) {
-    const subAgents = ast.subAgents;
-    if (!subAgents || subAgents.length === 0) { await this.completeRequest(req.id, 'COMPLETED'); return; }
-
-    let currentNotifyId = req.notifyId;
-    for (let i = subAgents.length - 1; i >= 0; i--) {
-      const isFirst = i === 0;
-      let nodeAst = subAgents[i] as any;
-      if (isFirst && ast.prompt && !nodeAst.prompt) nodeAst.prompt = ast.prompt;
-
-      const newReq = await this.createValidatedRequest({
-        data: {
-          userId: req.userId,
-          projectId: req.projectId,
-          agentId: req.agentId,
-          scriptId: req.scriptId,
-          conversationId: req.conversationId,
-          status: 'NEW',
-          pendingDependencies: isFirst ? 0 : 1,
-          notifyId: currentNotifyId,
-          ast: nodeAst,
-          context: isFirst ? req.context : undefined,
-          priority: nodeAst.priority ?? 0,
-          scheduledAt: this.resolveScheduledAt(nodeAst) ?? null
-        }
-      });
-      currentNotifyId = newReq.id;
-    }
-    // The last child spawned assumes responsibility for notifying our parent.
-    await this.prisma.request.update({ where: { id: req.id }, data: { notifyId: null } });
-    await this.completeRequest(req.id, 'COMPLETED', true);
   }
 
   private async handleParallel(ast: CuratorParallelNode, req: any) {
@@ -2631,27 +2676,6 @@ export class CuratorRequestProcessor {
     await this.completeRequest(req.id, 'COMPLETED');
   }
 
-  private async handleSetState(ast: any, req: any) {
-    logger.debug(`[CuratorRequestProcessor] Setting state for request ${req.id}`);
-    let evaluatedState: Record<string, any> = {};
-    if (this.isDynamicExpr(ast.state)) {
-      const res = await this.evaluateExpressionAsync(ast.state, req);
-      if (res && typeof res === 'object' && !Array.isArray(res)) {
-        evaluatedState = res;
-      }
-    } else if (ast.state && typeof ast.state === 'object') {
-      evaluatedState = await this.evaluateArgs(ast.state, req);
-    }
-
-    if (Object.keys(evaluatedState).length > 0) {
-      await this.writeState(req.conversationId, this.parseContext(req.context).__scope, evaluatedState);
-      await this.saveResponse(req, JSON.stringify({ status: 'State updated', state: evaluatedState }));
-    } else {
-      await this.saveResponse(req, JSON.stringify({ status: 'No state provided' }));
-    }
-    await this.completeRequest(req.id, 'COMPLETED');
-  }
-
   /**
    * Curator_Interrupt handler — Play / Pause / Stop for a conversation.
    *
@@ -3550,50 +3574,6 @@ export class CuratorRequestProcessor {
     } catch (e) {
       logger.error(`[CuratorRequestProcessor] Expression evaluation failed for: ${cleanExpr}`, e);
       return false;
-    }
-  }
-
-  private async handleAssign(ast: any, req: any) {
-    logger.debug(`[CuratorRequestProcessor] Handling Assign node for ${req.id}`);
-    const evaluatedValue = await this.evaluateExpressionAsync(ast.expression, req);
-    
-    const updateObj: Record<string, any> = {};
-    updateObj[ast.key] = evaluatedValue;
-    
-    const scope = this.parseContext(req.context).__scope;
-    await this.writeState(req.conversationId, scope, updateObj);
-    const conv = await this.prisma.conversation.findUnique({ where: { id: req.conversationId } });
-    const newState = this.stateView(this.getConversationState(conv), scope);
-    
-    // Also update req.context.state for subsequent operations in this loop
-    const newContext = { ...(req.context || {}), state: newState };
-    await this.prisma.request.update({
-      where: { id: req.id },
-      data: { context: newContext }
-    });
-    
-    await this.saveResponse(req, `Assigned ${ast.key} = ${JSON.stringify(evaluatedValue)}`);
-    await this.completeRequest(req.id, 'COMPLETED');
-  }
-
-  private async handleIfElse(ast: any, req: any) {
-    logger.debug(`[CuratorRequestProcessor] Handling IfElse node for ${req.id}`);
-    
-    if (req.context?.ifElseEvaluated) {
-      // The branch finished and woke us up.
-      await this.saveResponse(req, `IfElse completed branch.`);
-      await this.completeRequest(req.id, 'COMPLETED');
-      return;
-    }
-
-    const conditionResult = await this.evaluateExpressionAsync(ast.condition, req);
-    const branchToExecute = conditionResult ? ast.thenBranch : ast.elseBranch;
-    
-    if (branchToExecute) {
-      await this.spawnChildAndParkParent(req, { ast: branchToExecute, context: req.context }, { ifElseEvaluated: true });
-    } else {
-      await this.saveResponse(req, `IfElse condition evaluated to ${conditionResult}. No branch executed.`);
-      await this.completeRequest(req.id, 'COMPLETED');
     }
   }
 

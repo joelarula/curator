@@ -251,8 +251,43 @@ const schema: Record<string, any> = {
   ],
 };
 
-const ajv = new Ajv({ allErrors: true, strict: false });
-const validateSchema = ajv.compile(schema);
+/** Plugin node types (registered via NodeRegistry) accepted by the schema, with their optional field validators. */
+const extensionTypes = new Map<string, ((node: any) => string[]) | undefined>();
+
+function compileSchema() {
+  const types = [...extensionTypes.keys()];
+  const branches = types.length
+    ? [...schema.oneOf, { type: 'object', properties: { ...baseProperties, type: { enum: types } }, required: ['type'] }]
+    : schema.oneOf;
+  return new Ajv({ allErrors: true, strict: false }).compile({ ...schema, oneOf: branches });
+}
+
+let validateSchema = compileSchema();
+
+/** Accepts `type` as a valid AST node anywhere in a workflow. Built-in ('Curator_') types cannot be extended. */
+export function registerAstExtensionType(type: string, validate?: (node: any) => string[]) {
+  if (type.startsWith('Curator_')) throw new Error(`'${type}' is a reserved node type prefix`);
+  extensionTypes.set(type, validate);
+  validateSchema = compileSchema();
+}
+
+export function unregisterAstExtensionType(type: string) {
+  if (extensionTypes.delete(type)) validateSchema = compileSchema();
+}
+
+function validateExtensions(root: unknown): string[] {
+  if (!extensionTypes.size) return [];
+  const errors: string[] = [];
+  const walk = (node: any, path: string) => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) return node.forEach((item, i) => walk(item, `${path}/${i}`));
+    const validate = typeof node.type === 'string' ? extensionTypes.get(node.type) : undefined;
+    if (validate) errors.push(...validate(node).map(e => `${path || '/'} (${node.type}): ${e}`));
+    for (const [key, child] of Object.entries(node)) walk(child, `${path}/${key}`);
+  };
+  walk(root, '');
+  return errors;
+}
 
 export interface AstValidationResult {
   valid: boolean;
@@ -462,6 +497,8 @@ export function validateCuratorAst(value: unknown): AstValidationResult {
   if (!validateSchema(normalizedValue)) return { valid: false, errors: formatErrors(validateSchema.errors) };
   const referenceErrors = validateReferences(normalizedValue);
   if (referenceErrors.length) return { valid: false, errors: referenceErrors };
+  const extensionErrors = validateExtensions(normalizedValue);
+  if (extensionErrors.length) return { valid: false, errors: extensionErrors };
   return { valid: true, errors: [], node: normalizedValue as CuratorAstNode };
 }
 

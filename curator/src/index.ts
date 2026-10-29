@@ -2,6 +2,7 @@
 export * from './engine/CuratorEngine.js';
 export * from './engine/CuratorConfigFile.js';
 export * from './engine/CuratorRequestProcessor.js';
+export * from './engine/nodes/index.js';
 export * from './engine/CuratorContext.js';
 export * from './engine/CuratorContracts.js';
 export * from './engine/ConversationStateLog.js';
