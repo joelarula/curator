@@ -14,9 +14,9 @@ export interface CuratorExecutionContext {
 
 export interface CuratorRequestRecord {
   id: number;
-  userId: number;
-  projectId?: number | null;
-  conversationId: string;
+  userId: string | number;
+  projectId?: string | number | null;
+  conversationId: number | string;
   ast: unknown;
   context?: CuratorExecutionContext | null;
   notifyId?: number | null;
@@ -31,18 +31,18 @@ export interface CuratorRequestRecord {
 export interface CuratorResponseRecord {
   id: number;
   requestId: number;
-  userId: number;
-  projectId?: number | null;
-  conversationId: string;
+  userId?: string | number;
+  projectId?: string | number | null;
+  conversationId: number | string;
   ast?: unknown;
   context?: CuratorExecutionContext | null;
   content?: string | null;
   state?: JsonRecord | null;
   durationMs?: number | null;
   cost?: number | null;
-  status: string;
+  status?: string;
   errorMessage?: string | null;
-  retryCount: number;
+  retryCount?: number;
   createdAt: Date;
   completedAt?: Date | null;
 }

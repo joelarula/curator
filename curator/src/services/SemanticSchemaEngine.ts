@@ -54,11 +54,11 @@ export class SemanticSchemaEngine {
         shapeUri: string,
         subjectUri: string,
         data: Record<string, any>,
-        userId: number,
-        projectId: number
+        userId: string | number,
+        projectId: string | number
     ): Promise<string> {
         await this.prisma.$transaction(async (tx) => {
-            await this._createEntityInternal(tx, shapeUri, subjectUri, data, userId, projectId);
+            await this._createEntityInternal(tx, shapeUri, subjectUri, data, String(userId), String(projectId));
         });
         return subjectUri;
     }
@@ -68,8 +68,8 @@ export class SemanticSchemaEngine {
         shapeUri: string,
         subjectUri: string,
         data: Record<string, any>,
-        userId: number,
-        projectId: number
+        userId: string,
+        projectId: string
     ): Promise<string> {
         const shape = this.shapes[shapeUri];
         if (!shape) throw new Error(`Semantic shape ${shapeUri} not found.`);
@@ -82,8 +82,8 @@ export class SemanticSchemaEngine {
         });
 
         // 2. Add rdf:type relation
-        const rdfType = await this.ensureResource(tx, 'rdf:type', 'type', userId, 1);
-        const classResource = await this.ensureResource(tx, shape.targetClass, shape.name || shape.targetClass, userId, 1, shape.description);
+        const rdfType = await this.ensureResource(tx, 'rdf:type', 'type', userId, 'system');
+        const classResource = await this.ensureResource(tx, shape.targetClass, shape.name || shape.targetClass, userId, 'system', shape.description);
             
             await tx.relation.upsert({
                 where: {
@@ -136,7 +136,7 @@ export class SemanticSchemaEngine {
                     }
                 }
 
-                const predicate = await this.ensureResource(tx, propShape.path, propShape.name || fieldName, userId, 1, propShape.description);
+                const predicate = await this.ensureResource(tx, propShape.path, propShape.name || fieldName, userId, 'system', propShape.description);
 
                 for (const v of values) {
                     if (propShape.class) {
@@ -177,7 +177,7 @@ export class SemanticSchemaEngine {
                             data: {
                                 uri: blobUri,
                                 title: blobUri,
-                                content: String(v),
+                                description: String(v),
                                 userId,
                                 projectId
                             }
@@ -215,7 +215,7 @@ export class SemanticSchemaEngine {
                                 create: { 
                                     uri: literalUri, 
                                     title: stringVal.substring(0, 255),
-                                    content: stringVal,
+                                    description: stringVal,
                                     userId, 
                                     projectId 
                                 }
@@ -261,14 +261,14 @@ export class SemanticSchemaEngine {
     public async readEntity(
         shapeUri: string,
         subjectUri: string,
-        projectIds: number[]
+        projectIds: (string | number)[]
     ): Promise<Record<string, any> | null> {
         const shape = this.shapes[shapeUri];
         if (!shape) throw new Error(`DSL shape ${shapeUri} not found.`);
 
-        const scopes = [...new Set([...projectIds, 1])];
+        const scopes = [...new Set([...projectIds.map(String), 'system', '1'])];
 
-        const resource = await this.prisma.resource.findUnique({
+        const resource: any = await this.prisma.resource.findUnique({
             where: { uri: subjectUri },
             include: {
                 subjectRelations: {
@@ -288,24 +288,24 @@ export class SemanticSchemaEngine {
 
         for (const [fieldName, propShape] of Object.entries(shape.properties)) {
             const matches = propShape.inverse
-                ? resource.objectRelations.filter(rel => rel.predicate.uri === propShape.path)
-                : resource.subjectRelations.filter(rel => rel.predicate.uri === propShape.path);
+                ? resource.objectRelations.filter((rel: any) => rel.predicate.uri === propShape.path)
+                : resource.subjectRelations.filter((rel: any) => rel.predicate.uri === propShape.path);
             
             if (matches.length === 0) continue;
 
             const extract = (rel: any) => {
                 if (propShape.inverse) return rel.subject.uri;
                 if (propShape.class) return rel.object.uri;
-                if (propShape.datatype === 'curator:textBlob') return rel.object.content;
+                if (propShape.datatype === 'curator:textBlob') return rel.object.content ?? rel.object.description;
                 if (propShape.datatype) {
                     switch (propShape.datatype) {
-                        case 'xsd:string': return rel.object?.content;
+                        case 'xsd:string': return rel.object?.content ?? rel.object?.description;
                         case 'xsd:integer':
                         case 'xsd:float':
                         case 'xsd:double': return rel.literalValue;
                         case 'xsd:boolean': return rel.literalBoolean;
                         case 'xsd:dateTime': return rel.literalDate;
-                        default: return rel.object?.content;
+                        default: return rel.object?.content ?? rel.object?.description;
                     }
                 }
                 return null;
@@ -314,7 +314,7 @@ export class SemanticSchemaEngine {
             const isArray = propShape.maxCount === undefined || propShape.maxCount > 1;
             
             if (isArray) {
-                result[fieldName] = matches.map(extract).filter(v => v !== null);
+                result[fieldName] = matches.map(extract).filter((v: any) => v !== null);
             } else {
                 result[fieldName] = extract(matches[0]);
             }
@@ -330,11 +330,13 @@ export class SemanticSchemaEngine {
         shapeUri: string,
         subjectUri: string,
         data: Record<string, any>,
-        userId: number,
-        projectId: number
+        userId: string | number,
+        projectId: string | number
     ): Promise<string> {
         const shape = this.shapes[shapeUri];
         if (!shape) throw new Error(`DSL shape ${shapeUri} not found.`);
+        const uId = String(userId);
+        const pId = String(projectId);
 
         await this.prisma.$transaction(async (tx) => {
             const subject = await tx.resource.findUnique({ where: { uri: subjectUri } });
@@ -352,7 +354,7 @@ export class SemanticSchemaEngine {
                         where: {
                             subjectId: subject.id,
                             predicateId: predicate.id,
-                            projectId
+                            projectId: pId
                         }
                     });
                 }
@@ -379,7 +381,7 @@ export class SemanticSchemaEngine {
                     }
                 }
 
-                const predicateResource = await this.ensureResource(tx, propShape.path, propShape.name || fieldName, userId, 1, propShape.description);
+                const predicateResource = await this.ensureResource(tx, propShape.path, propShape.name || fieldName, uId, 'system', propShape.description);
 
                 for (const v of values) {
                     if (propShape.class) {
@@ -389,19 +391,19 @@ export class SemanticSchemaEngine {
                             const targetClass = Array.isArray(propShape.class) ? (v['@type'] || propShape.class[0]) : propShape.class;
                             const className = targetClass.split(':')[1] || 'object';
                             objectUri = `${className.toLowerCase()}:${crypto.randomUUID()}`;
-                            await this._createEntityInternal(tx, targetClass + 'Shape', objectUri, v, userId, projectId);
+                            await this._createEntityInternal(tx, targetClass + 'Shape', objectUri, v, uId, pId);
                         } else {
                             objectUri = String(v);
                         }
 
-                        const objectResource = await this.ensureResource(tx, objectUri, objectUri, userId, projectId);
+                        const objectResource = await this.ensureResource(tx, objectUri, objectUri, uId, pId);
                         
                         await tx.relation.create({
                             data: {
                                 subjectId: subject.id,
                                 predicateId: predicateResource.id,
                                 objectId: objectResource.id,
-                                projectId
+                                projectId: pId
                             }
                         });
                     } else if (propShape.datatype === 'curator:textBlob') {
@@ -410,9 +412,9 @@ export class SemanticSchemaEngine {
                             data: {
                                 uri: blobUri,
                                 title: blobUri,
-                                content: String(v),
-                                userId,
-                                projectId
+                                description: String(v),
+                                userId: uId,
+                                projectId: pId
                             }
                         });
 
@@ -421,7 +423,7 @@ export class SemanticSchemaEngine {
                                 subjectId: subject.id,
                                 predicateId: predicateResource.id,
                                 objectId: blobResource.id,
-                                projectId
+                                projectId: pId
                             }
                         });
                     } else if (propShape.datatype) {
@@ -440,9 +442,9 @@ export class SemanticSchemaEngine {
                                 create: { 
                                     uri: literalUri, 
                                     title: stringVal.substring(0, 255),
-                                    content: stringVal,
-                                    userId, 
-                                    projectId 
+                                    description: stringVal,
+                                    userId: uId, 
+                                    projectId: pId 
                                 }
                             });
                             targetObjectId = literalResource.id;
@@ -462,7 +464,7 @@ export class SemanticSchemaEngine {
                                 subjectId: subject.id,
                                 predicateId: predicateResource.id,
                                 objectId: targetObjectId,
-                                projectId,
+                                projectId: pId,
                                 ...literalData
                             }
                         });
@@ -477,7 +479,7 @@ export class SemanticSchemaEngine {
     /**
      * Delete an entity (soft-delete resource and relations).
      */
-    public async deleteEntity(subjectUri: string, projectId: number): Promise<boolean> {
+    public async deleteEntity(subjectUri: string, projectId: string | number): Promise<boolean> {
         const resource = await this.prisma.resource.findUnique({ where: { uri: subjectUri } });
         if (!resource) return false;
 
@@ -488,7 +490,7 @@ export class SemanticSchemaEngine {
             });
 
             await tx.relation.updateMany({
-                where: { subjectId: resource.id, projectId },
+                where: { subjectId: resource.id, projectId: String(projectId) },
                 data: { existent: false }
             });
         });
@@ -501,8 +503,8 @@ export class SemanticSchemaEngine {
         tx: Prisma.TransactionClient,
         uri: string,
         title: string,
-        userId: number,
-        projectId: number,
+        userId: string,
+        projectId: string,
         description?: string
     ) {
         return tx.resource.upsert({
@@ -514,7 +516,9 @@ export class SemanticSchemaEngine {
 
     private async ensureDatatype(tx: Prisma.TransactionClient, name: string): Promise<number> {
         if (this.datatypeCache[name]) return this.datatypeCache[name];
-        const datatype = await tx.datatype.upsert({
+        const datatypeModel = (tx as any).datatype;
+        if (!datatypeModel) return 1;
+        const datatype = await datatypeModel.upsert({
             where: { name },
             update: {},
             create: { name }

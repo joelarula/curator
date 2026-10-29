@@ -148,15 +148,16 @@ program
           logger.info(`[CLI] Script returned an AST. Submitting as a new Request...`);
           
           const user = await prisma.user.upsert({
-            where: { id: 2 },
+            where: { id: '2' },
             update: {},
-            create: { id: 2, username: 'cli_user', name: 'CLI User', email: 'cli@example.com' }
+            create: { id: '2', name: 'CLI User', email: 'cli@example.com' }
           });
 
+          const convIdNum = Number(options.session) || 1;
           const conversation = await prisma.conversation.upsert({
-            where: { id: options.session },
+            where: { id: convIdNum },
             update: {},
-            create: { id: options.session, userId: user.id }
+            create: { id: convIdNum, userId: user.id }
           });
 
           const req = await prisma.request.create({
@@ -179,8 +180,8 @@ program
           const seenResponses = new Set<any>();
 
           while (true) {
-            const responses = await prisma.response.findMany({
-              where: { conversationId: options.session, requestId: { gte: req.id } },
+            const responses: any[] = await prisma.response.findMany({
+              where: { conversationId: conversation.id, requestId: { gte: req.id } },
               include: { request: true },
               orderBy: { createdAt: 'asc' }
             });
@@ -202,12 +203,12 @@ program
             }
 
             const pending = await prisma.request.count({
-              where: { conversationId: options.session, status: { in: ['NEW', 'WAITING'] }, id: { gte: req.id } }
+              where: { conversationId: conversation.id, status: { in: ['NEW', 'WAITING'] }, id: { gte: req.id } }
             });
 
             // Check if any request is waiting for human input
-            const waitingHumanReq = await prisma.request.findFirst({
-              where: { conversationId: options.session, status: 'WAITING_FOR_USER', id: { gte: req.id } },
+            const waitingHumanReq: any = await prisma.request.findFirst({
+              where: { conversationId: conversation.id, status: 'WAITING_FOR_USER', id: { gte: req.id } },
               include: { responses: true }
             });
 
@@ -226,13 +227,11 @@ program
                 rl.question(promptText, resolve);
               });
               rl.close();
-              const impersonatedUserId = (ast.targetUserId && typeof ast.targetUserId === 'number') ? ast.targetUserId : waitingHumanReq.userId;
 
               await prisma.response.create({
                 data: {
                   requestId: waitingHumanReq.id,
                   conversationId: waitingHumanReq.conversationId,
-                  userId: impersonatedUserId,
                   projectId: waitingHumanReq.projectId,
                   content: JSON.stringify({ output: answer.trim() })
                 }

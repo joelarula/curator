@@ -22,6 +22,6 @@
     },
     "noEmitOnError": false
   },
-  "include": ["src/**/*", "prisma-sqlite/**/*", "prisma-mariadb/**/*", "scripts/**/*"],
+  "include": ["src/**/*", "prisma-sqlite/**/*", "prisma-mariadb/**/*"],
   "exclude": ["node_modules", "dist"]
 }

@@ -110,7 +110,11 @@ test('replay: pause and resume re-prompt the same seat; exit closes the table', 
     assert.equal(s.waitingForHuman, false);
     const names = await eventNames();
     const table = (await rebuildStateSnapshot(host.prisma, Number(session.tableId))).state;
-    assert.equal(table.tablePhase, PokerTablePhase.EXITED);
+    // The table left through EXITED and finished; the close-on-exit rule closed it
+    const transitions = (await host.prisma.eventLog.findMany({ where: { eventName: 'state:tablePhase' }, orderBy: { id: 'asc' } }))
+      .map((e: any) => (typeof e.payload === 'string' ? JSON.parse(e.payload) : e.payload).to);
+    assert.deepEqual(transitions.slice(-2), [PokerTablePhase.EXITED, '__end__']);
+    assert.equal(table.tablePhase, '__end__');
     assert.equal(table.sessionEnded, true);
     assert.equal(table.isClosed, true);
     assert.ok(names.includes(PokerEvent.SESSION_EXITED), 'leaving is announced');

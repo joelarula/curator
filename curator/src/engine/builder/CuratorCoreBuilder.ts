@@ -76,6 +76,39 @@ export function getActiveModuleScope(): ActiveModuleScope | null {
 }
 
 /**
+ * Normalizes a builder, node, or array of steps into a CuratorAstNode (or undefined if empty).
+ */
+export function resolveBuilderNode(branch: any): CuratorAstNode | undefined {
+  if (!branch || (Array.isArray(branch) && branch.length === 0)) return undefined;
+  if (Array.isArray(branch)) {
+    return CuratorCoreBuilder.seq(...branch);
+  }
+  return typeof branch.build === 'function' ? branch.build() : branch;
+}
+
+/**
+ * Normalizes an array or record of subroutine definitions / TypedSubroutines into a plain map.
+ */
+function normalizeSubroutinesMap(
+  subroutines?: Record<string, CuratorSubroutine | TypedSubroutine> | TypedSubroutine[]
+): Record<string, CuratorSubroutine> {
+  const map: Record<string, CuratorSubroutine> = {};
+  if (Array.isArray(subroutines)) {
+    for (const subItem of subroutines) {
+      const subName = subItem.subroutineName || subItem.name;
+      map[subName] = subItem.definition;
+    }
+  } else if (subroutines) {
+    for (const [key, val] of Object.entries(subroutines)) {
+      map[key] = (val && typeof val === 'function' && 'definition' in val)
+        ? (val as TypedSubroutine).definition
+        : (val as CuratorSubroutine);
+    }
+  }
+  return map;
+}
+
+/**
  * Core AST Node Factory for primitive computational and workflow verbs.
  */
 export class CuratorCoreBuilder {
@@ -101,16 +134,8 @@ export class CuratorCoreBuilder {
     elseBranch?: CuratorAstNode | CuratorAstNode[] | any
   ): CuratorIfElseNode {
     const condStr = typeof condition === 'function' ? `(${condition.toString()})(context)` : condition;
-    const resolveBranch = (b: any): CuratorAstNode | undefined => {
-      // An empty step list means "do nothing" (e.g. a `match` arm `BACK: []`).
-      if (!b || (Array.isArray(b) && b.length === 0)) return undefined;
-      if (Array.isArray(b)) {
-        return CuratorCoreBuilder.seq(...b);
-      }
-      return typeof b.build === 'function' ? b.build() : b;
-    };
-    const thenNode = resolveBranch(thenBranch);
-    const elseNode = resolveBranch(elseBranch);
+    const thenNode = resolveBuilderNode(thenBranch);
+    const elseNode = resolveBuilderNode(elseBranch);
     if (!thenNode && elseNode) {
       return { type: CuratorNodeType.IfElse, condition: `not (${condStr})`, thenBranch: elseNode };
     }
@@ -263,13 +288,7 @@ export class CuratorCoreBuilder {
     body: CuratorAstNode | CuratorAstNode[] | any
   ): CuratorWhileNode {
     const condStr = typeof condition === 'function' ? `(${condition.toString()})(context)` : condition;
-    const resolveBody = (b: any): CuratorAstNode => {
-      if (Array.isArray(b)) {
-        return CuratorCoreBuilder.seq(...b);
-      }
-      return typeof b.build === 'function' ? b.build() : b;
-    };
-    return { type: CuratorNodeType.While, condition: condStr, body: resolveBody(body) };
+    return { type: CuratorNodeType.While, condition: condStr, body: resolveBuilderNode(body)! };
   }
 
   /**
@@ -411,24 +430,10 @@ export class CuratorCoreBuilder {
       const setup = typeof setupOrOptions === 'function' ? setupOrOptions : maybeSetup!;
       const meta = typeof setupOrOptions === 'object' ? setupOrOptions : {};
 
-      let initialSubroutines: Record<string, CuratorSubroutine> = {};
-      if (Array.isArray(meta.subroutines)) {
-        for (const subItem of meta.subroutines) {
-          const subName = subItem.subroutineName || subItem.name;
-          initialSubroutines[subName] = subItem.definition;
-        }
-      } else if (meta.subroutines) {
-        for (const [key, val] of Object.entries(meta.subroutines)) {
-          initialSubroutines[key] = (val && typeof val === 'function' && 'definition' in val)
-            ? (val as TypedSubroutine).definition
-            : (val as CuratorSubroutine);
-        }
-      }
-
       const prevScope = activeModuleScope;
       const scope: ActiveModuleScope = {
         name,
-        subroutines: initialSubroutines,
+        subroutines: normalizeSubroutinesMap(meta.subroutines),
         subscriptions: meta.subscriptions ? [...meta.subscriptions] : [],
         params: meta.params,
         description: meta.description,
@@ -437,18 +442,7 @@ export class CuratorCoreBuilder {
       activeModuleScope = scope;
       let mainNode: CuratorAstNode | undefined;
       try {
-        const result = setup();
-        if (Array.isArray(result)) {
-          const flat = result.flat();
-          const unwrapped = flat.map((n: any) =>
-            n && typeof n === 'object' && typeof n.build === 'function' ? n.build() : n
-          );
-          mainNode = { type: 'Curator_Sequential', subAgents: unwrapped };
-        } else if (result && typeof (result as any).build === 'function') {
-          mainNode = (result as any).build();
-        } else {
-          mainNode = result;
-        }
+        mainNode = resolveBuilderNode(setup());
       } finally {
         activeModuleScope = prevScope;
       }
@@ -466,23 +460,8 @@ export class CuratorCoreBuilder {
     }
 
     const { main: rawMain, subroutines, ...restOptions } = setupOrOptions;
-    const main = rawMain && typeof (rawMain as any).build === 'function' ? (rawMain as any).build() : rawMain;
-    let subroutinesMap: Record<string, CuratorSubroutine> | undefined;
-    if (Array.isArray(subroutines)) {
-      subroutinesMap = {};
-      for (const subItem of subroutines) {
-        const subName = subItem.subroutineName || subItem.name;
-        subroutinesMap[subName] = subItem.definition;
-      }
-    } else if (subroutines) {
-      subroutinesMap = {};
-      for (const [key, val] of Object.entries(subroutines)) {
-        subroutinesMap[key] = (val && typeof val === 'function' && 'definition' in val)
-          ? (val as TypedSubroutine).definition
-          : (val as CuratorSubroutine);
-      }
-    }
-    const allSubroutines = { ...subroutinesMap };
+    const main = resolveBuilderNode(rawMain);
+    const allSubroutines = normalizeSubroutinesMap(subroutines);
     includeReferencedSubroutines([main, restOptions.subscriptions, Object.values(allSubroutines).map((s) => s.body)], allSubroutines);
     return {
       type: CuratorNodeType.Module,
@@ -798,13 +777,17 @@ export function system(spec: CuratorSystemSpec): CuratorSubscribeNode {
  * First-class callable subroutine definition.
  * Calling the returned function produces a CuratorCallNode ({ type: 'Curator_Call', ref: '#name' }).
  */
+export type TypedSubroutineArgs<TParams> = TParams extends Record<string, any>
+  ? { [K in keyof TParams]?: CuratorExpr<TParams[K]> } & Record<string, any>
+  : Record<string, any>;
+
 export interface TypedSubroutine<TParams = any> {
-  (args?: Record<string, any>, options?: { as?: string; mode?: 'child' | 'inline' }): CuratorCallNode;
+  (args?: TypedSubroutineArgs<TParams>, options?: { as?: string; mode?: 'child' | 'inline' }): CuratorCallNode;
   name: string;
   subroutineName: string;
   ref: string;
   definition: CuratorSubroutine;
-  inline: (args?: Record<string, any>, options?: { as?: string }) => CuratorCallNode;
+  inline: (args?: TypedSubroutineArgs<TParams>, options?: { as?: string }) => CuratorCallNode;
 }
 
 /**
@@ -891,7 +874,7 @@ export function defineSubroutine<TParams = any>(
   knownSubroutines.set(cleanName, definition);
 
   const fn = function (
-    args?: Record<string, any>,
+    args?: TypedSubroutineArgs<TParams>,
     callOptions?: { as?: string; mode?: 'child' | 'inline' }
   ): CuratorCallNode {
     return CuratorCoreBuilder.call(ref, args, {
@@ -904,7 +887,7 @@ export function defineSubroutine<TParams = any>(
   fn.subroutineName = cleanName;
   fn.ref = ref;
   fn.definition = definition;
-  fn.inline = (args?: Record<string, any>, callOptions?: { as?: string }): CuratorCallNode => {
+  fn.inline = (args?: TypedSubroutineArgs<TParams>, callOptions?: { as?: string }): CuratorCallNode => {
     return CuratorCoreBuilder.call(ref, args, { mode: 'inline', ...callOptions });
   };
 

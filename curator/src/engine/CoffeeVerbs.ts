@@ -3,6 +3,7 @@ import { CuratorBuilder } from './CuratorBuilder.js';
 import type { CuratorAstNode } from './CuratorAst.js';
 import { validateCuratorAst } from './CuratorAstValidation.js';
 import { vocabularyRegistry, type VocabularyComposable } from './builder/VocabularyRegistry.js';
+import { conversationalVerbs } from './builder/conversations/SpeechActComposables.js';
 
 export const coffeeAstVerbs: Record<string, any> = {
   // 1. Tool execution
@@ -91,29 +92,7 @@ export const coffeeAstVerbs: Record<string, any> = {
   secret: (key: string) => CuratorBuilder.secret(key),
 
   // 8. Agentic SpeechActs & Classical Discourse Forms
-  ask: (options: any) => CuratorBuilder.ask(options),
-  propose: (options: any) => CuratorBuilder.propose(options),
-  inform: (options: any) => CuratorBuilder.inform(options),
-  vote: (options: any) => CuratorBuilder.vote(options),
-  synthesize: (options: any) => CuratorBuilder.synthesize(options),
-  broadcast: (options: any) => CuratorBuilder.broadcast(options),
-  dialog: (targetUri: string) => CuratorBuilder.dialog(targetUri),
-  dialogue: (targetUri: string) => CuratorBuilder.dialogue(targetUri),
-  forum: (roomUri: string) => CuratorBuilder.forum(roomUri),
-  polylogue: (roomUri: string) => CuratorBuilder.polylogue(roomUri),
-  enter_forum: (roomUri: string, options: any = {}) =>
-    CuratorBuilder.enter_forum(roomUri, options),
-  soliloquy: (thought: any) => CuratorBuilder.soliloquy(thought),
-  monologue: (topic: string, narrative: any) => CuratorBuilder.monologue(topic, narrative),
-  trialogue: (agentB: string, agentC: string, topic?: string) => CuratorBuilder.trialogue(agentB, agentC, topic),
-  catechism: (targetUri: string, queryOrOptions: any) => CuratorBuilder.catechism(targetUri, queryOrOptions),
-  dialectic: (options: any) => CuratorBuilder.dialectic(options),
-  apostrophe: (absentEntity: string, assertion: any) => CuratorBuilder.apostrophe(absentEntity, assertion),
-  grant_lease: (options: any) => CuratorBuilder.grant_lease(options),
-  revoke_lease: (options: any) => CuratorBuilder.revoke_lease(options),
-  as_role: (roleName: string, actionsOrFn?: any) => CuratorBuilder.as_role(roleName, actionsOrFn),
-  with_role: (roleName: string, actionsOrFn?: any) => CuratorBuilder.with_role(roleName, actionsOrFn),
-  role: (roleName: string) => CuratorBuilder.role(roleName),
+  ...conversationalVerbs,
 
   // 9. Vocabulary Extension
   extend_verbs: (verbs: Record<string, VocabularyComposable>) => extendCoffeeAstVerbs(verbs),
@@ -131,20 +110,16 @@ export function extendCoffeeAstVerbs(newVerbs: Record<string, VocabularyComposab
   vocabularyRegistry.registerMany(newVerbs);
 }
 
-/**
- * Compiles a natural CoffeeScript workflow string into a formal Execution AST.
- */
-export async function compileCoffeeScriptToAST(
-  coffeeScriptCode: string,
-  initialContext: Record<string, any> = {}
-): Promise<CuratorAstNode> {
+const FRONTMATTER_RE = /^(---\r?\n[\s\S]*?\r?\n---\r?\n?|#\s*---\r?\n[\s\S]*?\r?\n#\s*---\r?\n?)/;
+
+async function runInCoffeeSandbox(coffeeScriptCode: string, initialContext: Record<string, any> = {}, includeInput = false): Promise<{ result: any; sandbox: Record<string, any> }> {
   const coffee = (await import('coffeescript')).default;
-  const cleanedCode = coffeeScriptCode.replace(/^(---\r?\n[\s\S]*?\r?\n---\r?\n?|#\s*---\r?\n[\s\S]*?\r?\n#\s*---\r?\n?)/, '');
+  const cleanedCode = coffeeScriptCode.replace(FRONTMATTER_RE, '');
   const compiledJs = coffee.compile(cleanedCode, { bare: true, header: false });
 
   const sandbox: Record<string, any> = {
     console,
-    input: initialContext.input ?? '',
+    ...(includeInput ? { input: initialContext.input ?? '' } : {}),
     context: initialContext,
     ...vocabularyRegistry.getAll(),
     ...coffeeAstVerbs,
@@ -153,7 +128,18 @@ export async function compileCoffeeScriptToAST(
   };
 
   const vmContext = vm.createContext(sandbox);
-  let result = vm.runInContext(compiledJs, vmContext);
+  const result = vm.runInContext(compiledJs, vmContext);
+  return { result, sandbox };
+}
+
+/**
+ * Compiles a natural CoffeeScript workflow string into a formal Execution AST.
+ */
+export async function compileCoffeeScriptToAST(
+  coffeeScriptCode: string,
+  initialContext: Record<string, any> = {}
+): Promise<CuratorAstNode> {
+  let { result, sandbox } = await runInCoffeeSandbox(coffeeScriptCode, initialContext, true);
 
   // If module.exports or exports.run was defined, use that
   if (sandbox.module?.exports && Object.keys(sandbox.module.exports).length > 0) {
@@ -193,21 +179,7 @@ export async function evaluateCoffeeScript<T = any>(
   coffeeScriptCode: string,
   initialContext: Record<string, any> = {}
 ): Promise<T> {
-  const coffee = (await import('coffeescript')).default;
-  const cleanedCode = coffeeScriptCode.replace(/^(---\r?\n[\s\S]*?\r?\n---\r?\n?|#\s*---\r?\n[\s\S]*?\r?\n#\s*---\r?\n?)/, '');
-  const compiledJs = coffee.compile(cleanedCode, { bare: true, header: false });
-
-  const sandbox: Record<string, any> = {
-    console,
-    context: initialContext,
-    ...vocabularyRegistry.getAll(),
-    ...coffeeAstVerbs,
-    exports: {},
-    module: { exports: {} },
-  };
-
-  const vmContext = vm.createContext(sandbox);
-  let result = vm.runInContext(compiledJs, vmContext);
+  let { result, sandbox } = await runInCoffeeSandbox(coffeeScriptCode, initialContext, false);
 
   if (sandbox.module?.exports && Object.keys(sandbox.module.exports).length > 0) {
     result = sandbox.module.exports.default || sandbox.module.exports.run || sandbox.module.exports;

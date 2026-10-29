@@ -6,14 +6,15 @@ import { curatorContext } from './CuratorContext.js';
 
 import type { CuratorAstNode, CuratorAgentNode, CuratorSequentialNode, CuratorParallelNode, CuratorJoinNode, CuratorToolNode, CuratorScriptNode, CuratorRouteNode, CuratorGraphNode, CuratorGraphTransition, CuratorActorRefNode } from './CuratorAst.js';
 import { logger } from '../utils/logger.js';
-import { validateCuratorAst, parseCuratorRef, AST_LIMITS } from './CuratorAstValidation.js';
-import { superviseAgentLoops, isValidSchedule } from './AgentScheduleSupervisor.js';
-export { isValidSchedule };
+import { validateCuratorAst, isCuratorAstNode, parseCuratorRef, AST_LIMITS } from './CuratorAstValidation.js';
+import { superviseAgentLoops, isValidSchedule, isCronDue, isScheduleDue, computeNextRunDate } from './AgentScheduleSupervisor.js';
+export { isValidSchedule, isCronDue, isScheduleDue, computeNextRunDate };
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { CuratorCallNode, CuratorSubscribeNode, CuratorUnsubscribeNode, CuratorParamSpec, CuratorLoopNode, CuratorInlineTool } from './CuratorAst.js';
 import type { CuratorEventEmitResult, CuratorStructuredResponse } from './CuratorContracts.js';
 import { resolveRef, resolveRequestNode, getScriptVersionAst, getEntry, entryAstPath, expandInlineCalls, saveAdhocScript } from './ScriptRegistry.js';
 import { coffeeAstVerbs } from './CoffeeVerbs.js';
+import { toCamelCase } from './builder/CuratorCoreBuilder.js';
 import type { Prisma } from '@prisma/client';
 import { LlmFactory } from './llm/LlmFactory.js';
 import type { LlmMessage, LlmToolDefinition, LlmRequest } from './llm/ILlmProvider.js';
@@ -241,6 +242,42 @@ export class CuratorRequestProcessor {
       try { return JSON.parse(ast); } catch { return null; }
     }
     return ast || null;
+  }
+
+  private getAgentOutputKey(ast: any): string {
+    return ast?.as || toCamelCase(ast?.agentName) || 'decision';
+  }
+
+  /** Spawns a validated child request and parks the parent request waiting for it. */
+  private async spawnChildAndParkParent(
+    req: any,
+    childData: Record<string, any>,
+    parentContextUpdates: Record<string, any> = {},
+    parentStatus: 'WAITING' | 'NEW' = 'WAITING'
+  ) {
+    await this.createValidatedRequest({
+      data: {
+        userId: req.userId || 1,
+        projectId: req.projectId,
+        agentId: req.agentId,
+        scriptId: req.scriptId,
+        conversationId: req.conversationId,
+        status: 'NEW',
+        pendingDependencies: 0,
+        notifyId: req.id,
+        ...childData,
+      },
+    });
+    await this.prisma.request.update({
+      where: { id: req.id },
+      data: {
+        status: parentStatus,
+        lockedBy: null,
+        lockedAt: null,
+        pendingDependencies: 1,
+        context: { ...this.parseContext(req.context), ...parentContextUpdates },
+      },
+    });
   }
 
   /** Identity used to address events: the private scope, else the request's agent. */
@@ -902,40 +939,34 @@ export class CuratorRequestProcessor {
           return;
         }
 
-        const nodeTypes = ['Curator_Agent', 'Curator_Sequential', 'Curator_Parallel', 'Curator_Join', 'Curator_Tool', 'Curator_Script', 'Curator_Route', 'Curator_HumanInput', 'Curator_Graph', 'Curator_AgentRef', 'Curator_ActorRef', 'Curator_SetState', 'Curator_Interrupt', 'Curator_EmitEvent', 'Curator_WaitEvent', 'Curator_Assign', 'Curator_IfElse', 'Curator_While', 'Curator_Loop', 'Curator_ForEach', 'Curator_Call', 'Curator_Subscribe', 'Curator_Unsubscribe'];
-        if (nodeTypes.includes(ast.type)) {
-          switch (ast.type) {
-            case 'Curator_Agent': return await this.executeAgent(ast as CuratorAgentNode, req);
-            case 'Curator_Sequential': return await this.handleSequential(ast as CuratorSequentialNode, req);
-            case 'Curator_Parallel': return await this.handleParallel(ast as CuratorParallelNode, req);
-            case 'Curator_Join': return await this.handleJoin(ast as CuratorJoinNode, req);
-            case 'Curator_Tool': return await this.handleTool(ast as CuratorToolNode, req);
-            case 'Curator_Script': return await this.handleScript(ast as CuratorScriptNode, req);
-            case 'Curator_Route': return await this.handleRoute(ast as CuratorRouteNode, req);
-            case 'Curator_HumanInput': return await this.handleHumanInput(ast as any, req);
-            case 'Curator_WaitEvent': return await this.handleWaitEvent(ast as any, req);
-            case 'Curator_Graph': return await this.handleGraph(ast as CuratorGraphNode, req);
-            case 'Curator_AgentRef': return await this.handleAgentRef(req, ast as any, req.context);
-            case 'Curator_ActorRef': return await this.handleActorRef(ast as CuratorActorRefNode, req);
-            case 'Curator_SetState': return await this.handleSetState(ast as any, req);
-            case 'Curator_Interrupt': return await this.handleInterrupt(ast as any, req);
-            case 'Curator_EmitEvent': return await this.handleEmitEvent(ast as any, req);
-            case 'Curator_Assign': return await this.handleAssign(ast as any, req);
-            case 'Curator_IfElse': return await this.handleIfElse(ast as any, req);
-            case 'Curator_While': return await this.handleWhile(ast as any, req);
-            case 'Curator_Loop': return await this.handleLoop(ast as CuratorLoopNode, req);
-            case 'Curator_ForEach': return await this.handleForEach(ast as any, req);
-            case 'Curator_Call': return await this.handleCall(ast as CuratorCallNode, req);
-            case 'Curator_Subscribe': return await this.handleSubscribe(ast as CuratorSubscribeNode, req);
-            case 'Curator_Unsubscribe': return await this.handleUnsubscribe(ast as CuratorUnsubscribeNode, req);
-            default:
-              logger.warn(`[CuratorRequestProcessor] Node type ${ast.type} not implemented.`);
-              await this.completeRequest(req.id, 'COMPLETED');
-          }
-        } else {
-          logger.warn(`[CuratorRequestProcessor] Request ${req.id} has unknown AST type: ${(ast as any).type}. Skipping.`);
-          await this.saveResponse(req, `ERROR: unknown AST type '${(ast as any).type}'`);
-          await this.completeRequest(req.id, 'SKIPPED');
+        switch (ast.type) {
+          case 'Curator_Agent': return await this.executeAgent(ast, req);
+          case 'Curator_Sequential': return await this.handleSequential(ast, req);
+          case 'Curator_Parallel': return await this.handleParallel(ast, req);
+          case 'Curator_Join': return await this.handleJoin(ast, req);
+          case 'Curator_Tool': return await this.handleTool(ast, req);
+          case 'Curator_Script': return await this.handleScript(ast, req);
+          case 'Curator_Route': return await this.handleRoute(ast, req);
+          case 'Curator_HumanInput': return await this.handleHumanInput(ast, req);
+          case 'Curator_WaitEvent': return await this.handleWaitEvent(ast, req);
+          case 'Curator_Graph': return await this.handleGraph(ast, req);
+          case 'Curator_AgentRef': return await this.handleAgentRef(req, ast, req.context);
+          case 'Curator_ActorRef': return await this.handleActorRef(ast, req);
+          case 'Curator_SetState': return await this.handleSetState(ast, req);
+          case 'Curator_Interrupt': return await this.handleInterrupt(ast, req);
+          case 'Curator_EmitEvent': return await this.handleEmitEvent(ast, req);
+          case 'Curator_Assign': return await this.handleAssign(ast, req);
+          case 'Curator_IfElse': return await this.handleIfElse(ast, req);
+          case 'Curator_While': return await this.handleWhile(ast, req);
+          case 'Curator_Loop': return await this.handleLoop(ast, req);
+          case 'Curator_ForEach': return await this.handleForEach(ast, req);
+          case 'Curator_Call': return await this.handleCall(ast, req);
+          case 'Curator_Subscribe': return await this.handleSubscribe(ast, req);
+          case 'Curator_Unsubscribe': return await this.handleUnsubscribe(ast, req);
+          default:
+            logger.warn(`[CuratorRequestProcessor] Request ${req.id} has unknown AST type: ${(ast as any).type}. Skipping.`);
+            await this.saveResponse(req, `ERROR: unknown AST type '${(ast as any).type}'`);
+            await this.completeRequest(req.id, 'SKIPPED');
         }
       }));
     } catch (error: any) {
@@ -969,18 +1000,10 @@ export class CuratorRequestProcessor {
     
     // Evaluate dynamic payload
     let payload = node.payload ?? req.context?.input;
-    if (typeof node.payload === 'string' && ((node.payload.startsWith('(') && node.payload.endsWith('(context)')) || node.payload.startsWith('$') || node.payload.startsWith('{{'))) {
+    if (this.isDynamicExpr(node.payload)) {
       payload = await this.evaluateExpressionAsync(node.payload, req);
     } else if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
-      const evaluatedPayload: Record<string, any> = {};
-      for (const [k, v] of Object.entries(payload)) {
-        if (typeof v === 'string' && (v.startsWith('{{') || v.startsWith('$') || (v.startsWith('(') && v.endsWith('(context)')))) {
-          evaluatedPayload[k] = await this.evaluateExpressionAsync(v, req);
-        } else {
-          evaluatedPayload[k] = v;
-        }
-      }
-      payload = evaluatedPayload;
+      payload = await this.evaluateArgs(payload, req);
     }
     if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
       if (req.conversationId !== undefined && req.conversationId !== null) {
@@ -1399,33 +1422,7 @@ export class CuratorRequestProcessor {
     // Phase 1: Evaluate the router logic
     if (!context.routeDecided) {
       logger.debug(`[CuratorRequestProcessor] Route Node (Phase 1) for request ${req.id} - inserting router node.`);
-      
-      // Inherit the prompt into the router if applicable
-      let routerAst = { ...ast.router } as any;
-
-      await this.createValidatedRequest({
-        data: {
-          userId: req.userId,
-          conversationId: req.conversationId,
-          status: 'NEW',
-          pendingDependencies: 0,
-          notifyId: req.id, // Will wake up this Curator_Route request
-          ast: routerAst
-        }
-      });
-
-      // Put this node to sleep waiting for the router decision
-      context.routeDecided = true;
-      await this.prisma.request.update({
-        where: { id: req.id },
-        data: {
-          pendingDependencies: 1,
-          context,
-          status: 'NEW', // Keep NEW so it gets picked up again
-          lockedBy: null,
-          lockedAt: null
-        }
-      });
+      await this.spawnChildAndParkParent(req, { ast: { ...ast.router } }, { routeDecided: true }, 'NEW');
       return;
     }
 
@@ -1455,7 +1452,7 @@ export class CuratorRequestProcessor {
     let nodeAst = { ...targetAst } as any;
 
     // Spawn the subAgent and connect it directly to the parent's notifyId
-    await this.prisma.request.create({
+    await this.createValidatedRequest({
       data: {
         userId: req.userId,
         conversationId: req.conversationId,
@@ -1627,7 +1624,7 @@ export class CuratorRequestProcessor {
     }
 
     let prompt = ast.prompt;
-    if (typeof prompt === 'string' && (prompt.startsWith('{{') || prompt.startsWith('$') || (prompt.startsWith('(') && prompt.endsWith('(context)')))) {
+    if (this.isDynamicExpr(prompt)) {
       prompt = await this.evaluateExpressionAsync(prompt, req);
     } else if (typeof prompt === 'string') {
       prompt = (await this.interpolateTemplate(prompt, req)) || prompt;
@@ -1778,11 +1775,19 @@ export class CuratorRequestProcessor {
     return typeof v === 'string' && (v.startsWith('{{') || v.startsWith('$') || (v.startsWith('(') && v.endsWith('(context)')));
   }
 
-  /** Evaluates `$context...` / `{{ }}` values of an args object in the caller's context. */
-  private async evaluateArgs(args: Record<string, any> | undefined, req: any): Promise<Record<string, any>> {
+  /** Evaluates `$context...` / `{{ }}` / `(fn)(context)` values of an args object in the caller's context. */
+  private async evaluateArgs(args: Record<string, any> | undefined, req: any, literalArgs = false): Promise<Record<string, any>> {
     const out: Record<string, any> = {};
     for (const [k, v] of Object.entries(args || {})) {
-      out[k] = this.isDynamicExpr(v) ? await this.evaluateExpressionAsync(v, req) : v;
+      if (literalArgs) {
+        out[k] = v;
+      } else if (this.isDynamicExpr(v)) {
+        out[k] = await this.evaluateExpressionAsync(v, req);
+      } else if (v && typeof v === 'object' && !Array.isArray(v)) {
+        out[k] = await this.evaluateArgs(v as Record<string, any>, req, literalArgs);
+      } else {
+        out[k] = v;
+      }
     }
     return out;
   }
@@ -2064,28 +2069,13 @@ export class CuratorRequestProcessor {
       }
       const output = vm.runInContext(codeToExecute, context);
       
-      const nodeTypes = ['Curator_Agent', 'Curator_Sequential', 'Curator_Parallel', 'Curator_Join', 'Curator_Tool', 'Curator_Script', 'Curator_Route', 'Curator_HumanInput', 'Curator_Graph', 'Curator_AgentRef', 'Curator_ActorRef', 'Curator_SetState', 'Curator_EmitEvent', 'Curator_WaitEvent', 'Curator_Interrupt', 'Curator_Assign',       'Curator_IfElse', 'Curator_While', 'Curator_Loop', 'Curator_ForEach'];
-      if (output && typeof output === 'object' && output.type && nodeTypes.includes(output.type)) {
+      if (isCuratorAstNode(output)) {
         logger.debug(`[CuratorRequestProcessor] Script generated a valid AST node of type ${output.type}. Spawning as child...`);
-        // Spawn the dynamic AST
-        await this.createValidatedRequest({
-          data: {
-            ast: output,
-            context: { ...req.context, spawnedChild: false, input: req.context?.input },
-            projectId: req.projectId,
-            conversationId: req.conversationId,
-            userId: req.userId || 1,
-            status: 'NEW',
-            pendingDependencies: 0,
-            notifyId: req.id
-          }
-        });
-
-        // Set parent to WAITING
-        await this.prisma.request.update({
-          where: { id: req.id },
-          data: { status: 'WAITING', lockedBy: null, lockedAt: null, pendingDependencies: 1, context: { ...req.context, spawnedChild: true } }
-        });
+        await this.spawnChildAndParkParent(
+          req,
+          { ast: output, context: { ...req.context, spawnedChild: false, input: req.context?.input } },
+          { spawnedChild: true }
+        );
         return;
       }
       
@@ -2375,29 +2365,11 @@ export class CuratorRequestProcessor {
     
     // Evaluate string expressions in toolArgs — supports both {{expr}} templates and (fn)(context) patterns
     let evaluatedArgs: Record<string, any> = {};
-    if (typeof toolArgs === 'string' && (toolArgs.startsWith('{{') || toolArgs.startsWith('$') || (toolArgs.startsWith('(') && toolArgs.endsWith('(context)')))) {
+    if (this.isDynamicExpr(toolArgs)) {
       const resolved = await this.evaluateExpressionAsync(toolArgs, req);
       evaluatedArgs = (resolved && typeof resolved === 'object' && !Array.isArray(resolved)) ? resolved : { input: resolved };
     } else if (toolArgs && typeof toolArgs === 'object') {
-      for (const [k, v] of Object.entries(toolArgs)) {
-        if (literalArgs) { evaluatedArgs[k] = v; continue; }
-        if (typeof v === 'string' && (v.startsWith('{{') || v.startsWith('$') || (v.startsWith('(') && v.endsWith('(context)')))) {
-          evaluatedArgs[k] = await this.evaluateExpressionAsync(v, req);
-        } else if (typeof v === 'object' && v !== null) {
-          // Recursively resolve template strings inside nested arg objects
-          const resolved: Record<string, any> = {};
-          for (const [ik, iv] of Object.entries(v as Record<string, any>)) {
-            if (typeof iv === 'string' && (iv.startsWith('{{') || iv.startsWith('$') || (iv.startsWith('(') && iv.endsWith('(context)')))) {
-              resolved[ik] = await this.evaluateExpressionAsync(iv, req);
-            } else {
-              resolved[ik] = iv;
-            }
-          }
-          evaluatedArgs[k] = resolved;
-        } else {
-          evaluatedArgs[k] = v;
-        }
-      }
+      evaluatedArgs = await this.evaluateArgs(toolArgs, req, literalArgs);
     }
 
     // RBAC & Tool confirmation gate
@@ -2534,19 +2506,13 @@ export class CuratorRequestProcessor {
   private async handleSetState(ast: any, req: any) {
     logger.debug(`[CuratorRequestProcessor] Setting state for request ${req.id}`);
     let evaluatedState: Record<string, any> = {};
-    if (typeof ast.state === 'string' && (ast.state.startsWith('{{') || ast.state.startsWith('$') || (ast.state.startsWith('(') && ast.state.endsWith('(context)')))) {
+    if (this.isDynamicExpr(ast.state)) {
       const res = await this.evaluateExpressionAsync(ast.state, req);
       if (res && typeof res === 'object' && !Array.isArray(res)) {
         evaluatedState = res;
       }
     } else if (ast.state && typeof ast.state === 'object') {
-      for (const [k, v] of Object.entries(ast.state)) {
-        if (typeof v === 'string' && (v.startsWith('{{') || v.startsWith('$') || (v.startsWith('(') && v.endsWith('(context)')))) {
-          evaluatedState[k] = await this.evaluateExpressionAsync(v, req);
-        } else {
-          evaluatedState[k] = v;
-        }
-      }
+      evaluatedState = await this.evaluateArgs(ast.state, req);
     }
 
     if (Object.keys(evaluatedState).length > 0) {
@@ -3065,7 +3031,7 @@ export class CuratorRequestProcessor {
     }
 
     logger.debug(`[CuratorRequestProcessor] Agent '${ast.agentName}' completed in ${iterations} turn(s). Output length: ${finalOutput.length}`);
-    const targetKey = ast.as || (ast.agentName ? ast.agentName.charAt(0).toLowerCase() + ast.agentName.slice(1) : 'decision');
+    const targetKey = this.getAgentOutputKey(ast);
     try {
       const parsed = JSON.parse(finalOutput);
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
@@ -3268,6 +3234,7 @@ export class CuratorRequestProcessor {
           let currentConvState = this.getConversationState(conv);
           let newUpdates: any = {};
 
+          const agentKey = req.ast?.type === 'Curator_Agent' ? this.getAgentOutputKey(req.ast) : undefined;
           let parsed: any = null;
           if (lastContent) {
             try {
@@ -3276,9 +3243,8 @@ export class CuratorRequestProcessor {
                 // Structured audit records (EVENT_EMITTED, CALL_STARTED, ...) are not workflow data.
                 newUpdates = {};
               } else if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
-                if (req.ast?.type === 'Curator_Agent') {
-                  const targetKey = req.ast.as || (req.ast.agentName ? req.ast.agentName.charAt(0).toLowerCase() + req.ast.agentName.slice(1) : 'decision');
-                  newUpdates = { [targetKey]: parsed };
+                if (agentKey) {
+                  newUpdates = { [agentKey]: parsed };
                 } else if (req.ast?.type === 'Curator_Tool' && req.ast.spread === false) {
                   // Non-spreading tool: its output is state only under its bound key, never field by field
                   newUpdates = { [req.ast.as || req.ast.toolName]: parsed };
@@ -3286,20 +3252,10 @@ export class CuratorRequestProcessor {
                   newUpdates = parsed;
                 }
               } else {
-                if (req.ast?.type === 'Curator_Agent') {
-                  const targetKey = req.ast.as || (req.ast.agentName ? req.ast.agentName.charAt(0).toLowerCase() + req.ast.agentName.slice(1) : 'decision');
-                  newUpdates = { [targetKey]: lastContent };
-                } else {
-                  newUpdates = { output: lastContent };
-                }
+                newUpdates = agentKey ? { [agentKey]: lastContent } : { output: lastContent };
               }
             } catch (e) {
-              if (req.ast?.type === 'Curator_Agent') {
-                const targetKey = req.ast.as || (req.ast.agentName ? req.ast.agentName.charAt(0).toLowerCase() + req.ast.agentName.slice(1) : 'decision');
-                newUpdates = { [targetKey]: lastContent };
-              } else {
-                newUpdates = { output: lastContent };
-              }
+              newUpdates = agentKey ? { [agentKey]: lastContent } : { output: lastContent };
             }
           }
 
@@ -3315,19 +3271,12 @@ export class CuratorRequestProcessor {
 
           // Carry forward named tool output keys from source request context
           // (e.g. `discovery`, `episode`) so downstream nodes can reference them.
-          let targetContext = (targetReq.context as any) || {};
-          if (typeof targetContext === 'string') {
-            try { targetContext = JSON.parse(targetContext); } catch (_) {}
-          }
-          let sourceContext = (req.context ?? {}) as any;
-          if (typeof sourceContext === 'string') {
-            try { sourceContext = JSON.parse(sourceContext); } catch (_) {}
-          }
+          const targetContext = this.parseContext(targetReq.context);
+          const sourceContext = this.parseContext(req.context);
 
-          if (req.ast?.type === 'Curator_Agent') {
-            const targetKey = req.ast.as || (req.ast.agentName ? req.ast.agentName.charAt(0).toLowerCase() + req.ast.agentName.slice(1) : 'decision');
-            const agentOutput = newUpdates[targetKey] ?? (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : lastContent);
-            targetContext[targetKey] = agentOutput;
+          if (agentKey) {
+            const agentOutput = newUpdates[agentKey] ?? (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : lastContent);
+            targetContext[agentKey] = agentOutput;
             targetContext.$response = agentOutput;
             targetContext.$last = agentOutput;
           }
@@ -3475,30 +3424,7 @@ export class CuratorRequestProcessor {
     const branchToExecute = conditionResult ? ast.thenBranch : ast.elseBranch;
     
     if (branchToExecute) {
-      await this.createValidatedRequest({
-        data: {
-          ast: branchToExecute,
-          context: req.context,
-          projectId: req.projectId,
-          agentId: req.agentId,
-          scriptId: req.scriptId,
-          conversationId: req.conversationId,
-          userId: req.userId || 1,
-          status: 'NEW',
-          pendingDependencies: 0,
-          notifyId: req.id
-        }
-      });
-      await this.prisma.request.update({
-        where: { id: req.id },
-        data: { 
-          status: 'WAITING', 
-          lockedBy: null, 
-          lockedAt: null, 
-          pendingDependencies: 1,
-          context: { ...req.context, ifElseEvaluated: true }
-        }
-      });
+      await this.spawnChildAndParkParent(req, { ast: branchToExecute, context: req.context }, { ifElseEvaluated: true });
     } else {
       await this.saveResponse(req, `IfElse condition evaluated to ${conditionResult}. No branch executed.`);
       await this.completeRequest(req.id, 'COMPLETED');
@@ -3516,24 +3442,7 @@ export class CuratorRequestProcessor {
     const conditionResult = await this.evaluateExpressionAsync(ast.condition, req);
     
     if (conditionResult) {
-      await this.createValidatedRequest({
-        data: {
-          ast: ast.body,
-          context: req.context,
-          projectId: req.projectId,
-          agentId: req.agentId,
-          scriptId: req.scriptId,
-          conversationId: req.conversationId,
-          userId: req.userId || 1,
-          status: 'NEW',
-          pendingDependencies: 0,
-          notifyId: req.id
-        }
-      });
-      await this.prisma.request.update({
-        where: { id: req.id },
-        data: { status: 'WAITING', lockedBy: null, lockedAt: null, pendingDependencies: 1 }
-      });
+      await this.spawnChildAndParkParent(req, { ast: ast.body, context: req.context });
     } else {
       await this.saveResponse(req, `While loop finished.`);
       await this.completeRequest(req.id, 'COMPLETED');
@@ -3634,152 +3543,10 @@ export class CuratorRequestProcessor {
     const item = collection[currentIndex];
     const iteratorName = ast.iteratorName || 'item';
     
-    await this.createValidatedRequest({
-      data: {
-        ast: ast.body,
-        context: { ...req.context, [iteratorName]: item },
-        projectId: req.projectId,
-        agentId: req.agentId,
-        scriptId: req.scriptId,
-        conversationId: req.conversationId,
-        userId: req.userId || 1,
-        status: 'NEW',
-        pendingDependencies: 0,
-        parentId: req.id,
-        notifyId: req.id
-      }
-    });
-
-    await this.prisma.request.update({
-      where: { id: req.id },
-      data: { 
-        status: 'WAITING', 
-        lockedBy: null, 
-        lockedAt: null, 
-        pendingDependencies: 1,
-        context: { ...req.context, forEachIndex: currentIndex + 1, forEachCollection: collection }
-      }
-    });
+    await this.spawnChildAndParkParent(
+      req,
+      { ast: ast.body, context: { ...req.context, [iteratorName]: item }, parentId: req.id },
+      { forEachIndex: currentIndex + 1, forEachCollection: collection }
+    );
   }
-}
-
-/**
- * Standard 5-field cron matcher (minute hour dom month dow).
- * Supports numbers, comma lists, ranges (1-5), steps (* / 15, 1-5/2).
- */
-export function isCronDue(cronExpression: string, date: Date = new Date()): boolean {
-  if (!cronExpression || typeof cronExpression !== 'string') return false;
-  const parts = cronExpression.trim().split(/\s+/);
-  if (parts.length !== 5) return false;
-
-  const [minExpr, hourExpr, domExpr, monExpr, dowExpr] = parts;
-  const minute = date.getMinutes();
-  const hour = date.getHours();
-  const dayOfMonth = date.getDate();
-  const month = date.getMonth() + 1; // 1-12
-  const dayOfWeek = date.getDay();   // 0-6 (0 = Sunday)
-
-  const matchField = (expr: string, value: number, isDow = false): boolean => {
-    if (expr === '*') return true;
-    for (const segment of expr.split(',')) {
-      if (segment.includes('/')) {
-        const [range, stepStr] = segment.split('/');
-        const step = parseInt(stepStr, 10);
-        if (isNaN(step) || step <= 0) return false;
-        let start = 0;
-        let end = 59;
-        if (range !== '*') {
-          const rangeParts = range.split('-');
-          start = parseInt(rangeParts[0], 10);
-          end = rangeParts[1] ? parseInt(rangeParts[1], 10) : start;
-        }
-        if (value >= start && value <= end && (value - start) % step === 0) return true;
-      } else if (segment.includes('-')) {
-        const [startStr, endStr] = segment.split('-');
-        const start = parseInt(startStr, 10);
-        const end = parseInt(endStr, 10);
-        if (value >= start && value <= end) return true;
-        if (isDow && (start === 7 || end === 7) && value === 0) return true;
-      } else {
-        const target = parseInt(segment, 10);
-        if (value === target) return true;
-        if (isDow && target === 7 && value === 0) return true;
-      }
-    }
-    return false;
-  };
-
-  return (
-    matchField(minExpr, minute) &&
-    matchField(hourExpr, hour) &&
-    matchField(domExpr, dayOfMonth) &&
-    matchField(monExpr, month) &&
-    matchField(dowExpr, dayOfWeek, true)
-  );
-}
-
-/**
- * Unified schedule evaluator supporting both 5-field Cron expressions and Bree/Later human syntax
- * (e.g. "0 14 * * 1-5", "every 10 minutes", "every 1 hour", "at 14:00").
- */
-export function isScheduleDue(schedule: string, date: Date = new Date()): boolean {
-  if (!schedule || typeof schedule !== 'string') return false;
-  const trimmed = schedule.trim();
-  const parts = trimmed.split(/\s+/);
-
-  // 1. Standard 5-field Cron syntax
-  if (parts.length === 5 && !/^(every|at|on|after)\b/i.test(trimmed)) {
-    return isCronDue(trimmed, date);
-  }
-
-  // 2. Bree / Human interval syntax ("every X minutes/hours/days")
-  const everyMatch = trimmed.match(/^every\s+(\d+)?\s*(minute|hour|day|second)s?$/i);
-  if (everyMatch) {
-    const amount = parseInt(everyMatch[1] || '1', 10);
-    const unit = everyMatch[2].toLowerCase();
-    if (unit === 'minute') {
-      return date.getMinutes() % amount === 0;
-    } else if (unit === 'hour') {
-      return date.getMinutes() === 0 && date.getHours() % amount === 0;
-    } else if (unit === 'day') {
-      return date.getMinutes() === 0 && date.getHours() === 0 && date.getDate() % amount === 0;
-    }
-  }
-
-  // 3. Bree "at HH:MM" syntax (e.g. "at 14:00" or "at 2:00 pm")
-  const atMatch = trimmed.match(/^at\s+(\d{1,2}):(\d{2})(?:\s*(am|pm))?$/i);
-  if (atMatch) {
-    let targetHour = parseInt(atMatch[1], 10);
-    const targetMin = parseInt(atMatch[2], 10);
-    const ampm = atMatch[3]?.toLowerCase();
-    if (ampm === 'pm' && targetHour < 12) targetHour += 12;
-    if (ampm === 'am' && targetHour === 12) targetHour = 0;
-    return date.getHours() === targetHour && date.getMinutes() === targetMin;
-  }
-
-  return false;
-}
-
-/** Calculates the next upcoming Date matching the schedule (cron or interval) starting from fromDate.
- */
-export function computeNextRunDate(schedule: string, fromDate: Date = new Date()): Date {
-  if (!schedule || typeof schedule !== 'string') {
-    return new Date(fromDate.getTime() + 60000);
-  }
-  const trimmed = schedule.trim();
-  const start = new Date(Math.floor((fromDate.getTime() + 60000) / 60000) * 60000);
-  start.setSeconds(0, 0);
-
-  // Search up to 366 days in advance
-  const maxMinutes = 60 * 24 * 366;
-  const current = new Date(start.getTime());
-
-  for (let i = 0; i < maxMinutes; i++) {
-    if (isScheduleDue(trimmed, current)) {
-      return current;
-    }
-    current.setTime(current.getTime() + 60000);
-  }
-
-  return new Date(fromDate.getTime() + 3600000);
 }

@@ -1,1 +1,0 @@
-{"version":3,"file":"CffeCompiler.d.ts","sourceRoot":"","sources":["CffeCompiler.ts"],"names":[],"mappings":"AAGA,qBAAa,YAAY;IACrB,MAAM,CAAC,OAAO,CAAC,MAAM,EAAE,MAAM,GAAG;QAAE,IAAI,EAAE,GAAG,CAAC;QAAC,QAAQ,EAAE,GAAG,CAAC;QAAC,MAAM,EAAE,MAAM,CAAA;KAAE;CA+B/E"}

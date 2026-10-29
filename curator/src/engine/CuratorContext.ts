@@ -3,11 +3,11 @@ import type { PrismaClient } from '@prisma/client';
 import type { CuratorExecutionContext } from './CuratorContracts.js';
 
 export interface CuratorUserContext extends CuratorExecutionContext {
-  userId: number; // Primary user
-  projectId: number; // Primary project
-  userIds?: number[]; // All associated users
-  projectIds?: number[]; // All associated projects
-  sessionId?: string;
+  userId: string | number; // Primary user
+  projectId: string | number; // Primary project
+  userIds?: (string | number)[]; // All associated users
+  projectIds?: (string | number)[]; // All associated projects
+  sessionId?: string | number;
   requestId?: number;
   prisma?: PrismaClient;
 }

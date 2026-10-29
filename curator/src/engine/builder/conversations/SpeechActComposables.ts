@@ -445,6 +445,31 @@ export function revoke_lease(options: {
   );
 }
 
+export const conversationalVerbs = {
+  ask,
+  propose,
+  inform,
+  vote,
+  synthesize,
+  broadcast,
+  dialog,
+  dialogue,
+  forum,
+  polylogue,
+  enter_forum,
+  soliloquy,
+  monologue,
+  trialogue,
+  catechism,
+  dialectic,
+  apostrophe,
+  grant_lease,
+  revoke_lease,
+  as_role,
+  with_role,
+  role,
+};
+
 export class CuratorConversationalBuilder {
   static ask = ask;
   static propose = propose;
@@ -471,27 +496,4 @@ export class CuratorConversationalBuilder {
 }
 
 // Automatically register standard conversational speech acts into vocabularyRegistry
-vocabularyRegistry.registerMany({
-  ask,
-  propose,
-  inform,
-  vote,
-  synthesize,
-  broadcast,
-  dialog,
-  dialogue,
-  forum,
-  polylogue,
-  enter_forum,
-  soliloquy,
-  monologue,
-  trialogue,
-  catechism,
-  dialectic,
-  apostrophe,
-  grant_lease,
-  revoke_lease,
-  as_role,
-  with_role,
-  role,
-});
+vocabularyRegistry.registerMany(conversationalVerbs);
