@@ -2,6 +2,7 @@ import type { PrismaClient } from '@prisma/client';
 import type { CuratorToolNode } from '../engine/CuratorAst.js';
 import type { ServiceKey } from '../engine/nodes/NodeHandler.js';
 import { CuratorCoreBuilder, type CuratorExpr, type TypedPathProxy } from '../engine/builder/CuratorCoreBuilder.js';
+import type { ToolOutputSpec } from '../engine/output/OutputFormats.js';
 
 export type CuratorJsonSchema = Record<string, unknown>;
 export type CuratorToolOutput = unknown;
@@ -69,6 +70,8 @@ export interface CuratorTool<TArgs = Record<string, unknown>, TOutput = CuratorT
   readonly mcp?: McpToolExposure;
   readonly usage?: string;
   readonly aliases?: string[];
+  /** Default formatting of this tool's result for the model and for people; plugin and agent rules override it. */
+  readonly output?: ToolOutputSpec;
 
   runAsync(input: {
     args: Record<string, unknown>;
@@ -105,6 +108,7 @@ export function defineTool<TArgs = Record<string, unknown>, TOutput = CuratorToo
   mcp?: McpToolExposure;
   usage?: string;
   aliases?: string[];
+  output?: ToolOutputSpec;
   execute: (args: TArgs, ctx: CuratorToolContext) => Promise<TOutput>;
 }): CuratorTool<TArgs, TOutput> {
   const requiresApproval = opts.requiresHumanApproval ?? opts.requiresConfirmation ?? false;
@@ -134,6 +138,7 @@ export function defineTool<TArgs = Record<string, unknown>, TOutput = CuratorToo
     mcp: opts.mcp,
     usage: opts.usage,
     aliases: opts.aliases,
+    output: opts.output,
     call: buildNode,
     async runAsync({ args, toolContext }: { args: Record<string, unknown>; toolContext: CuratorToolContext }): Promise<TOutput> {
       return opts.execute(args as TArgs, toolContext);

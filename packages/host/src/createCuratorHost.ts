@@ -255,7 +255,21 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
       };
     },
 
-    async triggerAgent(agentName: string, context: Record<string, any> = {}): Promise<any> {
+    async triggerAgent(
+      agentName: string,
+      context: Record<string, any> = {},
+      options: { conversationId?: number } = {}
+    ): Promise<any> {
+      let conversationId = conversation.id;
+      if (options.conversationId != null && options.conversationId !== conversation.id) {
+        // Only conversations of the host's own project and user.
+        const target = await prisma.conversation.findFirst({
+          where: { id: options.conversationId, projectId: project.id, userId: user.id },
+        });
+        if (!target) throw new Error(`Conversation ${options.conversationId} not found in project '${project.id}'`);
+        conversationId = target.id;
+      }
+
       const agent = await prisma.agent.findFirst({
         where: { OR: [{ id: agentName }, { name: agentName }], existent: true },
         include: { script: true },
@@ -276,7 +290,7 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
         data: {
           user: { connect: { id: user.id } },
           project: { connect: { id: project.id } },
-          conversation: { connect: { id: conversation.id } },
+          conversation: { connect: { id: conversationId } },
           script: { connect: { id: script.id } },
           ...(agent ? { agent: { connect: { id: agent.id } } } : {}),
           ast: script.ast,
@@ -286,6 +300,7 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
       });
 
       events.broadcast('request_start', { requestId: request.id, agent: agentName });
+      processor.wake();
       return request;
     },
 
@@ -306,6 +321,7 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
         data: { status: 'NEW', lockedBy: null, lockedAt: null },
       });
       events.broadcast('request_resumed', { requestId: id });
+      processor.wake();
       return updated;
     },
 

@@ -11,6 +11,47 @@ const projectOf = (ctx: any): string => {
 const str = (description: string) => ({ type: 'string', description });
 
 /**
+ * Role allowed to (re)connect and sync registered servers. A default user role, so connector flows run as
+ * the host user in its project; registering or removing servers stays separate.
+ */
+export const MCP_CONNECTOR_ROLE = 'mcp_connector';
+/** Script running one connection workflow per server (`context.server`); see `connectorWorkflow`. */
+export const MCP_CONNECT_SCRIPT = 'mcp_connect';
+
+/** Per-server event names: `mcp:<server>:retry` (try now) and `mcp:<server>:disconnected` (connection lost). */
+export const mcpServerEvent = (server: string, kind: 'retry' | 'disconnected') => `mcp:${server}:${kind}`;
+const serverEvent = (kind: 'retry' | 'disconnected') => `{{ 'mcp:' + $context.server + ':${kind}' }}`;
+
+/**
+ * Keeps one server connected, as a state machine of Requests:
+ * sync → connected (waits for `disconnected`) | login (waits for `auth:login`) | backoff (waits
+ * `retryInSeconds`) → sync again; a server that is no longer registered ends the flow.
+ * `mcp:<server>:retry` cuts any wait short.
+ */
+export const connectorWorkflow = {
+  type: 'Curator_Graph',
+  name: 'mcp_connect',
+  startNode: 'sync',
+  nodes: {
+    sync: { type: 'Curator_Tool', toolName: 'mcp_server_connect', args: { name: '$context.server' }, as: 'mcpConnect', spread: false },
+    connected: { type: 'Curator_WaitEvent', eventName: serverEvent('disconnected'), eventNames: [serverEvent('retry')] },
+    login: { type: 'Curator_WaitEvent', eventName: 'auth:login', eventNames: [serverEvent('retry')] },
+    backoff: { type: 'Curator_WaitEvent', eventName: serverEvent('retry'), timeoutSeconds: '$context.mcpConnect.retryInSeconds' },
+  },
+  edges: {
+    sync: [
+      { to: 'connected', when: "$context.mcpConnect.status == 'connected'" },
+      { to: 'login', when: "$context.mcpConnect.status == 'auth_required'" },
+      { to: '__end__', when: "$context.mcpConnect.status == 'gone'" },
+      { to: 'backoff' },
+    ],
+    connected: 'sync',
+    login: 'sync',
+    backoff: 'sync',
+  },
+};
+
+/**
  * Local tools for managing and using remote MCP providers. Projects always come from the
  * request (session / x-project-id), never from tool arguments.
  */
@@ -53,7 +94,20 @@ export function createMcpClientPlugin(options: McpRegistryOptions = {}): { plugi
       description: "Re-sync a remote MCP server's tools, resources and prompts into the catalog",
       parameters: { type: 'object', properties: { name: str('Server name') }, required: ['name'] },
       accessLevel: 'safe_write',
+      requiredRole: MCP_CONNECTOR_ROLE,
       execute: async (args, ctx) => registry.sync(projectOf(ctx), args.name),
+    }),
+    defineTool<{ name: string }>({
+      name: 'mcp_server_connect',
+      description: 'Try to connect and sync a registered MCP server; reports connected / auth_required / error (with retryInSeconds) / gone',
+      parameters: { type: 'object', properties: { name: str('Server name') }, required: ['name'] },
+      accessLevel: 'safe_write',
+      requiredRole: MCP_CONNECTOR_ROLE,
+      execute: async (args, ctx) => {
+        const result = await registry.tryConnect(projectOf(ctx), args.name);
+        // Broadcast for UIs (REPL, web) as `mcp:status`.
+        return { ...result, event: { name: 'mcp:status', payload: result } };
+      },
     }),
     defineTool<{ name: string }>({
       name: 'mcp_server_unregister',
@@ -113,6 +167,9 @@ export function createMcpClientPlugin(options: McpRegistryOptions = {}): { plugi
       name: 'mcp-client',
       version: '1.0.0',
       description: 'Remote MCP providers: registration, catalog and project-scoped remote tools',
+      roles: [{ name: MCP_CONNECTOR_ROLE, description: 'Connects and re-syncs registered remote MCP servers' }] as any,
+      defaultUserRoles: [MCP_CONNECTOR_ROLE],
+      scripts: { [MCP_CONNECT_SCRIPT]: { body: '// Keeps one remote MCP server connected (context.server)', ast: connectorWorkflow } } as any,
       tools,
     },
   };

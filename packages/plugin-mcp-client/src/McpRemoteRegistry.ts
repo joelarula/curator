@@ -45,6 +45,8 @@ export interface McpRegistryOptions {
   toolRoles?: string[];
   clientInfo?: { name: string; version: string };
   fetch?: FetchLike;
+  /** Backoff of `tryConnect` after failed attempts: `minSeconds` (default 5) doubling up to `maxSeconds` (default 300). */
+  retry?: { minSeconds?: number; maxSeconds?: number };
   /** Overrides the transport (tests, other transports); receives the auth-wrapped fetch. */
   createTransport?(server: McpServerRecord, fetchImpl: FetchLike): Transport;
   logger?: Pick<Console, 'warn' | 'error'>;
@@ -83,6 +85,28 @@ export interface McpSyncResult {
   removed: { tools: number; resources: number; prompts: number };
 }
 
+/** Outcome of one `tryConnect` attempt, as data for workflows (never thrown). */
+export interface McpConnectResult {
+  server: string;
+  projectId: string;
+  /** `connected`, `auth_required`, `error`, or `gone` when the server is no longer registered. */
+  status: string;
+  error?: string;
+  /** Remote tools after a successful sync. */
+  tools?: number;
+  /** Suggested delay before the next attempt after an `error`. */
+  retryInSeconds?: number;
+}
+
+/** A server's status changed (`connected`, `error`, `auth_required`, ...); `error` is its last error. */
+export interface McpStatusChange {
+  projectId: string;
+  server: string;
+  status: string;
+  previous: string;
+  error?: string | null;
+}
+
 export interface RegisterMcpServerResult {
   server: McpServerRecord;
   sync?: McpSyncResult;
@@ -107,6 +131,11 @@ export class McpRemoteRegistry {
   private readonly aliases = new Map<string, string>();
   private readonly connections = new Map<number, Promise<Client>>();
   private readonly syncTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  private readonly statusListeners = new Set<(change: McpStatusChange) => void>();
+  /** Consecutive failed `tryConnect` attempts per server id (backoff). */
+  private readonly failures = new Map<number, number>();
+  /** Servers with a `tryConnect` attempt in flight; their status changes are part of the attempt. */
+  private readonly connecting = new Set<number>();
   private detachResolver?: () => void;
   readonly sharedProjectIds: string[];
 
@@ -321,6 +350,66 @@ export class McpRemoteRegistry {
     }
   }
 
+  /**
+   * One connection attempt for workflows: syncs the server and reports the outcome instead of throwing.
+   * After an `error` it suggests a backoff (`retryInSeconds`); `auth_required` waits for a sign-in instead.
+   */
+  async tryConnect(projectId: string, name: string): Promise<McpConnectResult> {
+    let server: McpServerRecord;
+    try {
+      server = await this.loadServer(projectId, name);
+    } catch (err: any) {
+      return { server: name, projectId, status: 'gone', error: err?.message || String(err) };
+    }
+    this.connecting.add(server.id);
+    try {
+      const sync = await this.sync(projectId, name);
+      this.failures.delete(server.id);
+      return { server: name, projectId, status: 'connected', tools: sync.tools };
+    } catch (err: any) {
+      const status = this.servers.get(server.id)?.status ?? 'error';
+      const error = err?.message || String(err);
+      if (status === 'auth_required') return { server: name, projectId, status, error };
+      const failures = this.failures.get(server.id) ?? 0;
+      this.failures.set(server.id, failures + 1);
+      const { minSeconds = 5, maxSeconds = 300 } = this.options.retry ?? {};
+      return { server: name, projectId, status: 'error', error, retryInSeconds: Math.min(maxSeconds, minSeconds * 2 ** failures) };
+    } finally {
+      this.connecting.delete(server.id);
+    }
+  }
+
+  /** Whether a `tryConnect` attempt for this server is running (its status changes belong to the attempt). */
+  isConnecting(projectId: string, name: string): boolean {
+    for (const id of this.connecting) {
+      const server = this.servers.get(id);
+      if (server?.projectId === projectId && server.name === name) return true;
+    }
+    return false;
+  }
+
+  /** Whether this process holds a connection to the server (statuses loaded from the database may predate it). */
+  isLive(projectId: string, name: string): boolean {
+    for (const [id, server] of this.servers) {
+      if (server.projectId === projectId && server.name === name && this.connections.has(id)) return true;
+    }
+    return false;
+  }
+
+  /** Current status of a server registered in `projectId` (from memory), or undefined when unknown. */
+  statusOf(projectId: string, name: string): string | undefined {
+    for (const server of this.servers.values()) {
+      if (server.projectId === projectId && server.name === name && server.enabled) return server.status;
+    }
+    return undefined;
+  }
+
+  /** Notifies `listener` whenever a server's recorded status changes. Returns the unsubscribe function. */
+  onStatus(listener: (change: McpStatusChange) => void): () => void {
+    this.statusListeners.add(listener);
+    return () => this.statusListeners.delete(listener);
+  }
+
   async close(): Promise<void> {
     for (const timer of this.syncTimers.values()) clearTimeout(timer);
     this.syncTimers.clear();
@@ -506,8 +595,11 @@ export class McpRemoteRegistry {
     let result: any;
     try {
       result = await client.callTool({ name: remoteName, arguments: args ?? {} });
-    } catch (err) {
-      throw await this.handleFailure(server, err);
+    } catch (err: any) {
+      // An unreachable server is a lost connection (status `error`, connector flows reconnect it), not a tool error.
+      const unreachable = err?.message === 'fetch failed' || !!err?.cause?.code;
+      if (unreachable) await this.disconnect(server.id);
+      throw await this.handleFailure(server, err, { recordErrors: unreachable });
     }
     return toToolOutput(result, `${server.name}.${remoteName}`);
   }
@@ -601,6 +693,9 @@ export class McpRemoteRegistry {
       return out;
     }
     const out = err instanceof Error ? err : new Error(String(err));
+    // Node's fetch reports every network failure as "fetch failed"; the cause names it (ECONNREFUSED, ...).
+    const cause = out.cause as any;
+    if (out.message === 'fetch failed' && cause) out.message = `fetch ${server.url} failed: ${cause.code || cause.message || cause}`;
     if (opts.recordErrors) await this.updateServer(server, { status: 'error', lastError: out.message });
     return Object.assign(out, { mcpHandled: true });
   }
@@ -624,10 +719,22 @@ export class McpRemoteRegistry {
 
   private async updateServer(server: McpServerRecord, data: Record<string, any>): Promise<void> {
     try {
+      const previous = this.servers.get(server.id)?.status ?? server.status;
       const row = await this.prisma.mcpServer.update({ where: { id: server.id }, data });
       this.remember(row);
+      if (row.status !== previous) this.notifyStatus({ projectId: row.projectId, server: row.name, status: row.status, previous, error: row.lastError });
     } catch (err: any) {
       this.log('warn', `Could not update MCP server "${server.name}": ${err?.message || err}`);
+    }
+  }
+
+  private notifyStatus(change: McpStatusChange): void {
+    for (const listener of this.statusListeners) {
+      try {
+        listener(change);
+      } catch (err: any) {
+        this.log('warn', `MCP status listener failed: ${err?.message || err}`);
+      }
     }
   }
 

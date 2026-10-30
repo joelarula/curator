@@ -17,6 +17,7 @@ export interface CuratorServerOptions {
   cors?: boolean;
   routerOptions?: CuratorRouterOptions;
   autoStartProcessor?: boolean;
+  /** Request processor poll interval; default: the host's `intervalMs`. */
   pollingIntervalMs?: number;
   beforeMiddleware?: (app: Express) => void;
   afterRoutes?: (app: Express) => void;

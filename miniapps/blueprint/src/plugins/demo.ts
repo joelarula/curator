@@ -4,12 +4,16 @@ import {
   type CuratorPluginDefinition,
 } from '../../../../curator/dist/src/index.js';
 
+/** Role for the demo tools; granted to the host user (REPL/CLI) by the seed. */
+export const BLUEPRINT_USER_ROLE = 'blueprint_user';
+
 // 1. Define Domain Tool
 export const calculateMetricTool = defineTool({
   name: 'calculate_metric',
   description: 'Calculates performance metrics for given input parameters',
   mcp: { expose: true },
   accessLevel: 'read_only',
+  requiredRole: BLUEPRINT_USER_ROLE,
   parameters: {
     type: 'object',
     properties: {
@@ -38,6 +42,7 @@ export const blueprintSpeechTool = defineTool({
   description: 'Handles human speech and ambient dialogue within the Blueprint MiniApp',
   mcp: { expose: true },
   accessLevel: 'read_only',
+  requiredRole: BLUEPRINT_USER_ROLE,
   parameters: {
     type: 'object',
     properties: {
@@ -117,6 +122,8 @@ export const demoPlugin: CuratorPluginDefinition = {
   name: 'blueprint-demo',
   description: 'Sample domain plugin showcasing tool and agent registration for Curator MiniApps',
   mcp: { exposeAll: true },
+  roles: [{ name: BLUEPRINT_USER_ROLE, description: 'Runs the blueprint demo tools' }] as any,
+  defaultUserRoles: [BLUEPRINT_USER_ROLE],
   tools: {
     calculate_metric: calculateMetricTool,
     blueprint_speech: blueprintSpeechTool,

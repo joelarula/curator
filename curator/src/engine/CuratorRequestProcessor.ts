@@ -16,6 +16,7 @@ import { appendStatePatch, STATE_SEQ_KEY } from './ConversationStateLog.js';
 import { recordDeadLetter, TERMINAL_STATUSES } from './DeadLetters.js';
 import { AgentRoleService } from '../services/AgentRoleService.js';
 import { ApprovalService } from '../services/ApprovalService.js';
+import { defaultOutputFormats, type OutputFormats } from './output/OutputFormats.js';
 import {
   NodeRegistry, sequentialNode, parallelNode, joinNode, routeNode, scriptNode, setStateNode, assignNode, ifElseNode, whileNode, loopNode, forEachNode,
   interruptNode, emitEventNode, emitEventsNode, subscribeNode, unsubscribeNode, waitEventNode, humanInputNode, toolNode, reduceNode,
@@ -60,6 +61,8 @@ export interface ProcessorEngine {
   /** Pattern listing within a project (CuratorEngine); falls back to exact `tools` keys when absent. */
   listTools?(pattern: string, scope: { projectId?: string | number | null }): { name: string; tool: any }[];
   reducers?: Map<string, CuratorReducer>;
+  /** Output formatters and tool output rules (CuratorEngine); built-ins only when absent. */
+  output?: OutputFormats;
   config?: CuratorConfig;
   nodes?: { get(type: string): NodeHandler | undefined };
   services?: Map<ServiceKey<any>, any>;
@@ -142,6 +145,7 @@ export class CuratorRequestProcessor {
   private timer: NodeJS.Timeout | null = null;
   public isAdHoc: boolean = false;
   private isPolling = false;
+  private wakePending = false;
   private activeTasks = 0;
   private backoffUntil: number = 0;
   private workerId = `curator-worker-${Math.random().toString(36).substring(7)}`;
@@ -242,6 +246,7 @@ export class CuratorRequestProcessor {
           return tool ? [{ name: pattern, tool }] : [];
         },
         reducer: (name) => this.engine.reducers?.get(name),
+        output: this.engine.output ?? defaultOutputFormats,
         checkAccess: (req, toolName, tool) => this.checkToolAccess(req, toolName, tool),
         checkRoleAccess: (req, toolName, tool) => this.checkToolRoleAccess(req, toolName, tool),
         approvalTtlMs: this.approvalTtlMs,
@@ -600,10 +605,12 @@ export class CuratorRequestProcessor {
         });
 
         const isAgentEnabled = (agentDef as any).enabled === true;
+        // No schedule = trigger-only ('manual'); the AgentScheduleSupervisor starts no loop for it.
+        const schedule = (agentDef as any).schedule ?? 'manual';
         const agent = await this.prisma.agent.upsert({
           where: { name },
-          update: { scriptId: script.id, userId: user.id, projectId: project.id, schedule: (agentDef as any).schedule ?? '0 * * * *' },
-          create: { name, scriptId: script.id, userId: user.id, projectId: project.id, enabled: isAgentEnabled, schedule: (agentDef as any).schedule ?? '0 * * * *' }
+          update: { scriptId: script.id, userId: user.id, projectId: project.id, schedule },
+          create: { name, scriptId: script.id, userId: user.id, projectId: project.id, enabled: isAgentEnabled, schedule }
         });
 
         if (workerRole) {
@@ -765,7 +772,8 @@ export class CuratorRequestProcessor {
   private async resumeUserRespondedRequests() {
     const userRespondedRequests = await this.prisma.request.findMany({
       where: {
-        status: { in: ['WAITING', 'WAITING_FOR_USER'] },
+        // A locked WAITING request is being executed (e.g. an agent saving its tool-call turns), not parked.
+        OR: [{ status: 'WAITING_FOR_USER' }, { status: 'WAITING', lockedBy: null }],
         responses: { some: {} } // Has at least one response
       },
       include: { responses: { orderBy: { createdAt: 'desc' }, take: 1 } },
@@ -869,7 +877,24 @@ export class CuratorRequestProcessor {
       }
     } finally {
       this.isPolling = false;
+      if (this.wakePending) {
+        this.wakePending = false;
+        setImmediate(() => this.pollRequests());
+      }
     }
+  }
+
+  /**
+   * Polls on the next turn of the event loop instead of waiting for the interval: call after work was
+   * submitted in this process. The interval stays the fallback for scheduled and cross-process work.
+   */
+  public wake(): void {
+    if (this.isStopped || !this.timer) return;
+    if (this.isPolling) {
+      this.wakePending = true;
+      return;
+    }
+    setImmediate(() => this.pollRequests());
   }
 
   /**
@@ -1515,6 +1540,8 @@ export class CuratorRequestProcessor {
       };
     } finally {
       this.inflight.delete(created.id);
+      // Tools such as approvals can resume parked requests
+      this.wake();
     }
   }
 
@@ -1546,6 +1573,9 @@ export class CuratorRequestProcessor {
     } catch (err: any) {
       await this.failRequest(req, `Emit '${input.eventName}': ${err.message}`);
       throw err;
+    } finally {
+      // Waits and subscriptions the event matched are runnable now
+      this.wake();
     }
   }
 
@@ -1954,7 +1984,7 @@ export class CuratorRequestProcessor {
 
   private static readonly STRUCTURED_RECORD_TYPES = new Set([
     'TOOL_BLOCKED', 'APPROVAL_REQUIRED', 'APPROVAL_EXPIRED', 'HUMAN_TIMEOUT', 'WAIT_TIMEOUT', 'EVENT_EMITTED', 'EVENTS_EMITTED', 'CHOICE_PROMPT', 'CHOICE_RECEIVED',
-    'SUBSCRIBED', 'UNSUBSCRIBED', 'MODEL_CHANGED'
+    'SUBSCRIBED', 'UNSUBSCRIBED', 'MODEL_CHANGED', 'TOOL_CALLS'
   ]);
 
   /** True for CuratorStructuredResponse audit records (not tool/workflow output). */

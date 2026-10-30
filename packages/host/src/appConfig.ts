@@ -123,9 +123,35 @@ export function mergeConfig<T extends Record<string, any>>(...layers: Array<Reco
   return out as T;
 }
 
+const PLACEHOLDER = /\$\{([A-Za-z_][A-Za-z0-9_]*)(?::([^}]*))?\}/g;
+
+/**
+ * Resolves `${VAR}` / `${VAR:default}` in string values from `env` (unset or empty uses the default).
+ * A value that is a single unresolved placeholder is dropped, so optional settings stay unset;
+ * unresolved placeholders inside a longer string become empty.
+ */
+export function resolvePlaceholders<T>(value: T, env: Env = process.env): T {
+  if (typeof value === 'string') {
+    const whole = /^\$\{([A-Za-z_][A-Za-z0-9_]*)(?::([^}]*))?\}$/.exec(value);
+    if (whole) return (env[whole[1]] || whole[2]) as T;
+    return value.replace(PLACEHOLDER, (_m, key: string, fallback?: string) => env[key] || fallback || '') as T;
+  }
+  if (Array.isArray(value)) return value.map((v) => resolvePlaceholders(v, env)) as T;
+  if (isPlainObject(value)) {
+    const out: Record<string, any> = {};
+    for (const [key, v] of Object.entries(value)) {
+      const resolved = resolvePlaceholders(v, env);
+      if (resolved !== undefined) out[key] = resolved;
+    }
+    return out as T;
+  }
+  return value;
+}
+
 /**
  * Spring-style application profiles. Layers, later winning:
  * `.env`, `.env.<profile>` (never over existing env vars), `<appId>.config.*`, `<appId>.config.<profile>.*` per active profile.
+ * String values may reference the environment as `${VAR}` or `${VAR:default}`, resolved after merging.
  */
 export function loadAppConfig<T = Record<string, any>>(options: AppConfigOptions): AppConfig<T> {
   const env = options.env ?? process.env;
@@ -155,7 +181,7 @@ export function loadAppConfig<T = Record<string, any>>(options: AppConfigOptions
     sources.push(file);
   }
 
-  const { profiles: _profiles, host, ...values } = mergeConfig(...layers);
+  const { profiles: _profiles, host, ...values } = resolvePlaceholders(mergeConfig(...layers), env);
   return {
     appId: options.appId,
     activeProfiles: profiles,

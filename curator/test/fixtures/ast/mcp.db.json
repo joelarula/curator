@@ -31,7 +31,7 @@
   "responses": [
     {
       "aiModelId": null,
-      "content": "[Invoking echo]",
+      "content": "{\"type\":\"TOOL_CALLS\",\"ok\":true,\"calls\":[{\"id\":\"call_0_0\",\"name\":\"echo\",\"args\":{\"message\":\"Hello MCP World!\"}}]}",
       "existent": true,
       "id": "<res:1>",
       "projectId": null,

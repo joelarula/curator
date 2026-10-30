@@ -1,0 +1,4 @@
+# `dev` profile (--profile dev): layered over blueprint.config.yaml.
+
+host:
+  logLevel: debug

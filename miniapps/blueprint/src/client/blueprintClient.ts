@@ -6,9 +6,10 @@ import {
   createDirectChannel,
   normalizeWsUrl,
 } from '@curator/host';
-import { connectBlueprintServer, createBlueprintRuntime, type BlueprintRuntime } from '../host.js';
+import type { McpConnectResult } from '../../../../packages/plugin-mcp-client/dist/index.js';
+import { createBlueprintRuntime, startMcpServers, type BlueprintRuntime } from '../host.js';
 import { createAssistant } from '../harness/assistant.js';
-import { BLUEPRINT_SERVICE } from '../harness/env.js';
+import { createChat, listChats } from '../harness/chatSessions.js';
 import { createBlueprintClientShell } from './blueprintClientShell.js';
 
 export interface BlueprintClientOptions {
@@ -41,7 +42,11 @@ export async function createDirectSessionChannel(
   options: BlueprintClientOptions = {}
 ): Promise<BlueprintChannel> {
   console.log('\x1b[90m[Curator] Booting direct in-process SQLite host runtime...\x1b[0m');
-  const runtime = await createBlueprintRuntime({ databasePath: options.databasePath });
+  // The person at the terminal is the actor: tools, chats and roles are theirs, not the system user's.
+  const runtime = await createBlueprintRuntime({
+    databasePath: options.databasePath,
+    actor: { displayName: options.userName },
+  });
   const host: CuratorHost = runtime.host;
   // The assistant agent runs as Requests picked up by the processor.
   await host.start(300);
@@ -54,7 +59,8 @@ export async function createDirectSessionChannel(
       host.events.broadcast(type, payload);
       if (type === 'curator:tool_call') {
         const { tool, args } = payload || {};
-        if (host.engine.tools.get(tool)) {
+        // Remote aliases (`mcp.<server>.<tool>`) resolve per project, like host.runTool does.
+        if (host.engine.resolveTool?.(tool, { projectId: host.project.id }) ?? host.engine.tools.get(tool)) {
           // Every tool call is a Request (RBAC, approval, Response) — never a direct function call.
           const { result, status, requestId } = await host.runTool(tool, args || {}, { origin: 'REPL' });
           if (status === 'WAITING_FOR_USER') {
@@ -76,6 +82,7 @@ export async function createDirectSessionChannel(
     ...baseChannel,
     runtime,
     close: async () => {
+      runtime.reconciler.stop();
       await runtime.registry.close();
       await baseChannel.close();
       await host.stop();
@@ -126,18 +133,22 @@ export async function runBlueprintClientUi(
       channel,
       actorName: userName,
       getState: () => currentState,
-      auth: runtime?.auth ?? undefined,
-      // After signing in, sync the blueprint server so its tools become available.
-      onAuthLogin: async () => {
-        if (!runtime) return;
-        const sync = await runtime.registry.sync(runtime.host.project.id, BLUEPRINT_SERVICE);
-        console.log(`\x1b[32m✔ [blueprint] connected: ${sync.tools} remote tool(s)\x1b[0m`);
-      },
+      // `/auth login` runs as the host's auth_login flow; its auth:login event resumes the connector flows.
+      auth: runtime?.shellAuth ?? undefined,
+      remoteTools: runtime
+        ? () =>
+            runtime.registry
+              .listToolAliases(runtime.host.project.id)
+              .map(({ name, tool }) => ({ name, description: tool.description, parameters: (tool as any).parameters }))
+        : undefined,
       onChat: assistant
         ? async (text: string) => {
+            // A new chat gets its Conversation on the first message.
+            if (assistant.conversationId === undefined) assistant.useConversation(await createChat(runtime!.host));
             console.log('\x1b[90m… thinking\x1b[0m');
             const reply = await assistant.ask(text);
             if (reply.tools.length) console.log(`\x1b[90m  used: ${reply.tools.join(', ')}\x1b[0m`);
+            for (const { tool, display } of reply.shown) console.log(`\x1b[90m  ${tool} → ${display}\x1b[0m`);
             if (reply.status === 'COMPLETED') {
               console.log(`\x1b[1m\x1b[35m🤖 assistant:\x1b[0m ${reply.answer}\n`);
             } else if (reply.status === 'WAITING_FOR_USER') {
@@ -147,18 +158,39 @@ export async function runBlueprintClientUi(
             }
           }
         : undefined,
+      extraCommands: assistant
+        ? [
+            {
+              name: 'history',
+              usage: '/history [full|answers]',
+              description: 'How earlier turns reach the assistant: full (with tool calls and results) or answers only',
+              execute: (args: string) => {
+                const profile = args.trim();
+                if (profile && profile !== 'full' && profile !== 'answers') {
+                  console.log('\x1b[31mUsage: /history [full|answers]\x1b[0m');
+                } else if (profile) {
+                  assistant.useHistoryProfile(profile);
+                }
+                console.log(`\x1b[36m[History]\x1b[0m ${assistant.historyProfile ?? 'full'}`);
+              },
+            },
+          ]
+        : undefined,
     });
 
 
+    // Events arrive while the prompt is showing: print them above it.
     const unsubscribe = channel.on(async (event: any) => {
       const { type, payload } = event;
       if (payload?.state) {
         currentState = payload.state;
       }
       if (type === 'curator:tool_call_result') {
-        console.log(`\n\x1b[32m[Tool Output]\x1b[0m`, JSON.stringify(payload, null, 2));
+        shell.printAsync(`\n\x1b[32m[Tool Output]\x1b[0m ${JSON.stringify(payload, null, 2)}`);
       } else if (type === 'curator:message') {
-        console.log(`\n\x1b[35m[Message]\x1b[0m ${payload?.text || JSON.stringify(payload)}`);
+        shell.printAsync(`\n\x1b[35m[Message]\x1b[0m ${payload?.text || JSON.stringify(payload)}`);
+      } else if (type === 'mcp:status') {
+        shell.printAsync(formatMcpStatus(payload));
       } else if (type === 'curator:exit') {
         await cleanup();
       }
@@ -172,30 +204,58 @@ export async function runBlueprintClientUi(
           console.error(`\x1b[31m[Start Error] ${err?.message || err}\x1b[0m`);
         }
       }
+      if (runtime && assistant) await chooseChat(runtime.host, rl, assistant);
       shell.start(rl);
-      if (runtime) await connectRemote(runtime);
+      if (runtime) await connectRemote(runtime, (line) => shell.printAsync(line));
     };
 
     boot();
   });
 }
 
-/** Registers/refreshes the blueprint server; without a session the shell starts the device login. */
-async function connectRemote(runtime: BlueprintRuntime): Promise<void> {
-  if (!runtime.auth) {
-    console.log('\x1b[33m[blueprint] CLIENT_ID_BLUEPRINT is not set: remote tools are unavailable.\x1b[0m');
-    return;
+/** Asks whether to resume an earlier chat or start a new one (Enter = new). */
+async function chooseChat(
+  host: CuratorHost,
+  rl: readline.Interface,
+  assistant: ReturnType<typeof createAssistant>
+): Promise<void> {
+  const chats = await listChats(host);
+  if (chats.length === 0) return;
+
+  console.log('\x1b[36mEarlier chats:\x1b[0m');
+  chats.forEach((c, i) => {
+    const when = c.lastActiveAt.toLocaleString();
+    console.log(`  \x1b[1m[${i + 1}]\x1b[0m ${when} · ${c.turns} turn(s) · ${c.title || '(no message)'}`);
+  });
+  const answer = await new Promise<string>((resolve) =>
+    rl.question(`Resume a chat (1-${chats.length}) or press Enter for a new one: `, resolve)
+  );
+  const picked = chats[Number(answer.trim()) - 1];
+  if (picked) {
+    assistant.useConversation(picked.conversationId);
+    console.log(`\x1b[90mResuming chat #${picked.conversationId}.\x1b[0m\n`);
+  } else {
+    console.log('\x1b[90mStarting a new chat.\x1b[0m\n');
   }
+}
+
+/** Registers the configured MCP servers; they connect in the background (see `mcp:status`). */
+async function connectRemote(runtime: BlueprintRuntime, print: (line: string) => void): Promise<void> {
   try {
-    const result = await connectBlueprintServer(runtime);
-    if (result.sync) {
-      console.log(`\x1b[32m✔ [blueprint] connected to ${result.server.url}: ${result.sync.tools} remote tool(s)\x1b[0m`);
-    } else if (result.error?.code !== 'AUTH_REQUIRED') {
-      console.log(`\x1b[31m[blueprint] ${result.server.url}: ${result.error?.message}\x1b[0m`);
+    for (const { server, missing } of await startMcpServers(runtime)) {
+      print(`\x1b[33m[${server}] ${missing} is not set: remote tools are unavailable.\x1b[0m`);
     }
   } catch (err: any) {
-    console.log(`\x1b[31m[blueprint] ${err?.message || err}\x1b[0m`);
+    print(`\x1b[31m[mcp] ${err?.message || err}\x1b[0m`);
   }
+}
+
+function formatMcpStatus(event: McpConnectResult): string {
+  const { server, status, error, tools, retryInSeconds } = event;
+  if (status === 'connected') return `\x1b[32m✔ [${server}] connected: ${tools ?? 0} remote tool(s)\x1b[0m`;
+  if (status === 'auth_required') return `\x1b[33m[${server}] waiting for sign-in (/auth login)\x1b[0m`;
+  const retry = retryInSeconds ? `, retrying in ${retryInSeconds}s` : '';
+  return `\x1b[31m[${server}] ${error || status}${retry}\x1b[0m`;
 }
 
 /**
@@ -223,5 +283,5 @@ export async function runBlueprintClient(options: BlueprintClientOptions = {}): 
     return;
   }
 
-  await runBlueprintClientUi(channel, options.userName);
+  await runBlueprintClientUi(channel, channel.runtime?.host.user?.name ?? options.userName);
 }

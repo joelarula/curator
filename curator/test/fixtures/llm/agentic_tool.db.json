@@ -30,7 +30,7 @@
   "responses": [
     {
       "aiModelId": null,
-      "content": "[Invoking lookup]",
+      "content": "{\"type\":\"TOOL_CALLS\",\"ok\":true,\"calls\":[{\"id\":\"call_0_0\",\"name\":\"lookup\",\"args\":{\"city\":\"Tartu\"}}]}",
       "existent": true,
       "id": "<res:1>",
       "projectId": null,

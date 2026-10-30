@@ -4,7 +4,12 @@ import { logger } from '../../utils/logger.js';
 export const waitEventNode: NodeHandler<any> = {
   type: 'Curator_WaitEvent',
   async run(ast, req, ctx) {
-    const allEvents: string[] = Array.from(new Set([ast.eventName, ...(Array.isArray(ast.eventNames) ? ast.eventNames : [])].filter(Boolean)));
+    // Names and timeout may be expressions (`{{ ... }}` / `$...`), e.g. per-server event names or a computed backoff.
+    const resolve = async (v: any) => (ctx.isDynamicExpr(v) ? ctx.evaluateExpression(v, req) : v);
+    const eventName: string = String((await resolve(ast.eventName)) ?? '');
+    const extra = Array.isArray(ast.eventNames) ? await Promise.all(ast.eventNames.map(resolve)) : [];
+    const allEvents: string[] = Array.from(new Set([eventName, ...extra.map(String)].filter(Boolean)));
+    const timeoutSeconds = Number(await resolve(ast.timeoutSeconds)) || 0;
     if (ctx.prisma.eventLog && !req.context?.__humanInputReceived__) {
       const cursor = await ctx.events.resolveCursor(req.id, req.conversationId, !!ast.replay);
       const identity = ctx.events.identityOf(req);
@@ -59,12 +64,12 @@ export const waitEventNode: NodeHandler<any> = {
     logger.debug(`[CuratorRequestProcessor] Request ${req.id} paused, waiting for event '${allEvents.join(' | ')}'.`);
     const updatedContext: any = {
       ...(req.context || {}),
-      waitEvent: ast.eventName,
+      waitEvent: eventName,
       ...(allEvents.length > 1 ? { waitEvents: allEvents } : {}),
       payloadAlias: ast.payloadAlias,
     };
     delete updatedContext.waitDeadline;
-    if (ast.timeoutSeconds > 0) updatedContext.waitDeadline = new Date(ctx.now() + ast.timeoutSeconds * 1000).toISOString();
+    if (timeoutSeconds > 0) updatedContext.waitDeadline = new Date(ctx.now() + timeoutSeconds * 1000).toISOString();
     await ctx.prisma.request.update({
       where: { id: req.id },
       data: { status: 'WAITING_FOR_EVENT', context: updatedContext }

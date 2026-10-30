@@ -95,7 +95,7 @@
   "responses": [
     {
       "aiModelId": null,
-      "content": "[Invoking schedule_agent]",
+      "content": "{\"type\":\"TOOL_CALLS\",\"ok\":true,\"calls\":[{\"id\":\"call_0_0\",\"name\":\"schedule_agent\",\"args\":{\"name\":\"my_test_task\",\"workflowName\":\"example_workflow\",\"schedule\":\"every 10 seconds\"}}]}",
       "existent": true,
       "id": "<res:1>",
       "projectId": null,
@@ -119,7 +119,7 @@
     },
     {
       "aiModelId": null,
-      "content": "[Invoking cancel_scheduled_agent]",
+      "content": "{\"type\":\"TOOL_CALLS\",\"ok\":true,\"calls\":[{\"id\":\"call_2_0\",\"name\":\"cancel_scheduled_agent\",\"args\":{\"id\":7}}]}",
       "existent": true,
       "id": "<res:4>",
       "projectId": null,

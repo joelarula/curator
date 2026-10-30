@@ -1,28 +1,42 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadAppConfig, profilesFromArgv } from '../../../packages/host/dist/appConfig.js';
 import { createBlueprintServer } from './createBlueprintServer.js';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-// Local .env first, then the workspace .env (GOOGLE_CLIENT_ID lives there); existing env vars win.
-for (const file of [path.resolve(here, '../.env'), path.resolve(here, '../../../.env')]) {
-  if (fs.existsSync(file)) process.loadEnvFile(file);
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+interface BlueprintServerConfig {
+  googleClientIds?: string[];
+  allowedEmails?: string | string[];
+  server?: { port?: number | string; host?: string; publicUrl?: string };
+  databasePath?: string;
 }
 
-const allowedEmails = (process.env.BLUEPRINT_ALLOWED_EMAILS ?? '')
-  .split(',')
-  .map((e) => e.trim())
+// blueprint-server.config.yaml + profiles; .env from this module, then the workspace root (GOOGLE_CLIENT_ID lives there).
+const app = loadAppConfig<BlueprintServerConfig>({
+  appId: 'blueprint-server',
+  profiles: profilesFromArgv(),
+  configPath: process.env.BLUEPRINT_SERVER_CONFIG || undefined,
+  searchDirs: [process.cwd(), root],
+  envDirs: [root, path.resolve(root, '../..')],
+});
+const config = app.values;
+
+const allowedEmails = (Array.isArray(config.allowedEmails) ? config.allowedEmails : (config.allowedEmails ?? '').split(','))
+  .map((e) => String(e).trim())
   .filter(Boolean);
 
 const server = await createBlueprintServer({
-  // Web client (browser sign-in) and the device client the REPL signs in with.
-  googleClientId: [process.env.GOOGLE_CLIENT_ID ?? '', process.env.CLIENT_ID_BLUEPRINT ?? ''],
+  googleClientId: config.googleClientIds ?? [],
   allowedEmails,
-  port: Number(process.env.BLUEPRINT_SERVER_PORT ?? 4200),
-  publicUrl: process.env.BLUEPRINT_SERVER_PUBLIC_URL,
-  databasePath: process.env.BLUEPRINT_SERVER_DB ?? path.resolve(here, '../data/curator.db'),
+  port: Number(config.server?.port ?? 4200),
+  host: config.server?.host,
+  publicUrl: config.server?.publicUrl,
+  databasePath: path.resolve(root, config.databasePath ?? './data/curator.db'),
+  logLevel: app.host.logLevel,
 });
-console.log(`[blueprint-server] MCP endpoint ${server.url} (Google sign-in; allowed: ${allowedEmails.join(', ')})`);
+const profiles = app.activeProfiles.length ? app.activeProfiles.join(',') : 'default';
+console.log(`[blueprint-server] MCP endpoint ${server.url} (profiles: ${profiles}; Google sign-in; allowed: ${allowedEmails.join(', ')})`);
 
 const shutdown = async () => {
   await server.close();

@@ -14,6 +14,7 @@ export * from './engine/CoffeeVerbs.js';
 export * from './engine/CffeCompiler.js';
 export * from './engine/CuratorMermaid.js';
 export * from './engine/ScriptRegistry.js';
+export * from './engine/output/OutputFormats.js';
 
 // Storage SPI & Adapters
 export * from './storage/index.js';

@@ -26,6 +26,8 @@ export interface MockMcpOptions {
   prompts?: { name: string; description?: string; arguments?: { name: string; required?: boolean }[] }[];
   /** When set, requests need `Authorization: Bearer <token>`. */
   token?: string;
+  /** Fixed port (default: any free one), e.g. to bring a server back up at the same URL. */
+  port?: number;
 }
 
 /** Stateless Streamable HTTP MCP server; `options` stays mutable so tests can change the catalog. */
@@ -96,7 +98,7 @@ export async function startMockMcpServer(options: MockMcpOptions) {
     await transport.handleRequest(req, res, body);
   });
 
-  await new Promise<void>((resolve) => httpServer.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => httpServer.listen(options.port ?? 0, '127.0.0.1', resolve));
   const url = `http://127.0.0.1:${(httpServer.address() as AddressInfo).port}/mcp`;
   return {
     url,

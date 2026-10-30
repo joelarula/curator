@@ -14,6 +14,7 @@ import YAML from 'yaml';
 import { LlmFactory } from './llm/LlmFactory.js';
 import { extendCoffeeAstVerbs } from './CoffeeVerbs.js';
 import { NodeRegistry } from './nodes/NodeRegistry.js';
+import { OutputFormats } from './output/OutputFormats.js';
 import type { MaintenanceSystem, ServiceKey } from './nodes/NodeHandler.js';
 
 export type CuratorPlugin = CuratorPluginDefinition;
@@ -78,6 +79,8 @@ export class CuratorEngine {
   public services = new Map<ServiceKey<any>, any>();
   /** Plugin maintenance systems, run after each processor's own ones. */
   public maintenanceSystems: MaintenanceSystem[] = [];
+  /** Output formatters and tool output rules (plugin `formatters` / `toolOutput`). */
+  public output = new OutputFormats();
   public plugins: CuratorPlugin[] = [];
   /**
    * What workflows read as `$config`, lowest layer first: script defaults (module `config`, front matter
@@ -119,6 +122,8 @@ export class CuratorEngine {
     if (plugin.reducers) {
       Object.entries(plugin.reducers).forEach(([k, v]) => this.reducers.set(k, v));
     }
+    for (const [name, formatter] of Object.entries(plugin.formatters ?? {})) this.output.registerFormatter(name, formatter);
+    if (plugin.toolOutput) this.output.registerToolOutputs(plugin.toolOutput);
     if (plugin.config) {
       this.pluginConfig = mergeConfig(this.pluginConfig, structuredClone(plugin.config));
     }

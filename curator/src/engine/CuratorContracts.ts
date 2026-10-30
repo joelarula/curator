@@ -4,6 +4,7 @@ import type { CuratorTool } from '../tools/CuratorTool.js';
 import type { SemanticNodeShape } from '../services/SemanticSchemaEngine.js';
 import type { StateProjector } from './ConversationStateLog.js';
 import type { NodeHandler, ServiceBinding, MaintenanceSystem } from './nodes/NodeHandler.js';
+import type { CuratorFormatter, ToolOutputRules } from './output/OutputFormats.js';
 
 export type JsonRecord = Record<string, unknown>;
 
@@ -123,6 +124,10 @@ export interface CuratorPluginDefinition {
   tools?: Record<string, CuratorTool> | CuratorTool[];
   /** Pure functions workflows run with `reduce(name, args)` (see CuratorReducer). */
   reducers?: Record<string, CuratorReducer>;
+  /** Output formatters usable in format specs by name (`pick:title`, `my_formatter`); replaces a same-named one. */
+  formatters?: Record<string, CuratorFormatter>;
+  /** How tool results are formatted for the model (`llm`) and people (`display`), by tool name or `*` pattern. */
+  toolOutput?: ToolOutputRules;
   /**
    * Default configuration, keyed by namespace (e.g. `{ poker: { talk: {...} } }`). Workflows read it as
    * `$config.<namespace>...`; values the host sets with `engine.setConfig` win over these defaults.
@@ -173,7 +178,8 @@ export type CuratorResponseRecordType =
   | 'WAIT_TIMEOUT'
   | 'SUBSCRIBED'
   | 'UNSUBSCRIBED'
-  | 'MODEL_CHANGED';
+  | 'MODEL_CHANGED'
+  | 'TOOL_CALLS';
 
 /** A change to a Curator core model (Agent, Script, Role, Tool, ...) recorded as a Request + MODEL_CHANGED Response. */
 export interface CuratorModelChange {
@@ -217,6 +223,10 @@ export interface CuratorStructuredResponse {
   deadline?: string;
   /** Core model change (MODEL_CHANGED). */
   change?: CuratorModelChange;
+  /** An agent turn's tool calls as the model made them (TOOL_CALLS); its results follow as `[Tool Result: name]` Responses, in order. */
+  calls?: { id: string; name: string; args: Record<string, unknown> }[];
+  /** Text the model sent along with its tool calls (TOOL_CALLS). */
+  text?: string;
   metadata?: JsonRecord;
 }
 

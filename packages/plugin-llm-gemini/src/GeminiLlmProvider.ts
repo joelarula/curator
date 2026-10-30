@@ -153,7 +153,11 @@ export class GeminiLlmProvider implements ILlmProvider {
       }
     }
 
-    const text = result.text ?? '';
+    // Joined from the parts: the SDK's `result.text` getter warns on stdout whenever a functionCall part is present.
+    const text = (result.candidates?.[0]?.content?.parts ?? [])
+      .filter((part) => typeof part.text === 'string' && !part.thought)
+      .map((part) => part.text)
+      .join('');
     const finishReason = toolCalls.length > 0 ? 'tool_use' : 'stop';
 
     return {

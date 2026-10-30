@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { loadAppConfig, loadEnvFiles, mergeConfig, parseProfiles, profilesFromArgv } from '../dist/index.js';
+import { loadAppConfig, loadEnvFiles, mergeConfig, parseProfiles, profilesFromArgv, resolvePlaceholders } from '../dist/index.js';
 
 function tempDir(files: Record<string, string>) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curator_appconfig_'));
@@ -22,6 +22,31 @@ test('parseProfiles / profilesFromArgv', () => {
 test('mergeConfig merges objects deeply and replaces arrays and scalars', () => {
   const merged = mergeConfig({ a: { x: 1, y: [1, 2] }, b: 1 }, { a: { y: [3] }, b: 0 });
   assert.deepEqual(merged, { a: { x: 1, y: [3] }, b: 0 });
+});
+
+test('resolvePlaceholders: ${VAR}, ${VAR:default}, unresolved whole values are dropped', () => {
+  const env = { ID: 'abc', EMPTY: '' };
+  assert.deepEqual(
+    resolvePlaceholders(
+      { id: '${ID}', port: '${PORT:4100}', blank: '${EMPTY:x}', missing: '${NOPE}', url: 'http://${HOST:localhost}/${NOPE}', list: ['${ID}'], n: 1 },
+      env,
+    ),
+    { id: 'abc', port: '4100', blank: 'x', url: 'http://localhost/', list: ['abc'], n: 1 },
+  );
+});
+
+test('loadAppConfig resolves placeholders after merging, from .env files too', () => {
+  const { dir, cleanup } = tempDir({
+    '.env': 'CLIENT_ID=from-dotenv\n',
+    'demo.config.yaml': 'auth:\n  clientId: ${CLIENT_ID}\n  secret: ${CLIENT_SECRET}\nhost:\n  logLevel: ${LOG_LEVEL:info}\n',
+  });
+  try {
+    const cfg = loadAppConfig({ appId: 'demo', searchDirs: [dir], env: {} });
+    assert.deepEqual(cfg.values, { auth: { clientId: 'from-dotenv' } });
+    assert.deepEqual(cfg.host, { logLevel: 'info' });
+  } finally {
+    cleanup();
+  }
 });
 
 test('loadAppConfig without profiles reads only the base file', () => {

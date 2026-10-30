@@ -197,8 +197,10 @@ test('Client Shell Status Command: Displays wallet and bankroll amount', async (
     console.log = origLog;
 
     const statusOutput = logs.join('\n');
-    assert.ok(statusOutput.includes('"wallet": "$10,000"'), `Status output must include wallet: ${statusOutput}`);
-    assert.ok(statusOutput.includes('"actor": "Hero"'), 'Status output must include actor');
+    // The poker shell's own 'status' replaces the core fallback.
+    assert.ok(statusOutput.includes('Poker Lounge Status'), `Poker status command must run: ${statusOutput}`);
+    assert.ok(/Wallet:.*\$10,000/.test(statusOutput), `Status output must include wallet: ${statusOutput}`);
+    assert.ok(/Player:.*Hero/.test(statusOutput), 'Status output must include actor');
   } finally {
     await host.stop();
   }

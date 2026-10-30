@@ -10,6 +10,7 @@ export {
   parseProfiles,
   profilesEnvKey,
   profilesFromArgv,
+  resolvePlaceholders,
   type AppConfig,
   type AppConfigOptions,
   type AppHostSettings,

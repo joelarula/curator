@@ -19,6 +19,8 @@ export interface BlueprintServerOptions {
   /** Overrides for the token verifier (tests point it at a local JWKS and issuer). */
   verifier?: Partial<JwtVerifierOptions> & { issuers?: string[] };
   fetchOptions?: SafeFetchOptions;
+  /** Host log level (default `warn`). */
+  logLevel?: string;
   logger?: Pick<Console, 'info' | 'warn' | 'error'>;
 }
 
@@ -39,7 +41,7 @@ export async function createBlueprintServer(options: BlueprintServerOptions): Pr
   const clientIds = (Array.isArray(options.googleClientId) ? options.googleClientId : [options.googleClientId]).filter(Boolean);
   if (clientIds.length === 0) throw new Error('blueprint server needs GOOGLE_CLIENT_ID and/or CLIENT_ID_BLUEPRINT');
   if (options.allowedEmails.length === 0) {
-    throw new Error('blueprint server needs BLUEPRINT_ALLOWED_EMAILS (comma-separated emails or @domains)');
+    throw new Error('blueprint server needs allowedEmails (BLUEPRINT_ALLOWED_EMAILS or blueprint-server.config.yaml, e.g. --profile dev)');
   }
 
   // Own engine: the server exposes exactly its plugin, independent of any other host in the process.
@@ -48,7 +50,7 @@ export async function createBlueprintServer(options: BlueprintServerOptions): Pr
     name: 'blueprint-server',
     projectId: 'blueprint-server',
     projectName: 'Blueprint Server',
-    logLevel: 'warn',
+    logLevel: options.logLevel ?? 'warn',
     curatorDb: { path: options.databasePath },
     registerPlugins: async () => {
       engine.registerPlugin(webScrapePlugin(options.fetchOptions));

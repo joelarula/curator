@@ -1,0 +1,55 @@
+# Blueprint harness settings, read by createBlueprintRuntime (REPL, CLI and web server).
+# Lookup: $BLUEPRINT_CONFIG, then blueprint.config.yaml / .yml / .json in the working directory, then this module's root.
+# Profiles layer blueprint.config.<profile>.yaml (and .env.<profile>) over this file, later profiles winning.
+# Active profiles: --profile a,b, then $BLUEPRINT_PROFILES, $CURATOR_PROFILES, then profiles.active below.
+# Env vars win over files: BLUEPRINT_MODEL, DATA_DIR, CURATOR_DATABASE_PATH, PORT, BLUEPRINT_MCP_URL.
+# Any string value may reference the environment (including .env files) as ${VAR} or ${VAR:default};
+# keep secrets in .env and reference them that way.
+# Every key is optional; the values below are the built-in defaults.
+
+# profiles:
+#   active: dev
+
+# Passed to createCuratorHost: profile, definitions, retention, astStorage, logLevel, intervalMs, approvalTtlMs
+host:
+  # Request processor fallback poll (scheduled, cross-process and expiring work); work submitted
+  # in this process (agents, events, tool calls, resumes) wakes the processor right away.
+  intervalMs: 3000
+  # logLevel: info
+
+# Gemini LLM of the assistant; without an apiKey the plugin falls back to GOOGLE_API_KEY / GEMINI_API_KEY
+gemini:
+  apiKey: ${GOOGLE_API_KEY}
+  # model: gemini-2.5-flash       # defaults to the Gemini plugin's
+
+dataDir: ./data
+# databasePath: ./data/state/curator.db
+
+server:
+  port: 4100
+
+# Remote MCP servers registered in the project; their tools appear as mcp.<name>.*
+# (the web assistant is granted mcp.blueprint.*). `idp` names an entry under `auth`; omit it for servers
+# without sign-in. `enabled: false` turns off a server from a lower layer.
+mcp:
+  blueprint:
+    url: http://127.0.0.1:4200/mcp
+    idp: google
+    bearer: id_token
+    # Result formatting per remote tool: `llm` is what the model reads (and what is stored), `display` the
+    # REPL line. Pipelines of formatters: json, text, pick:<fields>, field:<path>, truncate:<chars>,
+    # strip-links, template:<{path} text>; plugins can register more. Overrides the assistant's defaults.
+    # output:
+    #   web_scrape:
+    #     llm: [field:markdown, strip-links, truncate:12000]
+    #     display: "template:{title} ({length} chars)"
+
+# Sign-in providers; a provider without a clientId is skipped (its servers stay unavailable).
+auth:
+  google:
+    issuer: https://accounts.google.com
+    flow: device                 
+    scope: openid email
+    audienceParam: none
+    clientId: ${CLIENT_ID_BLUEPRINT}
+    clientSecret: ${CLIENT_SECRET_BLUEPRINT}

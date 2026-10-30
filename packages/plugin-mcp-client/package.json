@@ -17,7 +17,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "node --test test/naming.test.ts test/registry.test.ts"
+    "test": "node --test test/naming.test.ts test/registry.test.ts test/reconciler.test.ts"
   },
   "dependencies": {
     "@curator/agent-server": "file:../../curator",

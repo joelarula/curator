@@ -32,9 +32,10 @@ program
   .command('repl', { isDefault: false })
   .alias('shell')
   .description('Start interactive asynchronous client REPL for Blueprint MiniApp (SQLite in-process or server channel)')
-  .option('--direct', 'Run direct in-process SQLite execution mode', true)
+  .option('--direct', 'Run direct in-process SQLite execution mode (default)')
+  .option('--no-direct', 'Connect to the Blueprint server given by --server')
   .option('--server <url>', 'Connect to remote Blueprint server URL', 'http://127.0.0.1:4100')
-  .option('--name <user>', 'User name for REPL', 'User')
+  .option('--name <user>', 'User name for REPL (default: Google sign-in, else the saved name)')
   .action(async (opts) => {
     const { runBlueprintClient } = await import('./client/blueprintClient.js');
     await runBlueprintClient({

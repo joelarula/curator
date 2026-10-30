@@ -6,6 +6,7 @@
 import type { CuratorEventEmitResult, CuratorReducer } from '../CuratorContracts.js';
 import type { DispatchEventOptions } from '../CuratorRequestProcessor.js';
 import type { ILlmProvider } from '../llm/ILlmProvider.js';
+import type { OutputFormats } from '../output/OutputFormats.js';
 
 /**
  * Typed handle for a plugin-provided service (like a Bevy resource type). Keys are compared by identity,
@@ -91,6 +92,8 @@ export interface NodeToolServices {
   /** Tools matching a name or `*` pattern as visible to `req`'s project; `name` is the alias to offer. */
   list?(pattern: string, req?: any): { name: string; tool: any }[];
   reducer(name: string): CuratorReducer | undefined;
+  /** Output formatters and tool output rules (`llm` / `display` forms of tool results). */
+  output: OutputFormats;
   /** RBAC and confirmation gate for running `tool` on behalf of `req`. */
   checkAccess(req: any, toolName: string, tool: any): Promise<ToolAccessResult>;
   /** Role / project check only (no confirmation gate): whether `tool` may be offered to `req`'s actor. */

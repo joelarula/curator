@@ -10,6 +10,7 @@ import type {
   ShellCommand,
   ChatToolDefinition,
   ShellContext,
+  RemoteToolInfo,
 } from '../types.js';
 import { ShellAuthController, isAuthRequiredError } from './shellAuth.js';
 
@@ -39,6 +40,66 @@ function parseCommandLine(text: string): string[] {
   });
 }
 
+/** Positional parameters of a tool schema: required first, then optional, each in declaration order. */
+function positionalParams(schema: any): { name: string; type?: string; required: boolean }[] {
+  const props = schema?.properties && typeof schema.properties === 'object' ? schema.properties : {};
+  const required = new Set<string>(Array.isArray(schema?.required) ? schema.required : []);
+  const all = Object.keys(props).map((name) => ({ name, type: props[name]?.type, required: required.has(name) }));
+  return [...all.filter((p) => p.required), ...all.filter((p) => !p.required)];
+}
+
+/** Command usage of a tool: its own `usage`, else `<required> [optional]` from its schema. */
+export function toolUsage(tool: { usage?: string; parameters?: any }): string {
+  if (tool.usage) return tool.usage;
+  return positionalParams(tool.parameters)
+    .map((p) => (p.required ? `<${p.name}>` : `[${p.name}]`))
+    .join(' ');
+}
+
+function coerce(value: string, type?: string): any {
+  if (type === 'number' || type === 'integer') {
+    const n = Number(value);
+    return Number.isNaN(n) ? value : n;
+  }
+  if (type === 'boolean') return value === 'true' ? true : value === 'false' ? false : value;
+  if (type === 'object' || type === 'array') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  }
+  return value;
+}
+
+/**
+ * Tool arguments from command tokens: a JSON object (`{...}`), else positional by the schema
+ * (extra words join into the last string parameter), else `{ input }` for schema-less tools.
+ */
+export function toolArgsFromTokens(tokens: string[], schema: any): Record<string, any> {
+  const raw = tokens.join(' ').trim();
+  if (!raw) return {};
+  if (raw.startsWith('{')) {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      try {
+        return JSON.parse(raw.replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":'));
+      } catch {}
+    }
+  }
+  const params = positionalParams(schema);
+  if (params.length === 0) return { input: raw };
+  const args: Record<string, any> = {};
+  params.forEach((p, i) => {
+    if (i >= tokens.length) return;
+    const isLast = i === params.length - 1;
+    const value = isLast && (!p.type || p.type === 'string') ? tokens.slice(i).join(' ') : tokens[i];
+    args[p.name] = coerce(value, p.type);
+  });
+  return args;
+}
+
 /**
  * Universal Asynchronous REPL and Interactive Shell for Curator host and games.
  * Powered by Node Commander (`program`), strictly aligned to Curator Core:
@@ -48,6 +109,8 @@ export class ClientShell<TState = any, TAction = ToolAction> {
   public config: ClientShellConfig<TState, TAction>;
   private commands: ReplCommand[] = [];
   private tools: Map<string, CuratorToolDefinition> = new Map();
+  /** `config.remoteTools`, refreshed before each line (commands are built synchronously). */
+  private remoteTools: RemoteToolInfo[] = [];
   private activeChoices: ActiveChoice[] = [];
   public activePromptContext?: Record<string, any>;
   private isBlockingStep: boolean = false;
@@ -65,9 +128,7 @@ export class ClientShell<TState = any, TAction = ToolAction> {
         autoLogin: config.autoLogin,
         openBrowser: config.openBrowser,
         onLogin: config.onAuthLogin,
-        onAsyncOutput: () => {
-          if (this.rl && this.isRunning && !this.isHandlingLine) this.rl.prompt(true);
-        },
+        log: (line) => this.printAsync(line),
       });
     }
     const initialCmds = config.commands || [];
@@ -96,6 +157,42 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       this.tools.set(tool.name, tool);
     }
     return this;
+  }
+
+  private async refreshRemoteTools(): Promise<void> {
+    if (!this.config.remoteTools) return;
+    try {
+      this.remoteTools = await this.config.remoteTools();
+    } catch {
+      // keep the last known list
+    }
+  }
+
+  /**
+   * Every tool the shell offers as a command: whitelisted ones, then remote ones. Remote tools also get
+   * their short name (`mcp.<server>.<tool>` -> `<tool>`) as an alias when nothing else uses it.
+   */
+  private toolEntries(): { name: string; tool: CuratorToolDefinition; remote: boolean }[] {
+    const entries = [...this.tools.entries()].map(([name, tool]) => ({ name, tool, remote: false }));
+    const taken = new Set(entries.flatMap((e) => [e.name, ...(e.tool.aliases || [])].map((n) => n.toLowerCase())));
+    for (const r of this.remoteTools) {
+      if (taken.has(r.name.toLowerCase())) continue;
+      const short = r.name.split('.').pop()!;
+      const aliases = short !== r.name && !taken.has(short.toLowerCase()) ? [short] : [];
+      [r.name, ...aliases].forEach((n) => taken.add(n.toLowerCase()));
+      entries.push({ name: r.name, tool: { name: r.name, description: r.description, parameters: r.parameters, aliases }, remote: true });
+    }
+    return entries;
+  }
+
+  private toolSchema(toolName: string): any {
+    return this.toolEntries().find((e) => e.name === toolName)?.tool.parameters;
+  }
+
+  private static formatTool(name: string, tool: CuratorToolDefinition): string {
+    const usage = toolUsage(tool);
+    const aliases = tool.aliases?.length ? ` (${tool.aliases.join(', ')})` : '';
+    return `${name}${usage ? ` ${usage}` : ''}${aliases} - ${tool.description || ''}`;
   }
 
   setStateProvider(getter: () => TState | null): this {
@@ -175,6 +272,20 @@ export class ClientShell<TState = any, TAction = ToolAction> {
     return this;
   }
 
+  /**
+   * Prints output that arrives in the background (events, logins) above the prompt: clears the prompt
+   * line, prints, then redraws the prompt with what the user has typed so far.
+   */
+  public printAsync(...lines: string[]): void {
+    const atPrompt = !!this.rl && this.isRunning && !this.isHandlingLine;
+    if (atPrompt && process.stdout.isTTY) {
+      readline.clearLine(process.stdout, 0);
+      readline.cursorTo(process.stdout, 0);
+    }
+    for (const line of lines) console.log(line);
+    if (atPrompt) this.rl!.prompt(true);
+  }
+
   public printChoices(): void {
     if (this.rl && process.stdout.isTTY) {
       readline.clearLine(process.stdout, 0);
@@ -194,7 +305,7 @@ export class ClientShell<TState = any, TAction = ToolAction> {
         console.log(`\x1b[90m(Enter 1-${this.activeChoices.length} to act, type to talk, /help for commands)\x1b[0m`);
       }
     } else {
-      console.log('\x1b[90mNo active turn choices currently awaiting action.\x1b[0m');
+      console.log('\x1b[90mNo pending choices.\x1b[0m');
     }
   }
 
@@ -235,17 +346,26 @@ export class ClientShell<TState = any, TAction = ToolAction> {
     };
 
     // Core built-in commands
-    ['help', 'choices', 'actions', 'menu', 'state', 'status', 'tools', 'exec', 'exit', 'quit', 'q'].forEach(markRegistered);
+    ['help', 'tools', 'exec', 'exit', 'quit', 'q'].forEach(markRegistered);
     if (this.auth) markRegistered('auth');
+    // 'choices' exists only while choices are pending (apps that never set choices never see it).
+    const hasChoices = this.activeChoices.length > 0;
+    if (hasChoices) ['choices', 'actions', 'menu'].forEach(markRegistered);
+    // 'state' / 'status' are generic fallbacks: an app command of the same name (or alias) replaces them.
+    const appNames = new Set(this.commands.flatMap((c) => [c.name, ...(c.aliases || [])].map((n) => n.toLowerCase())));
+    const coreState = !appNames.has('state');
+    const coreStatus = !appNames.has('status');
+    if (coreState) markRegistered('state');
+    if (coreStatus) markRegistered('status');
 
     // 1. Built-in 'help' command
     program
       .command('help')
       .description('Show available commands and whitelisted tools')
-      .action(() => {
+      .action(async () => {
         console.log('\n\x1b[1m\x1b[36m=== Curator REPL Commands & Whitelisted Tools ===\x1b[0m');
         if (this.activeChoices.length > 0) {
-          console.log('\x1b[33mActive Turn Choices (Subshell Commands):\x1b[0m');
+          console.log('\x1b[33mPending Choices:\x1b[0m');
           this.activeChoices.forEach((c, idx) => {
             const rawName = (c.id || c.label).trim().split(/\s+/)[0].toLowerCase();
             const usage = c.usage ? ` ${c.usage}` : (rawName === 'raise' || rawName === 'bet' ? ' [amount]' : '');
@@ -255,29 +375,33 @@ export class ClientShell<TState = any, TAction = ToolAction> {
         }
         console.log('\x1b[33mCore Curator Commands:\x1b[0m');
         console.log('  help - Show available commands and whitelisted tools');
-        console.log('  choices (actions, menu) - Redisplay active turn choices and commands');
-        console.log('  state - Inspect current application/game state');
-        console.log('  status - View active session, table, and connection status');
+        if (hasChoices) console.log('  choices (actions, menu) - Redisplay the pending choices');
+        if (coreState) console.log('  state - Inspect current application state');
+        if (coreStatus) console.log('  status - View session and connection status');
         console.log('  tools - List all registered and permitted tools');
-        console.log('  exec <toolName> [args] - Execute a whitelisted tool directly with JSON args');
+        console.log('  exec <toolName> [args] - Execute a tool with positional or JSON args (same as typing the tool name)');
         if (this.auth) {
           console.log(`  auth ${ShellAuthController.usage} - Manage IdP sessions (device-flow login in the browser)`);
         }
         console.log('  exit (quit, q) - Exit client REPL session');
 
         if (this.commands.length > 0) {
-          console.log('\x1b[33mGame Commands:\x1b[0m');
+          console.log('\x1b[33mApp Commands:\x1b[0m');
           for (const cmd of this.commands) {
             const usage = cmd.usage ? ` ${cmd.usage}` : '';
             const aliases = cmd.aliases?.length ? ` (${cmd.aliases.join(', ')})` : '';
             console.log(`  ${cmd.name}${usage}${aliases} - ${cmd.description || ''}`);
           }
         }
+        // Every tool is a command: `<tool> <args>` (positional by its schema, or JSON).
+        const entries = this.toolEntries();
         console.log('\x1b[33mTools:\x1b[0m');
-        for (const [name, tool] of this.tools.entries()) {
-          const usage = tool.usage ? ` ${tool.usage}` : '';
-          const aliases = tool.aliases?.length ? ` (${tool.aliases.join(', ')})` : '';
-          console.log(`  ${name}${usage}${aliases} - ${tool.description || ''}`);
+        for (const { name, tool } of entries.filter((e) => !e.remote)) console.log(`  ${ClientShell.formatTool(name, tool)}`);
+        if (this.config.remoteTools) {
+          console.log('\x1b[33mRemote Tools:\x1b[0m');
+          const remote = entries.filter((e) => e.remote);
+          if (remote.length === 0) console.log('\x1b[90m  (none registered)\x1b[0m');
+          for (const { name, tool } of remote) console.log(`  ${ClientShell.formatTool(name, tool)}`);
         }
         if (this.config.defaultToolName) {
           console.log(
@@ -286,88 +410,62 @@ export class ClientShell<TState = any, TAction = ToolAction> {
         }
       });
 
-    // 2. Built-in 'choices' command
-    program
-      .command('choices')
-      .alias('actions')
-      .alias('menu')
-      .description('Redisplay currently active turn choices and subshell commands')
-      .action(() => {
-        this.printChoices();
-      });
+    // 2. Built-in 'choices' command (only while choices are pending)
+    if (hasChoices) {
+      program
+        .command('choices')
+        .alias('actions')
+        .alias('menu')
+        .description('Redisplay the pending choices')
+        .action(() => {
+          this.printChoices();
+        });
+    }
 
-    // 3. Built-in 'state' command
-    program
-      .command('state')
-      .description('Inspect current application state')
-      .action(() => {
-        const state = this.config.getState?.();
-        if (state !== undefined) {
-          console.log('\x1b[36m[STATE]\x1b[0m', typeof state === 'string' ? state : JSON.stringify(state, null, 2));
-        } else {
-          console.log('\x1b[90mNo active state available.\x1b[0m');
-        }
-      });
-
-    // 3. Built-in 'status' command
-    program
-      .command('status')
-      .description('Inspect current session, table, and connection status')
-      .action(async () => {
-        const state: any = this.config.getState?.();
-        const info: Record<string, any> = {
-          actor: this.config.actorName || 'You',
-        };
-
-        if (this.config.getWallet) {
-          try {
-            const w = await this.config.getWallet();
-            if (w !== undefined && w !== null) {
-              info.wallet = typeof w === 'number' ? `$${w.toLocaleString()}` : String(w);
-            }
-          } catch (_) {}
-        } else if (this.config.channel && typeof (this.config.channel as any).runTool === 'function') {
-          try {
-            const bankroll = await (this.config.channel as any).runTool('poker_get_bankroll', {
-              playerName: this.config.actorName || 'You',
-            });
-            if (bankroll?.balance !== undefined) {
-              info.wallet = `$${Number(bankroll.balance).toLocaleString()}`;
-            }
-          } catch (_) {}
-        }
-
-        if (state) {
-          const me = state.players?.find(
-            (p: any) => p.name === (this.config.actorName || 'You') || p.id === (this.config.actorName || 'You')
-          );
-          if (!info.wallet && me?.wallet !== undefined) {
-            info.wallet = `$${Number(me.wallet).toLocaleString()}`;
+    // 3. Built-in 'state' command (fallback)
+    if (coreState) {
+      program
+        .command('state')
+        .description('Inspect current application state')
+        .action(() => {
+          const state = this.config.getState?.();
+          if (state !== undefined && state !== null) {
+            console.log('\x1b[36m[STATE]\x1b[0m', typeof state === 'string' ? state : JSON.stringify(state, null, 2));
+          } else {
+            console.log('\x1b[90mNo active state available.\x1b[0m');
           }
-          if (me?.chips !== undefined) info.tableChips = `$${Number(me.chips).toLocaleString()}`;
-          if (state.pot !== undefined) info.pot = `$${state.pot}`;
-          if (state.currentStreet) info.street = state.currentStreet;
-          if (state.handNumber) info.hand = state.handNumber;
-          if (state.players) info.players = state.players.length;
-        }
+        });
+    }
 
-        info.tableId = this.config.channel?.tableId || (state as any)?.tableId || '1';
-        info.connected = Boolean(this.config.channel);
-        info.activeChoices = this.activeChoices.length;
-
-        console.log('\x1b[36m[STATUS]\x1b[0m', JSON.stringify(info, null, 2));
-      });
+    // 3. Built-in 'status' command (fallback; apps add domain detail with their own 'status')
+    if (coreStatus) {
+      program
+        .command('status')
+        .description('Inspect current session and connection status')
+        .action(() => {
+          const info: Record<string, any> = {
+            actor: this.config.actorName || 'You',
+            connected: Boolean(this.config.channel),
+            activeChoices: this.activeChoices.length,
+          };
+          if (this.config.conversationId) info.conversationId = this.config.conversationId;
+          console.log('\x1b[36m[STATUS]\x1b[0m', JSON.stringify(info, null, 2));
+        });
+    }
 
     // 4. Built-in 'tools' command
     program
       .command('tools')
       .description('List available and whitelisted tools')
-      .action(() => {
+      .action(async () => {
+        const entries = this.toolEntries();
         console.log('\n\x1b[1m\x1b[36m=== Whitelisted Curator Tools ===\x1b[0m');
-        for (const [name, tool] of this.tools.entries()) {
-          const usage = tool.usage ? ` ${tool.usage}` : '';
-          const aliases = tool.aliases?.length ? ` (${tool.aliases.join(', ')})` : '';
-          console.log(`  \x1b[32m${name}${usage}\x1b[0m${aliases} - ${tool.description || ''}`);
+        for (const { name, tool } of entries.filter((e) => !e.remote)) console.log(`  ${ClientShell.formatTool(name, tool)}`);
+        if (this.config.remoteTools) {
+          console.log('\x1b[1m\x1b[36m=== Remote Tools ===\x1b[0m');
+          const remote = entries.filter((e) => e.remote);
+          if (remote.length === 0) console.log('\x1b[90m  (none registered)\x1b[0m');
+          for (const { name, tool } of remote) console.log(`  ${ClientShell.formatTool(name, tool)}`);
         }
         console.log('');
       });
@@ -377,20 +475,7 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       .command('exec <toolName> [args...]')
       .description('Execute a whitelisted Curator tool directly')
       .action(async (toolName: string, strArgs: string[]) => {
-        const rawArg = strArgs.join(' ').trim();
-        let parsedArgs: Record<string, any> = {};
-        if (rawArg) {
-          try {
-            parsedArgs = JSON.parse(rawArg);
-          } catch {
-            try {
-              const fixed = rawArg.replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":');
-              parsedArgs = JSON.parse(fixed);
-            } catch {
-              parsedArgs = { input: rawArg };
-            }
-          }
-        }
+        const parsedArgs = toolArgsFromTokens(strArgs, this.toolSchema(toolName));
         console.log(`\x1b[36m[Exec]\x1b[0m Executing tool "${toolName}"...`);
         try {
           const result = await this.dispatchTool(toolName, parsedArgs);
@@ -518,13 +603,12 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       });
     }
 
-    // 9. Register whitelisted tools
-    for (const [name, tool] of this.tools.entries()) {
+    // 9. Register every tool (whitelisted and remote) as a command; args map onto its schema
+    for (const { name, tool } of this.toolEntries()) {
       const toolName = name.toLowerCase();
       if (registeredNames.has(toolName)) continue;
       markRegistered(toolName);
-      const usage = tool.usage ? ` ${tool.usage}` : ' [args...]';
-      const c = program.command(`${name}${usage}`).description(tool.description || '');
+      const c = program.command(`${name} [args...]`).description(tool.description || '');
       if (tool.aliases) {
         for (const a of tool.aliases) {
           const aLower = a.toLowerCase();
@@ -535,9 +619,13 @@ export class ClientShell<TState = any, TAction = ToolAction> {
         }
       }
       c.allowUnknownOption(true);
-      c.action(async (...args) => {
-        const res = await this.dispatchTool(name, args);
-        onResult?.(res);
+      c.action(async (tokens: string[] = []) => {
+        try {
+          const res = await this.dispatchTool(name, toolArgsFromTokens(tokens, tool.parameters));
+          onResult?.(res);
+        } catch (err: any) {
+          if (!this.handleAuthError(err)) console.log(`\x1b[31m[Tool Error]\x1b[0m ${err.message}`);
+        }
       });
     }
 
@@ -752,6 +840,7 @@ export class ClientShell<TState = any, TAction = ToolAction> {
 
     // 3. Parse using Commander program instance (subshell handles choices, commands, and tools)
     try {
+      await this.refreshRemoteTools();
       let commandResult: any = undefined;
       const program = this.buildProgram((res) => {
         commandResult = res;

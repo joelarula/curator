@@ -6,8 +6,9 @@
   "main": "dist/createBlueprintServer.js",
   "scripts": {
     "build": "tsc",
-    "dev": "tsx src/main.ts",
+    "dev": "tsx src/main.ts --profile dev",
     "start": "node dist/main.js",
+    "start:dev": "node dist/main.js --profile dev",
     "test": "node --test test/blueprint_server.test.ts"
   },
   "dependencies": {

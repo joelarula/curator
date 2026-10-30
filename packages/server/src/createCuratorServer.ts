@@ -12,6 +12,7 @@ export interface CuratorServerOptions {
   cors?: boolean;
   routerOptions?: CuratorRouterOptions;
   autoStartProcessor?: boolean;
+  /** Request processor poll interval; default: the host's `intervalMs`. */
   pollingIntervalMs?: number;
   beforeMiddleware?: (app: Express) => void;
   afterRoutes?: (app: Express) => void;
@@ -32,11 +33,11 @@ export async function createCuratorServer(
   const app = express();
   const wsPath = options.wsPath || '/api/events';
   const autoStart = options.autoStartProcessor ?? true;
-  const pollingIntervalMs = options.pollingIntervalMs ?? 1000;
 
   // 1. Auto-start host processor if requested
   if (autoStart) {
-    await host.start(pollingIntervalMs);
+    // Without an explicit interval the host's `intervalMs` applies
+    await host.start(options.pollingIntervalMs);
   }
 
   // 2. Base middlewares (CORS & JSON parsing)

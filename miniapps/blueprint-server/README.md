@@ -23,21 +23,26 @@ test/blueprint_server.test.ts # auth, role mapping, tool listing
 
 ## Configuration
 
-Read from `miniapps/blueprint-server/.env`, then the workspace root `.env` (existing env vars win):
+Layered host app config (same loader as the blueprint client): `blueprint-server.config.yaml`, then
+`blueprint-server.config.<profile>.yaml` per active profile (`--profile dev`, `BLUEPRINT_SERVER_PROFILES`,
+`CURATOR_PROFILES`, or `profiles.active`). `BLUEPRINT_SERVER_CONFIG` points at another base file. Values reference
+the environment as `${VAR}`; `.env` is read from this module, then the workspace root (existing env vars win):
 
 ```
 GOOGLE_CLIENT_ID=...                     # web client
 CLIENT_ID_BLUEPRINT=...                  # device client used by the blueprint REPL
-BLUEPRINT_ALLOWED_EMAILS=you@gmail.com   # allow list (emails or @domains)
+BLUEPRINT_ALLOWED_EMAILS=you@gmail.com   # allow list (emails or @domains); the dev profile sets its own
 # optional: BLUEPRINT_SERVER_PORT (default 4200), BLUEPRINT_SERVER_PUBLIC_URL, BLUEPRINT_SERVER_DB
 ```
+
+The `dev` profile turns on debug logging and admits the developer's email.
 
 ## Run
 
 ```bash
-npm run dev      # tsx src/main.ts
+npm run dev      # tsx src/main.ts --profile dev
 # or
-npm run build && npm start
+npm run build && npm run start:dev   # or npm start with BLUEPRINT_ALLOWED_EMAILS set
 ```
 
 Then start the client from `miniapps/blueprint` with `npm run repl`.

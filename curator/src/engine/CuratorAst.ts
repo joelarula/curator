@@ -1,3 +1,5 @@
+import type { FormatSpec, ToolOutputRules } from './output/OutputFormats.js';
+
 export interface CuratorBaseNode {
   /** Runtime AST contract version. Version 1 is the current format. */
   astVersion?: 1;
@@ -128,6 +130,11 @@ export interface CuratorAgentNode extends CuratorBaseNode {
   history_from?: 'default' | 'conversation';
   /** With history_from 'conversation': bus event names whose payload.text is part of the conversation. */
   history_events?: string[];
+  /**
+   * How earlier agent turns replay (default history): 'full' (default) = prompt, tool calls with their results, answer;
+   * 'answers' = prompt and answer only. Or a `$` expression resolved per turn (e.g. `$context.history`).
+   */
+  history_profile?: 'full' | 'answers' | (string & {});
   /** Fixed list, or an expression such as "$state.options" evaluated on every turn (dynamic set of choices). */
   tools?: (string | CuratorInlineTool)[] | string;
   /** 'gemini' (default) | 'local' (OpenAI-compatible endpoint, e.g. llama.cpp), or a `$` expression resolved per call (e.g. `$config.poker.provider`). */
@@ -138,6 +145,10 @@ export interface CuratorAgentNode extends CuratorBaseNode {
   output_schema?: Record<string, any>;
   /** Key under which agent structured output is stored in context and state. Default: camelCase(agentName) or 'decision'. */
   as?: string;
+  /** Tool result formatting for this agent, by tool name or `*` pattern; wins over plugin rules and the tool's own `output`. */
+  tool_output?: ToolOutputRules;
+  /** Pipeline applied to the agent's final text before it is stored (e.g. `['strip-links', 'truncate:4000']`). */
+  output_format?: FormatSpec;
 }
 
 export interface CuratorSetStateNode extends CuratorBaseNode {
@@ -163,12 +174,13 @@ export interface CuratorEmitEventsNode extends CuratorBaseNode {
 
 export interface CuratorWaitEventNode extends CuratorBaseNode {
   type: typeof CuratorNodeType.WaitEvent;
+  /** Event name, or a `$` expression resolved when the wait starts. */
   eventName: string;
   /** Additional event names that also satisfy this wait ("first wins" / race semantics, like Bevy `listen_any_event`). */
   eventNames?: string[];
   payloadAlias?: string;
-  /** Give up after this long; completes with a WAIT_TIMEOUT Response and binds nothing to the alias. */
-  timeoutSeconds?: number;
+  /** Give up after this long; completes with a WAIT_TIMEOUT Response and binds nothing to the alias. A `$` expression is resolved when the wait starts. */
+  timeoutSeconds?: number | string;
   /** A flow's first wait also receives events logged before the flow was created (late joiner catches up). */
   replay?: boolean;
 }

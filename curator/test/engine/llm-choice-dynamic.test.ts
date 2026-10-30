@@ -63,9 +63,11 @@ test('dynamic choices: an option from an earlier turn is refused once it is no l
 test('dynamic choices: options come from the flow context (loop item), one set per iteration', async () => {
   const { env, taken } = await setup('dyn_context');
   try {
-    const llm = env.useLlm((req: any) => (toolMessages(req).length ? 'ok' : { toolCalls: [{ name: req.tools[0].name }] }));
+    // A turn starts with the prompt last; earlier turns may replay their tool calls as history (history_profile 'full').
+    const isTurnStart = (req: any) => req.messages.at(-1)?.role === 'user';
+    const llm = env.useLlm((req: any) => (isTurnStart(req) ? { toolCalls: [{ name: req.tools[0].name }] } : 'ok'));
     await runAst(env, await compileFixture('choose_by_context.coffee'));
-    const turnStarts = llm.requests.filter((r) => !toolMessages(r).length);
+    const turnStarts = llm.requests.filter(isTurnStart);
     assert.deepEqual(turnStarts.map(offered), [['fold', 'call', 'raise'], ['check', 'bet'], ['fold']]);
     assert.deepEqual(taken, ['fold', 'check', 'fold'], 'each player acted from its own options');
   } finally {

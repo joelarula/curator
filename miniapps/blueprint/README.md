@@ -182,6 +182,11 @@ BLUEPRINT_ALLOWED_EMAILS=you@gmail.com   # server allow list (emails or @domains
 # optional: BLUEPRINT_MCP_URL (default http://127.0.0.1:4200/mcp), BLUEPRINT_SERVER_PORT, BLUEPRINT_MODEL
 ```
 
+Everything else lives in [`blueprint.config.yaml`](blueprint.config.yaml): MCP servers (`mcp.<name>.url`, `idp`),
+sign-in providers (`auth`), model, data dir, web server port, and the `host:` section for `createCuratorHost`.
+Profiles layer `blueprint.config.<profile>.yaml` and `.env.<profile>` on top: `npm run repl -- --profile dev`,
+or `BLUEPRINT_PROFILES=dev`. The env vars above still win over the files.
+
 Run: in `miniapps/blueprint-server` start `npm run dev`, then here `npm run repl`. The REPL registers the server; without a session it
 starts the device login (google.com/device + code). After sign-in, type e.g. `summarize https://example.com`.
 `/auth list | login google | logout google` manage the session (tokens in `~/.curator/credentials`).

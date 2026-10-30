@@ -28,6 +28,10 @@ const REF_PATTERN = '^(?:#[A-Za-z_][A-Za-z0-9_]*|[A-Za-z0-9_.:-]+(?:#[A-Za-z_][A
 /** Guarded graph transitions, checked in order (Curator_Graph edges and conditional start). */
 const GRAPH_TRANSITIONS = { type: 'array', minItems: 1, items: { type: 'object', properties: { to: { type: 'string', minLength: 1 }, when: { type: 'string', minLength: 1 } }, required: ['to'], additionalProperties: false } };
 const REF_RE = new RegExp(REF_PATTERN);
+/** Output format pipeline: 'name', 'name:arg', { use, args }, or a list of these (see OutputFormats). */
+const FORMAT_STEP = { anyOf: [{ type: 'string', minLength: 1 }, { type: 'object', properties: { use: { type: 'string', minLength: 1 }, args: {} }, required: ['use'], additionalProperties: false }] };
+const FORMAT_SPEC = { anyOf: [FORMAT_STEP, { type: 'array', items: FORMAT_STEP }] };
+const TOOL_OUTPUT_RULES = { type: 'object', additionalProperties: { type: 'object', properties: { llm: FORMAT_SPEC, display: FORMAT_SPEC }, additionalProperties: false } };
 
 export interface CuratorRef {
   /** Script name; undefined for local ('#sub') refs. */
@@ -62,7 +66,7 @@ const schema: Record<string, any> = {
   oneOf: [
     {
       type: 'object',
-      properties: { ...baseProperties, type: { const: 'Curator_Agent' }, agentName: { type: 'string', minLength: 1 }, model: { type: 'string', minLength: 1 }, instruction: { type: 'string' }, prompt: { type: 'string' }, include_contents: { type: 'string', enum: ['default', 'none'] }, history_from: { type: 'string', enum: ['default', 'conversation'] }, history_events: { type: 'array', items: { type: 'string', minLength: 1 } }, tools: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'object' }] } }] }, provider: { anyOf: [{ type: 'string', enum: ['gemini', 'local'] }, { type: 'string', pattern: '^\\$' }] }, baseUrl: { type: 'string', minLength: 1 }, input_schema: { type: 'object' }, output_schema: { type: 'object' }, as: { type: 'string' } },
+      properties: { ...baseProperties, type: { const: 'Curator_Agent' }, agentName: { type: 'string', minLength: 1 }, model: { type: 'string', minLength: 1 }, instruction: { type: 'string' }, prompt: { type: 'string' }, include_contents: { type: 'string', enum: ['default', 'none'] }, history_from: { type: 'string', enum: ['default', 'conversation'] }, history_events: { type: 'array', items: { type: 'string', minLength: 1 } }, history_profile: { anyOf: [{ type: 'string', enum: ['full', 'answers'] }, { type: 'string', pattern: '^\\$' }] }, tools: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'array', items: { anyOf: [{ type: 'string', minLength: 1 }, { type: 'object' }] } }] }, provider: { anyOf: [{ type: 'string', enum: ['gemini', 'local'] }, { type: 'string', pattern: '^\\$' }] }, baseUrl: { type: 'string', minLength: 1 }, input_schema: { type: 'object' }, output_schema: { type: 'object' }, as: { type: 'string' }, tool_output: TOOL_OUTPUT_RULES, output_format: FORMAT_SPEC },
       required: ['type'],
       anyOf: [{ required: ['agentName'] }, { required: ['prompt'] }],
       additionalProperties: false,
@@ -170,7 +174,7 @@ const schema: Record<string, any> = {
     },
     {
       type: 'object',
-      properties: { ...baseProperties, type: { const: 'Curator_WaitEvent' }, eventName: { type: 'string', minLength: 1 }, eventNames: { type: 'array', items: { type: 'string', minLength: 1 } }, payloadAlias: { type: 'string' }, timeoutSeconds: { type: 'number' }, replay: { type: 'boolean' } },
+      properties: { ...baseProperties, type: { const: 'Curator_WaitEvent' }, eventName: { type: 'string', minLength: 1 }, eventNames: { type: 'array', items: { type: 'string', minLength: 1 } }, payloadAlias: { type: 'string' }, timeoutSeconds: { anyOf: [{ type: 'number' }, { type: 'string', minLength: 1 }] }, replay: { type: 'boolean' } },
       required: ['type', 'eventName'],
       additionalProperties: false,
     },

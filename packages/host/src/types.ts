@@ -138,7 +138,8 @@ export interface CuratorHost {
   stop(): Promise<void>;
   gracefulShutdown(): Promise<void>;
   seed(): Promise<SeedResult>;
-  triggerAgent(name: string, context?: Record<string, any>): Promise<any>;
+  /** `conversationId` (default: the host conversation) must belong to the host's project and user. */
+  triggerAgent(name: string, context?: Record<string, any>, options?: { conversationId?: number }): Promise<any>;
   pauseRequest(requestId: number | string): Promise<any>;
   resumeRequest(requestId: number | string): Promise<any>;
 
@@ -195,6 +196,13 @@ export interface ActiveChoice {
   execute?: (args: string, tokens: string[], ctx: ClientShellConfig) => any;
 }
 
+export interface RemoteToolInfo {
+  name: string;
+  description?: string;
+  /** JSON Schema of the arguments. */
+  parameters?: any;
+}
+
 export interface ClientShellConfig<TState = any, _TAction = any> {
   actorName?: string;
   conversationId?: string;
@@ -207,6 +215,8 @@ export interface ClientShellConfig<TState = any, _TAction = any> {
   prompt?: string | (() => string);
   getState?: () => TState | null;
   getWallet?: () => string | number | Promise<string | number | undefined> | undefined;
+  /** Host-side tools beyond the shell whitelist (e.g. remote MCP tools), listed by `tools`. */
+  remoteTools?: () => RemoteToolInfo[] | Promise<RemoteToolInfo[]>;
   redrawView?: () => void;
   onToolCall?: (toolName: string, args: Record<string, any>, ctx?: ClientShellConfig<TState, _TAction>) => Promise<any>;
   onSpeech?: (text: string, speechAct?: string, targetId?: string) => Promise<any>;

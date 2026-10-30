@@ -72,6 +72,8 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
     // access checks and approvals use the resolved tool key.
     const toolDefs: LlmToolDefinition[] = [];
     const offeredByLlmName = new Map<string, any>();
+    /** Offered name and tool key per LLM name: what tool output rules match against. */
+    const offeredNamesByLlmName = new Map<string, string[]>();
     const offeredKeys = new Set<string>();
     if (hasTools) {
       for (const toolOrName of offeredTools) {
@@ -89,6 +91,7 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
           offeredKeys.add(key);
           const llmName = llmToolName(name, offeredByLlmName);
           offeredByLlmName.set(llmName, tool);
+          offeredNamesByLlmName.set(llmName, [name, key]);
           toolDefs.push({
             name: llmName,
             description: tool.description,
@@ -116,10 +119,24 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
       const limit = (ast as any).history_limit;
       history = limit > 0 ? built.messages.slice(-limit) : built.messages;
     } else {
-      history = await loadConversationHistory(req, ast.include_contents, ctx);
+      const profile = (await resolveSetting(ast.history_profile)) ?? 'full';
+      if (!HISTORY_PROFILES.has(profile)) throw new Error(`Agent '${ast.agentName}': unknown history_profile '${profile}' (full | answers)`);
+      history = await loadConversationHistory(req, ast.include_contents, ctx, profile as HistoryProfile, new Set(toolDefs.map((t) => t.name)));
     }
     const messages: LlmMessage[] = [...history];
     messages.push({ role: 'user', content: prompt });
+
+    // Tool results: the `llm` form goes to the model (and is stored); a `display` form, when one is configured,
+    // is broadcast for people (`agent:tool_result`). Both are masked like the raw output.
+    const formatToolResult = (res: unknown, names: string[], tool: any, mask: (text: string) => string): string => {
+      const opts = { names, tool, agentRules: ast.tool_output, agentName: ast.agentName };
+      const display = ctx.tools.output.formatToolResult(res, { ...opts, target: 'display' });
+      if (display !== undefined) {
+        ctx.emit('agent:tool_result', { requestId: req.id, conversationId: req.conversationId, agentName: ast.agentName, tool: names[0], display: mask(display) });
+      }
+      const llm = ctx.tools.output.formatToolResult(res, { ...opts, target: 'llm' });
+      return mask(llm ?? (typeof res === 'string' ? res : JSON.stringify(res)));
+    };
 
     // Multi-Turn LLM Agentic Loop (State-Machine Transitions)
     let iterations = 0;
@@ -155,8 +172,12 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
         toolCalls: response.toolCalls
       });
 
-      // Save assistant response to DB for auditability
-      await ctx.saveResponse(req, response.text || `[Invoking ${response.toolCalls.map(t => t.name).join(', ')}]`);
+      // Save the calls as made (ids, args): later turns replay them as tool messages (history_profile 'full')
+      await ctx.saveResponse(req, JSON.stringify({
+        type: 'TOOL_CALLS', ok: true,
+        ...(response.text ? { text: response.text } : {}),
+        calls: response.toolCalls.map(({ id, name, args }) => ({ id, name, args: args ?? {} }))
+      } satisfies CuratorStructuredResponse));
 
       // Execute each tool and check permissions
       let pausedForUser = false;
@@ -232,10 +253,8 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
                     tryService: ctx.tryService
                   }
                 });
-                toolOutput = typeof res === 'string' ? res : JSON.stringify(res);
-
                 // Egress sanitization: mask any reflected secrets before sending back to LLM/DB
-                toolOutput = SecretService.mask(toolOutput, hydratedSecrets);
+                toolOutput = formatToolResult(res, offeredNamesByLlmName.get(tc.name) ?? [tc.name], tool, (text) => SecretService.mask(text, hydratedSecrets));
 
                 // Consume ONETIME approval if used
                 if (accessCheck.approvalScope === 'ONETIME' && req.context) {
@@ -272,8 +291,7 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
               const sandboxContext = vm.createContext(sandbox);
               const wrapper = `(async () => { const fn = ${inlineDef.sourceCode}; return await fn(args); })()`;
               const res = await vm.runInContext(wrapper, sandboxContext);
-              toolOutput = typeof res === 'string' ? res : JSON.stringify(res);
-              toolOutput = SecretService.mask(toolOutput, hydratedSecrets);
+              toolOutput = formatToolResult(res, [tc.name], inlineDef, (text) => SecretService.mask(text, hydratedSecrets));
             } catch (err: any) {
               toolOutput = `[Inline Tool Error] ${SecretService.mask(err.message, hydratedSecrets)}`;
               isError = true;
@@ -299,6 +317,19 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
 
       if (pausedForUser) {
         return; // Request safely paused in DB
+      }
+    }
+
+    if (ast.output_format !== undefined) {
+      // Structured output is formatted as data (e.g. `field:answer`), anything else as text.
+      let value: unknown = finalOutput;
+      if (ast.output_schema) {
+        try { value = JSON.parse(finalOutput); } catch (_) {}
+      }
+      try {
+        finalOutput = ctx.tools.output.format(value, ast.output_format, { target: 'display', agentName: ast.agentName });
+      } catch (err: any) {
+        logger.warn(`[CuratorRequestProcessor] Agent '${ast.agentName}' output_format failed: ${err.message}`);
       }
     }
 
@@ -348,7 +379,61 @@ export function agentOutputKey(ast: any): string {
   return ast?.as || toCamelCase(ast?.agentName) || 'decision';
 }
 
-async function loadConversationHistory(req: any, includeContents: string | undefined, ctx: NodeContext): Promise<LlmMessage[]> {
+/** How earlier agent turns replay: 'full' = prompt, tool calls with results, answer; 'answers' = prompt and answer. */
+export type HistoryProfile = 'full' | 'answers';
+const HISTORY_PROFILES = new Set<string>(['full', 'answers']);
+
+const TOOL_RESULT_PREFIX = /^\[Tool Result: ([^\]]+)\]\n?/;
+
+/**
+ * One earlier agent turn (all Responses of one Request) as messages: its prompt once, then its steps, then its answer.
+ * Tool calls replay as tool messages only when every called tool is offered now (providers reject calls to undeclared
+ * tools); otherwise each result replays as assistant text.
+ */
+function agentTurnMessages(prompt: string, contents: string[], profile: HistoryProfile, offered: Set<string>): LlmMessage[] {
+  const messages: LlmMessage[] = prompt ? [{ role: 'user', content: prompt }] : [];
+  let pending: { id: string; name: string }[] = [];
+  let structured = false;
+  for (const content of contents) {
+    let record: any = null;
+    try { record = content.startsWith('{') ? JSON.parse(content) : null; } catch (_) {}
+    if (record?.type === 'TOOL_CALLS' && Array.isArray(record.calls)) {
+      pending = record.calls.map((c: any) => ({ id: String(c.id), name: String(c.name) }));
+      structured = profile === 'full' && pending.length > 0 && pending.every((c) => offered.has(c.name));
+      if (structured) messages.push({ role: 'assistant', content: record.text ?? '', toolCalls: record.calls });
+      else if (profile === 'full' && record.text) messages.push({ role: 'assistant', content: record.text });
+      continue;
+    }
+    // Other structured records (approval notices, ...) and the legacy `[Invoking x]` marker are not conversation.
+    if (record?.type && 'ok' in record) continue;
+    if (/^\[Invoking [^\]]*\]$/.test(content) || !content.trim()) continue;
+    const result = TOOL_RESULT_PREFIX.exec(content);
+    if (result) {
+      if (profile === 'answers') continue;
+      const call = pending.shift();
+      if (structured && call) {
+        messages.push({ role: 'tool', toolCallId: call.id, toolName: call.name, content: content.slice(result[0].length) });
+      } else {
+        messages.push({ role: 'assistant', content });
+      }
+      continue;
+    }
+    messages.push({ role: 'assistant', content });
+  }
+  // A turn cut short (approval wait, crash) may leave calls without results; providers need a result per call.
+  if (structured) {
+    for (const call of pending) messages.push({ role: 'tool', toolCallId: call.id, toolName: call.name, content: '[No result]', isError: true });
+  }
+  return messages;
+}
+
+async function loadConversationHistory(
+  req: any,
+  includeContents: string | undefined,
+  ctx: NodeContext,
+  profile: HistoryProfile = 'full',
+  offered: Set<string> = new Set()
+): Promise<LlmMessage[]> {
   if (includeContents === 'none') return [];
   
   const limit = (req.ast as any)?.history_limit ?? (req.context as any)?.historyLimit;
@@ -369,14 +454,23 @@ async function loadConversationHistory(req: any, includeContents: string | undef
 
   const messages: LlmMessage[] = [];
 
-  for (const pr of pastResponses) {
+  for (let i = 0; i < pastResponses.length; i++) {
+    const pr = pastResponses[i];
     const prAst = pr.request?.ast as any;
     if (prAst?.exclude_from_history) continue;
 
     if (prAst?.type === 'Curator_Agent') {
-      const prompt = await ctx.interpolateTemplate(prAst.prompt, pr.request) || '';
-      if (prompt) messages.push({ role: 'user', content: prompt });
-      messages.push({ role: 'assistant', content: pr.content });
+      // The consecutive Responses of one agent Request are one turn.
+      const contents = [pr.content];
+      while (pastResponses[i + 1]?.requestId === pr.requestId) contents.push(pastResponses[++i].content);
+      // A past turn whose prompt no longer resolves (e.g. it ran without its context) is dropped, not fatal.
+      let prompt: string;
+      try {
+        prompt = await ctx.interpolateTemplate(prAst.prompt, pr.request) || '';
+      } catch {
+        continue;
+      }
+      messages.push(...agentTurnMessages(prompt, contents, profile, offered));
     } else if (prAst?.type === 'Curator_HumanInput') {
       messages.push({ role: 'user', content: pr.content });
     } else if (prAst?.type === 'Curator_Script' || prAst?.type === 'Curator_Tool') {

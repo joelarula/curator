@@ -4,6 +4,17 @@ export const ASSISTANT_AGENT = 'web_assistant';
 /** The agent's role; remote blueprint tools are granted to it (ToolRole) when synced. */
 export const ASSISTANT_ROLE = 'web_assistant';
 
+/**
+ * Default formatting of blueprint tool results: the model reads the page text without link targets,
+ * the REPL shows one line per page. `mcp.<server>.output` in the config overrides these per tool.
+ */
+export const BLUEPRINT_TOOL_OUTPUT = {
+  'mcp.*.web_scrape': {
+    llm: ['pick:title,finalUrl,markdown,truncated', 'strip-links'],
+    display: 'template:{title} ({length} chars)',
+  },
+};
+
 const INSTRUCTION = [
   'You are the Curator blueprint assistant, chatting with the user in a terminal.',
   'You can read public web pages with the web_scrape tool of the blueprint server.',
@@ -19,10 +30,13 @@ export function assistantPlugin(options: { model?: string } = {}): CuratorPlugin
     version: '1.0.0',
     description: 'Blueprint harness: a Gemini agent using tools from remote MCP providers',
     roles: [{ name: ASSISTANT_ROLE, description: 'Runs the remote tools of the blueprint server' }] as any,
+    toolOutput: BLUEPRINT_TOOL_OUTPUT,
     agents: {
       [ASSISTANT_AGENT]: {
         description: 'Chat assistant with remote web reading (blueprint server)',
         enabled: true,
+        // Chat turns only (triggerAgent with a message). Explicit so the seed also resets a stored schedule.
+        schedule: 'manual',
         roles: [ASSISTANT_ROLE],
         ast: {
           type: 'Curator_Agent',
@@ -32,6 +46,8 @@ export function assistantPlugin(options: { model?: string } = {}): CuratorPlugin
           instruction: INSTRUCTION,
           prompt: '{context.message}',
           tools: ['mcp.blueprint.*'],
+          // Per turn: 'full' replays earlier tool calls and results, 'answers' only prompts and answers (unset = full).
+          history_profile: '$context.history',
         },
       } as any,
     },

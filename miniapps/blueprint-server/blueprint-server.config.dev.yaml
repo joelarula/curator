@@ -1,0 +1,7 @@
+# `dev` profile (--profile dev): layered over blueprint-server.config.yaml.
+
+host:
+  logLevel: debug
+
+allowedEmails:
+  - joel.arula@gmail.com

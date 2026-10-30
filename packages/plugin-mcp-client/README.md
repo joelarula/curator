@@ -52,12 +52,51 @@ name the model called.
 |---|---|---|
 | `mcp_servers_list` | read_only | servers visible to the project, status, tool aliases |
 | `mcp_server_register` `{name, url, authService?}` | elevated | add/update a server and sync it (approval-gated) |
-| `mcp_server_sync` `{name}` | safe_write | re-sync the catalog |
+| `mcp_server_sync` `{name}` | safe_write | re-sync the catalog (role `mcp_connector`, a default user role) |
+| `mcp_server_connect` `{name}` | safe_write | one connection attempt, outcome as data (role `mcp_connector`; used by `mcp_connect`) |
 | `mcp_server_unregister` `{name}` | destructive | soft-remove; tools stop resolving |
 | `mcp_resources_list` `{server?}` / `mcp_prompts_list` `{server?}` | read_only | catalog from the database |
 | `mcp_resource_read` `{server, uri}` / `mcp_prompt_get` `{server, name, arguments?}` | read_only | live reads |
 
 The project always comes from the request (session / `x-project-id`), never from tool arguments.
+
+## Keeping servers connected
+
+A server that is down must not hold anyone up. Register it without syncing and start its connector flow:
+
+```ts
+const reconciler = new McpReconciler(registry, host); // after host.seed() and registry.attach(host)
+await registry.register({ projectId: host.project.id, name: 'crm', url: 'https://crm.corp/mcp', authService: 'crm', sync: false });
+await reconciler.watch('crm'); // no-op when a flow for 'crm' is still running (e.g. from before a restart)
+```
+
+The flow is the `mcp_connect` script (`connectorWorkflow`, a `Curator_Graph`), one per server, run as the host user
+(role `mcp_connector`, a default user role) in the host's project. Every step is a Request:
+
+| State | Body | Next |
+|---|---|---|
+| `sync` | `mcp_server_connect` → `connected` / `auth_required` / `error` (+ `retryInSeconds`) / `gone` | by status; `gone` ends the flow |
+| `backoff` | wait `mcp:<server>:retry`, timeout `retryInSeconds` (5s doubling to 5 min, option `retry`) | `sync` |
+| `login` | wait `auth:login` or `mcp:<server>:retry` | `sync` |
+| `connected` | wait `mcp:<server>:disconnected` or `mcp:<server>:retry` | `sync` |
+
+- Waits are persisted, so backoff and waiting for a sign-in survive restarts.
+- `reconciler.retry(name)` emits `mcp:<server>:retry`; the reconciler emits `mcp:<server>:disconnected` when a connected server fails outside a sync (e.g. a remote tool call cannot reach it).
+- Each attempt broadcasts `mcp:status` (`McpConnectResult`: `{server, projectId, status, error?, tools?, retryInSeconds?}`); `registry.onStatus` reports every status change in process.
+
+## Sign-in as a flow
+
+`createAuthPlugin(auth)` adds `auth_login_start` / `auth_login_cancel` (role `auth_signin`, a default user role) and the
+`auth_login` script. A login runs in the host's process and reports through host events: `auth:verification` (device
+link and code), `auth:authorization`, `auth:status`, then `auth:<target>:done` and `auth:login` (or `auth:failed`).
+`createHostAuthManager(auth, host)` is a shell auth manager (`/auth`) whose `login` runs that flow, so connector flows
+waiting in `login` resume when the user signs in.
+
+```ts
+const signIn = createAuthPlugin(auth); // register signIn.plugin with the engine, then:
+signIn.attach(host);
+const shellAuth = createHostAuthManager(auth, host);
+```
 
 ## Behaviour
 
