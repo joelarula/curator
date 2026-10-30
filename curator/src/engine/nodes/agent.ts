@@ -7,6 +7,14 @@ import type { LlmMessage, LlmToolDefinition, LlmRequest } from '../llm/ILlmProvi
 import { buildContext } from '../llm/ConversationFold.js';
 import { toCamelCase } from '../builder/CuratorCoreBuilder.js';
 import { SecretService } from '../../services/SecretService.js';
+import {
+  DEFAULT_SUMMARY_INSTRUCTION,
+  parseCompactionSpec,
+  renderTranscript,
+  type HistoryCompactionSpec,
+  type HistorySummary,
+  type HistoryTurn,
+} from '../history/HistoryCompaction.js';
 import { logger } from '../../utils/logger.js';
 
 const Ajv = (AjvModule as any).default || AjvModule;
@@ -121,7 +129,15 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
     } else {
       const profile = (await resolveSetting(ast.history_profile)) ?? 'full';
       if (!HISTORY_PROFILES.has(profile)) throw new Error(`Agent '${ast.agentName}': unknown history_profile '${profile}' (full | answers)`);
-      history = await loadConversationHistory(req, ast.include_contents, ctx, profile as HistoryProfile, new Set(toolDefs.map((t) => t.name)));
+      const turns = await loadConversationTurns(req, ast.include_contents, ctx, profile as HistoryProfile, new Set(toolDefs.map((t) => t.name)));
+      const compaction = ctx.isDynamicExpr(ast.history_compaction)
+        ? await ctx.evaluateExpression(ast.history_compaction, req)
+        : ast.history_compaction;
+      history = compaction
+        ? await compactHistory(compaction as HistoryCompactionSpec, turns, `${ast.agentName ?? req.agentId ?? 'agent'}|${profile}`, req, ctx, (text) =>
+            provider.generateContent({ model, systemPrompt: DEFAULT_SUMMARY_INSTRUCTION, messages: [{ role: 'user', content: text }], baseUrl: ast.baseUrl })
+              .then((r) => r.text || ''))
+        : turns.flatMap((t) => t.messages);
     }
     const messages: LlmMessage[] = [...history];
     messages.push({ role: 'user', content: prompt });
@@ -427,13 +443,64 @@ function agentTurnMessages(prompt: string, contents: string[], profile: HistoryP
   return messages;
 }
 
-async function loadConversationHistory(
+const SUMMARY_PREFIX = '{"type":"HISTORY_SUMMARY"';
+
+/**
+ * Runs the compaction strategy over the earlier turns. The strategy's last summary for `key` (agent + profile + strategy)
+ * is handed back to it; a summary covering new turns is stored as a HISTORY_SUMMARY record on this Request.
+ */
+async function compactHistory(
+  spec: HistoryCompactionSpec,
+  turns: HistoryTurn[],
+  baseKey: string,
+  req: any,
+  ctx: NodeContext,
+  complete: (text: string) => Promise<string>
+): Promise<LlmMessage[]> {
+  const { name, args } = parseCompactionSpec(spec);
+  const compactor = ctx.history.compactor(name);
+  if (!compactor) throw new Error(`Unknown history_compaction strategy '${name}'`);
+  const key = `${baseKey}|${name}`;
+
+  let previous: HistorySummary | undefined;
+  const stored = await ctx.prisma.response.findMany({
+    where: { conversationId: req.conversationId, content: { startsWith: SUMMARY_PREFIX } },
+    orderBy: { id: 'desc' },
+    take: 50,
+  });
+  for (const row of stored) {
+    try {
+      const summary = JSON.parse(row.content)?.summary;
+      if (summary?.key === key) {
+        previous = { text: String(summary.text), throughRequestId: Number(summary.throughRequestId) };
+        break;
+      }
+    } catch (_) {}
+  }
+
+  const result = await compactor({
+    turns,
+    previous,
+    args,
+    agentName: baseKey.split('|')[0],
+    summarize: (covered, earlier) => complete(renderTranscript(covered, earlier)),
+  });
+  if (result.summary && (result.summary.throughRequestId !== previous?.throughRequestId || result.summary.text !== previous?.text)) {
+    await ctx.saveResponse(req, JSON.stringify({
+      type: 'HISTORY_SUMMARY', ok: true,
+      summary: { key, text: result.summary.text, throughRequestId: result.summary.throughRequestId }
+    } satisfies CuratorStructuredResponse));
+  }
+  return result.messages;
+}
+
+async function loadConversationTurns(
   req: any,
   includeContents: string | undefined,
   ctx: NodeContext,
   profile: HistoryProfile = 'full',
   offered: Set<string> = new Set()
-): Promise<LlmMessage[]> {
+): Promise<HistoryTurn[]> {
   if (includeContents === 'none') return [];
   
   const limit = (req.ast as any)?.history_limit ?? (req.context as any)?.historyLimit;
@@ -452,7 +519,7 @@ async function loadConversationHistory(
   
   if (pastResponses.length === 0) return [];
 
-  const messages: LlmMessage[] = [];
+  const turns: HistoryTurn[] = [];
 
   for (let i = 0; i < pastResponses.length; i++) {
     const pr = pastResponses[i];
@@ -470,13 +537,14 @@ async function loadConversationHistory(
       } catch {
         continue;
       }
-      messages.push(...agentTurnMessages(prompt, contents, profile, offered));
+      const messages = agentTurnMessages(prompt, contents, profile, offered);
+      if (messages.length) turns.push({ requestId: pr.requestId, messages });
     } else if (prAst?.type === 'Curator_HumanInput') {
-      messages.push({ role: 'user', content: pr.content });
+      turns.push({ requestId: pr.requestId, messages: [{ role: 'user', content: pr.content }] });
     } else if (prAst?.type === 'Curator_Script' || prAst?.type === 'Curator_Tool') {
-      messages.push({ role: 'tool', toolName: prAst.toolName || prAst.name || 'tool', content: pr.content });
+      turns.push({ requestId: pr.requestId, messages: [{ role: 'tool', toolName: prAst.toolName || prAst.name || 'tool', content: pr.content }] });
     }
   }
 
-  return messages;
+  return turns;
 }

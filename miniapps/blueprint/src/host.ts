@@ -98,7 +98,7 @@ export async function createBlueprintRuntime(options: BlueprintRuntimeOptions = 
       curatorEngine.registerPlugin(geminiPlugin({ apiKey, defaultModel: model }) as any);
       curatorEngine.registerPlugin(mcpClient);
       if (signIn) curatorEngine.registerPlugin(signIn.plugin);
-      curatorEngine.registerPlugin(assistantPlugin({ model }));
+      curatorEngine.registerPlugin(assistantPlugin({ model, historyCompaction: config.assistant.historyCompaction }));
       // Registered last: configured tool output rules win over the plugins' defaults.
       curatorEngine.registerPlugin({ name: 'blueprint-config-output', toolOutput: mcpToolOutputRules(config) });
       return curatorEngine;

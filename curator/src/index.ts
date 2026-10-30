@@ -15,6 +15,7 @@ export * from './engine/CffeCompiler.js';
 export * from './engine/CuratorMermaid.js';
 export * from './engine/ScriptRegistry.js';
 export * from './engine/output/OutputFormats.js';
+export * from './engine/history/HistoryCompaction.js';
 
 // Storage SPI & Adapters
 export * from './storage/index.js';

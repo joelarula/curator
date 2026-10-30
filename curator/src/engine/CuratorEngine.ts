@@ -15,6 +15,7 @@ import { LlmFactory } from './llm/LlmFactory.js';
 import { extendCoffeeAstVerbs } from './CoffeeVerbs.js';
 import { NodeRegistry } from './nodes/NodeRegistry.js';
 import { OutputFormats } from './output/OutputFormats.js';
+import { HistoryCompactors } from './history/HistoryCompaction.js';
 import type { MaintenanceSystem, ServiceKey } from './nodes/NodeHandler.js';
 
 export type CuratorPlugin = CuratorPluginDefinition;
@@ -81,6 +82,8 @@ export class CuratorEngine {
   public maintenanceSystems: MaintenanceSystem[] = [];
   /** Output formatters and tool output rules (plugin `formatters` / `toolOutput`). */
   public output = new OutputFormats();
+  /** History compaction strategies (plugin `historyCompactors`). */
+  public historyCompactors = new HistoryCompactors();
   public plugins: CuratorPlugin[] = [];
   /**
    * What workflows read as `$config`, lowest layer first: script defaults (module `config`, front matter
@@ -124,6 +127,7 @@ export class CuratorEngine {
     }
     for (const [name, formatter] of Object.entries(plugin.formatters ?? {})) this.output.registerFormatter(name, formatter);
     if (plugin.toolOutput) this.output.registerToolOutputs(plugin.toolOutput);
+    for (const [name, compactor] of Object.entries(plugin.historyCompactors ?? {})) this.historyCompactors.register(name, compactor);
     if (plugin.config) {
       this.pluginConfig = mergeConfig(this.pluginConfig, structuredClone(plugin.config));
     }

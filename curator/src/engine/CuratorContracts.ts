@@ -5,6 +5,7 @@ import type { SemanticNodeShape } from '../services/SemanticSchemaEngine.js';
 import type { StateProjector } from './ConversationStateLog.js';
 import type { NodeHandler, ServiceBinding, MaintenanceSystem } from './nodes/NodeHandler.js';
 import type { CuratorFormatter, ToolOutputRules } from './output/OutputFormats.js';
+import type { CuratorHistoryCompactor } from './history/HistoryCompaction.js';
 
 export type JsonRecord = Record<string, unknown>;
 
@@ -128,6 +129,8 @@ export interface CuratorPluginDefinition {
   formatters?: Record<string, CuratorFormatter>;
   /** How tool results are formatted for the model (`llm`) and people (`display`), by tool name or `*` pattern. */
   toolOutput?: ToolOutputRules;
+  /** History compaction strategies agents pick with `history_compaction`; replaces a same-named one. */
+  historyCompactors?: Record<string, CuratorHistoryCompactor>;
   /**
    * Default configuration, keyed by namespace (e.g. `{ poker: { talk: {...} } }`). Workflows read it as
    * `$config.<namespace>...`; values the host sets with `engine.setConfig` win over these defaults.
@@ -179,7 +182,8 @@ export type CuratorResponseRecordType =
   | 'SUBSCRIBED'
   | 'UNSUBSCRIBED'
   | 'MODEL_CHANGED'
-  | 'TOOL_CALLS';
+  | 'TOOL_CALLS'
+  | 'HISTORY_SUMMARY';
 
 /** A change to a Curator core model (Agent, Script, Role, Tool, ...) recorded as a Request + MODEL_CHANGED Response. */
 export interface CuratorModelChange {
@@ -227,6 +231,8 @@ export interface CuratorStructuredResponse {
   calls?: { id: string; name: string; args: Record<string, unknown> }[];
   /** Text the model sent along with its tool calls (TOOL_CALLS). */
   text?: string;
+  /** Compacted history (HISTORY_SUMMARY): `key` = agent, strategy and profile it was made for. */
+  summary?: { key: string; text: string; throughRequestId: number };
   metadata?: JsonRecord;
 }
 

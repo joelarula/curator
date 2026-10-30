@@ -41,6 +41,8 @@ const CLIENT_ID_ENV: Record<string, string> = { [GOOGLE_IDP]: 'CLIENT_ID_BLUEPRI
 export interface BlueprintConfig {
   /** Gemini LLM; without `apiKey` the plugin falls back to GOOGLE_API_KEY / GEMINI_API_KEY. */
   gemini: { apiKey?: string; model?: string };
+  /** Web assistant agent: `historyCompaction` = history_compaction strategy (empty string = none). */
+  assistant: { historyCompaction?: string };
   dataDir: string;
   databasePath?: string;
   server: { port: number };
@@ -59,6 +61,7 @@ export interface LoadedBlueprintConfig {
 /** Built-in defaults; `blueprint.config.yaml` documents the same values. */
 const DEFAULTS: BlueprintConfig = {
   gemini: { apiKey: '${GOOGLE_API_KEY}' },
+  assistant: { historyCompaction: 'pack-middle:head=1,keep=6,max=16' },
   dataDir: './data',
   server: { port: 4100 },
   mcp: {

@@ -17,6 +17,7 @@ import { recordDeadLetter, TERMINAL_STATUSES } from './DeadLetters.js';
 import { AgentRoleService } from '../services/AgentRoleService.js';
 import { ApprovalService } from '../services/ApprovalService.js';
 import { defaultOutputFormats, type OutputFormats } from './output/OutputFormats.js';
+import { defaultHistoryCompactors, type HistoryCompactors } from './history/HistoryCompaction.js';
 import {
   NodeRegistry, sequentialNode, parallelNode, joinNode, routeNode, scriptNode, setStateNode, assignNode, ifElseNode, whileNode, loopNode, forEachNode,
   interruptNode, emitEventNode, emitEventsNode, subscribeNode, unsubscribeNode, waitEventNode, humanInputNode, toolNode, reduceNode,
@@ -63,6 +64,8 @@ export interface ProcessorEngine {
   reducers?: Map<string, CuratorReducer>;
   /** Output formatters and tool output rules (CuratorEngine); built-ins only when absent. */
   output?: OutputFormats;
+  /** History compaction strategies (CuratorEngine); built-ins only when absent. */
+  historyCompactors?: HistoryCompactors;
   config?: CuratorConfig;
   nodes?: { get(type: string): NodeHandler | undefined };
   services?: Map<ServiceKey<any>, any>;
@@ -254,6 +257,7 @@ export class CuratorRequestProcessor {
         inflight: (requestId) => this.inflight.get(requestId),
       },
       calls: { maxDepth: this.maxCallDepth, astStorage: this.astStorage },
+      history: { compactor: (name) => (this.engine.historyCompactors ?? defaultHistoryCompactors).get(name) },
       llm: { provider: (name, baseUrl) => LlmFactory.getProvider(name, baseUrl) },
       prisma: this.prisma,
       now: () => this.clock(),
@@ -1984,7 +1988,7 @@ export class CuratorRequestProcessor {
 
   private static readonly STRUCTURED_RECORD_TYPES = new Set([
     'TOOL_BLOCKED', 'APPROVAL_REQUIRED', 'APPROVAL_EXPIRED', 'HUMAN_TIMEOUT', 'WAIT_TIMEOUT', 'EVENT_EMITTED', 'EVENTS_EMITTED', 'CHOICE_PROMPT', 'CHOICE_RECEIVED',
-    'SUBSCRIBED', 'UNSUBSCRIBED', 'MODEL_CHANGED', 'TOOL_CALLS'
+    'SUBSCRIBED', 'UNSUBSCRIBED', 'MODEL_CHANGED', 'TOOL_CALLS', 'HISTORY_SUMMARY'
   ]);
 
   /** True for CuratorStructuredResponse audit records (not tool/workflow output). */

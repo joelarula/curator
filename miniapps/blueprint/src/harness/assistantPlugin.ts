@@ -24,7 +24,7 @@ const INSTRUCTION = [
 ].join(' ');
 
 /** Harness agent: Gemini with the blueprint server's remote tools (`mcp.blueprint.*`). */
-export function assistantPlugin(options: { model?: string } = {}): CuratorPluginDefinition {
+export function assistantPlugin(options: { model?: string; historyCompaction?: string } = {}): CuratorPluginDefinition {
   return {
     name: 'blueprint-assistant',
     version: '1.0.0',
@@ -48,6 +48,8 @@ export function assistantPlugin(options: { model?: string } = {}): CuratorPlugin
           tools: ['mcp.blueprint.*'],
           // Per turn: 'full' replays earlier tool calls and results, 'answers' only prompts and answers (unset = full).
           history_profile: '$context.history',
+          // Long chats: earlier turns are summarized, re-packed only past the limit (stable prompt prefix).
+          ...(options.historyCompaction ? { history_compaction: options.historyCompaction } : {}),
         },
       } as any,
     },

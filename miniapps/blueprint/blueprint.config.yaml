@@ -22,6 +22,12 @@ gemini:
   apiKey: ${GOOGLE_API_KEY}
   # model: gemini-2.5-flash       # defaults to the Gemini plugin's
 
+# Web assistant. historyCompaction: how long chats are compacted (history_compaction strategy; "" = off).
+# pack-middle keeps the first `head` turns and the newest `keep` verbatim and summarizes the turns between,
+# re-packing only when more than `max` turns are uncovered; pack-first summarizes from the start.
+assistant:
+  historyCompaction: pack-middle:head=1,keep=6,max=16
+
 dataDir: ./data
 # databasePath: ./data/state/curator.db
 

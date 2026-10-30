@@ -7,6 +7,7 @@ import type { CuratorEventEmitResult, CuratorReducer } from '../CuratorContracts
 import type { DispatchEventOptions } from '../CuratorRequestProcessor.js';
 import type { ILlmProvider } from '../llm/ILlmProvider.js';
 import type { OutputFormats } from '../output/OutputFormats.js';
+import type { CuratorHistoryCompactor } from '../history/HistoryCompaction.js';
 
 /**
  * Typed handle for a plugin-provided service (like a Bevy resource type). Keys are compared by identity,
@@ -105,6 +106,12 @@ export interface NodeToolServices {
   inflight(requestId: number): InflightToolCall | undefined;
 }
 
+/** Agent history services (`ctx.history`). */
+export interface NodeHistoryServices {
+  /** History compaction strategy by name (plugin `historyCompactors`, built-ins). */
+  compactor(name: string): CuratorHistoryCompactor | undefined;
+}
+
 /** Subroutine call settings (`ctx.calls`); refs resolve through ScriptRegistry. */
 export interface NodeCallServices {
   /** Maximum nested Curator_Call depth. */
@@ -121,6 +128,7 @@ export interface NodeContext extends ServiceAccess {
   events: NodeEventServices;
   tools: NodeToolServices;
   calls: NodeCallServices;
+  history: NodeHistoryServices;
   llm: NodeLlmServices;
   prisma: any;
   /** Clock (epoch ms) used for scheduling and deadlines. */

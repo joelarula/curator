@@ -1,4 +1,5 @@
 import type { FormatSpec, ToolOutputRules } from './output/OutputFormats.js';
+import type { HistoryCompactionSpec } from './history/HistoryCompaction.js';
 
 export interface CuratorBaseNode {
   /** Runtime AST contract version. Version 1 is the current format. */
@@ -135,6 +136,11 @@ export interface CuratorAgentNode extends CuratorBaseNode {
    * 'answers' = prompt and answer only. Or a `$` expression resolved per turn (e.g. `$context.history`).
    */
   history_profile?: 'full' | 'answers' | (string & {});
+  /**
+   * Compaction strategy for the default history (plugin `historyCompactors`; built-in 'pack-first', 'pack-middle'):
+   * `'pack-middle:keep=4,max=12'`, `{ use, args }`, or a `$` expression resolved per turn.
+   */
+  history_compaction?: HistoryCompactionSpec;
   /** Fixed list, or an expression such as "$state.options" evaluated on every turn (dynamic set of choices). */
   tools?: (string | CuratorInlineTool)[] | string;
   /** 'gemini' (default) | 'local' (OpenAI-compatible endpoint, e.g. llama.cpp), or a `$` expression resolved per call (e.g. `$config.poker.provider`). */
