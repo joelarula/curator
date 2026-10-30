@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { setLogLevel } from '@curator/agent-server';
 import type { CuratorHost, ShellAuthManager } from '../types.js';
 import { ShellAuthController } from './shellAuth.js';
+import { parseProfiles } from '../appConfig.js';
 
 export interface HostCliOptions {
   name?: string;
@@ -48,8 +49,10 @@ export function createHostCli(
   program
     .option('--log-level <level>', 'Set log level (error, warn, info, debug, silent)')
     .option('--debug', 'Enable debug log level')
+    .option('--profile <names>', 'Active app config profiles, comma separated (sets CURATOR_PROFILES)')
     .hook('preAction', (thisCommand) => {
       const opts = thisCommand.opts();
+      if (opts.profile) process.env.CURATOR_PROFILES = parseProfiles(opts.profile).join(',');
       if (opts.debug) {
         setLogLevel('debug');
       } else if (opts.logLevel) {

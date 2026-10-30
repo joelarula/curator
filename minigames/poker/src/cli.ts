@@ -15,6 +15,7 @@ program
   .name('poker')
   .description('Curator Texas Hold\'em MiniApp & Game Engine powered by CuratorHost and RequestProcessor')
   .version('1.0.0')
+  .option('--profile <names>', 'Active config profiles, comma separated (loads poker.config.<profile>.yaml and .env.<profile>)')
   .option('--log-level <level>', 'Set log level (error, warn, info, debug, silent)')
   .option('--debug', 'Enable debug log level')
   .option('-q, --quiet', 'Quiet mode (suppress verbose logs)', false)

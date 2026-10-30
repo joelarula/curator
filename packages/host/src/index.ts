@@ -3,6 +3,18 @@ export { CuratorHostService } from './hostService.js';
 export { CuratorHostEvents } from './events/CuratorHostEvents.js';
 export { seedAgentsAndTools } from './seed/seedAgentsAndTools.js';
 export { resolveHostPolicy, type ResolvedHostPolicy } from './hostPolicy.js';
+export {
+  loadAppConfig,
+  loadEnvFiles,
+  mergeConfig,
+  parseProfiles,
+  profilesEnvKey,
+  profilesFromArgv,
+  type AppConfig,
+  type AppConfigOptions,
+  type AppHostSettings,
+  type LoadEnvFilesOptions,
+} from './appConfig.js';
 export { createHostCli, type HostCliOptions } from './cli/createHostCli.js';
 export {
   ClientShell,
@@ -19,6 +31,17 @@ export {
   type ActiveChoice,
 } from './cli/clientShell.js';
 export { ShellAuthController, openInBrowser, isAuthRequiredError, type ShellAuthOptions } from './cli/shellAuth.js';
+export {
+  FileIdentityStore,
+  defaultIdentityDir,
+  deriveLocalUserId,
+  validateDisplayName,
+  promptDisplayName,
+  resolveClientIdentity,
+  type ClientIdentity,
+  type DisplayNamePromptOptions,
+  type ResolveClientIdentityOptions,
+} from './cli/clientIdentity.js';
 export {
   type CuratorChannel,
   type WebSocketChannelOptions,

@@ -19,7 +19,7 @@ import {
 import { createPokerHost } from '../host.ts';
 import { setLogLevel } from '../curator.ts';
 import type { PokerGameState } from '../types.ts';
-import { resolvePlayerIdentity, type PlayerProfile } from './pokerProfile.ts';
+import { resolvePlayerIdentity, type PlayerIdentity } from './pokerIdentity.ts';
 import {
   PokerEvent,
   PokerClientConstant,
@@ -28,7 +28,7 @@ import {
   normalizeChoices,
 } from '../models/pokerContracts.ts';
 
-export { resolvePlayerIdentity, type PlayerProfile };
+export { resolvePlayerIdentity, type PlayerIdentity };
 
 export interface PokerClientOptions extends PokerSessionOptions {
   direct?: boolean;

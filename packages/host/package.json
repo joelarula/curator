@@ -19,7 +19,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "node --test test/events.test.ts test/shell_auth.test.ts test/single_node_conversations.test.ts test/role_based_conversations.test.ts test/conversation_session_lifecycle.test.ts"
+    "test": "node --test test/events.test.ts test/shell_auth.test.ts test/client_identity.test.ts test/app_config.test.ts test/single_node_conversations.test.ts test/role_based_conversations.test.ts test/conversation_session_lifecycle.test.ts"
   },
   "dependencies": {
     "@curator/agent-server": "file:../../curator",

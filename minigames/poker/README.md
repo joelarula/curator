@@ -58,6 +58,12 @@ npm run serve
 npm run play
 ```
 
+### Config profiles
+`poker.config.yaml` holds the defaults; `--profile dev` (or `POKER_PROFILES=dev`) layers `poker.config.dev.yaml` and `.env.dev` on top. A profile file can also set host settings under `host:` (e.g. `profile: ephemeral`). See *Application Profiles* in `packages/host/README.md`.
+```bash
+poker serve --profile dev
+```
+
 ### 3. Run Automated Tests
 ```bash
 npm test

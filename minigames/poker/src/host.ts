@@ -4,7 +4,7 @@ import { createCuratorHost, type CuratorHost } from './curatorHost.ts';
 import { curatorEngine, LlmFactory } from './curator.ts';
 import { pokerPlugin } from './plugins/pokerPlugin.ts';
 import { geminiPlugin } from '@curator/plugin-llm-gemini';
-import { getGeminiApiKey, loadPokerConfigFile } from './env.ts';
+import { getGeminiApiKey, loadPokerAppConfig } from './env.ts';
 import { resolvePokerConfig, POKER_CONFIG_NAMESPACE, type PokerConfig } from './pokerConfig.ts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -28,8 +28,10 @@ export interface PokerHostOptions {
   enableGemini?: boolean;
   apiKey?: string;
   llmProvider?: any;
-  /** Path of the poker config file (default: `POKER_CONFIG`, then `poker.config.json` in cwd or the module root). */
+  /** Path of the poker config file (default: `POKER_CONFIG`, then `poker.config.yaml` / `.yml` / `.json` in cwd or the module root). */
   configPath?: string;
+  /** Active app profiles, e.g. `'dev'` -> `poker.config.dev.yaml` (default: `--profile`, `POKER_PROFILES`, `CURATOR_PROFILES`). */
+  profiles?: string | string[];
   /** Settings layered over the config file (`talk`, `agents`). */
   config?: PokerConfig;
 }
@@ -45,10 +47,13 @@ export async function createPokerHost(options: PokerHostOptions = {}): Promise<C
     process.env.CURATOR_DATABASE_PATH ||
     DEFAULT_POKER_DB;
 
-  // What workflows read as `$config.poker`: the config file, then these options, over the defaults
-  const pokerConfig = resolvePokerConfig(loadPokerConfigFile(options.configPath), options.config);
+  // What workflows read as `$config.poker`: the config file and its profile files, then these options, over the defaults
+  const appConfig = loadPokerAppConfig({ configPath: options.configPath, profiles: options.profiles });
+  const pokerConfig = resolvePokerConfig(appConfig.values, options.config);
 
   return createCuratorHost({
+    // `host:` section of the config files (host profile, retention, ...); explicit options below win
+    ...appConfig.host,
     name: options.name || 'poker',
     projectId: options.projectId || 'poker-project-1',
     projectName: options.projectName || 'Texas Holdem Lounge',

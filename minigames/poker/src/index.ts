@@ -13,7 +13,7 @@ export * from './session/pokerSession.ts';
 export * from './server/pokerServer.ts';
 export * from './client/pokerClient.ts';
 export * from './client/pokerClientShell.ts';
-export * from './client/pokerProfile.ts';
+export * from './client/pokerIdentity.ts';
 export * from './graphql/index.ts';
 export * from './composables/pokerComposables.ts';
 export * from './models/index.ts';

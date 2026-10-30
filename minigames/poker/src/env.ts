@@ -1,41 +1,38 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { findConfigFile, loadConfigFile } from '@curator/agent-server';
+import {
+  loadAppConfig,
+  loadEnvFiles as loadHostEnvFiles,
+  profilesEnvKey,
+  profilesFromArgv,
+  type AppConfig,
+} from '../../../packages/host/dist/appConfig.js'; // direct module: keeps CLI boot free of the full host
 import type { PokerConfig } from './pokerConfig.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const MODULE_ROOT = path.resolve(__dirname, '..');
+
+/** App id for host app config: `poker.config.<profile>.yaml`, `.env.<profile>`, `POKER_PROFILES`. */
+export const POKER_APP_ID = 'poker';
+
+/** Where `.env` files are looked up: cwd, the poker module root, then its parents (repo-level `.env`). */
+const ENV_DIRS = [process.cwd(), MODULE_ROOT, path.resolve(MODULE_ROOT, '..'), path.resolve(MODULE_ROOT, '../..')];
+
 let envLoaded = false;
 
 /**
- * Loads .env files from the current working directory and parent module directories.
- * Safely populates process.env with GOOGLE_API_KEY / GEMINI_API_KEY.
+ * Loads `.env` / `.env.<profile>` files (cwd, module root, parents) without overriding existing env vars.
+ * Profiles come from `--profile`, then `POKER_PROFILES` / `CURATOR_PROFILES`; `--profile` is exported as `POKER_PROFILES`
+ * so later config loads see the same profiles.
  */
 export function loadEnvFiles(): void {
   if (envLoaded) return;
   envLoaded = true;
-
-  const candidates = [
-    path.resolve(process.cwd(), '.env'),
-    path.resolve(__dirname, '../.env'),
-    path.resolve(__dirname, '../../.env'),
-    path.resolve(__dirname, '../../../.env'),
-  ];
-
-  for (const envPath of candidates) {
-    if (fs.existsSync(envPath)) {
-      try {
-        if (typeof (process as any).loadEnvFile === 'function') {
-          (process as any).loadEnvFile(envPath);
-        }
-      } catch {
-        // Silently continue if an individual .env file fails to parse
-      }
-    }
-  }
-
+  const fromArgv = profilesFromArgv(process.argv);
+  if (fromArgv?.length) process.env[profilesEnvKey(POKER_APP_ID)] = fromArgv.join(',');
+  loadHostEnvFiles({ appId: POKER_APP_ID, dirs: ENV_DIRS });
 }
 
 /**
@@ -46,24 +43,28 @@ export function getGeminiApiKey(): string | undefined {
   return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
 }
 
-/** Base name of the poker config file: `poker.config.yaml`, `.yml` or `.json`. */
-export const POKER_CONFIG_BASENAME = 'poker.config';
-
-/**
- * Finds the poker config file: an explicit path, then `POKER_CONFIG`, then `poker.config.yaml` / `.yml` /
- * `.json` in the working directory, then in the poker module root.
- */
-export function findPokerConfigFile(explicitPath?: string): string | undefined {
-  loadEnvFiles();
-  if (explicitPath) return path.resolve(explicitPath);
-  if (process.env.POKER_CONFIG) return path.resolve(process.env.POKER_CONFIG);
-  return findConfigFile(POKER_CONFIG_BASENAME, [process.cwd(), path.resolve(__dirname, '..')]);
+export interface PokerAppConfigOptions {
+  /** Explicit base config file (default: `POKER_CONFIG`, then `poker.config.*` in cwd, then the module root). */
+  configPath?: string;
+  /** Active profiles (default: `--profile`, `POKER_PROFILES`, `CURATOR_PROFILES`, `profiles.active`). */
+  profiles?: string | string[];
 }
 
-/** Reads the poker config file; none found is an empty config, an explicit path that is missing or broken throws. */
+/** Poker's layered config: `poker.config.*` plus `poker.config.<profile>.*`, and the `host:` section. */
+export function loadPokerAppConfig(options: PokerAppConfigOptions = {}): AppConfig<PokerConfig> {
+  loadEnvFiles();
+  return loadAppConfig<PokerConfig>({
+    appId: POKER_APP_ID,
+    profiles: options.profiles,
+    configPath: options.configPath || process.env.POKER_CONFIG || undefined,
+    searchDirs: [process.cwd(), MODULE_ROOT],
+    envDirs: ENV_DIRS,
+  });
+}
+
+/** Reads the poker config (base file plus active profile files); an explicit path that is missing or broken throws. */
 export function loadPokerConfigFile(explicitPath?: string): PokerConfig {
-  const file = findPokerConfigFile(explicitPath);
-  return file ? (loadConfigFile(file) as PokerConfig) : {};
+  return loadPokerAppConfig({ configPath: explicitPath }).values;
 }
 
 // Redirect noisy library warnings (e.g. @google/genai redundant key notice)
