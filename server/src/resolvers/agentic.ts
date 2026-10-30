@@ -87,9 +87,9 @@ async function syncAgentRoles(prisma: any, agentId: string, roleNames?: string[]
     }
     if (roleNames?.length) {
         for (const name of roleNames) {
-            let role = await prisma.role.findUnique({ where: { name } });
+            let role = await prisma.role.findUnique({ where: { id: name } });
             if (!role) {
-                role = await prisma.role.create({ data: { name, description: `Role ${name}` } });
+                role = await prisma.role.create({ data: { id: name, name, description: `Role ${name}` } });
             }
             resolvedRoleIds.add(role.id);
         }
@@ -964,9 +964,9 @@ export const agenticResolvers = {
 
         assignAgentRole: async (_parent: any, { agentId, roleName }: { agentId: string, roleName: string }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
-            let role = await context.prisma.role.findUnique({ where: { name: roleName } });
+            let role = await context.prisma.role.findUnique({ where: { id: roleName } });
             if (!role) {
-                role = await context.prisma.role.create({ data: { name: roleName, description: `Role ${roleName}` } });
+                role = await context.prisma.role.create({ data: { id: roleName, name: roleName, description: `Role ${roleName}` } });
             }
             await context.prisma.agentRole.upsert({
                 where: { agentId_roleId: { agentId, roleId: role.id } },
@@ -982,7 +982,7 @@ export const agenticResolvers = {
 
         removeAgentRole: async (_parent: any, { agentId, roleName }: { agentId: string, roleName: string }, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
-            const role = await context.prisma.role.findUnique({ where: { name: roleName } });
+            const role = await context.prisma.role.findUnique({ where: { id: roleName } });
             if (role) {
                 await context.prisma.agentRole.deleteMany({
                     where: { agentId, roleId: role.id }

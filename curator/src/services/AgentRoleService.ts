@@ -409,9 +409,9 @@ export class AgentRoleService {
 
         for (const r of defaultRoles) {
             await (prisma as any).role.upsert({
-                where: { name: r.name },
+                where: { id: r.name },
                 update: { description: r.description },
-                create: { name: r.name, description: r.description }
+                create: { id: r.name, name: r.name, description: r.description }
             });
         }
     }

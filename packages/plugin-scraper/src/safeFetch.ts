@@ -69,7 +69,8 @@ export async function safeFetchText(url: string, options: SafeFetchOptions = {})
     const res = await request(target, {
       timeoutMs: Math.max(deadline - Date.now(), 1),
       allowPrivate: options.allowPrivateNetworks === true,
-      userAgent: options.userAgent ?? 'CuratorBlueprint/1.0 (+web_scrape)',
+      userAgent: options.userAgent ?? 'CuratorScraper/1.0',
+      accept: types.join(','),
     });
 
     if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
@@ -120,7 +121,7 @@ function guardedLookup(allowPrivate: boolean): net.LookupFunction {
   };
 }
 
-function request(target: URL, opts: { timeoutMs: number; allowPrivate: boolean; userAgent: string }): Promise<http.IncomingMessage> {
+function request(target: URL, opts: { timeoutMs: number; allowPrivate: boolean; userAgent: string; accept: string }): Promise<http.IncomingMessage> {
   return new Promise((resolve, reject) => {
     const mod = target.protocol === 'https:' ? https : http;
     const req = mod.request(
@@ -128,7 +129,7 @@ function request(target: URL, opts: { timeoutMs: number; allowPrivate: boolean; 
       {
         method: 'GET',
         lookup: guardedLookup(opts.allowPrivate),
-        headers: { 'User-Agent': opts.userAgent, Accept: 'text/html,application/xhtml+xml,text/plain;q=0.9' },
+        headers: { 'User-Agent': opts.userAgent, Accept: opts.accept },
         timeout: opts.timeoutMs,
       },
       resolve

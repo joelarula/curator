@@ -21,8 +21,6 @@
       "@curator/mcp-server/*": ["../../packages/mcp-server/dist/*"],
       "@curator/server": ["../../packages/server/dist/index.d.ts"],
       "@curator/server/*": ["../../packages/server/dist/*"],
-      "@curator/federation": ["../../packages/federation/dist/index.d.ts"],
-      "@curator/federation/*": ["../../packages/federation/dist/*"],
       "graphql": ["../../miniapps/keeris/node_modules/graphql/index.d.ts"],
       "graphql/*": ["../../miniapps/keeris/node_modules/graphql/*"]
     },

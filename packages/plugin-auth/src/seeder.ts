@@ -71,7 +71,7 @@ export async function seedCuratorRbac(prisma: any, options?: SeedRbacOptions): P
 
     // 2. Seed Role Inheritance (Composable Roles)
     // curator_manager encompasses curator_admin, and curator_admin encompasses curator_user
-    const managerRole = roleMap.get(CURATOR_ROLES.MANAGER) || (await prisma.role?.findUnique?.({ where: { name: CURATOR_ROLES.MANAGER } }));
+    const managerRole = roleMap.get(CURATOR_ROLES.MANAGER) || (await prisma.role?.findUnique?.({ where: { id: CURATOR_ROLES.MANAGER } }));
     const adminRole = roleMap.get(CURATOR_ROLES.ADMIN) || (await prisma.role?.findUnique?.({ where: { name: CURATOR_ROLES.ADMIN } }));
     const userRoleRecord = roleMap.get(CURATOR_ROLES.USER) || (await prisma.role?.findUnique?.({ where: { name: CURATOR_ROLES.USER } }));
 

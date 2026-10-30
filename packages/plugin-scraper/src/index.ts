@@ -4,6 +4,8 @@ import { YouTubeAudioService, builtInPlugins } from './plugins/index.js';
 export * from './ScraperService.js';
 export * from './ScraperTask.js';
 export * from './plugins/index.js';
+export * from './safeFetch.js';
+export * from './tools.js';
 
 for (const task of builtInPlugins) {
   if (!ScraperService.getTask(task.name)) ScraperService.registerTask(task);

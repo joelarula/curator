@@ -28,6 +28,7 @@ export class MeshServer {
     }
 
     if (this.wss) {
+      this.bridge.setIncomingTransport((envelope) => this.broadcastToIncoming(envelope));
       this.wss.on('connection', (ws: WebSocket) => {
         this.clients.add(ws);
 

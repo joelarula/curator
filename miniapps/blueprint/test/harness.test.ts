@@ -6,7 +6,7 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { createBlueprintServer } from '../dist/blueprintServer/createBlueprintServer.js';
+import { createBlueprintServer } from '../../blueprint-server/dist/createBlueprintServer.js';
 import { connectBlueprintServer, createBlueprintRuntime } from '../dist/host.js';
 import { createAssistant } from '../dist/harness/assistant.js';
 import { LlmFactory } from '../../../curator/dist/src/index.js';

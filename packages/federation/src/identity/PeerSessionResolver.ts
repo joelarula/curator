@@ -44,15 +44,16 @@ export async function resolvePeerSession(
   });
 
   // 3. Upsert RBAC Role for the peer
-  let role = await prisma.role.findUnique({ where: { name: roleName } });
-  if (!role) {
-    role = await prisma.role.create({
-      data: {
-        name: roleName,
-        description: `Federated Peer Role for ${name}`,
-      },
-    });
-  }
+  // Role.name is only unique per project and Role.id has no default; system roles use id = name.
+  const role = await prisma.role.upsert({
+    where: { id: roleName },
+    update: {},
+    create: {
+      id: roleName,
+      name: roleName,
+      description: `Federated Peer Role for ${name}`,
+    },
+  });
 
   // Bind User to Role
   const existingUr = await prisma.userRole.findFirst({

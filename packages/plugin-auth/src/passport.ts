@@ -78,7 +78,7 @@ export function setupGoogleAuth(
               if (engine.isDefaultManager(email)) {
                 try {
                   if (prisma.userRole && prisma.role) {
-                    const managerRole = await prisma.role.findUnique({ where: { name: CURATOR_ROLES.MANAGER } });
+                    const managerRole = await prisma.role.findUnique({ where: { id: CURATOR_ROLES.MANAGER } });
                     if (managerRole) {
                       const existingUr = await prisma.userRole.findFirst({
                         where: { userId: user.id, roleId: managerRole.id, projectId: null },

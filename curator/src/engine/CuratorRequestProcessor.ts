@@ -472,18 +472,21 @@ export class CuratorRequestProcessor {
       // Seed baseline security roles
       await AgentRoleService.ensureDefaultRoles(this.prisma);
 
-      // Ensure base roles exist
+      // Ensure base roles exist (system roles use id = name; Role.name is only unique per project)
       const adminRole = await this.prisma.role.upsert({
-        where: { name: 'Admin' },
+        where: { id: 'Admin' },
         update: { description: 'Full system administrator with all tool and agent permissions' },
-        create: { name: 'Admin', description: 'Full system administrator with all tool and agent permissions' }
+        create: { id: 'Admin', name: 'Admin', description: 'Full system administrator with all tool and agent permissions' }
       });
 
       const workerRole = await this.prisma.role.upsert({
-        where: { name: 'AgentWorker' },
+        where: { id: 'AgentWorker' },
         update: { description: 'Standard automated agent worker with safe execution permissions' },
-        create: { name: 'AgentWorker', description: 'Standard automated agent worker with safe execution permissions' }
+        create: { id: 'AgentWorker', name: 'AgentWorker', description: 'Standard automated agent worker with safe execution permissions' }
       });
+      // Permission/RolePermission exist only in the MariaDB schema
+      const prismaAny = this.prisma as any;
+      const hasPermissions = !!prismaAny.permission && !!prismaAny.rolePermission;
 
       // Role inheritance: Admin includes subRole AgentWorker
       await this.prisma.roleInheritance.upsert({
@@ -510,16 +513,21 @@ export class CuratorRequestProcessor {
           create: { name, description: (tool as any).description ?? '', version: '1.0.0', accessLevel, requiresConfirmation }
         });
 
+        if (!hasPermissions) {
+          count++;
+          continue;
+        }
+
         // Upsert permission for tool
         const permName = `tool:${name}:execute`;
-        const perm = await this.prisma.permission.upsert({
+        const perm = await prismaAny.permission.upsert({
           where: { name: permName },
           update: { description: `Execute tool ${name}`, toolName: name, accessLevel, requiresConfirmation },
           create: { name: permName, description: `Execute tool ${name}`, toolName: name, accessLevel, requiresConfirmation }
         });
 
         // Attach to Admin role
-        await this.prisma.rolePermission.upsert({
+        await prismaAny.rolePermission.upsert({
           where: {
             roleId_permissionId: {
               roleId: adminRole.id,
@@ -535,7 +543,7 @@ export class CuratorRequestProcessor {
 
         // If safe, attach to AgentWorker role
         if (accessLevel === 'read_only' || accessLevel === 'safe_write') {
-          await this.prisma.rolePermission.upsert({
+          await prismaAny.rolePermission.upsert({
             where: {
               roleId_permissionId: {
                 roleId: workerRole.id,
@@ -563,7 +571,7 @@ export class CuratorRequestProcessor {
       logger.debug(`[CuratorRequestProcessor] Syncing agents from CuratorEngine registry...`);
       let count = 0;
 
-      const workerRole = await this.prisma.role.findUnique({ where: { name: 'AgentWorker' } });
+      const workerRole = await this.prisma.role.findUnique({ where: { id: 'AgentWorker' } });
 
       for (const [name, agentDef] of curatorEngine.agents.entries()) {
         // Ensure system user and project exist

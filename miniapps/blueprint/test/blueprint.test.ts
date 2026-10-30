@@ -165,65 +165,6 @@ test('Classical discourse forms (soliloquy, monologue, trialogue, catechism, dia
   assert.equal(ast.subAgents[5].name, 'apostrophe:audit_ledger');
 });
 
-test('P2P Mesh connects two hosts and exchanges Bang/Ping/Pong events', async () => {
-  const { createCuratorHost } = await import('../../../packages/host/dist/index.js');
-  const { withFederation } = await import('../../../packages/federation/dist/index.js');
-  const { curatorEngine } = await import('../../../curator/dist/src/index.js');
-
-  const hostA = await createCuratorHost({
-    name: 'test-host-a',
-    dataDir: './data/test_mesh_a',
-    registerPlugins: async () => curatorEngine,
-  });
-
-  const meshA = await withFederation(hostA, {
-    peerId: 'peer-a',
-    meshPort: 5201,
-    peers: [{ id: 'peer-b', eventsUrl: 'ws://127.0.0.1:5202/api/mesh/events' }],
-  });
-
-  const hostB = await createCuratorHost({
-    name: 'test-host-b',
-    dataDir: './data/test_mesh_b',
-    registerPlugins: async () => curatorEngine,
-  });
-
-  const meshB = await withFederation(hostB, {
-    peerId: 'peer-b',
-    meshPort: 5202,
-    peers: [{ id: 'peer-a', eventsUrl: 'ws://127.0.0.1:5201/api/mesh/events' }],
-  });
-
-  await new Promise((r) => setTimeout(r, 600));
-
-  let pongReceived = false;
-  hostA.events.onEvent((event: any) => {
-    if (event.type === 'game:pong' || event.type === 'mesh:game:pong') {
-      pongReceived = true;
-    }
-  });
-
-  hostB.events.onEvent((event: any) => {
-    if (event.type === 'game:ping' || event.type === 'mesh:game:ping') {
-      meshB.broadcastEvent('game:pong', { echoed: true });
-    }
-  });
-
-  meshA.broadcastEvent('game:ping', { msg: 'PING' });
-
-  for (let i = 0; i < 20; i++) {
-    if (pongReceived) break;
-    await new Promise((r) => setTimeout(r, 100));
-  }
-
-  assert.equal(pongReceived, true);
-
-  await meshA.close();
-  await meshB.close();
-  await hostA.stop();
-  await hostB.stop();
-});
-
 test('GraphQL API resolves metrics, tools, and executes queries', async () => {
   const { createBlueprintHost } = await import('../dist/host.js');
   const { executeGraphqlQuery } = await import('../dist/server/graphql.js');

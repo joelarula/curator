@@ -1,9 +1,9 @@
-import { CuratorEngine } from '../../../../curator/dist/src/index.js';
-import { createCuratorHost, type CuratorHost } from '../../../../packages/host/dist/index.js';
-import { createMcpServer, createUserActorMapper, emailAllowList, type CuratorMcpInstance } from '../../../../packages/mcp-server/dist/index.js';
-import { createGoogleIdTokenVerifier, createJwtVerifier, type JwtVerifierOptions } from '../../../../packages/auth-client/dist/index.js';
+import { CuratorEngine } from '../../../curator/dist/src/index.js';
+import { createCuratorHost, type CuratorHost } from '../../../packages/host/dist/index.js';
+import { createMcpServer, createUserActorMapper, emailAllowList, type CuratorMcpInstance } from '../../../packages/mcp-server/dist/index.js';
+import { createGoogleIdTokenVerifier, createJwtVerifier, type JwtVerifierOptions } from '../../../packages/auth-client/dist/index.js';
 import { WEB_READER_ROLE, webScrapePlugin } from './webScrapePlugin.js';
-import type { SafeFetchOptions } from './safeFetch.js';
+import type { SafeFetchOptions } from '../../../packages/plugin-scraper/dist/index.js';
 
 export const GOOGLE_ISSUER = 'https://accounts.google.com';
 

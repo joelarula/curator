@@ -1,0 +1,23 @@
+{
+  "name": "curator-blueprint-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/createBlueprintServer.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/main.ts",
+    "start": "node dist/main.js",
+    "test": "node --test test/blueprint_server.test.ts"
+  },
+  "dependencies": {
+    "@curator/agent-server": "file:../../curator",
+    "@curator/host": "file:../../packages/host",
+    "@curator/mcp-server": "file:../../packages/mcp-server"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.1",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2"
+  }
+}

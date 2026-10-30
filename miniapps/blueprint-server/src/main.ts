@@ -5,7 +5,7 @@ import { createBlueprintServer } from './createBlueprintServer.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Local .env first, then the workspace .env (GOOGLE_CLIENT_ID lives there); existing env vars win.
-for (const file of [path.resolve(here, '../../.env'), path.resolve(here, '../../../../.env')]) {
+for (const file of [path.resolve(here, '../.env'), path.resolve(here, '../../../.env')]) {
   if (fs.existsSync(file)) process.loadEnvFile(file);
 }
 
@@ -20,7 +20,7 @@ const server = await createBlueprintServer({
   allowedEmails,
   port: Number(process.env.BLUEPRINT_SERVER_PORT ?? 4200),
   publicUrl: process.env.BLUEPRINT_SERVER_PUBLIC_URL,
-  databasePath: process.env.BLUEPRINT_SERVER_DB ?? path.resolve(here, '../../data/blueprint-server/curator.db'),
+  databasePath: process.env.BLUEPRINT_SERVER_DB ?? path.resolve(here, '../data/curator.db'),
 });
 console.log(`[blueprint-server] MCP endpoint ${server.url} (Google sign-in; allowed: ${allowedEmails.join(', ')})`);
 

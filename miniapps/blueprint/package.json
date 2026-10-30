@@ -18,17 +18,15 @@
     "repl": "tsx src/cli.ts repl",
     "repl:direct": "tsx src/cli.ts repl --direct",
     "start": "node dist/src/server/index.js",
-    "test": "node --test test/blueprint.test.ts test/blueprint_server.test.ts",
+    "test": "node --test test/blueprint.test.ts",
     "chat": "tsx examples/cli_client.ts",
     "cli:agent": "tsx src/cli.ts agent",
     "cli:chat": "tsx src/cli.ts chat",
-    "example:tool": "tsx examples/direct_tool_call.ts",
-    "blueprint-server": "tsx src/blueprintServer/main.ts"
+    "example:tool": "tsx examples/direct_tool_call.ts"
   },
   "dependencies": {
     "@curator/agent-server": "file:../../curator",
     "@curator/console": "file:../../packages/curator-console",
-    "@curator/federation": "file:../../packages/federation",
     "@curator/host": "file:../../packages/host",
     "@curator/mcp-server": "file:../../packages/mcp-server",
     "@curator/server": "file:../../packages/server",

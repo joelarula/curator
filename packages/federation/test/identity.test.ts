@@ -35,17 +35,20 @@ test('resolvePeerSession provisions peer user, role, and active session', async 
       },
     },
     role: {
-      findUnique: async (args: any) => roles.find((r) => r.name === args.where.name) || null,
-      create: async (args: any) => {
-        const r = { id: 'role_' + (roles.length + 1), ...args.data };
+      upsert: async (args: any) => {
+        const existing = roles.find((r) => r.id === args.where.id);
+        if (existing) return Object.assign(existing, args.update);
+        const r = { ...args.create };
         roles.push(r);
         return r;
       },
     },
     userRole: {
-      upsert: async (args: any) => {
-        userRoles.push(args.create);
-        return args.create;
+      findFirst: async (args: any) =>
+        userRoles.find((ur) => ur.userId === args.where.userId && ur.roleId === args.where.roleId && ur.projectId === args.where.projectId) || null,
+      create: async (args: any) => {
+        userRoles.push(args.data);
+        return args.data;
       },
     },
     permission: {

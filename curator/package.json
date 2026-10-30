@@ -47,7 +47,8 @@
   },
   "optionalDependencies": {
     "@curator/plugin-feeds": "file:../packages/plugin-feeds",
-    "@curator/plugin-llm-gemini": "file:../packages/plugin-llm-gemini"
+    "@curator/plugin-llm-gemini": "file:../packages/plugin-llm-gemini",
+    "@curator/plugin-scraper": "file:../packages/plugin-scraper"
   },
   "devDependencies": {
     "@types/coffeescript": "^2.5.7",
