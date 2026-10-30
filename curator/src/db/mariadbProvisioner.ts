@@ -121,6 +121,7 @@ async function ensureCuratorMariadbSchema(pool: any): Promise<void> {
       lastError TEXT,
       serverInfo JSON,
       instructions TEXT,
+      expectations JSON,
       enabled BOOLEAN NOT NULL DEFAULT TRUE,
       lastSyncedAt DATETIME(3),
       projectId VARCHAR(191) NOT NULL,
@@ -167,6 +168,7 @@ async function ensureCuratorMariadbSchema(pool: any): Promise<void> {
       CONSTRAINT McpPrompt_mcpServerId_fkey FOREIGN KEY (mcpServerId) REFERENCES McpServer(id) ON DELETE CASCADE ON UPDATE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
 
+    `ALTER TABLE McpServer ADD COLUMN IF NOT EXISTS expectations JSON;`,
     `ALTER TABLE Tool ADD COLUMN IF NOT EXISTS origin VARCHAR(191) NOT NULL DEFAULT 'local';`,
     `ALTER TABLE Tool ADD COLUMN IF NOT EXISTS mcpServerId INT;`,
     `ALTER TABLE Tool ADD COLUMN IF NOT EXISTS remoteName VARCHAR(191);`,

@@ -47,6 +47,7 @@ export function migrateMcpTables(db: DatabaseSync): void {
       "lastError" TEXT,
       "serverInfo" JSONB,
       "instructions" TEXT,
+      "expectations" JSONB,
       "enabled" BOOLEAN NOT NULL DEFAULT true,
       "lastSyncedAt" DATETIME,
       "projectId" TEXT NOT NULL,
@@ -95,6 +96,13 @@ export function migrateMcpTables(db: DatabaseSync): void {
   ];
   for (const sql of statements) {
     try { db.exec(sql); } catch (_) {}
+  }
+
+  const serverColumns = new Set(
+    (db.prepare(`PRAGMA table_info("McpServer")`).all() as { name: string }[]).map((c) => c.name)
+  );
+  if (serverColumns.size > 0 && !serverColumns.has('expectations')) {
+    db.exec(`ALTER TABLE "McpServer" ADD COLUMN "expectations" JSONB;`);
   }
 
   const toolColumns = new Set(

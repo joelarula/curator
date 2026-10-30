@@ -117,6 +117,7 @@ model McpServer {
   lastError    String?
   serverInfo   Json?         // initialize result: name, version, capabilities
   instructions String?
+  expectations Json?         // declared tools/resources/prompts (roles, access levels, strict)
   enabled      Boolean       @default(true)
   lastSyncedAt DateTime?
   projectId    String        // owning project ('system' scope for shared servers)

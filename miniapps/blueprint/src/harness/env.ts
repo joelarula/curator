@@ -146,9 +146,12 @@ export function mcpToolOutputRules(config: BlueprintConfig): Record<string, { ll
   return rules;
 }
 
-/** What `register` should create before the server is reached (`tools`, `resources`, `prompts`, `strict`). */
-export function mcpExpectations(server: McpServerSettings): McpServerExpectations | undefined {
-  if (!server.tools && !server.resources && !server.prompts) return undefined;
+/**
+ * What `register` should create before the server is reached (`tools`, `resources`, `prompts`, `strict`);
+ * null clears declarations stored by an earlier config.
+ */
+export function mcpExpectations(server: McpServerSettings): McpServerExpectations | null {
+  if (!server.tools && !server.resources && !server.prompts) return null;
   const tools = Object.fromEntries(
     Object.entries(server.tools ?? {}).map(([name, t]) => [name, { roles: t?.roles, accessLevel: t?.accessLevel, description: t?.description }])
   );

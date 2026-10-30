@@ -313,6 +313,20 @@ test('declared tools get roles and access levels before the server is reached; s
     const later = await host.prisma.tool.findUnique({ where: { name: 'mcp.docs.later@proj-a' } });
     assert.equal(later.existent, false);
 
+    // Declarations are stored with the server: a restarted registry still syncs strictly.
+    const stored = await host.prisma.mcpServer.findUnique({ where: { projectId_name: { projectId: PROJECT_A, name: 'docs' } } });
+    assert.deepEqual(stored.expectations, expect);
+    const engine = { tools: new Map<string, any>(), registerTool(t: any) { this.tools.set(t.name, t); }, addToolResolver: () => () => {} };
+    const restarted = new McpRemoteRegistry();
+    await restarted.attach({ prisma: host.prisma, engine });
+    try {
+      const again = await restarted.sync(PROJECT_A, 'docs');
+      assert.deepEqual(again.skipped.tools, ['wipe']);
+      assert.ok(!engine.tools.has('mcp.docs.wipe@proj-a'));
+    } finally {
+      await restarted.close();
+    }
+
     // Re-declaring with other roles revokes the old grant.
     await registry.register({ projectId: PROJECT_A, name: 'docs', url: docs.url, sync: false, expect: { ...expect, tools: { search: { roles: ['viewer'] } } } });
     const regranted = await host.prisma.toolRole.findMany({ where: { toolId: synced.id } });

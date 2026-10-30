@@ -61,6 +61,8 @@ export interface McpServerRecord {
   authService: string | null;
   status: string;
   enabled: boolean;
+  /** Declarations stored with the server (`McpServer.expectations`). */
+  expect?: McpServerExpectations;
 }
 
 /** A remote tool declared before the server is reached. */
@@ -94,8 +96,8 @@ export interface RegisterMcpServerInput {
   createdBy?: string;
   /** Connect and sync the catalog right away (default true). */
   sync?: boolean;
-  /** Declared tools, resources and prompts; kept in memory for later syncs of this process. */
-  expect?: McpServerExpectations;
+  /** Declared tools, resources and prompts, stored with the server (`null` clears; omitted keeps them). */
+  expect?: McpServerExpectations | null;
 }
 
 /** Names per kind, for declared items the server did not list and undeclared ones a strict sync left out. */
@@ -173,8 +175,6 @@ export class McpRemoteRegistry {
   private readonly failures = new Map<number, number>();
   /** Servers with a `tryConnect` attempt in flight; their status changes are part of the attempt. */
   private readonly connecting = new Set<number>();
-  /** Declarations per server id (from `register({ expect })`). */
-  private readonly expectations = new Map<number, McpServerExpectations>();
   private detachResolver?: () => void;
   readonly sharedProjectIds: string[];
 
@@ -243,6 +243,8 @@ export class McpRemoteRegistry {
       authService: input.authService ?? null,
       enabled: true,
       existent: true,
+      // `{}` rather than null: Prisma Json fields need DbNull for SQL NULL.
+      ...(input.expect !== undefined ? { expectations: input.expect ?? {} } : {}),
     };
     const row = existing
       ? await this.prisma.mcpServer.update({ where, data: { ...data, status: existing.url === input.url ? existing.status : 'registered' } })
@@ -251,10 +253,7 @@ export class McpRemoteRegistry {
         });
     if (existing && (existing.url !== input.url || existing.authService !== data.authService)) await this.disconnect(row.id);
     const record = this.remember(row);
-    if (input.expect) {
-      this.expectations.set(record.id, input.expect);
-      await this.declareCatalog(record, input.expect);
-    }
+    if (record.expect) await this.declareCatalog(record, record.expect);
 
     if (input.sync === false) return { server: record };
     try {
@@ -277,7 +276,7 @@ export class McpRemoteRegistry {
         : [];
       const prompts = capabilities.prompts ? await collect((cursor) => client.listPrompts({ cursor }), 'prompts') : [];
 
-      const expect = this.expectations.get(server.id);
+      const expect = server.expect;
       const kept = {
         tools: keepDeclared(tools, (t) => t.name, expect?.tools && Object.keys(expect.tools), expect?.strict),
         resources: keepDeclared(resources, (r) => r.uri, expect?.resources, expect?.strict),
@@ -336,7 +335,6 @@ export class McpRemoteRegistry {
     this.unregisterServerTools(server.id);
     await this.disconnect(server.id);
     this.servers.delete(server.id);
-    this.expectations.delete(server.id);
   }
 
   /** Servers visible to a project (its own plus shared). */
@@ -487,7 +485,7 @@ export class McpRemoteRegistry {
 
   private async syncTools(server: McpServerRecord, tools: any[]): Promise<number> {
     const fallback = this.options.unannotatedAccessLevel ?? 'elevated';
-    const declared = this.expectations.get(server.id)?.tools ?? {};
+    const declared = server.expect?.tools ?? {};
     const keys: string[] = [];
     for (const tool of tools) {
       const key = toolKey(server.projectId, server.name, tool.name);
@@ -838,6 +836,7 @@ export class McpRemoteRegistry {
       authService: row.authService ?? null,
       status: row.status,
       enabled: row.enabled !== false && row.existent !== false,
+      expect: row.expectations ?? undefined,
     };
     this.servers.set(record.id, record);
     return record;
