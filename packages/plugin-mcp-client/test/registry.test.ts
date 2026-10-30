@@ -271,6 +271,58 @@ test('servers needing a login report auth_required and recover after login', asy
   assert.equal(secure.calls.at(-1)?.auth, 'Bearer good-token');
 });
 
+test('declared tools get roles and access levels before the server is reached; strict skips the rest', async () => {
+  for (const id of ['planner', 'viewer']) {
+    await host.prisma.role.upsert({ where: { id }, update: {}, create: { id, name: id } });
+  }
+  const docs = await startMockMcpServer({
+    label: 'D',
+    tools: {
+      search: { annotations: { readOnlyHint: true }, handler: () => 'found' },
+      wipe: { annotations: { destructiveHint: true }, handler: () => 'wiped' },
+    },
+    prompts: [{ name: 'brief' }, { name: 'other' }],
+  });
+  try {
+    const expect = {
+      tools: { search: { roles: ['planner'], accessLevel: 'safe_write' as const }, later: { roles: ['viewer'] } },
+      prompts: ['brief'],
+      strict: true,
+    };
+    await registry.register({ projectId: PROJECT_A, name: 'docs', url: docs.url, sync: false, expect });
+
+    // Before any connection: rows with grants, not callable.
+    const search = await host.prisma.tool.findUnique({ where: { name: 'mcp.docs.search@proj-a' }, include: { roles: true } });
+    assert.equal(search.existent, false);
+    assert.equal(search.accessLevel, 'safe_write');
+    assert.deepEqual(search.roles.map((r: any) => r.roleId), ['planner']);
+    assert.equal(registry.resolveTool('mcp.docs.search', PROJECT_A), undefined);
+    const brief = await host.prisma.mcpPrompt.findFirst({ where: { name: 'brief', mcpServer: { name: 'docs' } } });
+    assert.equal(brief.existent, false);
+
+    const sync = await registry.sync(PROJECT_A, 'docs');
+    assert.deepEqual(sync.missing, { tools: ['later'], resources: [], prompts: [] });
+    assert.deepEqual(sync.skipped, { tools: ['wipe'], resources: [], prompts: ['other'] });
+    assert.ok(registry.resolveTool('mcp.docs.search', PROJECT_A));
+    assert.equal(registry.resolveTool('mcp.docs.wipe', PROJECT_A), undefined);
+    const synced = await host.prisma.tool.findUnique({ where: { name: 'mcp.docs.search@proj-a' }, include: { roles: true } });
+    // The declaration wins over the readOnlyHint; roles stay exactly the declared ones.
+    assert.equal(synced.existent, true);
+    assert.equal(synced.accessLevel, 'safe_write');
+    assert.deepEqual(synced.roles.map((r: any) => r.roleId), ['planner']);
+    const later = await host.prisma.tool.findUnique({ where: { name: 'mcp.docs.later@proj-a' } });
+    assert.equal(later.existent, false);
+
+    // Re-declaring with other roles revokes the old grant.
+    await registry.register({ projectId: PROJECT_A, name: 'docs', url: docs.url, sync: false, expect: { ...expect, tools: { search: { roles: ['viewer'] } } } });
+    const regranted = await host.prisma.toolRole.findMany({ where: { toolId: synced.id } });
+    assert.deepEqual(regranted.map((r: any) => r.roleId), ['viewer']);
+  } finally {
+    await registry.unregister(PROJECT_A, 'docs');
+    await docs.close();
+  }
+});
+
 test('unregister removes the server from resolution and the catalog', async () => {
   await registry.unregister(PROJECT_B, 'crm');
   assert.equal(registry.resolveTool('mcp.crm.lookup', PROJECT_B), undefined);

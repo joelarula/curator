@@ -2,6 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AuthConfig, IdpConfig } from '../../../../packages/auth-client/dist/index.js';
 import type { FormatSpec } from '../../../../curator/dist/src/index.js';
+import type { AccessLevel, McpServerExpectations } from '../../../../packages/plugin-mcp-client/dist/index.js';
 import {
   loadAppConfig,
   mergeConfig,
@@ -33,6 +34,23 @@ export interface McpServerSettings {
    * applies to `mcp.<server>.<tool>` and wins over the plugins' defaults.
    */
   output?: Record<string, { llm?: FormatSpec; display?: FormatSpec }>;
+  /**
+   * Tools expected from the server, registered before it is reached: `roles` (exactly these, instead of the
+   * harness defaults), `accessLevel` (wins over the server's annotations), `output` (as in `output`).
+   */
+  tools?: Record<string, McpToolSettings>;
+  /** Expected resource URIs / URI templates and prompt names (cataloged before the first sync). */
+  resources?: string[];
+  prompts?: string[];
+  /** Import only the declared tools (resources, prompts) of this server. */
+  strict?: boolean;
+}
+
+export interface McpToolSettings {
+  roles?: string[];
+  accessLevel?: AccessLevel;
+  description?: string;
+  output?: { llm?: FormatSpec; display?: FormatSpec };
 }
 
 /** Default env var of an IdP's client id, for hints when sign-in is unavailable. */
@@ -41,8 +59,11 @@ const CLIENT_ID_ENV: Record<string, string> = { [GOOGLE_IDP]: 'CLIENT_ID_BLUEPRI
 export interface BlueprintConfig {
   /** Gemini LLM; without `apiKey` the plugin falls back to GOOGLE_API_KEY / GEMINI_API_KEY. */
   gemini: { apiKey?: string; model?: string };
-  /** Web assistant agent: `historyCompaction` = history_compaction strategy (empty string = none). */
-  assistant: { historyCompaction?: string };
+  /**
+   * Web assistant agent: `historyCompaction` = history_compaction strategy (empty string = none);
+   * `summaryModel` = model of the history_summarizer agent (default: the assistant's).
+   */
+  assistant: { historyCompaction?: string; summaryModel?: string };
   dataDir: string;
   databasePath?: string;
   server: { port: number };
@@ -61,11 +82,17 @@ export interface LoadedBlueprintConfig {
 /** Built-in defaults; `blueprint.config.yaml` documents the same values. */
 const DEFAULTS: BlueprintConfig = {
   gemini: { apiKey: '${GOOGLE_API_KEY}' },
-  assistant: { historyCompaction: 'pack-middle:head=1,keep=6,max=16' },
+  assistant: { historyCompaction: 'pack-middle:head=1,keep=6,max=16,agent=history_summarizer' },
   dataDir: './data',
   server: { port: 4100 },
   mcp: {
-    [BLUEPRINT_SERVICE]: { url: 'http://127.0.0.1:4200/mcp', idp: GOOGLE_IDP, bearer: 'id_token' },
+    [BLUEPRINT_SERVICE]: {
+      url: 'http://127.0.0.1:4200/mcp',
+      idp: GOOGLE_IDP,
+      bearer: 'id_token',
+      // Granted (harness default roles) and cataloged before the server is reached.
+      tools: { web_scrape: { accessLevel: 'read_only' } },
+    },
   },
   auth: {
     // "TVs and Limited Input devices" client: device flow, scopes `openid email`.
@@ -113,9 +140,19 @@ export function loadBlueprintConfig(env: NodeJS.ProcessEnv = process.env): Loade
 export function mcpToolOutputRules(config: BlueprintConfig): Record<string, { llm?: FormatSpec; display?: FormatSpec }> {
   const rules: Record<string, { llm?: FormatSpec; display?: FormatSpec }> = {};
   for (const [name, server] of enabledMcpServers(config)) {
+    for (const [tool, spec] of Object.entries(server.tools ?? {})) if (spec?.output) rules[`mcp.${name}.${tool}`] = spec.output;
     for (const [tool, spec] of Object.entries(server.output ?? {})) rules[`mcp.${name}.${tool}`] = spec;
   }
   return rules;
+}
+
+/** What `register` should create before the server is reached (`tools`, `resources`, `prompts`, `strict`). */
+export function mcpExpectations(server: McpServerSettings): McpServerExpectations | undefined {
+  if (!server.tools && !server.resources && !server.prompts) return undefined;
+  const tools = Object.fromEntries(
+    Object.entries(server.tools ?? {}).map(([name, t]) => [name, { roles: t?.roles, accessLevel: t?.accessLevel, description: t?.description }])
+  );
+  return { tools, resources: server.resources, prompts: server.prompts, strict: server.strict };
 }
 
 /** Enabled MCP servers by name. */

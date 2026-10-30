@@ -133,11 +133,14 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
       const compaction = ctx.isDynamicExpr(ast.history_compaction)
         ? await ctx.evaluateExpression(ast.history_compaction, req)
         : ast.history_compaction;
-      history = compaction
+      const compacted = compaction
         ? await compactHistory(compaction as HistoryCompactionSpec, turns, `${ast.agentName ?? req.agentId ?? 'agent'}|${profile}`, req, ctx, (text) =>
             provider.generateContent({ model, systemPrompt: DEFAULT_SUMMARY_INSTRUCTION, messages: [{ role: 'user', content: text }], baseUrl: ast.baseUrl })
               .then((r) => r.text || ''))
         : turns.flatMap((t) => t.messages);
+      // Parked until the summarizer agent answers; this node runs again with its summary.
+      if (!compacted) return;
+      history = compacted;
     }
     const messages: LlmMessage[] = [...history];
     messages.push({ role: 'user', content: prompt });
@@ -444,10 +447,50 @@ function agentTurnMessages(prompt: string, contents: string[], profile: HistoryP
 }
 
 const SUMMARY_PREFIX = '{"type":"HISTORY_SUMMARY"';
+/** Context key the summarizer agent's answer comes back under (its `as`), and the input it answers. */
+const SUMMARY_AS = '__historySummary';
+const SUMMARY_FOR = '__historySummaryFor';
+
+/** A summary must come from the summarizer agent first (`args.agent`). */
+class SummaryPending extends Error {
+  constructor(readonly transcript: string, readonly summaryFor: string) {
+    super('history summary pending');
+  }
+}
+
+/**
+ * Runs the summarizer agent (a registered agent, e.g. its own model and instruction) on `transcript` as a child
+ * Request and parks the turn. The child sees only the transcript (`context.message` / `context.input`), stays
+ * out of later history, and hands its answer back in this Request's context under SUMMARY_AS.
+ */
+async function startSummarizer(agentName: string, pending: SummaryPending, req: any, ctx: NodeContext): Promise<void> {
+  const agent = await ctx.prisma.agent.findFirst({
+    where: { OR: [{ id: agentName }, { name: agentName }], existent: true },
+    include: { script: true },
+  });
+  let agentAst: any = agent?.script?.ast;
+  if (typeof agentAst === 'string') {
+    try { agentAst = JSON.parse(agentAst); } catch (_) { agentAst = null; }
+  }
+  if (!agent || agentAst?.type !== 'Curator_Agent') {
+    throw new Error(`history_compaction: summarizer agent '${agentName}' not found or not a Curator_Agent`);
+  }
+  const { history_compaction: _none, ...summarizer } = agentAst;
+  await ctx.spawnChildAndParkParent(req, {
+    parentId: req.id,
+    agentId: agent.id,
+    scriptId: agent.scriptId,
+    ast: { ...summarizer, include_contents: 'none', exclude_from_history: true, as: SUMMARY_AS },
+    context: { message: pending.transcript, input: pending.transcript, origin: 'AST', summaryFor: pending.summaryFor },
+    // callPending: the child's context is not carried into this one (only its answer, via `as`).
+  }, { [SUMMARY_FOR]: pending.summaryFor, [SUMMARY_AS]: null, callPending: true });
+}
 
 /**
  * Runs the compaction strategy over the earlier turns. The strategy's last summary for `key` (agent + profile + strategy)
  * is handed back to it; a summary covering new turns is stored as a HISTORY_SUMMARY record on this Request.
+ * Summaries come from the agent's own model, or from the agent named by `args.agent`: then null is returned
+ * while that agent runs (the turn is parked and runs again).
  */
 async function compactHistory(
   spec: HistoryCompactionSpec,
@@ -456,7 +499,7 @@ async function compactHistory(
   req: any,
   ctx: NodeContext,
   complete: (text: string) => Promise<string>
-): Promise<LlmMessage[]> {
+): Promise<LlmMessage[] | null> {
   const { name, args } = parseCompactionSpec(spec);
   const compactor = ctx.history.compactor(name);
   if (!compactor) throw new Error(`Unknown history_compaction strategy '${name}'`);
@@ -478,13 +521,25 @@ async function compactHistory(
     } catch (_) {}
   }
 
-  const result = await compactor({
-    turns,
-    previous,
-    args,
-    agentName: baseKey.split('|')[0],
-    summarize: (covered, earlier) => complete(renderTranscript(covered, earlier)),
-  });
+  const summarizerAgent = typeof args.agent === 'string' && args.agent ? args.agent : undefined;
+  const summarize = async (covered: HistoryTurn[], earlier?: string): Promise<string> => {
+    const transcript = renderTranscript(covered, earlier);
+    if (!summarizerAgent) return complete(transcript);
+    // The summarizer's answer counts only for the input it was given (same turns, same earlier summary).
+    const summaryFor = `${key}|${covered.at(-1)?.requestId}|${earlier?.length ?? 0}`;
+    const answer = req.context?.[SUMMARY_FOR] === summaryFor ? req.context?.[SUMMARY_AS] : undefined;
+    if (answer != null) return typeof answer === 'string' ? answer : JSON.stringify(answer);
+    throw new SummaryPending(transcript, summaryFor);
+  };
+
+  let result: Awaited<ReturnType<typeof compactor>>;
+  try {
+    result = await compactor({ turns, previous, args, agentName: baseKey.split('|')[0], summarize });
+  } catch (err) {
+    if (!(err instanceof SummaryPending)) throw err;
+    await startSummarizer(summarizerAgent!, err, req, ctx);
+    return null;
+  }
   if (result.summary && (result.summary.throughRequestId !== previous?.throughRequestId || result.summary.text !== previous?.text)) {
     await ctx.saveResponse(req, JSON.stringify({
       type: 'HISTORY_SUMMARY', ok: true,

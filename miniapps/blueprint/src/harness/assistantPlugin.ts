@@ -1,6 +1,8 @@
-import type { CuratorPluginDefinition } from '../../../../curator/dist/src/index.js';
+import { DEFAULT_SUMMARY_INSTRUCTION, type CuratorPluginDefinition } from '../../../../curator/dist/src/index.js';
 
 export const ASSISTANT_AGENT = 'web_assistant';
+/** Writes the assistant's history summaries (`history_compaction` with `agent=history_summarizer`). */
+export const SUMMARIZER_AGENT = 'history_summarizer';
 /** The agent's role; remote blueprint tools are granted to it (ToolRole) when synced. */
 export const ASSISTANT_ROLE = 'web_assistant';
 
@@ -24,7 +26,9 @@ const INSTRUCTION = [
 ].join(' ');
 
 /** Harness agent: Gemini with the blueprint server's remote tools (`mcp.blueprint.*`). */
-export function assistantPlugin(options: { model?: string; historyCompaction?: string } = {}): CuratorPluginDefinition {
+export function assistantPlugin(
+  options: { model?: string; historyCompaction?: string; summaryModel?: string } = {}
+): CuratorPluginDefinition {
   return {
     name: 'blueprint-assistant',
     version: '1.0.0',
@@ -32,6 +36,19 @@ export function assistantPlugin(options: { model?: string; historyCompaction?: s
     roles: [{ name: ASSISTANT_ROLE, description: 'Runs the remote tools of the blueprint server' }] as any,
     toolOutput: BLUEPRINT_TOOL_OUTPUT,
     agents: {
+      [SUMMARIZER_AGENT]: {
+        description: 'Summarizes earlier parts of assistant chats (history compaction)',
+        enabled: true,
+        schedule: 'manual',
+        ast: {
+          type: 'Curator_Agent',
+          agentName: SUMMARIZER_AGENT,
+          provider: 'gemini',
+          ...(options.summaryModel || options.model ? { model: options.summaryModel || options.model } : {}),
+          instruction: DEFAULT_SUMMARY_INSTRUCTION,
+          prompt: '{context.message}',
+        },
+      } as any,
       [ASSISTANT_AGENT]: {
         description: 'Chat assistant with remote web reading (blueprint server)',
         enabled: true,

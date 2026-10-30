@@ -20,7 +20,10 @@ export interface HistoryCompactionInput {
   /** Strategy arguments (`{ use, args }`, or parsed from `name:k=v,k=v`). */
   args: Record<string, unknown>;
   agentName?: string;
-  /** Summarizes `turns` with the agent's model; `previous` is earlier summary text to fold in. */
+  /**
+   * Summarizes `turns`; `previous` is earlier summary text to fold in. Uses the agent's own model, or the agent named by
+   * `args.agent` (run as a child Request: the turn parks and the strategy runs again once it has answered).
+   */
   summarize(turns: HistoryTurn[], previous?: string): Promise<string>;
 }
 

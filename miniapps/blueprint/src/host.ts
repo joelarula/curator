@@ -18,6 +18,7 @@ import {
   harnessAuthConfig,
   idpClientIdHint,
   loadBlueprintConfig,
+  mcpExpectations,
   mcpToolOutputRules,
   type BlueprintConfig,
 } from './harness/env.js';
@@ -98,7 +99,7 @@ export async function createBlueprintRuntime(options: BlueprintRuntimeOptions = 
       curatorEngine.registerPlugin(geminiPlugin({ apiKey, defaultModel: model }) as any);
       curatorEngine.registerPlugin(mcpClient);
       if (signIn) curatorEngine.registerPlugin(signIn.plugin);
-      curatorEngine.registerPlugin(assistantPlugin({ model, historyCompaction: config.assistant.historyCompaction }));
+      curatorEngine.registerPlugin(assistantPlugin({ model, historyCompaction: config.assistant.historyCompaction, summaryModel: config.assistant.summaryModel }));
       // Registered last: configured tool output rules win over the plugins' defaults.
       curatorEngine.registerPlugin({ name: 'blueprint-config-output', toolOutput: mcpToolOutputRules(config) });
       return curatorEngine;
@@ -130,6 +131,7 @@ export function connectMcpServer(runtime: BlueprintRuntime, name: string): Promi
     name,
     url: server.url,
     authService: server.idp ? name : null,
+    expect: mcpExpectations(server),
   });
 }
 
@@ -151,7 +153,14 @@ export async function startMcpServers(runtime: BlueprintRuntime): Promise<{ serv
       skipped.push({ server: name, missing: idpClientIdHint(server.idp) });
       continue;
     }
-    await runtime.registry.register({ projectId, name, url: server.url, authService: server.idp ? name : null, sync: false });
+    await runtime.registry.register({
+      projectId,
+      name,
+      url: server.url,
+      authService: server.idp ? name : null,
+      expect: mcpExpectations(server),
+      sync: false,
+    });
     await runtime.reconciler.watch(name);
   }
   return skipped;

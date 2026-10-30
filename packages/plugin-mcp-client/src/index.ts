@@ -10,6 +10,9 @@ export {
   type McpConnectResult,
   type McpStatusChange,
   type McpSyncResult,
+  type McpCatalogNames,
+  type McpServerExpectations,
+  type McpToolExpectation,
 } from './McpRemoteRegistry.js';
 export { McpReconciler, type McpReconcilerHost } from './McpReconciler.js';
 export { MCP_CONNECT_SCRIPT, MCP_CONNECTOR_ROLE, connectorWorkflow, createMcpClientPlugin, mcpServerEvent } from './plugin.js';

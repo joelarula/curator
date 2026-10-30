@@ -63,6 +63,28 @@ export interface McpServerRecord {
   enabled: boolean;
 }
 
+/** A remote tool declared before the server is reached. */
+export interface McpToolExpectation {
+  /** Roles granted the tool (ToolRole), replacing `toolRoles` for it; grants not listed are revoked. */
+  roles?: string[];
+  /** Access level owned by the declaration: wins over annotations and is reapplied on every register. */
+  accessLevel?: AccessLevel;
+  description?: string;
+}
+
+/**
+ * What a server is expected to provide. Declared items get catalog rows at register time (existent=false
+ * until a sync sees them), so roles and permissions exist before the first connection.
+ */
+export interface McpServerExpectations {
+  tools?: Record<string, McpToolExpectation>;
+  /** Resource URIs or URI templates. */
+  resources?: string[];
+  prompts?: string[];
+  /** Undeclared items of a declared kind (tools, resources, prompts) are not imported. */
+  strict?: boolean;
+}
+
 export interface RegisterMcpServerInput {
   projectId: string;
   name: string;
@@ -72,6 +94,15 @@ export interface RegisterMcpServerInput {
   createdBy?: string;
   /** Connect and sync the catalog right away (default true). */
   sync?: boolean;
+  /** Declared tools, resources and prompts; kept in memory for later syncs of this process. */
+  expect?: McpServerExpectations;
+}
+
+/** Names per kind, for declared items the server did not list and undeclared ones a strict sync left out. */
+export interface McpCatalogNames {
+  tools: string[];
+  resources: string[];
+  prompts: string[];
 }
 
 export interface McpSyncResult {
@@ -83,6 +114,10 @@ export interface McpSyncResult {
   resourceTemplates: number;
   prompts: number;
   removed: { tools: number; resources: number; prompts: number };
+  /** Declared but not listed by the server (their rows stay existent=false). */
+  missing: McpCatalogNames;
+  /** Listed by the server but not declared, left out by a strict declaration. */
+  skipped: McpCatalogNames;
 }
 
 /** Outcome of one `tryConnect` attempt, as data for workflows (never thrown). */
@@ -94,6 +129,8 @@ export interface McpConnectResult {
   error?: string;
   /** Remote tools after a successful sync. */
   tools?: number;
+  /** Declared items the server did not list, after a successful sync. */
+  missing?: McpCatalogNames;
   /** Suggested delay before the next attempt after an `error`. */
   retryInSeconds?: number;
 }
@@ -136,6 +173,8 @@ export class McpRemoteRegistry {
   private readonly failures = new Map<number, number>();
   /** Servers with a `tryConnect` attempt in flight; their status changes are part of the attempt. */
   private readonly connecting = new Set<number>();
+  /** Declarations per server id (from `register({ expect })`). */
+  private readonly expectations = new Map<number, McpServerExpectations>();
   private detachResolver?: () => void;
   readonly sharedProjectIds: string[];
 
@@ -212,6 +251,10 @@ export class McpRemoteRegistry {
         });
     if (existing && (existing.url !== input.url || existing.authService !== data.authService)) await this.disconnect(row.id);
     const record = this.remember(row);
+    if (input.expect) {
+      this.expectations.set(record.id, input.expect);
+      await this.declareCatalog(record, input.expect);
+    }
 
     if (input.sync === false) return { server: record };
     try {
@@ -234,11 +277,30 @@ export class McpRemoteRegistry {
         : [];
       const prompts = capabilities.prompts ? await collect((cursor) => client.listPrompts({ cursor }), 'prompts') : [];
 
-      const removed = {
-        tools: await this.syncTools(server, tools),
-        resources: await this.syncResources(server, resources, templates),
-        prompts: await this.syncPrompts(server, prompts),
+      const expect = this.expectations.get(server.id);
+      const kept = {
+        tools: keepDeclared(tools, (t) => t.name, expect?.tools && Object.keys(expect.tools), expect?.strict),
+        resources: keepDeclared(resources, (r) => r.uri, expect?.resources, expect?.strict),
+        templates: keepDeclared(templates, (r) => r.uriTemplate, expect?.resources, expect?.strict),
+        prompts: keepDeclared(prompts, (p) => p.name, expect?.prompts, expect?.strict),
       };
+      const removed = {
+        tools: await this.syncTools(server, kept.tools.items),
+        resources: await this.syncResources(server, kept.resources.items, kept.templates.items),
+        prompts: await this.syncPrompts(server, kept.prompts.items),
+      };
+      const listedUris = [...resources.map((r) => r.uri), ...templates.map((r) => r.uriTemplate)];
+      const missing: McpCatalogNames = {
+        tools: Object.keys(expect?.tools ?? {}).filter((name) => !tools.some((t) => t.name === name)),
+        resources: (expect?.resources ?? []).filter((uri) => !listedUris.includes(uri)),
+        prompts: (expect?.prompts ?? []).filter((name) => !prompts.some((p) => p.name === name)),
+      };
+      const skipped: McpCatalogNames = {
+        tools: kept.tools.skipped,
+        resources: [...kept.resources.skipped, ...kept.templates.skipped],
+        prompts: kept.prompts.skipped,
+      };
+      if (missing.tools.length) this.log('warn', `MCP server "${server.name}" does not list declared tools: ${missing.tools.join(', ')}`);
       const version = client.getServerVersion();
       await this.updateServer(server, {
         status: 'connected',
@@ -251,11 +313,13 @@ export class McpRemoteRegistry {
         server: server.name,
         projectId: server.projectId,
         status: 'connected',
-        tools: tools.length,
-        resources: resources.length,
-        resourceTemplates: templates.length,
-        prompts: prompts.length,
+        tools: kept.tools.items.length,
+        resources: kept.resources.items.length,
+        resourceTemplates: kept.templates.items.length,
+        prompts: kept.prompts.items.length,
         removed,
+        missing,
+        skipped,
       };
     } catch (err) {
       throw await this.handleFailure(server, err, { recordErrors: true });
@@ -272,6 +336,7 @@ export class McpRemoteRegistry {
     this.unregisterServerTools(server.id);
     await this.disconnect(server.id);
     this.servers.delete(server.id);
+    this.expectations.delete(server.id);
   }
 
   /** Servers visible to a project (its own plus shared). */
@@ -365,7 +430,7 @@ export class McpRemoteRegistry {
     try {
       const sync = await this.sync(projectId, name);
       this.failures.delete(server.id);
-      return { server: name, projectId, status: 'connected', tools: sync.tools };
+      return { server: name, projectId, status: 'connected', tools: sync.tools, missing: sync.missing };
     } catch (err: any) {
       const status = this.servers.get(server.id)?.status ?? 'error';
       const error = err?.message || String(err);
@@ -422,6 +487,7 @@ export class McpRemoteRegistry {
 
   private async syncTools(server: McpServerRecord, tools: any[]): Promise<number> {
     const fallback = this.options.unannotatedAccessLevel ?? 'elevated';
+    const declared = this.expectations.get(server.id)?.tools ?? {};
     const keys: string[] = [];
     for (const tool of tools) {
       const key = toolKey(server.projectId, server.name, tool.name);
@@ -430,8 +496,9 @@ export class McpRemoteRegistry {
       if (existing && existing.origin !== 'remote') {
         throw new Error(`Tool "${key}" already exists as a local tool`);
       }
+      const expected = declared[tool.name];
       const shared = {
-        description: tool.description ?? tool.title ?? tool.name,
+        description: expected?.description ?? tool.description ?? tool.title ?? tool.name,
         origin: 'remote',
         mcpServerId: server.id,
         projectId: server.projectId,
@@ -440,15 +507,17 @@ export class McpRemoteRegistry {
         annotations: tool.annotations ?? null,
         existent: true,
       };
-      // Access level is set once from annotations; afterwards it belongs to the admin.
-      const accessLevel = existing?.accessLevel ?? accessLevelFromAnnotations(tool.annotations, fallback);
+      // Access level comes from the declaration, else once from annotations (a declared row that was never
+      // synced has no inputSchema yet); afterwards it belongs to the admin.
+      const firstSync = !existing || existing.inputSchema == null;
+      const accessLevel: AccessLevel | undefined =
+        expected?.accessLevel ?? (firstSync ? accessLevelFromAnnotations(tool.annotations, fallback) : undefined);
+      const level = accessLevel ? { accessLevel, requiresConfirmation: accessLevel === 'destructive' } : {};
       const row = existing
-        ? await this.prisma.tool.update({ where: { id: existing.id }, data: shared })
-        : await this.prisma.tool.create({
-            data: { ...shared, name: key, version: '1.0.0', accessLevel, requiresConfirmation: accessLevel === 'destructive' },
-          });
+        ? await this.prisma.tool.update({ where: { id: existing.id }, data: { ...shared, ...level } })
+        : await this.prisma.tool.create({ data: { ...shared, ...level, name: key, version: '1.0.0' } });
       await this.grantExecutePermission(row);
-      await this.grantToolRoles(row);
+      await this.grantToolRoles(row, expected?.roles);
       this.registerEngineTool(server, row);
     }
 
@@ -531,19 +600,76 @@ export class McpRemoteRegistry {
     }
   }
 
-  private async grantToolRoles(row: any): Promise<void> {
+  /** Grants `declared` roles exactly (others revoked) or, without a declaration, adds the `toolRoles`. */
+  private async grantToolRoles(row: any, declared?: string[]): Promise<void> {
     const prisma = this.prisma;
-    if (!this.options.toolRoles?.length || !prisma.toolRole?.upsert) return;
-    for (const roleName of this.options.toolRoles) {
+    const roleNames = declared ?? this.options.toolRoles ?? [];
+    if (!prisma.toolRole?.upsert || (!declared && !roleNames.length)) return;
+    const roleIds: string[] = [];
+    for (const roleName of roleNames) {
       const role = await prisma.role.findFirst({ where: { OR: [{ id: roleName }, { name: roleName }] } });
       if (!role) {
         this.log('warn', `Role "${roleName}" does not exist; remote tool ${row.name} not granted to it`);
         continue;
       }
+      roleIds.push(role.id);
       await prisma.toolRole.upsert({
         where: { toolId_roleId: { toolId: row.id, roleId: role.id } },
         update: {},
         create: { toolId: row.id, roleId: role.id },
+      });
+    }
+    if (declared) await prisma.toolRole.deleteMany({ where: { toolId: row.id, roleId: { notIn: roleIds } } });
+  }
+
+  /**
+   * Catalog rows for declared tools, resources and prompts, before any connection: not-yet-seen items are
+   * existent=false (not callable, not listed); declared tools get their access level and grants right away.
+   */
+  private async declareCatalog(server: McpServerRecord, expect: McpServerExpectations): Promise<void> {
+    const fallback = this.options.unannotatedAccessLevel ?? 'elevated';
+    for (const [remoteName, expected] of Object.entries(expect.tools ?? {})) {
+      const key = toolKey(server.projectId, server.name, remoteName);
+      const existing = await this.prisma.tool.findUnique({ where: { name: key } });
+      if (existing && existing.origin !== 'remote') throw new Error(`Tool "${key}" already exists as a local tool`);
+      const level = expected?.accessLevel
+        ? { accessLevel: expected.accessLevel, requiresConfirmation: expected.accessLevel === 'destructive' }
+        : {};
+      const row = existing
+        ? await this.prisma.tool.update({
+            where: { id: existing.id },
+            data: { ...level, ...(expected?.description ? { description: expected.description } : {}) },
+          })
+        : await this.prisma.tool.create({
+            data: {
+              accessLevel: fallback,
+              requiresConfirmation: fallback === 'destructive',
+              ...level,
+              name: key,
+              version: '1.0.0',
+              description: expected?.description ?? remoteName,
+              origin: 'remote',
+              mcpServerId: server.id,
+              projectId: server.projectId,
+              remoteName,
+              existent: false,
+            },
+          });
+      await this.grantExecutePermission(row);
+      await this.grantToolRoles(row, expected?.roles);
+    }
+    for (const uri of expect.resources ?? []) {
+      await this.prisma.mcpResource.upsert({
+        where: { mcpServerId_uri: { mcpServerId: server.id, uri } },
+        update: {},
+        create: { mcpServerId: server.id, uri, isTemplate: /\{[^}]+\}/.test(uri), name: uri, existent: false },
+      });
+    }
+    for (const name of expect.prompts ?? []) {
+      await this.prisma.mcpPrompt.upsert({
+        where: { mcpServerId_name: { mcpServerId: server.id, name } },
+        update: {},
+        create: { mcpServerId: server.id, name, arguments: [], existent: false },
       });
     }
   }
@@ -799,6 +925,13 @@ async function collect<K extends string>(
     if (!cursor) break;
   }
   return items;
+}
+
+/** With a strict declaration of this kind, only declared items are kept; the rest are reported as skipped. */
+function keepDeclared<T>(items: T[], idOf: (item: T) => string, declared: string[] | undefined, strict?: boolean) {
+  if (!strict || !declared) return { items, skipped: [] as string[] };
+  const kept = items.filter((item) => declared.includes(idOf(item)));
+  return { items: kept, skipped: items.filter((item) => !kept.includes(item)).map(idOf) };
 }
 
 function findAuthError(err: any): { message: string; idp?: string } | null {

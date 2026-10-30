@@ -25,8 +25,10 @@ gemini:
 # Web assistant. historyCompaction: how long chats are compacted (history_compaction strategy; "" = off).
 # pack-middle keeps the first `head` turns and the newest `keep` verbatim and summarizes the turns between,
 # re-packing only when more than `max` turns are uncovered; pack-first summarizes from the start.
+# agent=history_summarizer: summaries are written by that agent (own model: summaryModel), not the assistant.
 assistant:
-  historyCompaction: pack-middle:head=1,keep=6,max=16
+  historyCompaction: pack-middle:head=1,keep=6,max=16,agent=history_summarizer
+  # summaryModel: gemini-2.5-flash-lite
 
 dataDir: ./data
 # databasePath: ./data/state/curator.db
@@ -42,6 +44,15 @@ mcp:
     url: http://127.0.0.1:4200/mcp
     idp: google
     bearer: id_token
+    # Tools expected from the server: cataloged and granted at startup, before the server is reached
+    # (not callable until a sync sees them). `roles` replaces the harness defaults (web_assistant,
+    # blueprint_user) for that tool; `accessLevel` wins over the server's annotations; `output` as below.
+    # resources: [uri or template, ...] and prompts: [name, ...] are cataloged the same way;
+    # strict: true imports only what is declared here.
+    tools:
+      web_scrape:
+        accessLevel: read_only
+        # roles: [web_assistant]
     # Result formatting per remote tool: `llm` is what the model reads (and what is stored), `display` the
     # REPL line. Pipelines of formatters: json, text, pick:<fields>, field:<path>, truncate:<chars>,
     # strip-links, template:<{path} text>; plugins can register more. Overrides the assistant's defaults.
