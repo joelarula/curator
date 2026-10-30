@@ -65,6 +65,8 @@ model Project {
   roles         Role[]
   projectRoles  ProjectRole[]
   userRoles     UserRole[]
+  mcpServers    McpServer[]
+  tools         Tool[]
   existent      Boolean?       @default(true)
   deletedAt     DateTime?
   createdAt     DateTime       @default(now())
@@ -83,11 +85,88 @@ model Tool {
   requiresConfirmation Boolean      @default(false)
   enabled              Boolean      @default(true)
   roles                ToolRole[]
+  origin               String       @default("local") // local | remote
+  mcpServerId          Int?
+  mcpServer            McpServer?   @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
+  remoteName           String?      // tool name on the remote provider
+  projectId            String?      // set for remote tools (= McpServer.projectId); null for local tools
+  project              Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  inputSchema          Json?
+  annotations          Json?        // remote hints (readOnlyHint, destructiveHint, ...), untrusted
   existent             Boolean?     @default(true)
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
 
   @@index([existent])
+  @@unique([mcpServerId, remoteName])
+  @@index([origin])
+  @@index([projectId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Remote MCP providers and their catalog (tools live in Tool with origin=remote)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model McpServer {
+  id           Int           @id @default(autoincrement())
+  name         String        // unique per project; namespace for remote tools: mcp.<name>.<tool>
+  url          String
+  transport    String        @default("streamable-http")
+  authService  String?       // @curator/auth-client service supplying tokens
+  status       String        @default("registered") // registered | connected | auth_required | error | disabled
+  lastError    String?
+  serverInfo   Json?         // initialize result: name, version, capabilities
+  instructions String?
+  enabled      Boolean       @default(true)
+  lastSyncedAt DateTime?
+  projectId    String        // owning project ('system' scope for shared servers)
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy    String?
+  tools        Tool[]
+  resources    McpResource[]
+  prompts      McpPrompt[]
+  existent     Boolean?      @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@unique([projectId, name])
+  @@index([projectId, existent])
+}
+
+model McpResource {
+  id          Int       @id @default(autoincrement())
+  mcpServerId Int
+  mcpServer   McpServer @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
+  uri         String    // resource URI, or RFC 6570 URI template when isTemplate
+  isTemplate  Boolean   @default(false)
+  name        String
+  title       String?
+  description String?
+  mimeType    String?
+  size        Int?
+  annotations Json?
+  existent    Boolean?  @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([mcpServerId, uri])
+  @@index([mcpServerId, existent])
+}
+
+model McpPrompt {
+  id          Int       @id @default(autoincrement())
+  mcpServerId Int
+  mcpServer   McpServer @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
+  name        String
+  title       String?
+  description String?
+  arguments   Json?     // [{ name, description, required }]
+  existent    Boolean?  @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([mcpServerId, name])
+  @@index([mcpServerId, existent])
 }
 
 model Resource {

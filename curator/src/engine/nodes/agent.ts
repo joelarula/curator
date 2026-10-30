@@ -67,20 +67,35 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
 
     logger.debug(`[CuratorRequestProcessor] Executing Agent '${ast.agentName}' for request ${req.id} using provider '${provider.providerName}' [mode: ${hasTools ? 'agentic' : 'direct'}]`);
 
-    // Build tool definitions if tools specified
+    // Build tool definitions if tools specified. Names may be keys, project aliases (`mcp.crm.lookup`)
+    // or patterns (`mcp.crm.*`), resolved in the request's project. The model sees provider-safe names;
+    // access checks and approvals use the resolved tool key.
     const toolDefs: LlmToolDefinition[] = [];
+    const offeredByLlmName = new Map<string, any>();
+    const offeredKeys = new Set<string>();
     if (hasTools) {
       for (const toolOrName of offeredTools) {
-        const tool = typeof toolOrName === 'string' ? ctx.tools.get(toolOrName) : null;
-        if (tool) {
+        const entries =
+          typeof toolOrName !== 'string'
+            ? []
+            : toolOrName.includes('*')
+              ? ctx.tools.list?.(toolOrName, req) ?? []
+              : [ctx.tools.get(toolOrName, req)].filter(Boolean).map((tool) => ({ name: toolOrName, tool }));
+        for (const { name, tool } of entries) {
+          const key: string = tool.name || name;
+          if (offeredKeys.has(key)) continue;
           // Never offer a tool the actor may not run (role / project); the call-time check stays as the backstop.
-          if (!(await ctx.tools.checkRoleAccess(req, tool.name, tool)).allowed) continue;
+          if (!(await ctx.tools.checkRoleAccess(req, key, tool)).allowed) continue;
+          offeredKeys.add(key);
+          const llmName = llmToolName(name, offeredByLlmName);
+          offeredByLlmName.set(llmName, tool);
           toolDefs.push({
-            name: tool.name,
+            name: llmName,
             description: tool.description,
             parameters: tool.parameters as Record<string, unknown>
           });
-        } else if (typeof toolOrName !== 'string') {
+        }
+        if (typeof toolOrName !== 'string') {
           toolDefs.push({
             name: toolOrName.name,
             description: toolOrName.description,
@@ -148,16 +163,17 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
 
       for (const tc of response.toolCalls) {
         // Only tools offered to this agent may run, even if others are registered in the engine.
-        const tool = toolDefs.some((d) => d.name === tc.name) ? ctx.tools.get(tc.name) : undefined;
+        const tool = offeredByLlmName.get(tc.name);
+        const toolKey: string = tool?.name || tc.name;
         let toolOutput = '';
         let isError = false;
 
         if (tool) {
           // Check tool access & permission
-          const accessCheck = await ctx.tools.checkAccess(req, tc.name, tool);
+          const accessCheck = await ctx.tools.checkAccess(req, toolKey, tool);
           if (!accessCheck.allowed) {
             if (accessCheck.requiresConfirmation) {
-              logger.debug(`[CuratorRequestProcessor] Request ${req.id} pausing on WAITING_FOR_USER for tool '${tc.name}'.`);
+              logger.debug(`[CuratorRequestProcessor] Request ${req.id} pausing on WAITING_FOR_USER for tool '${toolKey}'.`);
               const ttlMs = (tool as any).approvalTtlMs ?? ctx.tools.approvalTtlMs;
               const expiresAt = ttlMs > 0 ? new Date(ctx.now() + ttlMs).toISOString() : undefined;
               await ctx.prisma.request.update({
@@ -168,13 +184,14 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
                   lockedAt: null,
                   context: {
                     ...req.context,
-                    pendingToolCall: { ...tc, expiresAt, onExpired: 'fail' },
+                    // Approvals are granted for the resolved key; llmName is what the model called.
+                    pendingToolCall: { ...tc, name: toolKey, llmName: tc.name, expiresAt, onExpired: 'fail' },
                     reason: accessCheck.reason
                   }
                 }
               });
               await ctx.saveResponse(req, JSON.stringify({
-                type: 'APPROVAL_REQUIRED', ok: false, tool: tc.name, reason: accessCheck.reason, expiresAt
+                type: 'APPROVAL_REQUIRED', ok: false, tool: toolKey, reason: accessCheck.reason, expiresAt
               } satisfies CuratorStructuredResponse));
               pausedForUser = true;
               break;
@@ -224,7 +241,7 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
                 if (accessCheck.approvalScope === 'ONETIME' && req.context) {
                   delete req.context.__humanApproved__;
                   if (Array.isArray(req.context.__approvedTools__)) {
-                    req.context.__approvedTools__ = req.context.__approvedTools__.filter((t: string) => t !== tc.name);
+                    req.context.__approvedTools__ = req.context.__approvedTools__.filter((t: string) => t !== toolKey);
                   }
                 }
                 // TODO(db-driven): LLM tool calls should become child Requests; until then the agent's
@@ -301,6 +318,30 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
     await ctx.completeRequest(req.id, 'COMPLETED');
   },
 };
+
+/** Function names every provider accepts (Anthropic/OpenAI: [A-Za-z0-9_-]{1,64}; Gemini is a superset). */
+const LLM_TOOL_NAME = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
+
+/**
+ * Provider-safe tool name, unique among `taken`. Valid names pass through unchanged; others map
+ * `.` to `__` (so `mcp.crm.lookup` → `mcp__crm__lookup`), drop other invalid characters and fit 64 chars.
+ */
+export function llmToolName(name: string, taken: { has(name: string): boolean }): string {
+  let base = LLM_TOOL_NAME.test(name)
+    ? name
+    : name.replace(/\./g, '__').replace(/[^A-Za-z0-9_-]/g, '_').replace(/^(?=[^A-Za-z_])/, '_');
+  if (base.length > 64) {
+    let hash = 0;
+    for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+    base = `${base.slice(0, 55)}_${hash.toString(36).padStart(7, '0').slice(0, 8)}`;
+  }
+  let candidate = base;
+  for (let i = 2; taken.has(candidate); i++) {
+    const suffix = `_${i}`;
+    candidate = `${base.slice(0, 64 - suffix.length)}${suffix}`;
+  }
+  return candidate;
+}
 
 /** Context key an agent's output is stored under: `as`, else the camelCased agentName, else 'decision'. */
 export function agentOutputKey(ast: any): string {

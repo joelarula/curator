@@ -18,6 +18,7 @@ export {
   type ReplCommand,
   type ActiveChoice,
 } from './cli/clientShell.js';
+export { ShellAuthController, openInBrowser, isAuthRequiredError, type ShellAuthOptions } from './cli/shellAuth.js';
 export {
   type CuratorChannel,
   type WebSocketChannelOptions,
@@ -25,7 +26,9 @@ export {
   normalizeWsUrl,
   createWebSocketChannel,
   createDirectChannel,
-} from './client/curatorChannel.js'; 
+  ChannelAuthError,
+  WS_CLOSE_AUTH_EXPIRED,
+} from './client/curatorChannel.js';
 export {
   getWaitingChoice,
   stepInteractiveConversation,

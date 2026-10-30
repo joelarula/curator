@@ -5,7 +5,7 @@ import type {
   PeerSessionContext,
 } from '@curator/agent-server';
 import type { CuratorHost } from '@curator/host';
-import type { McpCallResult, McpToolDeclaration } from './types.js';
+import type { McpCallResult, McpCallSession, McpToolDeclaration } from './types.js';
 
 /** Outcome of a durable tool execution (a Request row with its Response). */
 export interface McpToolExecution {
@@ -24,15 +24,37 @@ export type McpToolExecutor = (
   session?: PeerSessionContext
 ) => Promise<McpToolExecution>;
 
-/** Executor bound to a host: `host.runTool(..., { origin: 'MCP' })`; the actor is the host session, the peer is recorded in context. */
+/**
+ * Executor bound to a host: `host.runTool(..., { origin: 'MCP' })`. An authenticated caller's actor
+ * (user + project) owns the Request, so RBAC applies to them; otherwise the host session does.
+ * The peer is recorded in context.
+ */
 export function createHostToolExecutor(host: CuratorHost): McpToolExecutor {
-  return (toolName, args, session) =>
-    host.runTool(toolName, args as Record<string, any>, {
+  return (toolName, args, session) => {
+    const actor = (session as McpCallSession | undefined)?.actor;
+    return host.runTool(toolName, args as Record<string, any>, {
       origin: 'MCP',
+      ...(actor ? { userId: actor.userId, projectId: actor.projectId } : {}),
       context: session
         ? { mcpPeerId: session.peerId, mcpTrustTier: session.trustTier, mcpConversationId: (session as any).conversationId }
         : undefined,
     });
+  };
+}
+
+/** MCP tool annotations announcing a Curator access level (clients treat them as hints). */
+export function annotationsFor(accessLevel: string | undefined): Record<string, boolean> | undefined {
+  switch (accessLevel) {
+    case 'read_only':
+    case 'safe_read':
+      return { readOnlyHint: true };
+    case 'safe_write':
+      return { readOnlyHint: false, destructiveHint: false };
+    case 'destructive':
+      return { readOnlyHint: false, destructiveHint: true };
+    default:
+      return undefined;
+  }
 }
 
 export class McpToolRegistry {
@@ -119,7 +141,8 @@ export class McpToolRegistry {
       : allTools;
 
     for (const tool of allowedTools) {
-      list.push(tool.toMcpDeclaration());
+      const annotations = annotationsFor(tool.accessLevel);
+      list.push({ ...tool.toMcpDeclaration(), ...(annotations ? { annotations } : {}) });
     }
     return list;
   }

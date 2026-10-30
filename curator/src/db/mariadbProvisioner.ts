@@ -110,6 +110,75 @@ async function ensureCuratorMariadbSchema(pool: any): Promise<void> {
 
     `ALTER TABLE Tool ADD COLUMN IF NOT EXISTS requiredRole VARCHAR(191);`,
 
+    // Remote MCP providers; remote tools are Tool rows with origin='remote'
+    `CREATE TABLE IF NOT EXISTS McpServer (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(191) NOT NULL,
+      url TEXT NOT NULL,
+      transport VARCHAR(191) NOT NULL DEFAULT 'streamable-http',
+      authService VARCHAR(191),
+      status VARCHAR(191) NOT NULL DEFAULT 'registered',
+      lastError TEXT,
+      serverInfo JSON,
+      instructions TEXT,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      lastSyncedAt DATETIME(3),
+      projectId VARCHAR(191) NOT NULL,
+      createdBy VARCHAR(191),
+      existent BOOLEAN DEFAULT TRUE,
+      createdAt DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+      updatedAt DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+      UNIQUE INDEX McpServer_projectId_name_key (projectId, name),
+      INDEX McpServer_projectId_existent_idx (projectId, existent),
+      CONSTRAINT McpServer_projectId_fkey FOREIGN KEY (projectId) REFERENCES Project(id) ON DELETE CASCADE ON UPDATE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+    `CREATE TABLE IF NOT EXISTS McpResource (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      mcpServerId INT NOT NULL,
+      uri VARCHAR(512) NOT NULL,
+      isTemplate BOOLEAN NOT NULL DEFAULT FALSE,
+      name VARCHAR(191) NOT NULL,
+      title VARCHAR(191),
+      description TEXT,
+      mimeType VARCHAR(191),
+      size INT,
+      annotations JSON,
+      existent BOOLEAN DEFAULT TRUE,
+      createdAt DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+      updatedAt DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+      UNIQUE INDEX McpResource_mcpServerId_uri_key (mcpServerId, uri),
+      INDEX McpResource_mcpServerId_existent_idx (mcpServerId, existent),
+      CONSTRAINT McpResource_mcpServerId_fkey FOREIGN KEY (mcpServerId) REFERENCES McpServer(id) ON DELETE CASCADE ON UPDATE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+    `CREATE TABLE IF NOT EXISTS McpPrompt (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      mcpServerId INT NOT NULL,
+      name VARCHAR(191) NOT NULL,
+      title VARCHAR(191),
+      description TEXT,
+      arguments JSON,
+      existent BOOLEAN DEFAULT TRUE,
+      createdAt DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+      updatedAt DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+      UNIQUE INDEX McpPrompt_mcpServerId_name_key (mcpServerId, name),
+      INDEX McpPrompt_mcpServerId_existent_idx (mcpServerId, existent),
+      CONSTRAINT McpPrompt_mcpServerId_fkey FOREIGN KEY (mcpServerId) REFERENCES McpServer(id) ON DELETE CASCADE ON UPDATE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+    `ALTER TABLE Tool ADD COLUMN IF NOT EXISTS origin VARCHAR(191) NOT NULL DEFAULT 'local';`,
+    `ALTER TABLE Tool ADD COLUMN IF NOT EXISTS mcpServerId INT;`,
+    `ALTER TABLE Tool ADD COLUMN IF NOT EXISTS remoteName VARCHAR(191);`,
+    `ALTER TABLE Tool ADD COLUMN IF NOT EXISTS projectId VARCHAR(191);`,
+    `ALTER TABLE Tool ADD COLUMN IF NOT EXISTS inputSchema JSON;`,
+    `ALTER TABLE Tool ADD COLUMN IF NOT EXISTS annotations JSON;`,
+    `CREATE INDEX IF NOT EXISTS Tool_origin_idx ON Tool (origin);`,
+    `CREATE INDEX IF NOT EXISTS Tool_projectId_idx ON Tool (projectId);`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS Tool_mcpServerId_remoteName_key ON Tool (mcpServerId, remoteName);`,
+    `ALTER TABLE Tool ADD CONSTRAINT Tool_mcpServerId_fkey FOREIGN KEY (mcpServerId) REFERENCES McpServer(id) ON DELETE CASCADE ON UPDATE CASCADE;`,
+    `ALTER TABLE Tool ADD CONSTRAINT Tool_projectId_fkey FOREIGN KEY (projectId) REFERENCES Project(id) ON DELETE CASCADE ON UPDATE CASCADE;`,
+
     `CREATE TABLE IF NOT EXISTS Script (
       id INT AUTO_INCREMENT PRIMARY KEY,
       name VARCHAR(191) NOT NULL UNIQUE,

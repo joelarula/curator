@@ -11,6 +11,7 @@ import type {
   ChatToolDefinition,
   ShellContext,
 } from '../types.js';
+import { ShellAuthController, isAuthRequiredError } from './shellAuth.js';
 
 export {
   type ToolAction,
@@ -54,9 +55,21 @@ export class ClientShell<TState = any, TAction = ToolAction> {
   private rl?: readline.Interface;
   private isRunning: boolean = false;
   private isHandlingLine: boolean = false;
+  public readonly auth?: ShellAuthController;
+  private unsubscribeAuth?: () => void;
 
   constructor(config: ClientShellConfig<TState, TAction> = {}) {
     this.config = config;
+    if (config.auth) {
+      this.auth = new ShellAuthController(config.auth, {
+        autoLogin: config.autoLogin,
+        openBrowser: config.openBrowser,
+        onLogin: config.onAuthLogin,
+        onAsyncOutput: () => {
+          if (this.rl && this.isRunning && !this.isHandlingLine) this.rl.prompt(true);
+        },
+      });
+    }
     const initialCmds = config.commands || [];
     for (const cmd of initialCmds) {
       this.registerCommand(cmd);
@@ -223,6 +236,7 @@ export class ClientShell<TState = any, TAction = ToolAction> {
 
     // Core built-in commands
     ['help', 'choices', 'actions', 'menu', 'state', 'status', 'tools', 'exec', 'exit', 'quit', 'q'].forEach(markRegistered);
+    if (this.auth) markRegistered('auth');
 
     // 1. Built-in 'help' command
     program
@@ -246,6 +260,9 @@ export class ClientShell<TState = any, TAction = ToolAction> {
         console.log('  status - View active session, table, and connection status');
         console.log('  tools - List all registered and permitted tools');
         console.log('  exec <toolName> [args] - Execute a whitelisted tool directly with JSON args');
+        if (this.auth) {
+          console.log(`  auth ${ShellAuthController.usage} - Manage IdP sessions (device-flow login in the browser)`);
+        }
         console.log('  exit (quit, q) - Exit client REPL session');
 
         if (this.commands.length > 0) {
@@ -381,9 +398,19 @@ export class ClientShell<TState = any, TAction = ToolAction> {
             console.log('\x1b[32m[Result]\x1b[0m', typeof result === 'object' ? JSON.stringify(result, null, 2) : result);
           }
         } catch (err: any) {
-          console.log(`\x1b[31m[Exec Error]\x1b[0m ${err.message}`);
+          if (!this.handleAuthError(err)) console.log(`\x1b[31m[Exec Error]\x1b[0m ${err.message}`);
         }
       });
+
+    // 5b. Built-in 'auth' command (only when an auth manager is configured)
+    if (this.auth) {
+      program
+        .command('auth [action] [target]')
+        .description('Manage IdP sessions: list, login, logout, whoami, cancel')
+        .action(async (action?: string, target?: string) => {
+          await this.auth!.command(action, target);
+        });
+    }
 
     // 6. Built-in 'exit' / 'quit' command
     program
@@ -790,10 +817,21 @@ export class ClientShell<TState = any, TAction = ToolAction> {
         (err.code === 'commander.helpDisplayed' || err.code === 'commander.version')
       ) {
         // Output already handled by Commander
-      } else {
+      } else if (!this.handleAuthError(err)) {
         console.error(`\x1b[31m[Command Error] ${err?.message || err}\x1b[0m`);
       }
     }
+  }
+
+  /** Routes AUTH_REQUIRED errors to the auth controller; returns true when handled. */
+  private handleAuthError(err: any): boolean {
+    if (!this.auth || !isAuthRequiredError(err)) return false;
+    if (err.service) {
+      this.auth.handleAuthRequired({ service: err.service, idp: err.idp });
+    } else {
+      console.log(`\x1b[33m[auth] ${err.message}\x1b[0m`);
+    }
+    return true;
   }
 
   /**
@@ -817,12 +855,19 @@ export class ClientShell<TState = any, TAction = ToolAction> {
     this.rl.setPrompt(promptStr);
     this.rl.prompt();
 
+    // Services report missing tokens as `auth:required` events (e.g. remote MCP tools run by the host).
+    if (this.auth && this.config.channel) {
+      this.unsubscribeAuth = this.config.channel.on((event: any) => {
+        if (event?.type === 'auth:required') this.auth!.handleAuthRequired(event.payload ?? event);
+      });
+    }
+
     this.rl.on('line', async (line) => {
       this.isHandlingLine = true;
       try {
         await this.handleLine(line);
       } catch (err: any) {
-        console.error(`\x1b[31m[REPL Error] ${err?.message || err}\x1b[0m`);
+        if (!this.handleAuthError(err)) console.error(`\x1b[31m[REPL Error] ${err?.message || err}\x1b[0m`);
       } finally {
         this.isHandlingLine = false;
       }
@@ -841,6 +886,9 @@ export class ClientShell<TState = any, TAction = ToolAction> {
   stop(): void {
     if (!this.isRunning) return;
     this.isRunning = false;
+    this.unsubscribeAuth?.();
+    this.unsubscribeAuth = undefined;
+    this.auth?.cancel();
     if (this.rl) {
       this.rl.close();
       this.rl = undefined;

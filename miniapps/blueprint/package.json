@@ -18,18 +18,12 @@
     "repl": "tsx src/cli.ts repl",
     "repl:direct": "tsx src/cli.ts repl --direct",
     "start": "node dist/src/server/index.js",
-    "test": "node --test test/blueprint.test.ts",
-    "agent:dialog": "tsx examples/agent_daemon.ts",
+    "test": "node --test test/blueprint.test.ts test/blueprint_server.test.ts",
     "chat": "tsx examples/cli_client.ts",
     "cli:agent": "tsx src/cli.ts agent",
     "cli:chat": "tsx src/cli.ts chat",
     "example:tool": "tsx examples/direct_tool_call.ts",
-    "example:dialog": "tsx examples/dialog_loop.ts",
-    "example:coffee": "tsx examples/coffeescript_execution.ts",
-    "example:coffee-verbs": "tsx examples/coffeescript_verbs.ts",
-    "example:mcp": "tsx examples/mcp_server_client.ts",
-    "example:events": "tsx examples/events_streaming.ts",
-    "example:p2p": "tsx examples/p2p_pingpong.ts"
+    "blueprint-server": "tsx src/blueprintServer/main.ts"
   },
   "dependencies": {
     "@curator/agent-server": "file:../../curator",

@@ -40,8 +40,32 @@ export function freezeConfig<T>(v: T): T {
   return v;
 }
 
+/** Scope a tool name is resolved in (the running request's project). */
+export interface ToolResolveScope {
+  projectId?: string | number | null;
+}
+
+/** Maps a name that is not a registered tool key (e.g. a project-scoped alias) to a tool, or undefined. */
+export type ToolResolver = (name: string, scope: ToolResolveScope) => CuratorTool | undefined;
+
+/** A tool as visible in a scope: `name` is what workflows/agents use (an alias for scoped tools). */
+export interface ScopedTool {
+  name: string;
+  tool: CuratorTool;
+}
+
+/** Lists the aliases a resolver answers for in a scope (enables patterns like `mcp.crm.*`). */
+export type ToolLister = (scope: ToolResolveScope) => ScopedTool[];
+
+/** `*` matches any run of characters; everything else is literal. */
+function globToRegExp(pattern: string): RegExp {
+  return new RegExp(`^${pattern.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
+}
+
 export class CuratorEngine {
   public tools = new Map<string, CuratorTool>();
+  private toolResolvers: ToolResolver[] = [];
+  private toolListers: ToolLister[] = [];
   public toolPlugins = new Map<string, string>();
   public reducers = new Map<string, CuratorReducer>();
   public models = new Map<string, SemanticNodeShape>();
@@ -178,6 +202,58 @@ export class CuratorEngine {
 
   public registerTool(tool: CuratorTool) {
     this.tools.set(tool.name, tool);
+  }
+
+  public unregisterTool(name: string): boolean {
+    return this.tools.delete(name);
+  }
+
+  /**
+   * Registers a resolver consulted when a name is not a registered tool key, and optionally a
+   * lister of the aliases it serves per scope (for `listTools` patterns). Returns an unregister function.
+   */
+  public addToolResolver(resolver: ToolResolver, lister?: ToolLister): () => void {
+    this.toolResolvers.push(resolver);
+    if (lister) this.toolListers.push(lister);
+    return () => {
+      this.toolResolvers = this.toolResolvers.filter((r) => r !== resolver);
+      if (lister) this.toolListers = this.toolListers.filter((l) => l !== lister);
+    };
+  }
+
+  /**
+   * Tools visible in a scope whose name matches `pattern` (`*` wildcards; no wildcard = one name).
+   * Covers registered keys and resolver aliases; project-scoped tools (`origin: 'remote'`) appear
+   * only under their alias in their own (or a shared) project.
+   */
+  public listTools(pattern: string, scope: ToolResolveScope = {}): ScopedTool[] {
+    if (!pattern.includes('*')) {
+      const tool = this.resolveTool(pattern, scope);
+      return tool ? [{ name: pattern, tool }] : [];
+    }
+    const match = globToRegExp(pattern);
+    const found = new Map<string, ScopedTool>();
+    for (const [name, tool] of this.tools) {
+      if ((tool as any).origin === 'remote') continue;
+      if (match.test(name)) found.set(name, { name, tool });
+    }
+    for (const lister of this.toolListers) {
+      for (const entry of lister(scope)) {
+        if (match.test(entry.name) && !found.has(entry.name)) found.set(entry.name, entry);
+      }
+    }
+    return [...found.values()];
+  }
+
+  /** Exact tool key first, then resolvers (e.g. `mcp.crm.lookup` → the request project's remote tool). */
+  public resolveTool(name: string, scope: ToolResolveScope = {}): CuratorTool | undefined {
+    const direct = this.tools.get(name);
+    if (direct) return direct;
+    for (const resolver of this.toolResolvers) {
+      const tool = resolver(name, scope);
+      if (tool) return tool;
+    }
+    return undefined;
   }
 
   public isAgentEnabled(nameOrDef: string | CuratorAgentDefinition | any): boolean {

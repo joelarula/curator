@@ -86,7 +86,10 @@ export interface NodeLlmServices {
 
 /** Tool / reducer registry and the tool access gate (`ctx.tools`). */
 export interface NodeToolServices {
-  get(name: string): any | undefined;
+  /** Resolves a tool by key, or by alias within `req`'s project (see `CuratorEngine.resolveTool`). */
+  get(name: string, req?: any): any | undefined;
+  /** Tools matching a name or `*` pattern as visible to `req`'s project; `name` is the alias to offer. */
+  list?(pattern: string, req?: any): { name: string; tool: any }[];
   reducer(name: string): CuratorReducer | undefined;
   /** RBAC and confirmation gate for running `tool` on behalf of `req`. */
   checkAccess(req: any, toolName: string, tool: any): Promise<ToolAccessResult>;

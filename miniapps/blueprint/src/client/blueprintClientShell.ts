@@ -11,6 +11,7 @@ import {
   type CuratorToolDefinition,
   type ReplCommand,
   type ShellContext,
+  type ClientShellConfig,
 } from '@curator/host';
 import {
   calculateMetricTool,
@@ -60,6 +61,11 @@ export interface CreateBlueprintClientShellOptions {
   actorName?: string;
   getState?: () => any;
   onMetricResult?: (result: any) => void;
+  /** Google sign-in sessions: enables /auth (device flow) and automatic login on auth:required. */
+  auth?: ClientShellConfig['auth'];
+  onAuthLogin?: ClientShellConfig['onAuthLogin'];
+  /** Free text goes here (the assistant agent) instead of the blueprint_speech tool. */
+  onChat?: (text: string) => Promise<unknown>;
 }
 
 export function createBlueprintClientShell(
@@ -72,7 +78,11 @@ export function createBlueprintClientShell(
     commands: BLUEPRINT_COMMANDS,
     tools: BLUEPRINT_WHITELISTED_TOOLS,
     getState: opts.getState,
+    auth: opts.auth,
+    autoLogin: Boolean(opts.auth),
+    onAuthLogin: opts.onAuthLogin,
     onSpeech: async (text: string) => {
+      if (opts.onChat) return opts.onChat(text);
       if (opts.channel) {
         return opts.channel.send('curator:tool_call', {
           tool: 'blueprint_speech',

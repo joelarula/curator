@@ -63,7 +63,7 @@ export const dialogPlaygroundWorkflow = CuratorBuilder.seq(
     active: true,
     turn: 1,
   }),
-  CuratorBuilder.whileLoop(
+  CuratorBuilder.loopwhile(
     (ctx) => ctx.state?.active !== false,
     CuratorBuilder.seq(
       'dialog_turn_seq',

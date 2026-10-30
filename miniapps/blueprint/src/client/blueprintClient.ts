@@ -6,7 +6,9 @@ import {
   createDirectChannel,
   normalizeWsUrl,
 } from '@curator/host';
-import { createBlueprintHost } from '../host.js';
+import { connectBlueprintServer, createBlueprintRuntime, type BlueprintRuntime } from '../host.js';
+import { createAssistant } from '../harness/assistant.js';
+import { BLUEPRINT_SERVICE } from '../harness/env.js';
 import { createBlueprintClientShell } from './blueprintClientShell.js';
 
 export interface BlueprintClientOptions {
@@ -16,7 +18,8 @@ export interface BlueprintClientOptions {
   databasePath?: string;
 }
 
-export type BlueprintChannel = CuratorChannel;
+/** Direct channels also carry the in-process runtime (auth sessions, MCP registry, assistant). */
+export type BlueprintChannel = CuratorChannel & { runtime?: BlueprintRuntime };
 export { normalizeWsUrl };
 
 /**
@@ -38,7 +41,10 @@ export async function createDirectSessionChannel(
   options: BlueprintClientOptions = {}
 ): Promise<BlueprintChannel> {
   console.log('\x1b[90m[Curator] Booting direct in-process SQLite host runtime...\x1b[0m');
-  const host: CuratorHost = await createBlueprintHost();
+  const runtime = await createBlueprintRuntime({ databasePath: options.databasePath });
+  const host: CuratorHost = runtime.host;
+  // The assistant agent runs as Requests picked up by the processor.
+  await host.start(300);
 
   const directTarget = {
     host,
@@ -68,7 +74,9 @@ export async function createDirectSessionChannel(
   const baseChannel = createDirectChannel(directTarget as any, '1');
   return {
     ...baseChannel,
+    runtime,
     close: async () => {
+      await runtime.registry.close();
       await baseChannel.close();
       await host.stop();
     },
@@ -111,10 +119,34 @@ export async function runBlueprintClientUi(
       process.exit(0);
     });
 
+    const runtime = channel.runtime;
+    const assistant = runtime ? createAssistant(runtime.host) : undefined;
+
     const shell = createBlueprintClientShell({
       channel,
       actorName: userName,
       getState: () => currentState,
+      auth: runtime?.auth ?? undefined,
+      // After signing in, sync the blueprint server so its tools become available.
+      onAuthLogin: async () => {
+        if (!runtime) return;
+        const sync = await runtime.registry.sync(runtime.host.project.id, BLUEPRINT_SERVICE);
+        console.log(`\x1b[32m✔ [blueprint] connected: ${sync.tools} remote tool(s)\x1b[0m`);
+      },
+      onChat: assistant
+        ? async (text: string) => {
+            console.log('\x1b[90m… thinking\x1b[0m');
+            const reply = await assistant.ask(text);
+            if (reply.tools.length) console.log(`\x1b[90m  used: ${reply.tools.join(', ')}\x1b[0m`);
+            if (reply.status === 'COMPLETED') {
+              console.log(`\x1b[1m\x1b[35m🤖 assistant:\x1b[0m ${reply.answer}\n`);
+            } else if (reply.status === 'WAITING_FOR_USER') {
+              console.log(`\x1b[33m⏸ The assistant wants to run a tool that needs approval (request #${reply.requestId}).\x1b[0m`);
+            } else {
+              console.log(`\x1b[31m[assistant ${reply.status}] ${reply.answer}\x1b[0m`);
+            }
+          }
+        : undefined,
     });
 
 
@@ -141,10 +173,29 @@ export async function runBlueprintClientUi(
         }
       }
       shell.start(rl);
+      if (runtime) await connectRemote(runtime);
     };
 
     boot();
   });
+}
+
+/** Registers/refreshes the blueprint server; without a session the shell starts the device login. */
+async function connectRemote(runtime: BlueprintRuntime): Promise<void> {
+  if (!runtime.auth) {
+    console.log('\x1b[33m[blueprint] CLIENT_ID_BLUEPRINT is not set: remote tools are unavailable.\x1b[0m');
+    return;
+  }
+  try {
+    const result = await connectBlueprintServer(runtime);
+    if (result.sync) {
+      console.log(`\x1b[32m✔ [blueprint] connected to ${result.server.url}: ${result.sync.tools} remote tool(s)\x1b[0m`);
+    } else if (result.error?.code !== 'AUTH_REQUIRED') {
+      console.log(`\x1b[31m[blueprint] ${result.server.url}: ${result.error?.message}\x1b[0m`);
+    }
+  } catch (err: any) {
+    console.log(`\x1b[31m[blueprint] ${err?.message || err}\x1b[0m`);
+  }
 }
 
 /**

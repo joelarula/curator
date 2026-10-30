@@ -55,6 +55,10 @@ export interface CuratorRequestProcessorOptions {
 /** Registries the processor reads; `curatorEngine` by default. Plugin node types, services and systems are optional. */
 export interface ProcessorEngine {
   tools: Map<string, any>;
+  /** Alias resolution within a project (CuratorEngine); falls back to `tools.get` when absent. */
+  resolveTool?(name: string, scope: { projectId?: string | number | null }): any | undefined;
+  /** Pattern listing within a project (CuratorEngine); falls back to exact `tools` keys when absent. */
+  listTools?(pattern: string, scope: { projectId?: string | number | null }): { name: string; tool: any }[];
   reducers?: Map<string, CuratorReducer>;
   config?: CuratorConfig;
   nodes?: { get(type: string): NodeHandler | undefined };
@@ -231,7 +235,12 @@ export class CuratorRequestProcessor {
         identityOf: (req) => this.identityOf(req),
       },
       tools: {
-        get: (name) => this.engine.tools.get(name),
+        get: (name, req) => this.engine.resolveTool?.(name, { projectId: req?.projectId }) ?? this.engine.tools.get(name),
+        list: (pattern, req) => {
+          if (this.engine.listTools) return this.engine.listTools(pattern, { projectId: req?.projectId });
+          const tool = this.engine.tools.get(pattern);
+          return tool ? [{ name: pattern, tool }] : [];
+        },
         reducer: (name) => this.engine.reducers?.get(name),
         checkAccess: (req, toolName, tool) => this.checkToolAccess(req, toolName, tool),
         checkRoleAccess: (req, toolName, tool) => this.checkToolRoleAccess(req, toolName, tool),
@@ -1454,7 +1463,8 @@ export class CuratorRequestProcessor {
    * or when access is denied; returns status WAITING_FOR_USER when approval is required.
    */
   public async runToolRequest(input: RunToolRequestInput): Promise<RunToolRequestResult> {
-    if (!this.engine.tools.get(input.toolName)) throw new Error(`Tool '${input.toolName}' not found`);
+    const resolved = this.engine.resolveTool?.(input.toolName, { projectId: input.projectId }) ?? this.engine.tools.get(input.toolName);
+    if (!resolved) throw new Error(`Tool '${input.toolName}' not found`);
     // Created locked (WAITING + lockedBy) so the poller never picks it up concurrently.
     const created = await this.prisma.request.create({
       data: {

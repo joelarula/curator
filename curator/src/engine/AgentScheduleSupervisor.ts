@@ -186,7 +186,8 @@ export async function superviseAgentLoops(
 
   for (const agent of agents) {
     const loops = await findLiveAgentLoops(prisma, agent.id);
-    const wanted = agent.enabled && agent.existent !== false && !agent.deletedAt && agent.schedule && agent.script?.ast;
+    // 'manual' (the seed default) means trigger-only: no scheduler loop.
+    const wanted = agent.enabled && agent.existent !== false && !agent.deletedAt && agent.schedule && agent.schedule !== 'manual' && agent.script?.ast;
 
     if (!wanted) {
       if (loops.length && await cancelAgentLoops(prisma, agent.id, loops)) result.cancelled.push(agent.name);

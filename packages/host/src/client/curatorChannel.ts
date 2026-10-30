@@ -1,4 +1,5 @@
 import { WebSocket } from 'ws';
+import type { ChannelAuthProvider } from '../types.js';
 
 /**
  * Universal interface for Curator game and application communication.
@@ -30,6 +31,19 @@ export interface WebSocketChannelOptions {
   channelFilterKey?: string;
   defaultPath?: string;
   envUrlKey?: string;
+  /** Sends `Authorization: Bearer` on the upgrade and reconnects with a fresh token when the server closes with 4401. */
+  auth?: ChannelAuthProvider;
+}
+
+/** Close code a server uses when the connection's token expired or was revoked. */
+export const WS_CLOSE_AUTH_EXPIRED = 4401;
+
+export class ChannelAuthError extends Error {
+  public readonly code = 'AUTH_REQUIRED';
+  constructor(public readonly service: string, detail?: string) {
+    super(`Authentication required for "${service}"${detail ? `: ${detail}` : ''}. Run /auth login ${service}`);
+    this.name = 'ChannelAuthError';
+  }
 }
 
 export interface DirectChannelTarget {
@@ -81,21 +95,12 @@ export async function createWebSocketChannel(
     ? `${rawWsUrl}${rawWsUrl.includes('?') ? '&' : '?'}${filterKey}=${encodeURIComponent(targetIdStr)}`
     : rawWsUrl;
 
-  const ws = new WebSocket(wsUrl);
+  const auth = options.auth;
   const listeners: Set<(event: any) => void> = new Set();
   let clientSessionId: string | undefined = undefined;
+  let closedByClient = false;
 
-  await new Promise<void>((resolve, reject) => {
-    (ws as any).once('open', () => {
-      if (targetIdStr) {
-        ws.send(JSON.stringify({ type: 'subscribe', [filterKey]: targetIdStr, tableId: targetIdStr }));
-      }
-      resolve();
-    });
-    (ws as any).once('error', (err: any) => reject(err));
-  });
-
-  ws.on('message', (raw: any) => {
+  const onMessage = (raw: any) => {
     try {
       const event = JSON.parse(raw.toString());
       if (event.type === 'connected' && event.sessionId) {
@@ -105,7 +110,64 @@ export async function createWebSocketChannel(
         listener(event);
       }
     } catch (_) {}
-  });
+  };
+
+  const open =(token: string | null): Promise<WebSocket> =>
+    new Promise<WebSocket>((resolve, reject) => {
+      const socket = token ? new WebSocket(wsUrl, { headers: { Authorization: `Bearer ${token}` } }) : new WebSocket(wsUrl);
+      // Bound before 'open': the server's first frame can arrive in the same tick.
+      socket.on('message', onMessage);
+      (socket as any).once('open', () => {
+        if (targetIdStr) {
+          socket.send(JSON.stringify({ type: 'subscribe', [filterKey]: targetIdStr, tableId: targetIdStr }));
+        }
+        resolve(socket);
+      });
+      // Rejected upgrade (e.g. 401): report the status instead of a generic socket error.
+      (socket as any).once('unexpected-response', (_req: any, res: any) => {
+        const err: any = new Error(`WebSocket upgrade rejected with HTTP ${res.statusCode}`);
+        err.status = res.statusCode;
+        err.wwwAuthenticate = res.headers?.['www-authenticate'];
+        res.resume?.();
+        socket.terminate();
+        reject(err);
+      });
+      (socket as any).once('error', (err: any) => reject(err));
+    });
+
+  const connect = async (): Promise<WebSocket> => {
+    if (!auth) return open(null);
+    for (let attempt = 0; ; attempt++) {
+      const token = await auth.getAccessToken();
+      if (!token) throw new ChannelAuthError(auth.name);
+      try {
+        return await open(token);
+      } catch (err: any) {
+        const retry = err?.status === 401 && attempt === 0 && (await auth.handleUnauthorized?.(err.wwwAuthenticate));
+        if (!retry) throw err?.status === 401 ? new ChannelAuthError(auth.name, 'token rejected') : err;
+      }
+    }
+  };
+
+  const attach = (socket: WebSocket) => {
+    socket.on('close', (code: number) => {
+      if (closedByClient || code !== WS_CLOSE_AUTH_EXPIRED || !auth) return;
+      connect().then(
+        (next) => {
+          ws = next;
+          attach(next);
+        },
+        () => {
+          for (const listener of listeners) {
+            listener({ type: 'auth:required', payload: { service: auth.name, reason: 'connection token expired' } });
+          }
+        }
+      );
+    });
+  };
+
+  let ws = await connect();
+  attach(ws);
 
   return {
     sessionId: clientSessionId,
@@ -129,6 +191,7 @@ export async function createWebSocketChannel(
       );
     },
     async close() {
+      closedByClient = true;
       try {
         ws.close();
       } catch (_) {}

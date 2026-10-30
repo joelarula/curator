@@ -8,8 +8,11 @@ export const toolNode: NodeHandler<CuratorToolNode> = {
   type: 'Curator_Tool',
   async run(ast, req, ctx) {
     logger.debug(`[CuratorRequestProcessor] Executing Tool '${ast.toolName}' for request ${req.id}`);
-    const tool = ctx.tools.get(ast.toolName);
+    const tool = ctx.tools.get(ast.toolName, req);
     if (!tool) throw new Error(`Tool ${ast.toolName} not found in dynamic registry.`);
+    // Access, approval and audit use the resolved key (aliases like `mcp.crm.lookup` resolve per project);
+    // context output stays under the name the workflow used.
+    const toolKey: string = tool.name || ast.toolName;
 
     let toolArgs = ast.args || { url: req.context?.input || '' };
     // Direct calls (REPL/CLI/API) carry literal args: a value like "$100" must not be evaluated.
@@ -26,10 +29,10 @@ export const toolNode: NodeHandler<CuratorToolNode> = {
     }
 
     // RBAC & Tool confirmation gate
-    const accessCheck = await ctx.tools.checkAccess(req, ast.toolName, tool);
+    const accessCheck = await ctx.tools.checkAccess(req, toolKey, tool);
     if (!accessCheck.allowed) {
       if (accessCheck.requiresConfirmation) {
-        logger.debug(`[CuratorRequestProcessor] Request ${req.id} pausing on WAITING_FOR_USER for tool '${ast.toolName}'.`);
+        logger.debug(`[CuratorRequestProcessor] Request ${req.id} pausing on WAITING_FOR_USER for tool '${toolKey}'.`);
         const ttlMs = ast.approvalTtlMs ?? (tool as any).approvalTtlMs ?? ctx.tools.approvalTtlMs;
         const expiresAt = ttlMs > 0 ? new Date(ctx.now() + ttlMs).toISOString() : undefined;
         await ctx.prisma.request.update({
@@ -41,7 +44,7 @@ export const toolNode: NodeHandler<CuratorToolNode> = {
             context: {
               ...req.context,
               pendingToolCall: {
-                name: ast.toolName,
+                name: toolKey,
                 args: evaluatedArgs,
                 as: ast.as,
                 expiresAt,
@@ -53,12 +56,12 @@ export const toolNode: NodeHandler<CuratorToolNode> = {
         });
         // Audit record only: the poller never treats this Response as the approval (see pendingToolCall guard).
         await ctx.saveResponse(req, JSON.stringify({
-          type: 'APPROVAL_REQUIRED', ok: false, tool: ast.toolName, reason: accessCheck.reason, expiresAt
+          type: 'APPROVAL_REQUIRED', ok: false, tool: toolKey, reason: accessCheck.reason, expiresAt
         } satisfies CuratorStructuredResponse));
         return;
       } else {
         await ctx.saveResponse(req, JSON.stringify({
-          type: 'TOOL_BLOCKED', ok: false, tool: ast.toolName, reason: accessCheck.reason, roles: accessCheck.roles
+          type: 'TOOL_BLOCKED', ok: false, tool: toolKey, reason: accessCheck.reason, roles: accessCheck.roles
         } satisfies CuratorStructuredResponse));
         await ctx.completeRequest(req.id, 'FAILED');
         return;
@@ -149,7 +152,7 @@ export const toolNode: NodeHandler<CuratorToolNode> = {
     if (accessCheck.approvalScope === 'ONETIME' && req.context) {
       delete req.context.__humanApproved__;
       if (Array.isArray(req.context.__approvedTools__)) {
-        req.context.__approvedTools__ = req.context.__approvedTools__.filter((t: string) => t !== ast.toolName);
+        req.context.__approvedTools__ = req.context.__approvedTools__.filter((t: string) => t !== toolKey);
       }
     }
 

@@ -1,0 +1,32 @@
+{
+  "name": "@curator/plugin-mcp-client",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Remote MCP providers for Curator: project-scoped registration, database catalog (tools, resources, prompts), per-server auth",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./*": "./dist/*"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test test/naming.test.ts test/registry.test.ts"
+  },
+  "dependencies": {
+    "@curator/agent-server": "file:../../curator",
+    "@curator/auth-client": "file:../auth-client",
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "@curator/host": "file:../host",
+    "@types/node": "^22.19.1",
+    "typescript": "^5.6.2"
+  }
+}

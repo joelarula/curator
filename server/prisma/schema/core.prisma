@@ -31,6 +31,8 @@ model Project {
   roles       Role[]
   projectRoles ProjectRole[]
   userRoles   UserRole[]
+  mcpServers  McpServer[]
+  tools       Tool[]
 
   existent    Boolean?  @default(true)
   deletedAt   DateTime?
@@ -53,11 +55,22 @@ model Tool {
   permissions          Permission[]
   roles                ToolRole[]
   enabled              Boolean      @default(true)
+  origin               String       @default("local") // local | remote
+  mcpServerId          Int?
+  mcpServer            McpServer?   @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
+  remoteName           String?      // tool name on the remote provider
+  projectId            String?      // set for remote tools (= McpServer.projectId); null for local tools
+  project              Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  inputSchema          Json?
+  annotations          Json?        // remote hints (readOnlyHint, destructiveHint, ...), untrusted
   existent             Boolean?     @default(true)
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
 
   @@index([existent])
+  @@unique([mcpServerId, remoteName])
+  @@index([origin])
+  @@index([projectId])
 }
 
 

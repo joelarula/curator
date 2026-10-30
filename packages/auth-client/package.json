@@ -1,0 +1,26 @@
+{
+  "name": "@curator/auth-client",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "OAuth 2.0 / OIDC client sessions for Curator REPL clients: device flow, multi-IdP sessions, RFC 9728 discovery",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./*": "./dist/*"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test test/authorizationCode.test.ts test/jwtVerifier.test.ts test/discovery.test.ts test/deviceFlow.test.ts test/sessionManager.test.ts test/tokenStore.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.1",
+    "typescript": "^5.6.2"
+  }
+}

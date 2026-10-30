@@ -1,0 +1,66 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Remote MCP providers and their catalog (tools live in Tool with origin=remote)
+// Kept in sync with curator/prisma-sqlite and curator/prisma-mariadb.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model McpServer {
+  id           Int           @id @default(autoincrement())
+  name         String        // unique per project; namespace for remote tools: mcp.<name>.<tool>
+  url          String        @db.Text
+  transport    String        @default("streamable-http")
+  authService  String?       // @curator/auth-client service supplying tokens
+  status       String        @default("registered") // registered | connected | auth_required | error | disabled
+  lastError    String?       @db.Text
+  serverInfo   Json?         // initialize result: name, version, capabilities
+  instructions String?       @db.Text
+  enabled      Boolean       @default(true)
+  lastSyncedAt DateTime?
+  projectId    String        // owning project ('system' scope for shared servers)
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy    String?
+  tools        Tool[]
+  resources    McpResource[]
+  prompts      McpPrompt[]
+  existent     Boolean?      @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@unique([projectId, name])
+  @@index([projectId, existent])
+}
+
+model McpResource {
+  id          Int       @id @default(autoincrement())
+  mcpServerId Int
+  mcpServer   McpServer @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
+  uri         String    // resource URI, or RFC 6570 URI template when isTemplate
+  isTemplate  Boolean   @default(false)
+  name        String
+  title       String?
+  description String?   @db.Text
+  mimeType    String?
+  size        Int?
+  annotations Json?
+  existent    Boolean?  @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([mcpServerId, uri])
+  @@index([mcpServerId, existent])
+}
+
+model McpPrompt {
+  id          Int       @id @default(autoincrement())
+  mcpServerId Int
+  mcpServer   McpServer @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
+  name        String
+  title       String?
+  description String?   @db.Text
+  arguments   Json?     // [{ name, description, required }]
+  existent    Boolean?  @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([mcpServerId, name])
+  @@index([mcpServerId, existent])
+}

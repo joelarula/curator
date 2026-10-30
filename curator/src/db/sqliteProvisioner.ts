@@ -31,6 +31,94 @@ function findCuratorRootAndSchema(): { root: string; schemaPath: string } {
 const { root: CURATOR_ROOT, schemaPath: SQLITE_SCHEMA_PATH } = findCuratorRootAndSchema();
 const DATA_DIR = path.join(CURATOR_ROOT, 'data');
 
+/**
+ * Brings an existing database up to the remote-MCP model (McpServer/McpResource/McpPrompt,
+ * Tool.origin & friends). DDL mirrors `prisma migrate diff` for prisma-sqlite; every step is idempotent.
+ */
+export function migrateMcpTables(db: DatabaseSync): void {
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS "McpServer" (
+      "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+      "name" TEXT NOT NULL,
+      "url" TEXT NOT NULL,
+      "transport" TEXT NOT NULL DEFAULT 'streamable-http',
+      "authService" TEXT,
+      "status" TEXT NOT NULL DEFAULT 'registered',
+      "lastError" TEXT,
+      "serverInfo" JSONB,
+      "instructions" TEXT,
+      "enabled" BOOLEAN NOT NULL DEFAULT true,
+      "lastSyncedAt" DATETIME,
+      "projectId" TEXT NOT NULL,
+      "createdBy" TEXT,
+      "existent" BOOLEAN DEFAULT true,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL,
+      CONSTRAINT "McpServer_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    );`,
+    // Server names are unique per project, not globally
+    `DROP INDEX IF EXISTS "McpServer_name_key";`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS "McpServer_projectId_name_key" ON "McpServer"("projectId", "name");`,
+    `CREATE INDEX IF NOT EXISTS "McpServer_projectId_existent_idx" ON "McpServer"("projectId", "existent");`,
+    `CREATE TABLE IF NOT EXISTS "McpResource" (
+      "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+      "mcpServerId" INTEGER NOT NULL,
+      "uri" TEXT NOT NULL,
+      "isTemplate" BOOLEAN NOT NULL DEFAULT false,
+      "name" TEXT NOT NULL,
+      "title" TEXT,
+      "description" TEXT,
+      "mimeType" TEXT,
+      "size" INTEGER,
+      "annotations" JSONB,
+      "existent" BOOLEAN DEFAULT true,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL,
+      CONSTRAINT "McpResource_mcpServerId_fkey" FOREIGN KEY ("mcpServerId") REFERENCES "McpServer" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    );`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS "McpResource_mcpServerId_uri_key" ON "McpResource"("mcpServerId", "uri");`,
+    `CREATE INDEX IF NOT EXISTS "McpResource_mcpServerId_existent_idx" ON "McpResource"("mcpServerId", "existent");`,
+    `CREATE TABLE IF NOT EXISTS "McpPrompt" (
+      "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+      "mcpServerId" INTEGER NOT NULL,
+      "name" TEXT NOT NULL,
+      "title" TEXT,
+      "description" TEXT,
+      "arguments" JSONB,
+      "existent" BOOLEAN DEFAULT true,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL,
+      CONSTRAINT "McpPrompt_mcpServerId_fkey" FOREIGN KEY ("mcpServerId") REFERENCES "McpServer" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    );`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS "McpPrompt_mcpServerId_name_key" ON "McpPrompt"("mcpServerId", "name");`,
+    `CREATE INDEX IF NOT EXISTS "McpPrompt_mcpServerId_existent_idx" ON "McpPrompt"("mcpServerId", "existent");`,
+  ];
+  for (const sql of statements) {
+    try { db.exec(sql); } catch (_) {}
+  }
+
+  const toolColumns = new Set(
+    (db.prepare(`PRAGMA table_info("Tool")`).all() as { name: string }[]).map((c) => c.name)
+  );
+  const addToolColumns: [string, string][] = [
+    ['origin', `"origin" TEXT NOT NULL DEFAULT 'local'`],
+    ['mcpServerId', `"mcpServerId" INTEGER REFERENCES "McpServer" ("id") ON DELETE CASCADE ON UPDATE CASCADE`],
+    ['remoteName', `"remoteName" TEXT`],
+    ['projectId', `"projectId" TEXT REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE`],
+    ['inputSchema', `"inputSchema" JSONB`],
+    ['annotations', `"annotations" JSONB`],
+  ];
+  if (toolColumns.size > 0) {
+    for (const [name, definition] of addToolColumns) {
+      if (!toolColumns.has(name)) db.exec(`ALTER TABLE "Tool" ADD COLUMN ${definition};`);
+    }
+    db.exec(`DROP INDEX IF EXISTS "Tool_mcpServerId_idx";`);
+    db.exec(`CREATE INDEX IF NOT EXISTS "Tool_origin_idx" ON "Tool"("origin");`);
+    db.exec(`CREATE INDEX IF NOT EXISTS "Tool_projectId_idx" ON "Tool"("projectId");`);
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS "Tool_mcpServerId_remoteName_key" ON "Tool"("mcpServerId", "remoteName");`);
+  }
+}
+
 export async function provisionSqliteDb(name: string, forceReset: boolean = false, options: { databasePath?: string } = {}): Promise<PrismaClient> {
   // Validate name (alphanumeric, hyphens, underscores only)
   if (!/^[\w-]+$/.test(name)) {
@@ -131,6 +219,7 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
         migDb.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ScriptVersion_scriptId_hash_key ON ScriptVersion(scriptId, hash);`);
       } catch (_) {}
       try { migDb.exec('ALTER TABLE ScriptVersion ADD COLUMN createdBy TEXT;'); } catch (_) {}
+      migrateMcpTables(migDb);
       migDb.close();
     } catch (_) {}
   }

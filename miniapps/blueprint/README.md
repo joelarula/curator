@@ -164,3 +164,29 @@ while_loop "$context.turn <= 5",
 2. `Response` and audit records are created per turn automatically.
 3. Peer sessions and token permissions are validated against the database.
 
+
+---
+
+## Harness POC: Gemini agent + remote MCP tools with Google sign-in
+
+Two Curator apps, each with its own SQLite database:
+
+| App | Command | Database | Role |
+|---|---|---|---|
+| **blueprint server** | `npm run blueprint-server` | `data/blueprint-server/curator.db` | MCP provider (Streamable HTTP `:4200/mcp`), one tool `web_scrape`; verifies Google id_tokens via JWKS; callers become Curator users with role `web_reader` |
+| **blueprint** (REPL harness) | `npm run repl` | `data/state/curator.db` | Gemini agent `web_assistant` with `tools: ['mcp.blueprint.*']`; Google device-flow sign-in in the REPL |
+
+Root `.env`:
+
+```
+GOOGLE_API_KEY=...                       # Gemini
+GOOGLE_CLIENT_ID=...                     # web client (accepted by the server)
+CLIENT_ID_BLUEPRINT=...                  # "TVs and Limited Input devices" client (REPL device flow)
+CLIENT_SECRET_BLUEPRINT=...
+BLUEPRINT_ALLOWED_EMAILS=you@gmail.com   # server allow list (emails or @domains)
+# optional: BLUEPRINT_MCP_URL (default http://127.0.0.1:4200/mcp), BLUEPRINT_SERVER_PORT, BLUEPRINT_MODEL
+```
+
+Run: start `npm run blueprint-server`, then `npm run repl`. The REPL registers the server; without a session it
+starts the device login (google.com/device + code). After sign-in, type e.g. `summarize https://example.com`.
+`/auth list | login google | logout google` manage the session (tokens in `~/.curator/credentials`).

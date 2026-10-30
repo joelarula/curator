@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { setLogLevel } from '@curator/agent-server';
-import type { CuratorHost } from '../types.js';
+import type { CuratorHost, ShellAuthManager } from '../types.js';
+import { ShellAuthController } from './shellAuth.js';
 
 export interface HostCliOptions {
   name?: string;
@@ -8,6 +9,8 @@ export interface HostCliOptions {
   version?: string;
   defaultTimeout?: number;
   program?: Command;
+  /** Enables the `auth` command (e.g. `() => AuthSessionManager.fromConfigFile()` from `@curator/auth-client`). */
+  auth?: ShellAuthManager | (() => ShellAuthManager | Promise<ShellAuthManager>);
 }
 
 function parseJsonArg(str: string): any {
@@ -392,6 +395,30 @@ export function createHostCli(
         await host.stop();
       }
     });
+
+  // 9. IdP sessions (device-flow login in the browser); no host boot needed
+  if (options.auth) {
+    const authSource = options.auth;
+    program
+      .command('auth [action] [target]')
+      .description(`Manage IdP sessions: ${ShellAuthController.usage}`)
+      .option('--open', 'Open the verification link in the system browser')
+      .action(async (action: string | undefined, target: string | undefined, opts: { open?: boolean }) => {
+        const manager = typeof authSource === 'function' ? await authSource() : authSource;
+        const controller = new ShellAuthController(manager, { openBrowser: opts.open });
+        try {
+          if (action === 'login' && target) {
+            const identity = await controller.startLogin(target);
+            if (!identity) process.exitCode = 1;
+          } else {
+            await controller.command(action, target);
+          }
+        } catch (err: any) {
+          console.error('[Host CLI] Auth error:', err?.message || err);
+          process.exitCode = 1;
+        }
+      });
+  }
 
   return program;
 }

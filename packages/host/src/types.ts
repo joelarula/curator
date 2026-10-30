@@ -215,6 +215,81 @@ export interface ClientShellConfig<TState = any, _TAction = any> {
   onCommand?: (command: string, args: string) => Promise<boolean | void>;
   logTurn?: (msg: string) => Promise<void>;
   hint?: string;
+  /** Multi-IdP session manager (e.g. `AuthSessionManager` from `@curator/auth-client`); enables `/auth`. */
+  auth?: ShellAuthManager;
+  /** Start a device-flow login automatically when an `auth:required` event arrives (default: just print a hint). */
+  autoLogin?: boolean;
+  /** Open the verification link in the system browser when a login starts (default: false). */
+  openBrowser?: boolean;
+  /** Called after a successful `/auth login` (e.g. re-sync MCP servers that were waiting for it). */
+  onAuthLogin?: (target: string, identity: ShellAuthIdentity) => void | Promise<void>;
+}
+
+// Auth contracts, structurally compatible with `@curator/auth-client` so the host takes no dependency on it.
+export interface ShellAuthIdentity {
+  issuer: string;
+  sub: string;
+  email?: string;
+  name?: string;
+}
+
+export interface ShellVerificationInfo {
+  idp: string;
+  issuer: string;
+  service?: string;
+  verificationUri: string;
+  verificationUriComplete?: string;
+  userCode: string;
+  expiresIn: number;
+}
+
+/** Authorization code login: the URL the user opens; the IdP redirects back to `redirectUri`. */
+export interface ShellAuthorizationInfo {
+  idp: string;
+  issuer: string;
+  service?: string;
+  authorizationUrl: string;
+  redirectUri: string;
+  expiresIn: number;
+}
+
+export interface ShellAuthPrompt {
+  showVerification(info: ShellVerificationInfo): void;
+  showAuthorization?(info: ShellAuthorizationInfo): void;
+  status?(message: string): void;
+  signal?: AbortSignal;
+}
+
+export interface ShellAuthSessionInfo {
+  idp: string;
+  issuer: string;
+  loggedIn: boolean;
+  identity?: ShellAuthIdentity;
+  tokens: { resource: string; expiresAt?: number; valid: boolean }[];
+  services: string[];
+}
+
+export interface ShellAuthManager {
+  idpNames(): string[];
+  serviceNames(): string[];
+  list(): Promise<ShellAuthSessionInfo[]>;
+  login(target: string, prompt: ShellAuthPrompt): Promise<ShellAuthIdentity>;
+  logout(target: string): Promise<void>;
+  whoami(target: string): Promise<ShellAuthIdentity | null>;
+}
+
+/** Token source for one service (e.g. `AuthSessionManager.provider(name)`). */
+export interface ChannelAuthProvider {
+  readonly name: string;
+  getAccessToken(): Promise<string | null>;
+  handleUnauthorized?(wwwAuthenticate?: string | null): Promise<boolean>;
+}
+
+/** Payload of the `auth:required` event emitted when a service call has no usable token. */
+export interface AuthRequiredEventPayload {
+  service: string;
+  idp?: string;
+  reason?: string;
 }
 
 // Backward-compatible type aliases to prevent consumer breakage
