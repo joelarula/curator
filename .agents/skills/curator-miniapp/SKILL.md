@@ -288,3 +288,39 @@ node scripts/verify-data.js
 - [Multi-Engine Database Setup Guide](./references/db-multi-engine.md)
 - [GraphQL & Curator Bridge Reference](./references/graphql-curator-bridge.md)
 - [Curator Setup & Tool Registration Template](./references/setup-curator-template.md)
+
+---
+
+## 10. Contract-Based MiniApp & MiniGame Development
+
+To ensure core engine updates do not break MiniApps and MiniGames:
+
+### 1. Inversion of Control via `@curator/host/contracts`
+Never instantiate raw engine classes (such as `CuratorEngine`) or invoke raw SQLite provisioners in MiniApps. Instead, declare the app/game contract:
+
+```typescript
+import { defineMiniApp, type CuratorAppManifest } from '@curator/host/contracts';
+
+export const MANIFEST: CuratorAppManifest = {
+  id: 'my-app',
+  version: '1.0.0',
+  requiredHostCapabilities: ['ast:v2', 'storage:sqlite'],
+};
+
+export default defineMiniApp({
+  manifest: MANIFEST,
+  roles: ['app:user', 'app:admin'],
+  tools: [/* declared tools */],
+  reducers: [/* declared state reducers */],
+});
+```
+
+### 2. Package Boundaries & Subpath Imports
+- **Never use relative `dist/` escapes**: e.g., `../../../packages/host/dist/appConfig.js` is banned.
+- **Use subpath package exports**:
+  - `@curator/host`: Host service, factories, channels (`createDirectChannel`, `createWebSocketChannel`).
+  - `@curator/host/config`: Lightweight config loading (`loadAppConfig`, `loadEnvFiles`, `profilesFromArgv`) without server dependencies.
+  - `@curator/host/contracts`: Manifests and type-safe `defineMiniApp` / `defineMiniGame` helpers.
+  - `@curator/host/client`: REPL shells, identities, and client transport.
+- **Index-Based Public Barrels**: Always export and import domain types/models through `src/models/index.ts` rather than deep file paths (`src/models/pokerContracts.ts`).
+

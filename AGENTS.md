@@ -7,6 +7,7 @@ Full rationale, examples, pitfalls, run commands: `docs/AGENT_GUIDE.md` (read on
 - Change order: schema → server/contracts → frontend → extensions → docs.
 - Scope all DB entities to active project IDs + `'system'`; IDs come from host session/`x-project-id`, never client payloads.
 - Workflows run only as compiled AST (`compileToAST`); no legacy `toolCalls/toolArgs/callbacks`.
+- Package boundaries & contracts: MiniApps/MiniGames develop against contracts (`@curator/host/contracts`, `defineMiniApp`/`defineMiniGame`); never import internal engine files or use relative escapes (`../../../.../dist/...`); consume only package index/subpath exports (`@curator/host/config`, `@curator/host/client`).
 - Tools/events go through `host.runTool` / `host.emitEvent`; never call handlers directly.
 - After changing `packages/host`, `curator`, or shared packages, rebuild (`npm --prefix <pkg> run build`) before testing downstream.
 - Verify with `tsc --noEmit`/targeted checks. Ask before any command >15s or full test suites.

@@ -141,6 +141,23 @@ The repository intentionally supports multiple database engines across modules:
 - **Core Entity Synchronization**: When updating core workflow models (`Project`, `User`, `Agent`, `Request`, `Response`, `Conversation`), the changes must be intentionally synced across both PostgreSQL (`server/prisma/schema/core.prisma`) and embedded runtimes (`curator/prisma-sqlite/` and `curator/prisma-mariadb/`).
 - **Client Output & TypeScript Path Mapping**: Submodules using custom output generators (e.g., `src/generated/prisma-sqlite`) must map `@prisma/client` in `tsconfig.json` paths so local services maintain full type safety without relying on hoisted root stubs.
 
+### 4.7 Contract-Based MiniApp & MiniGame Architecture and Package Boundaries
+
+MiniApps (`miniapps/*`) and MiniGames (`minigames/*`) must be developed as modular guest extensions to the Curator host, not as coupled forks of the core engine.
+
+#### 1. Stable Application Contracts (`@curator/host/contracts`)
+- **No Engine Coupling**: MiniApps and MiniGames must never construct `CuratorEngine` or wire internal SQLite provisioners manually. Instead, they define their tools, state reducers, and domain metadata via formal contracts:
+  - `defineMiniGame({ manifest, roles, reducers, tools, events, commands })`
+  - `defineMiniApp({ manifest, roles, tools, reducers, events })`
+- **Capabilities & Backward Compatibility Handshake**: The application manifest (`CuratorAppManifest`) declares domain identity, version, and required host features (`requiredHostCapabilities: ['ast:v2', 'channel:repl', 'storage:sqlite']`). This enables the host runtime to negotiate capabilities and provide adapter shims when the core engine evolves, preserving backward compatibility without freezing core development.
+- **Hexagonal Ports & Adapters**: Core engine developers are free to refactor AST compilation, request processing, and storage SPI layers. MiniApps only interact with the Host Facade Port.
+
+#### 2. Strict Package Boundaries & Subpath Exports
+- **No Monorepo Escapes**: Never import across package boundaries using relative directory paths into sister packages or dist folders (e.g. `../../../packages/host/dist/appConfig.js` is strictly forbidden). Always import via package names (`@curator/host`, `@curator/mcp-server`).
+- **Explicit Subpath Exports**: Upstream packages must define explicit entry points in `package.json` (`exports: { ".", "./config", "./contracts", "./client" }`) and remove wildcard leaks (`"./*": "./dist/*"`).
+- **Index-Based Public Barrels**: Domain modules must provide curated public barrel files (`index.ts`). Internal files (e.g. `pokerContracts.ts`, `pokerEvents.ts`, `pokerContext.ts`) should be consumed through `models/index.ts` rather than fragmented deep relative paths.
+- **Lightweight Configuration Subpaths**: When CLI boot or configuration loading only requires environment variables or app settings, import exclusively from `@curator/host/config` to avoid loading Express, WebSockets, or heavy server dependencies.
+
 
 ## 5. Module-by-module run and validation commands
 
@@ -302,6 +319,9 @@ Minimum expected reporting in handoff:
 - Shipping frontend integration without confirming server response shape
 - **Static imports in CLI entry points (`src/cli.ts`)**: In ECMAScript Modules (ESM), static `import` statements are hoisted and evaluated *before* any runtime code executes. In network/SMB workspace setups, statically importing servers/clients freezes startup for 30–45s before even line 1 can log. Keep top-level CLI entry points ultra-lean (`commander` only) and dynamically load heavy dependencies (`await import(...)`) inside `.action(...)` handlers.
 - **Using tsx loader instead of native Node for CLI scripts**: Node 22.5+ and Node 24 natively strip and run TypeScript files (`node src/cli.ts`), exactly as proven in `miniapps/keeris/package.json` (`"scrape": "node src/cli.ts scrape"`). Avoid wrapping scripts with external loader flags (`node --import .../tsx/...`).
+- **Bypassing package boundaries with relative `dist/` imports**: Importing `../../../packages/host/dist/...` couples apps to internal folder layouts and breaks packaging/bundling. Always use `@curator/host` or subpath exports (`@curator/host/config`).
+- **Leaky package exports (`./*`)**: Exposing `"./*": "./dist/*"` in `package.json` allows consumers to depend on private engine classes. Use explicit subpaths (`.`, `./config`, `./contracts`, `./client`).
+- **Fragmented internal file imports**: Bypassing domain barrel files (`index.ts`) by importing directly from `../models/someInternalFile.ts` causes brittle refactoring breaks. Use index exports.
 
 ## 12. Preferred implementation style
 
