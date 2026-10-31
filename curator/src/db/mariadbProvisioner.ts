@@ -278,6 +278,14 @@ async function ensureCuratorMariadbSchema(pool: any): Promise<void> {
     `CREATE INDEX IF NOT EXISTS Response_conversationId_createdAt_idx ON Response (conversationId, createdAt);`
   ];
 
+  ddl.push(`CREATE TABLE IF NOT EXISTS ConversationLease (
+      conversationId INT PRIMARY KEY,
+      owner VARCHAR(191) NOT NULL,
+      leaseUntil DATETIME(3) NOT NULL,
+      updatedAt DATETIME(3) NOT NULL,
+      INDEX ConversationLease_owner_idx (owner)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
+
   for (const sql of ddl) {
     try {
       await pool.query(sql);

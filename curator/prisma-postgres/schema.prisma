@@ -468,6 +468,17 @@ model EventLog {
   @@index([conversationId, eventName, id])
 }
 
+/// Which worker runs a conversation now (docs/DISTRIBUTED_STORAGE_PLAN.md, Phase 4). Held while that worker has
+/// requests of the conversation in flight, renewed every poll tick, free for any worker once `leaseUntil` passes.
+model ConversationLease {
+  conversationId Int      @id
+  owner          String
+  leaseUntil     DateTime
+  updatedAt      DateTime @updatedAt
+
+  @@index([owner])
+}
+
 
 model Agent {
   id           String      @id @default(cuid())

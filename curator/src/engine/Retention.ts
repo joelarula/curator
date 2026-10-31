@@ -11,6 +11,21 @@ import { sqlFor } from '../db/sqlDialect.js';
 
 const ID_CHUNK = 500;
 
+/**
+ * Deletes the matching rows of a model in batches of ID_CHUNK, each its own statement: no single delete holds
+ * many row locks or makes one huge write set (Galera certifies every statement's rows on all nodes). Returns the
+ * number of rows deleted.
+ */
+export async function deleteInChunks(delegate: any, where: Record<string, unknown>, chunk: number = ID_CHUNK): Promise<number> {
+  let deleted = 0;
+  for (;;) {
+    const ids = (await delegate.findMany({ where, select: { id: true }, orderBy: { id: 'asc' }, take: chunk })).map((r: any) => r.id);
+    if (!ids.length) return deleted;
+    deleted += (await delegate.deleteMany({ where: { id: { in: ids } } })).count;
+    if (ids.length < chunk) return deleted;
+  }
+}
+
 /** Sets `context` to NULL. Raw SQL so `updatedAt` (which orders "latest request" lookups) is left as is. */
 export async function clearRequestContexts(prisma: any, ids: number[]): Promise<number> {
   const sql = sqlFor(prisma);
@@ -91,14 +106,13 @@ export async function pruneConversationHistory(prisma: any, conversationId: numb
     ...sql`UPDATE "Request" SET "notifyId" = NULL WHERE "conversationId" <> ${conversationId} AND "notifyId" IN (SELECT "id" FROM (SELECT "id" FROM "Request" WHERE "conversationId" = ${conversationId}) AS own)`
   );
 
-  const responses = await prisma.response.deleteMany({
-    where: { OR: [{ conversationId }, { request: { is: { conversationId } } }] },
-  });
+  // In batches (see deleteInChunks); a Request's children get parentId NULL from the foreign key as it goes
+  const responses = await deleteInChunks(prisma.response, { OR: [{ conversationId }, { request: { is: { conversationId } } }] });
   await prisma
     .$executeRawUnsafe(...sql`DELETE FROM "_RequestResources" WHERE "A" IN (SELECT "id" FROM "Request" WHERE "conversationId" = ${conversationId})`)
     .catch(() => {});
-  const requests = await prisma.request.deleteMany({ where: { conversationId } });
+  const requests = await deleteInChunks(prisma.request, { conversationId });
   await prisma.eventSubscription?.deleteMany?.({ where: { conversationId } });
   const events = await compactConversationLog(prisma, conversationId);
-  return { requests: requests.count, responses: responses.count, events };
+  return { requests, responses, events };
 }

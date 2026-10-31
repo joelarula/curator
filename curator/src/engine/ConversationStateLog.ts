@@ -226,23 +226,42 @@ export async function rebuildStateSnapshot(prisma: any, conversationId: number):
   });
 }
 
+/** Rows per delete statement when compacting (each its own statement; see Retention.deleteInChunks). */
+const COMPACT_CHUNK = 500;
+
 /**
  * Retention for a finished conversation: replaces its whole EventLog (bus and state events) with one
  * `__state.patch` holding the current state, so the log still rebuilds the same snapshot. History before it
  * (replay, rewind targets) is gone. Returns how many log rows were removed.
+ *
+ * The compacted event and the snapshot pointing at it commit together; the older rows are then deleted in
+ * batches, outside that transaction. The snapshot never reads them again, and every later event has a higher id.
  */
 export async function compactConversationLog(prisma: any, conversationId: number): Promise<number> {
   if (!prisma.eventLog?.deleteMany) return 0;
-  return atomically(prisma, async (db) => {
+  const compactedId = await atomically(prisma, async (db) => {
     const snap = await materializeIn(db, conversationId);
-    const removed = await db.eventLog.deleteMany({ where: { conversationId } });
     const row = await db.eventLog.create({ data: { conversationId, eventName: STATE_PATCH, payload: { set: snap.state } } });
     await db.conversation.update({
       where: { id: conversationId },
       data: { metadata: { ...snap.state, [STATE_SEQ_KEY]: row.id } },
     });
-    return removed.count;
+    return row.id as number;
   });
+  let removed = 0;
+  for (;;) {
+    const ids = (
+      await prisma.eventLog.findMany({
+        where: { conversationId, id: { lt: compactedId } },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+        take: COMPACT_CHUNK,
+      })
+    ).map((r: any) => r.id);
+    if (!ids.length) return removed;
+    removed += (await prisma.eventLog.deleteMany({ where: { id: { in: ids } } })).count;
+    if (ids.length < COMPACT_CHUNK) return removed;
+  }
 }
 
 /** The ordered state events (the audit trail) for debugging UIs and replay. */

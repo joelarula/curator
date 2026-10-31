@@ -91,6 +91,10 @@ const toEvent = (e: any): StoredEvent => ({
  * Claims: one `UPDATE … WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED) RETURNING` on Postgres; `SELECT … FOR
  * UPDATE SKIP LOCKED` plus `UPDATE` in one transaction on MariaDB/MySQL (retried on write conflicts, which is how
  * Galera reports two nodes claiming the same row); a conditional update per row on SQLite (a single writer).
+ *
+ * Leases (`leases`, Phase 4): a claim skips conversations another worker holds a live lease on, takes the lease
+ * on the conversations it claimed, and puts back what it claimed where another worker won the lease meanwhile.
+ * So one worker at a time runs a conversation; the holder renews while it has requests in flight.
  */
 export class PrismaStorageAdapter implements IStorageAdapter {
   public readonly dialect: SqlDialect;
@@ -98,17 +102,22 @@ export class PrismaStorageAdapter implements IStorageAdapter {
   public readonly scope?: StorageScope;
   private readonly sql: SqlTag;
   private readonly clock: () => number;
+  private readonly leases?: { ttlMs: number };
 
-  constructor(private readonly prisma: any, options: { scope?: StorageScope; clock?: () => number } = {}) {
-    this.dialect = sqlDialect(prisma);
+  constructor(
+    private readonly prisma: any,
+    options: { scope?: StorageScope; clock?: () => number; dialect?: SqlDialect; leases?: { ttlMs: number } } = {}
+  ) {
+    this.dialect = options.dialect ?? sqlDialect(prisma);
     this.sql = sqlTag(this.dialect);
     this.scope = options.scope;
     this.clock = options.clock ?? Date.now;
+    this.leases = options.leases;
     this.capabilities = { durable: true, shared: this.dialect !== 'sqlite' };
   }
 
   public withScope(scope: StorageScope): PrismaStorageAdapter {
-    return new PrismaStorageAdapter(this.prisma, { scope, clock: this.clock });
+    return new PrismaStorageAdapter(this.prisma, { scope, clock: this.clock, dialect: this.dialect, leases: this.leases });
   }
 
   public async close(): Promise<void> {}
@@ -130,12 +139,21 @@ export class PrismaStorageAdapter implements IStorageAdapter {
   private async claimIds(workerId: string, limit: number, now: Date, conversationIds?: readonly number[]): Promise<number[]> {
     const lockedAt = new Date(this.clock());
     if (this.dialect === 'sqlite') {
+      const leasedElsewhere = this.leases
+        ? (
+            await this.prisma.conversationLease.findMany({
+              where: { owner: { not: workerId }, leaseUntil: { gt: lockedAt } },
+              select: { conversationId: true },
+            })
+          ).map((l: any) => l.conversationId)
+        : [];
       const candidates = await this.prisma.request.findMany({
         where: this.scoped({
           status: 'NEW',
           pendingDependencies: { lte: 0 },
           scheduledAt: { lte: now },
           ...(conversationIds ? { conversationId: { in: [...conversationIds] } } : {}),
+          ...(leasedElsewhere.length ? { NOT: { conversationId: { in: leasedElsewhere } } } : {}),
         }),
         orderBy: CLAIM_ORDER,
         take: limit,
@@ -157,6 +175,7 @@ export class PrismaStorageAdapter implements IStorageAdapter {
       WHERE "status" = 'NEW' AND "pendingDependencies" <= 0 AND "scheduledAt" <= ${now}
       ${conversationIds ? sqlPart`AND "conversationId" IN (${[...conversationIds]})` : SQL_EMPTY}
       ${this.scope ? sqlPart`AND ("projectId" IN (${scopeProjectIds(this.scope)}) OR "projectId" IS NULL)` : SQL_EMPTY}
+      ${this.leases ? sqlPart`AND "conversationId" NOT IN (SELECT "conversationId" FROM "ConversationLease" WHERE "owner" <> ${workerId} AND "leaseUntil" > ${lockedAt})` : SQL_EMPTY}
       ORDER BY "priority" DESC, "createdAt" ASC, "id" ASC
       LIMIT ${limit}
       FOR UPDATE SKIP LOCKED`;
@@ -180,6 +199,72 @@ export class PrismaStorageAdapter implements IStorageAdapter {
     });
   }
 
+  /**
+   * Takes or extends this worker's lease on each conversation (free, expired or already its own). Returns the
+   * conversations another worker holds.
+   */
+  private async acquireLeases(workerId: string, conversationIds: readonly number[]): Promise<Set<number>> {
+    const lost = new Set<number>();
+    const now = new Date(this.clock());
+    const leaseUntil = new Date(now.getTime() + this.leases!.ttlMs);
+    for (const conversationId of new Set(conversationIds)) {
+      const taken = await this.prisma.conversationLease.updateMany({
+        where: { conversationId, OR: [{ owner: workerId }, { leaseUntil: { lte: now } }] },
+        data: { owner: workerId, leaseUntil },
+      });
+      if (taken.count > 0) continue;
+      try {
+        await this.prisma.conversationLease.create({ data: { conversationId, owner: workerId, leaseUntil } });
+      } catch (err: any) {
+        // Unique violation: another worker created it first
+        if (err?.code !== 'P2002') throw err;
+        lost.add(conversationId);
+      }
+    }
+    return lost;
+  }
+
+  /** Claimed requests as Prisma rows, highest priority first (what the processor executes). */
+  public async claimRows(workerId: string, { limit, now = new Date(this.clock()), conversationIds }: ClaimOptions): Promise<any[]> {
+    if (limit <= 0 || conversationIds?.length === 0) return [];
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const ids = await this.claimIds(workerId, limit, now, conversationIds);
+        if (!ids.length) return [];
+        const rows = await this.prisma.request.findMany({ where: { id: { in: ids } }, orderBy: CLAIM_ORDER });
+        if (!this.leases) return rows;
+        const lost = await this.acquireLeases(workerId, rows.map((r: any) => r.conversationId));
+        if (!lost.size) return rows;
+        // Another worker won the lease between this claim and the lease: its conversation, its requests
+        await this.prisma.request.updateMany({
+          where: { id: { in: rows.filter((r: any) => lost.has(r.conversationId)).map((r: any) => r.id) }, lockedBy: workerId },
+          data: { status: 'NEW', lockedBy: null, lockedAt: null },
+        });
+        return rows.filter((r: any) => !lost.has(r.conversationId));
+      } catch (err: any) {
+        if (err?.code !== WRITE_CONFLICT || attempt >= CLAIM_ATTEMPTS) throw err;
+      }
+    }
+  }
+
+  /** Extends this worker's leases on the conversations it still has requests of in flight. */
+  public async renewLeases(workerId: string, conversationIds: readonly number[]): Promise<void> {
+    if (!this.leases || !conversationIds.length) return;
+    await this.prisma.conversationLease.updateMany({
+      where: { owner: workerId, conversationId: { in: [...new Set(conversationIds)] } },
+      data: { leaseUntil: new Date(this.clock() + this.leases.ttlMs) },
+    });
+  }
+
+  /** Gives up this worker's leases except on `keep` (conversations still in flight). Returns how many it released. */
+  public async releaseLeases(workerId: string, keep: readonly number[] = []): Promise<number> {
+    if (!this.leases) return 0;
+    const released = await this.prisma.conversationLease.deleteMany({
+      where: { owner: workerId, ...(keep.length ? { conversationId: { notIn: [...new Set(keep)] } } : {}) },
+    });
+    return released.count;
+  }
+
   public requests: RequestRepository = {
     create: async input => {
       assertWritableProject(this.scope, input.projectId);
@@ -193,19 +278,7 @@ export class PrismaStorageAdapter implements IStorageAdapter {
       return row ? toRequest(row) : null;
     },
 
-    claim: async (workerId, { limit, now = new Date(this.clock()), conversationIds }: ClaimOptions) => {
-      if (limit <= 0 || conversationIds?.length === 0) return [];
-      for (let attempt = 1; ; attempt++) {
-        try {
-          const ids = await this.claimIds(workerId, limit, now, conversationIds);
-          if (!ids.length) return [];
-          const rows = await this.prisma.request.findMany({ where: { id: { in: ids } }, orderBy: CLAIM_ORDER });
-          return rows.map(toRequest);
-        } catch (err: any) {
-          if (err?.code !== WRITE_CONFLICT || attempt >= CLAIM_ATTEMPTS) throw err;
-        }
-      }
-    },
+    claim: async (workerId, options: ClaimOptions) => (await this.claimRows(workerId, options)).map(toRequest),
 
     update: async (id, patch) => {
       const row = await this.prisma.request.update({ where: this.scoped({ id }), data: withJsonNulls(patch, 'update') });

@@ -87,8 +87,10 @@ SQLite memory database (`provisionMemorySqliteDb`, ~30 ms; schema from a cached 
 - Limits: the move is one way (no rehydration); conversations linked to another memory conversation or to
   resources stay in memory; state projectors (e.g. poker's table resource) update their read model only once the
   conversation is durable, since the resource lives there; MariaDB/Postgres `Permission`/`RolePermission` are not
-  mirrored (SQLite has no such tables); in a cluster, ownership of a moved conversation is unguarded until Phase 4
-  leases.
+  mirrored (SQLite has no such tables). In a cluster, Phase 4 leases make one durable worker at a time run a
+  moved conversation.
+- Known gap for the MariaDB run: the hand-written DDL in `mariadbProvisioner.ts` has no `EventLog` table (and may
+  lag the Prisma schema elsewhere); it predates this plan.
 - Only an explicit curator URL (`curatorDb.url` / `CURATOR_DATABASE_URL`) selects Postgres; a generic
   `DATABASE_URL` is usually the server's own Postgres and keeps its old meaning (SQLite unless MySQL/MariaDB).
 
@@ -103,7 +105,11 @@ A durability setting per script or conversation:
 Ephemeral work is lost on crash by definition, so it only suits work that can restart from the beginning.
 On clusters, this tier also cuts replication traffic (Galera certification, Postgres WAL shipping).
 
-### Phase 2: Claiming work
+### Phase 2: Claiming work (claims done; wake-ups open)
+Done: `CuratorRequestProcessor` (polling and `step`) claims through `PrismaStorageAdapter.claimRows`, i.e. the
+statements below. Tested on SQLite only; the Postgres/MariaDB statements wait for the cluster test run. Open:
+`LISTEN/NOTIFY` and adaptive polling (both only pay off with several nodes, so they come with that run).
+
 - Claim in one statement instead of a find followed by a claim update per row:
   - Postgres: `UPDATE "Request" SET … WHERE id IN (SELECT id … FOR UPDATE SKIP LOCKED LIMIT n) RETURNING *`.
   - MariaDB 10.6+: `SELECT … FOR UPDATE SKIP LOCKED` followed by `UPDATE` in the same transaction (no `RETURNING` on `UPDATE`).
@@ -112,14 +118,31 @@ On clusters, this tier also cuts replication traffic (Galera certification, Post
   (back off when idle, reset on work), with an optional Redis or NATS channel as a wake-up hint only (never
   as the source of truth).
 
-### Phase 3: Retention by partition
+### Phase 3: Retention by partition (batched deletes done; partitioning open)
+Done, for every database: `pruneConversationHistory` deletes Responses and Requests in batches of 500
+(`Retention.deleteInChunks`, one statement each), and `compactConversationLog` commits the compacted event and
+its snapshot first, then deletes the older events in batches. No retention statement touches more than 500 rows.
+Open: partitioning (below), which only exists on Postgres/MariaDB and needs the cluster test run. Note that
+partitioning `Request` needs its primary key to include the partition column, which conflicts with
+`Response.requestId` and `Request.parentId` referencing `Request.id`; `EventLog` (no foreign keys) is the
+straightforward first candidate.
+
 - Postgres: partition `EventLog`, `Request` and `Response` by time; retire data with `DETACH`/`DROP PARTITION`.
 - MariaDB: range partitioning drops the foreign keys on those tables (integrity moves to the application,
   for example with Prisma `relationMode = "prisma"` for them). If that is not acceptable, keep chunked deletes
   (`Retention.ts` already works in chunks of 500) and run them off-peak.
 - SQLite: unchanged.
 
-### Phase 4: Conversation ownership
+### Phase 4: Conversation ownership (leases done; in-memory state and group commit open)
+Done: model `ConversationLease` (all three schemas; MariaDB DDL; added to existing SQLite files at startup;
+Postgres pushes it when missing). A claim skips conversations another worker holds a live lease on, takes the
+lease on what it claimed, and puts back requests whose lease it lost in a race. The processor renews the leases of
+conversations with requests in flight every tick (`renewConversationLeases`), idle leases lapse after `ttlMs`
+(default 30s, so the owner keeps affinity), and a stopped processor releases its leases. On by default for
+MariaDB/Postgres, off for SQLite; option `conversationLeases`. This also covers the checkpoint tier: a moved
+conversation is run by one durable worker at a time. Open: keeping the owner's conversation state in memory and
+batching its writes (below); both build on the leases.
+
 - Lease table `ConversationLease(conversationId, owner, leaseUntil)`. Only the owner node runs a
   conversation's requests, and it keeps that conversation's state in memory.
 - The owner writes events in batches (group commit). When a lease expires, another node takes over by

@@ -16,6 +16,8 @@ import { appendStatePatch, STATE_SEQ_KEY } from './ConversationStateLog.js';
 import { STATE_PATCH_KEY, withoutStoredStateCopies } from './RequestContextStorage.js';
 import { recordDeadLetter, TERMINAL_STATUSES } from './DeadLetters.js';
 import { clearRequestContexts, completedChildrenWithContext, sweepCompletedContexts } from './Retention.js';
+import { PrismaStorageAdapter } from '../storage/PrismaStorageAdapter.js';
+import { sqlDialect, type SqlDialect } from '../db/sqlDialect.js';
 import { AgentRoleService } from '../services/AgentRoleService.js';
 import { ApprovalService } from '../services/ApprovalService.js';
 import { defaultOutputFormats, type OutputFormats } from './output/OutputFormats.js';
@@ -57,6 +59,12 @@ export interface CuratorRequestProcessorOptions {
   disabledMaintenance?: string[];
   /** Host services for this processor's handlers and systems; they take precedence over plugin services. */
   services?: ServiceBinding[];
+  /**
+   * Conversation leases (docs/DISTRIBUTED_STORAGE_PLAN.md, Phase 4): one worker at a time runs a conversation; the
+   * lease is renewed while it has requests in flight and lapses `ttlMs` after (default 30s). Default: on for
+   * MariaDB/MySQL and Postgres (shared by several nodes), off for SQLite (one writer); `false` turns them off.
+   */
+  conversationLeases?: false | { ttlMs?: number };
 }
 
 /** Registries the processor reads; `curatorEngine` by default. Plugin node types, services and systems are optional. */
@@ -187,11 +195,29 @@ export class CuratorRequestProcessor {
   /** Host services for this processor (checked before the engine's plugin services). */
   private services = new Map<ServiceKey<any>, any>();
   private maintenanceContext!: MaintenanceContext;
+  /** Claims (single-statement on MariaDB/Postgres) and conversation leases. */
+  private store: PrismaStorageAdapter;
+  private leasesOn: boolean;
+  /** Conversation id -> requests of it this worker is executing (whose leases it renews). */
+  private conversationsInFlight = new Map<number, number>();
 
   constructor(prisma: any, options: CuratorRequestProcessorOptions = {}) {
     this.prisma = withoutStoredStateCopies(prisma);
     this.clock = options.now ?? Date.now;
     this.onEvent = options.onEvent;
+    let dialect: SqlDialect = 'sqlite';
+    try {
+      dialect = sqlDialect(this.prisma);
+    } catch (_) {
+      // Test doubles without a Prisma provider: the portable (SQLite) claim path
+    }
+    const leases = options.conversationLeases === false ? undefined : (options.conversationLeases ?? (dialect === 'sqlite' ? undefined : {}));
+    this.leasesOn = leases != null;
+    this.store = new PrismaStorageAdapter(this.prisma, {
+      clock: this.clock,
+      dialect,
+      leases: leases ? { ttlMs: leases.ttlMs ?? 30_000 } : undefined,
+    });
     this.astStorage = options.astStorage ?? 'reference';
     this.maxCallDepth = options.maxCallDepth ?? 16;
     this.engine = options.engine ?? curatorEngine;
@@ -318,6 +344,9 @@ export class CuratorRequestProcessor {
     this.disabledMaintenance = new Set(disabled);
     const builtins: MaintenanceSystem[] = [
       { name: 'unlockStaleRequests', run: () => this.unlockStaleRequests() },
+      ...(this.leasesOn
+        ? [{ name: 'renewConversationLeases', run: () => this.store.renewLeases(this.workerId, [...this.conversationsInFlight.keys()]) }]
+        : []),
       { name: 'pollScheduledAgents', run: () => this.pollScheduledAgents() },
       { name: 'expireApprovalWaits', run: () => this.expireApprovalWaits() },
       { name: 'expireHumanWaits', run: () => this.expireHumanWaits() },
@@ -896,28 +925,13 @@ export class CuratorRequestProcessor {
         return;
       }
 
-      // 3. Poll for NEW requests matching current capacity
-      const requests = await this.prisma.request.findMany({
-        where: {
-          status: 'NEW',
-          pendingDependencies: { lte: 0 },
-          scheduledAt: { lte: new Date(this.clock()) },
-          ...this.scopeWhere()
-        },
-        orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
-        take: availableSlots
+      // 3. Claim NEW requests matching current capacity (one statement on MariaDB/Postgres; leases when on)
+      const lockedRequests = await this.store.claimRows(this.workerId, {
+        limit: availableSlots,
+        now: new Date(this.clock()),
+        conversationIds: this.conversationScope ? [...this.conversationScope] : undefined,
       });
-
-      if (!requests || requests.length === 0) return;
-
-      const lockedRequests: any[] = [];
-      for (const req of requests) {
-        const updated = await this.prisma.request.updateMany({
-          where: { id: req.id, status: 'NEW' },
-          data: { status: 'WAITING', lockedBy: this.workerId, lockedAt: new Date() }
-        });
-        if (updated.count > 0) lockedRequests.push(req);
-      }
+      if (lockedRequests.length === 0) return;
 
       // 4. Dispatch tasks asynchronously within safe concurrency limits
       for (const req of lockedRequests) {
@@ -962,34 +976,14 @@ export class CuratorRequestProcessor {
     const availableSlots = options?.take ?? this.getAvailableConcurrencySlots();
     if (availableSlots <= 0) return 0;
 
-    const where: any = {
-      status: 'NEW',
-      pendingDependencies: { lte: 0 },
-      scheduledAt: { lte: new Date(this.clock()) }
-    };
-    if (options?.conversationId !== undefined) {
-      where.conversationId = options.conversationId;
-    }
-
-    const requests = await this.prisma.request.findMany({
-      where,
-      orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
-      take: availableSlots
+    const lockedRequests = await this.store.claimRows(this.workerId, {
+      limit: availableSlots,
+      now: new Date(this.clock()),
+      conversationIds: options?.conversationId !== undefined ? [options.conversationId] : undefined,
     });
 
-    if (!requests || requests.length === 0) return 0;
-
-    const lockedRequests: any[] = [];
-    for (const req of requests) {
-      const updated = await this.prisma.request.updateMany({
-        where: { id: req.id, status: 'NEW' },
-        data: { status: 'WAITING', lockedBy: this.workerId, lockedAt: new Date() }
-      });
-      if (updated.count > 0) lockedRequests.push(req);
-    }
-
     for (const req of lockedRequests) {
-      await this.processRequest(req);
+      await this.inConversation(req, () => this.processRequest(req));
     }
 
     return lockedRequests.length;
@@ -1084,7 +1078,7 @@ export class CuratorRequestProcessor {
       try {
         // Yield to the Node.js event loop before starting heavy task to let web requests process smoothly
         await new Promise(resolve => setImmediate(resolve));
-        await this.processRequest(req);
+        await this.inConversation(req, () => this.processRequest(req));
       } catch (err) {
         logger.error(`[CuratorRequestProcessor] Task execution error for request ${req.id}:`, err);
       } finally {
@@ -1101,11 +1095,26 @@ export class CuratorRequestProcessor {
     }
   }
 
+  /** Counts the request as in flight in its conversation while `run` executes (its lease is renewed meanwhile). */
+  private async inConversation<T>(req: any, run: () => Promise<T>): Promise<T> {
+    const id = Number(req.conversationId);
+    this.conversationsInFlight.set(id, (this.conversationsInFlight.get(id) ?? 0) + 1);
+    try {
+      return await run();
+    } finally {
+      const left = (this.conversationsInFlight.get(id) ?? 1) - 1;
+      if (left > 0) this.conversationsInFlight.set(id, left);
+      else this.conversationsInFlight.delete(id);
+    }
+  }
+
   /** Resolves once no polled task is running; call after stop() so nothing is torn down mid-request. */
   public async idle(): Promise<void> {
     while (this.runningTasks.size > 0) {
       await Promise.allSettled([...this.runningTasks]);
     }
+    // A stopped worker hands its conversations over at once instead of letting the leases lapse
+    if (this.isStopped && this.leasesOn) await this.store.releaseLeases(this.workerId).catch(() => {});
   }
 
   /** Runs a request; afterwards the contexts of children that had completed before this run (it consumed them) are trimmed. */

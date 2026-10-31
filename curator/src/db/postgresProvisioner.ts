@@ -32,11 +32,12 @@ function findCuratorFile(relative: string): string | undefined {
 
 async function hasCuratorSchema(client: any, schema: string | undefined): Promise<boolean> {
   const table = (name: string) => (schema ? `"${schema.replace(/"/g, '""')}"."${name}"` : `"${name}"`);
-  const { rows } = await client.query('SELECT to_regclass($1) IS NOT NULL AS request, to_regclass($2) IS NOT NULL AS subs', [
-    table('Request'),
-    table('EventSubscription'),
-  ]);
-  return Boolean(rows[0]?.request && rows[0]?.subs);
+  // The newest table too: a database from before it gets it added by the (non-destructive) push
+  const { rows } = await client.query(
+    'SELECT to_regclass($1) IS NOT NULL AS request, to_regclass($2) IS NOT NULL AS subs, to_regclass($3) IS NOT NULL AS leases',
+    [table('Request'), table('EventSubscription'), table('ConversationLease')]
+  );
+  return Boolean(rows[0]?.request && rows[0]?.subs && rows[0]?.leases);
 }
 
 async function ensureCuratorPostgresSchema(pool: any, connectionUrl: string, schema: string | undefined): Promise<void> {

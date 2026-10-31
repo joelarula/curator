@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createEnv, runAst, runScript, saveScript } from '../helpers/harness.ts';
-import { pruneConversationHistory } from '../../src/engine/Retention.ts';
+import { pruneConversationHistory, deleteInChunks } from '../../src/engine/Retention.ts';
+import { appendStatePatch, compactConversationLog, readSnapshot, rebuildStateSnapshot } from '../../src/engine/ConversationStateLog.ts';
 
 const tool = (name: string, args: any = {}, as?: string) => ({ type: 'Curator_Tool', toolName: name, args, ...(as ? { as } : {}) });
 
@@ -95,6 +96,38 @@ test('retention: pruning a finished conversation removes its requests and respon
     assert.ok(pruned.requests > 0);
     assert.equal(await env.prisma.request.count({ where: { conversationId } }), 0);
     assert.equal(await env.prisma.response.count({ where: { conversationId } }), 0);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('retention: compaction removes a long log in batches and the one event left rebuilds the same state', async () => {
+  const env = await createEnv('retention_compact_batches');
+  try {
+    const conversationId = env.conversationId;
+    await env.prisma.eventLog.createMany({
+      data: Array.from({ length: 1200 }, (_, i) => ({ conversationId, eventName: 'noise', payload: { i } })),
+    });
+    await appendStatePatch(env.prisma, conversationId, { set: { a: 1 } });
+    await appendStatePatch(env.prisma, conversationId, { scope: 'seat', set: { b: 2 } });
+    const before = readSnapshot((await env.prisma.conversation.findUnique({ where: { id: conversationId } })).metadata).state;
+
+    assert.equal(await compactConversationLog(env.prisma, conversationId), 1202);
+    assert.equal(await env.prisma.eventLog.count({ where: { conversationId } }), 1);
+    assert.deepEqual((await rebuildStateSnapshot(env.prisma, conversationId)).state, before);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('retention: deleteInChunks removes every match across several batches and nothing else', async () => {
+  const env = await createEnv('retention_delete_chunks');
+  try {
+    await env.prisma.eventLog.createMany({
+      data: Array.from({ length: 7 }, (_, i) => ({ conversationId: env.conversationId, eventName: i % 2 ? 'odd' : 'even' })),
+    });
+    assert.equal(await deleteInChunks(env.prisma.eventLog, { eventName: 'even' }, 2), 4);
+    assert.deepEqual((await env.prisma.eventLog.findMany()).map((e: any) => e.eventName), ['odd', 'odd', 'odd']);
   } finally {
     await env.cleanup();
   }

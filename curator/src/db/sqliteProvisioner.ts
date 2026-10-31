@@ -242,6 +242,15 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
       for (const ddl of REQUEST_RESPONSE_INDEXES) {
         try { migDb.exec(ddl); } catch (_) {}
       }
+      try {
+        migDb.exec(`CREATE TABLE IF NOT EXISTS "ConversationLease" (
+          "conversationId" INTEGER NOT NULL PRIMARY KEY,
+          "owner" TEXT NOT NULL,
+          "leaseUntil" DATETIME NOT NULL,
+          "updatedAt" DATETIME NOT NULL
+        );`);
+        migDb.exec('CREATE INDEX IF NOT EXISTS "ConversationLease_owner_idx" ON "ConversationLease"("owner");');
+      } catch (_) {}
       migrateMcpTables(migDb);
       migDb.close();
     } catch (_) {}
