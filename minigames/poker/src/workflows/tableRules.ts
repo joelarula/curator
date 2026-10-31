@@ -14,7 +14,7 @@ import { defineModule, defineSubroutine, system, type CuratorModuleNode } from '
 import { pokerComposables } from '../composables/pokerComposables.ts';
 import { state, ifElse, setState } from '../models/pokerContext.ts';
 import { DEFAULT_RULES_SETTINGS, tableSettings, setting } from '../pokerConfig.ts';
-import { PokerTablePhase, PokerSessionReason } from '../models/pokerContracts.ts';
+import { PokerTablePhase, PokerSessionReason, PokerActionType } from '../models/pokerContracts.ts';
 import {
   ActionIntent, ActionValidated, ActionRejected, ActionResolved, SessionExited, TablePhase,
 } from '../models/pokerEvents.ts';
@@ -32,9 +32,14 @@ export const MAX_TURN_REJECTIONS = DEFAULT_RULES_SETTINGS.maxTurnRejections;
 const maxRejections = setting(tableSettings.rules.maxTurnRejections, MAX_TURN_REJECTIONS);
 const rejections = state.turnRejections.orDefault(0);
 
-// The table reducer keeps the deciding seat's legal choices in `$state.turn`
+// The table reducer keeps the deciding seat's legal choices in `$state.turn`.
+// The engine offers an opening bet as RAISE and applies BET as RAISE, so a BET intent matches it.
+const intentType = intent.action.type.orDefault(intent.action);
 const isLegal = state.turn.choices.some((c) =>
-  c.action.and(c.action.type.eq(intent.action.type.orDefault(intent.action)))
+  c.action.and(
+    c.action.type.eq(intentType)
+      .or(c.action.type.eq(PokerActionType.RAISE).and(intentType.eq('BET')))
+  )
 );
 
 /**

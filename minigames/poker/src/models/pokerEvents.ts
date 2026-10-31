@@ -7,6 +7,9 @@ import type { PlayerAction, PlayerStanding, PokerGameState, SpeechAct, Street } 
 import { PokerEvent, PokerTablePhase, PokerLobbyPhase, TABLE_PHASE_KEY, LOBBY_PHASE_KEY } from './pokerContracts.ts';
 import type { TableTalkCue, TableTalkSpeech } from '../engine/tableTalk.ts';
 
+/** How an event reads in a seat's history (see `PokerHistoryMode`). */
+type HistoryLine = { from?: string; mode?: string; text?: string };
+
 type TableRef = { tableId: string };
 
 // Table lifecycle
@@ -20,13 +23,13 @@ export const TableSelected = defineEvent<TableRef & { buyIn?: number }>(PokerEve
 export const NewRound = defineEvent<{ handNumber: number; gameState: PokerGameState }>(PokerEvent.NEW_ROUND);
 export const PhaseDeal = defineEvent<{ street: Street; gameState: PokerGameState }>(PokerEvent.PHASE_DEAL);
 export const PhaseStreet = defineEvent<{ street: Street; gameState: PokerGameState }>(PokerEvent.PHASE_STREET);
-export const PhaseSettle = defineEvent<{ winnerSummary: string; gameState: PokerGameState }>(PokerEvent.PHASE_SETTLE);
+export const PhaseSettle = defineEvent<{ winnerSummary: string; gameState: PokerGameState } & HistoryLine>(PokerEvent.PHASE_SETTLE);
 export const GameOver = defineEvent<{ standings: PlayerStanding[] }>(PokerEvent.GAME_OVER);
 
 // Turns & actions
 export const AwaitingHumanAction = defineEvent<{ gameState: PokerGameState }>(PokerEvent.AWAITING_HUMAN_ACTION);
 export const ActionApplied = defineEvent<{ player: string; action: PlayerAction; pot: number }>(PokerEvent.ACTION_APPLIED);
-export const ActionTaken = defineEvent<{ player: string; action: PlayerAction; summary: string; pot?: number; gameState: PokerGameState }>(PokerEvent.ACTION_TAKEN);
+export const ActionTaken = defineEvent<{ player: string; action: PlayerAction; summary: string; pot?: number; gameState: PokerGameState } & HistoryLine>(PokerEvent.ACTION_TAKEN);
 
 // Session control
 export const TablePaused = defineEvent<TableRef>(PokerEvent.TABLE_PAUSED);
@@ -35,8 +38,11 @@ export const TableResumed = defineEvent<TableRef>(PokerEvent.TABLE_RESUMED);
 export const SessionExited = defineEvent<{ reason: string }>(PokerEvent.SESSION_EXITED);
 
 // Table talk
-/** A line said at the table; `depth`, `origin`, `threadId`, `replyToId` and `cueId` are set by turn decisions and chatter. */
-export const Speech = defineEvent<TableTalkSpeech & { speakerName: string; text: string; speechAct: SpeechAct }>(PokerEvent.SPEECH);
+/**
+ * A line said at the table; `depth`, `origin`, `threadId`, `replyToId` and `cueId` are set by turn decisions and chatter.
+ * `from` and `mode` are how seats remember it (`PokerHistoryMode`): table talk as `[from]: text`, whispers not at all.
+ */
+export const Speech = defineEvent<TableTalkSpeech & { speakerName: string; text: string; speechAct: SpeechAct } & HistoryLine>(PokerEvent.SPEECH);
 /** The table-talk gate picked a seat to say something; only its `speak_chatter` system answers it. */
 export const ChatterCue = defineEvent<TableTalkCue>(PokerEvent.CHATTER_CUE);
 /** A cue's flow finished (spoke or stayed silent); releases the table for the next cue. */

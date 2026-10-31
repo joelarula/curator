@@ -7,7 +7,7 @@
  */
 import { defineModule, defineSubroutine, choice, type CuratorModuleNode } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
-import { actor, state, turnCtx, ifElse } from '../models/pokerContext.ts';
+import { actor, state, turnCtx, ifElse, offRecord } from '../models/pokerContext.ts';
 import { AwaitingHumanAction } from '../models/pokerEvents.ts';
 
 const { gameState, modules } = pokerComposables;
@@ -19,8 +19,8 @@ export const humanDecision = defineSubroutine('human_decision', {
     AwaitingHumanAction.emit({ gameState }),
     ifElse(
       gameState.currentBet.sub(actor.streetBet).eq(0),
-      choice('Your turn (Check or Bet):', state.turn.choices, { as: turnCtx.turnAction }),
-      choice('Your turn (Call, Raise, or Fold):', state.turn.choices, { as: turnCtx.turnAction }),
+      offRecord(choice('Your turn (Check or Bet):', state.turn.choices, { as: turnCtx.turnAction })),
+      offRecord(choice('Your turn (Call, Raise, or Fold):', state.turn.choices, { as: turnCtx.turnAction })),
     ),
   ],
   // The choice is bound into state as well as context

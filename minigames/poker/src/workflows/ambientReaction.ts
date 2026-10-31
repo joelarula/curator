@@ -25,6 +25,8 @@ import {
 import { pokerComposables } from '../composables/pokerComposables.ts';
 import { state, gameState, ifElse, setState } from '../models/pokerContext.ts';
 import {
+  PokerHistoryMode,
+  PokerSpeechAct,
   PokerSpeechOrigin,
   PokerTablePhase,
   PokerActionType,
@@ -130,6 +132,7 @@ export const chatter_line = () => CuratorBuilder.agent({
   ].join('\n'),
   history_from: 'conversation',
   history_events: SEAT_HISTORY_EVENTS,
+  exclude_from_history: true,
   output_schema: CHATTER_OUTPUT_SCHEMA,
 });
 
@@ -153,6 +156,8 @@ export const voiceSeat = defineSubroutine('voice_seat', {
         threadId: cue.threadId,
         replyToId: cue.replyToId,
         cueId: cue.cueId,
+        from: cue.speakerName,
+        mode: cue.speechAct.eq(PokerSpeechAct.WHISPER).ternary(PokerHistoryMode.OFF_RECORD, PokerHistoryMode.LINE),
       }),
     ]),
   ],

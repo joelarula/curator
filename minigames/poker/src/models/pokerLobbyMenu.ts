@@ -23,6 +23,8 @@ export interface PokerReloadChoice {
   id: string;
   label: string;
   value: number;
+  /** Marks the prompt as amount-accepting, so the CLI submits a typed number instead of treating it as speech. */
+  amount: number;
   aliases: string[];
 }
 
@@ -48,7 +50,7 @@ export interface PokerLobbyMenu {
  * Lounge menu entries. Workflows list them inline and gate them with `when`;
  * positional numbers ("1", "2", ...) are resolved by the client shell, so they are not baked into aliases here.
  */
-export const LobbyChoices: Record<'NEW' | 'RESUME' | 'EXIT', PokerLobbyChoice> = {
+export const LobbyChoices: Record<'NEW' | 'RESUME' | 'EXIT' | 'BACK', PokerLobbyChoice> = {
   NEW: {
     id: PokerLobbyAction.NEW,
     label: 'New Game - Start fresh table',
@@ -66,6 +68,12 @@ export const LobbyChoices: Record<'NEW' | 'RESUME' | 'EXIT', PokerLobbyChoice> =
     label: 'Exit - Quit session',
     description: 'Quit session',
     aliases: ['q', 'exit', 'quit'],
+  },
+  BACK: {
+    id: PokerLobbyAction.BACK,
+    label: '« Back to Lounge Options',
+    description: 'Return to the lounge menu',
+    aliases: ['back', 'b', 'cancel'],
   },
 };
 
@@ -125,7 +133,7 @@ export function buildLobbyMenu(tables: PokerLobbyTable[] = []): PokerLobbyMenu {
 
 /** Wallet top-up presets; the prompt also accepts any free-form amount ("7500", "$7,500", "10k"). */
 export const ReloadChoices: PokerReloadChoice[] = [
-  { id: 'small', label: '$1,000', value: 1000, aliases: ['small', '1k'] },
-  { id: 'standard', label: '$5,000 [Recommended]', value: 5000, aliases: ['standard', '5k'] },
-  { id: 'large', label: '$10,000', value: 10000, aliases: ['large', '10k'] },
+  { id: 'small', label: '$1,000', value: 1000, amount: 1000, aliases: ['small', '1k'] },
+  { id: 'standard', label: '$5,000 [Recommended]', value: 5000, amount: 5000, aliases: ['standard', '5k'] },
+  { id: 'large', label: '$10,000', value: 10000, amount: 10000, aliases: ['large', '10k'] },
 ];

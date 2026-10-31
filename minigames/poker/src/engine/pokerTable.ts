@@ -1,13 +1,13 @@
 /**
  * The table reducer: the single deterministic entry point workflows reach (`reduce('poker_table_command', ...)`).
  * `reduceTable(state, command)` applies one command and then advances the table on its own as far as
- * the rules allow: completed streets are dealt, finished hands settle, the button rotates and the next
- * hand starts, until a seat has to decide or the game is over.
+ * the rules allow: completed streets are dealt and finished hands settle, until a seat has to decide, the
+ * hand is settled or the game is over. `start` then rotates the button and deals the next hand.
  * Flows only handle what is not deterministic (seat decisions, waiting, menus, pause/exit); they emit the
  * returned `events` as they are (`emitEvents`).
  */
 import type { PlayerAction, PokerGameState, Street } from '../types.ts';
-import { PokerEvent, PokerStreet } from '../models/pokerContracts.ts';
+import { PokerEvent, PokerHistoryMode, PokerStreet } from '../models/pokerContracts.ts';
 import {
   initPokerLobby,
   joinPokerLobby,
@@ -27,7 +27,7 @@ export const PokerTableCommand = {
   BOOT: 'boot',
   JOIN: 'join',
   LEAVE: 'leave',
-  /** Starts a hand unless one is in progress or the game is over (idempotent). */
+  /** Starts a hand (moving the button after a settled one) unless one is in progress or the game is over (idempotent). */
   START: 'start',
   ACT: 'act',
 } as const;
@@ -50,14 +50,18 @@ export interface PokerTurn {
   choices: PlayerChoice[];
 }
 
+/** The line a seat's history keeps of an event (see `PokerHistoryMode`); the `gameState` snapshot stays out. */
+type HistoryNote = { mode: string; text: string };
+const historyNote = (text: string): HistoryNote => ({ mode: PokerHistoryMode.NOTE, text });
+
 /**
  * An event the step reports, in the order it happened. Each payload carries the game state as of that
  * moment, so consumers need no ordering or timing assumptions.
  */
 export type PokerTableEvent =
-  | { name: typeof PokerEvent.ACTION_TAKEN; payload: { player: string; action: PlayerAction; summary: string; gameState: PokerGameState } }
+  | { name: typeof PokerEvent.ACTION_TAKEN; payload: { player: string; action: PlayerAction; summary: string; gameState: PokerGameState } & HistoryNote }
   | { name: typeof PokerEvent.PHASE_STREET; payload: { street: Street; gameState: PokerGameState } }
-  | { name: typeof PokerEvent.PHASE_SETTLE; payload: { winnerSummary: string; gameState: PokerGameState } }
+  | { name: typeof PokerEvent.PHASE_SETTLE; payload: { winnerSummary: string; gameState: PokerGameState } & HistoryNote }
   | { name: typeof PokerEvent.NEW_ROUND; payload: { handNumber: number; gameState: PokerGameState } }
   | { name: typeof PokerEvent.PHASE_DEAL; payload: { street: Street; gameState: PokerGameState } };
 
@@ -92,18 +96,18 @@ function startHand(s: PokerGameState, events: PokerTableEvent[]): PokerGameState
   return next;
 }
 
-/** Deals, settles and starts hands until a seat has to decide or the game is over. */
+/**
+ * Deals and settles until a seat has to decide or the hand is settled. The next hand is not dealt here:
+ * the table flow lingers on the settled hand, then sends `start`.
+ */
 function advance(start: PokerGameState, events: PokerTableEvent[]): PokerGameState {
   let s = start;
   for (let i = 0; i < MAX_AUTO_STEPS && !s.gameOver; i++) {
     if (s.handOver || s.currentStreet === PokerStreet.SHOWDOWN) {
       const settled = distributePokerPots(s);
-      events.push({ name: PokerEvent.PHASE_SETTLE, payload: { winnerSummary: settled.winnerSummary, gameState: settled.gameState } });
+      events.push({ name: PokerEvent.PHASE_SETTLE, payload: { winnerSummary: settled.winnerSummary, gameState: settled.gameState, ...historyNote(settled.winnerSummary) } });
       // Game over commits the final standings into the state; the table flow announces it
-      const over = checkPokerGameOver(settled.gameState);
-      if (over.gameOver) return over.gameState;
-      s = startHand(rotatePokerDealer(over.gameState).gameState, events);
-      continue;
+      return checkPokerGameOver(settled.gameState).gameState;
     }
     if (needsAction(s)) {
       const seat = s.players[s.activePlayerIdx];
@@ -149,7 +153,9 @@ export function reduceTable(state: PokerGameState | undefined, command: PokerTab
       return step(leavePokerLobby(state, String(command.id)).gameState, events);
     case PokerTableCommand.START: {
       if (isRunning(state) || state.gameOver) return step(state, events);
-      return step(advance(startHand(state, events), events), events);
+      // After a settled hand the button moves first; the very first hand keeps the booted button
+      const next = state.handNumber > 0 ? rotatePokerDealer(state).gameState : state;
+      return step(advance(startHand(next, events), events), events);
     }
     case PokerTableCommand.ACT: {
       if (!isRunning(state)) return step(state, events);
@@ -161,6 +167,7 @@ export function reduceTable(state: PokerGameState | undefined, command: PokerTab
           action: { type: acted.lastActionType as PlayerAction['type'], ...(acted.lastActionAmount !== undefined ? { amount: acted.lastActionAmount } : {}) },
           summary: acted.lastActionSummary || '',
           gameState: acted,
+          ...historyNote(acted.lastActionSummary || ''),
         },
       });
       return step(advance(acted, events), events);

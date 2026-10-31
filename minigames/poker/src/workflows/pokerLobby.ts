@@ -15,6 +15,7 @@ import {
   ifElse,
   whileLoop,
   stateMachine,
+  offRecord,
 } from '../models/pokerContext.ts';
 import {
   defineModule,
@@ -121,11 +122,11 @@ export function buildLobbyPhases() {
     [PokerLobbyPhase.MENU]: {
       run: [
         list_tables({}, { as: lobbyCtxProxy.openTables }),
-        input('Lobby Options:', [
+        offRecord(input('Lobby Options:', [
           LobbyChoices.NEW,
           { ...LobbyChoices.RESUME, when: lobbyCtxProxy.openTables.tables.length.gt(0) },
           LobbyChoices.EXIT,
-        ], { as: lobbyCtxProxy.lobbyChoice }),
+        ], { as: lobbyCtxProxy.lobbyChoice })),
       ],
       next: [
         { to: PokerLobbyPhase.NEW_TABLE, when: state.lobbyChoice.isChoice(lobbyActions.NEW) },
@@ -136,7 +137,7 @@ export function buildLobbyPhases() {
     },
     [PokerLobbyPhase.PICK_TABLE]: {
       // list_tables already built the table choices (with Back) for the open tables
-      run: input('Select Table:', lobbyCtxProxy.openTables.tableChoices, { as: lobbyCtxProxy.selectedTable }),
+      run: offRecord(input('Select Table:', lobbyCtxProxy.openTables.tableChoices, { as: lobbyCtxProxy.selectedTable })),
       next: [
         { to: PokerLobbyPhase.MENU, when: state.selectedTable.isChoice(lobbyActions.BACK) },
         { to: PokerLobbyPhase.BUY_IN },
@@ -157,22 +158,29 @@ export function buildLobbyPhases() {
     [PokerLobbyPhase.BUY_IN]: {
       run: loadBuyInOptions(),
       next: [
-        { to: PokerLobbyPhase.RELOAD, when: output.and(output.canAfford.not()) },
+        // get_buy_in_options does not spread: its result is in state only under `buyInOptions`
+        { to: PokerLobbyPhase.RELOAD, when: output.buyInOptions.and(output.buyInOptions.canAfford.not()) },
         { to: PokerLobbyPhase.DEPOSIT },
       ],
     },
     [PokerLobbyPhase.RELOAD]: {
       run: [
-        input("Your bankroll is below this table's minimum buy-in. Enter an amount to add (or select preset):",
-          ReloadChoices, { as: bankrollCtx.reloadChoice }),
-        reload_bankroll({ amount: bankrollCtx.reloadChoice }, { as: bankrollCtx.reload }),
+        offRecord(input("Your bankroll is below this table's minimum buy-in. Enter an amount to add (or select preset):",
+          [...ReloadChoices, LobbyChoices.BACK], { as: bankrollCtx.reloadChoice })),
+        ifElse(
+          state.reloadChoice.isChoice(lobbyActions.BACK).not(),
+          reload_bankroll({ amount: bankrollCtx.reloadChoice }, { as: bankrollCtx.reload }),
+        ),
       ],
-      next: PokerLobbyPhase.BUY_IN,
+      next: [
+        { to: PokerLobbyPhase.MENU, when: state.reloadChoice.isChoice(lobbyActions.BACK) },
+        { to: PokerLobbyPhase.BUY_IN },
+      ],
     },
     [PokerLobbyPhase.DEPOSIT]: {
       run: [
         loadBuyInOptions(),
-        input('Enter Buy-In amount (or select preset):', bankrollCtx.buyInOptions.choices, { as: bankrollCtx.buyInChoice }),
+        offRecord(input('Enter Buy-In amount (or select preset):', bankrollCtx.buyInOptions.choices, { as: bankrollCtx.buyInChoice })),
         deposit_buy_in({
           tableId: state.tableId,
           bbAmount: bankrollCtx.bbAmount.orDefault(20),

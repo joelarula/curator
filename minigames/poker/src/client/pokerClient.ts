@@ -184,7 +184,8 @@ export async function runPokerClientUi(
       }
 
       if (type === PokerEvent.GAME_OVER || type === PokerEvent.SESSION_EXITED) {
-        await cleanup();
+        // Not awaited: the event arrives mid-step, and closing waits for that step to finish
+        void cleanup();
         return;
       }
 

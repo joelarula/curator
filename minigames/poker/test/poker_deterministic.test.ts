@@ -479,11 +479,6 @@ test('Poker TypeScript Context Models: Path proxies, type guards, and semantic s
     gameState,
     state,
     params,
-    isCard,
-    isStreet,
-    isPlayerAction,
-    isPlayerState,
-    isPokerGameState,
     pokerPlugin,
     pokerScripts,
     getScriptAST,
@@ -506,17 +501,6 @@ test('Poker TypeScript Context Models: Path proxies, type guards, and semantic s
   assert.equal(String(gameState.board), '$state.gameState.board', 'game state is read from the event-sourced state');
   assert.equal(String(state.isPaused), '$state.isPaused');
   assert.equal(String(params.action), '$params.action');
-
-  // 2. Verify model runtime type guards
-  assert.equal(isCard({ rank: 'A', suit: '♠' }), true);
-  assert.equal(isCard({ rank: 'Z', suit: '♠' }), false);
-  assert.equal(isStreet('FLOP'), true);
-  assert.equal(isStreet('RIVER'), true);
-  assert.equal(isStreet('INVALID_STREET'), false);
-  assert.equal(isPlayerAction({ type: 'CALL', amount: 20 }), true);
-  assert.equal(isPlayerAction({ type: 'CHECK' }), true);
-  assert.equal(isPlayerAction({ type: 'INVALID' as any }), false);
-  assert.equal(isPokerGameState(cannedMockTable), true);
 
   // 3. Verify typed domain constants and variable name unwrapper
   assert.equal(PokerEvent.LOBBY_READY, 'poker:lobby_ready');

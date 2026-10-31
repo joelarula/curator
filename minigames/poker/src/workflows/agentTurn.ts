@@ -13,11 +13,11 @@ import {
   type CuratorModuleNode,
   type CuratorAgentNode,
 } from '../curator.ts';
-import { PokerEvent, PokerModule, PokerSpeechAct, PokerSpeechOrigin } from '../models/index.ts';
-import { ctx, actor, gameState, ifElse, setState } from '../models/pokerContext.ts';
+import { PokerEvent, PokerHistoryMode, PokerModule, PokerSpeechAct, PokerSpeechOrigin } from '../models/index.ts';
+import { ctx, actor, gameState, state, ifElse, setState } from '../models/pokerContext.ts';
 import { Speech } from '../models/pokerEvents.ts';
 import { getRulesDescription } from '../engine/pokerRules.ts';
-import { DEFAULT_SEAT_MODEL, pokerConfig } from '../pokerConfig.ts';
+import { DEFAULT_CHATTER_MODEL, DEFAULT_SEAT_MODEL, pokerConfig } from '../pokerConfig.ts';
 
 /** The seat whose turn it is (Pillar 1: dynamic proxy indexing via `.at()`). */
 const activePlayer = gameState.players.at(gameState.activePlayerIdx);
@@ -90,15 +90,18 @@ export const POKER_AGENT_PROTOCOL = [
 export const SEAT_MODEL = String(
   actor.model.orDefault(pokerConfig.models.seat).orDefault(DEFAULT_SEAT_MODEL)
 );
-/** The model a seat talks with between decisions: its own, then `models.chatter`, then the seat model. */
+/** The model a seat talks with between decisions: its own, then `models.chatter`, then the lighter default. */
 export const CHATTER_MODEL = String(
   actor.model
     .orDefault(pokerConfig.models.chatter)
-    .orDefault(pokerConfig.models.seat)
-    .orDefault(DEFAULT_SEAT_MODEL)
+    .orDefault(DEFAULT_CHATTER_MODEL)
 );
-/** What a seat remembers of the table: every action and every line said. */
-export const SEAT_HISTORY_EVENTS = [PokerEvent.ACTION_TAKEN, PokerEvent.SPEECH];
+/**
+ * What a seat remembers of the table: every action, every line said and every hand result, one line each
+ * (`PokerHistoryMode`). LLM answers and human inputs are kept out (`exclude_from_history`): they hold raw JSON
+ * and other seats' private reasoning.
+ */
+export const SEAT_HISTORY_EVENTS = [PokerEvent.ACTION_TAKEN, PokerEvent.SPEECH, PokerEvent.PHASE_SETTLE];
 
 /** Who the seat (`$params.actor`) is: its persona instruction. */
 export const seatPersona = (): string =>
@@ -111,6 +114,8 @@ export const seatView = (): string[] => [
   `- Street: ${gameState.currentStreet.optional()} | Pot: [chips] ${gameState.pot.optional()} | Current Bet: [chips] ${gameState.currentBet.optional()}`,
   `- Your Stack: [chips] ${actor.chips.optional()} | Your Street Bet: [chips] ${actor.streetBet.optional()}`,
   `- Cost to Call: [chips] ${gameState.currentBet.subTemplate(actor.streetBet)} | Min Raise: [chips] ${gameState.minRaise.optional()}`,
+  // The rules reject any action type not listed here (e.g. CALL when only ALL_IN covers the bet)
+  `- Your Legal Choices (answer with one of these action types): ${state.turn.choices.optional()}`,
   `- Table: ${gameState.optional()}`,
 ];
 
@@ -140,6 +145,7 @@ export function agent_decision(options: PokerAgentDecisionOptions = {}): Curator
     prompt,
     history_from: 'conversation',
     history_events: SEAT_HISTORY_EVENTS,
+    exclude_from_history: true,
     output_schema: options.output_schema ?? POKER_DECISION_OUTPUT_SCHEMA,
     ...(options.tools ? { tools: options.tools } : {}),
   });
@@ -150,7 +156,8 @@ export const aiDecision = defineSubroutine('ai_decision', {
   params: { actor: { type: 'object', required: true } },
   body: [
     withFallback(agent_decision(), setState({ decision: { action: { type: 'fold' } } } as any)),
-    ifElse(ctx.decision.speech.nonEmpty(), [
+    // A rejected intent re-runs the decision; only the first attempt speaks, so retries never repeat a line
+    ifElse(ctx.decision.speech.nonEmpty().and(state.turnRejections.orDefault(0).eq(0)), [
       Speech.emit({
         speakerId: actor.id,
         speakerName: actor.name,
@@ -158,6 +165,8 @@ export const aiDecision = defineSubroutine('ai_decision', {
         speechAct: PokerSpeechAct.TABLE_TALK,
         origin: PokerSpeechOrigin.TURN,
         depth: 0,
+        from: actor.name,
+        mode: PokerHistoryMode.LINE,
       }),
     ]),
   ],

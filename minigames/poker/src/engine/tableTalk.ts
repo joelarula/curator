@@ -179,7 +179,8 @@ export function reduceTableTalk(
   talk.lastSpokeAt = { ...talk.lastSpokeAt };
   talk.humanTicks = [...talk.humanTicks];
   const seats: PlayerState[] = (gameState?.players || []) as PlayerState[];
-  const agents = seats.filter((s) => !s.isHuman);
+  // Busted seats (dealt in folded with no chips) have left the game and stay silent; all-in seats still talk
+  const agents = seats.filter((s) => !s.isHuman && !(s.folded && Number(s.chips) <= 0));
   const tableId = String(gameState?.tableId || 'table');
   const chattiness = (seat: PlayerState) =>
     config.seatChattiness[seat.id] ?? config.personaChattiness[String(seat.persona)] ?? config.defaultChattiness;

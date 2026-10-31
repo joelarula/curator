@@ -174,6 +174,18 @@ export const PokerSpeechAct = {
   MONOLOGUE: 'MONOLOGUE',
 } as const;
 
+/**
+ * How a table event reads in a seat's history (`history_from: 'conversation'`): the engine renders the
+ * payload's `text` by its `mode` (`say` → `[from]: text`, `system` → `[system]: text`) and leaves out any
+ * other mode. Events without these fields never reach a prompt.
+ */
+export const PokerHistoryMode = {
+  LINE: 'say',
+  NOTE: 'system',
+  /** Whispers: every seat reads history as the same agent, so a private line stays out of it. */
+  OFF_RECORD: 'off_record',
+} as const;
+
 export type SpeechAct = (typeof PokerSpeechAct)[keyof typeof PokerSpeechAct] | string;
 
 /** Who produced a line of speech: a person, a seat's turn decision, or the table-talk gate's chatter. */
@@ -226,6 +238,8 @@ export const PokerTablePhase = {
   BOOT: 'BOOT',
   BETTING: 'BETTING',
   SUBMIT: 'SUBMIT',
+  /** Between hands: the settled hand stays on screen until Continue or the pause times out. */
+  HAND_OVER: 'HAND_OVER',
   PAUSED: 'PAUSED',
   EXITED: 'EXITED',
   GAME_OVER: 'GAME_OVER',

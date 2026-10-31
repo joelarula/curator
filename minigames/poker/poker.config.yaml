@@ -29,7 +29,7 @@ talk:
 
 models:
   seat: gemini-2.5-flash    # turn decisions, unless a seat names its own model
-  # chatter: gemini-2.5-flash-lite   # table talk; defaults to the seat model
+  chatter: gemini-2.5-flash-lite    # table talk, unless a seat names its own model
 
 # Per agent profile (viper, maddog, barnaby, ...); profiles carry their own defaults
 # agents:

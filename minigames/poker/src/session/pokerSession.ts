@@ -11,6 +11,7 @@ import {
   PokerActionType,
   PokerStreet,
   PokerSpeechAct,
+  PokerHistoryMode,
   PokerTool,
   PokerModule,
   PokerConversationType,
@@ -141,6 +142,8 @@ export interface DirectStepResult {
   humanTurn: HumanTurnPromptInfo | null;
   gameState: PokerGameState | null;
   steps: number;
+  /** Earliest deadline (ISO) of a timed prompt or wait on the table; a direct client steps again then. */
+  waitDeadline?: string;
 }
 
 export interface CuratorActor {
@@ -843,6 +846,9 @@ export async function createPokerGameSession(
         tableId: String(targetConvId),
         conversationId: targetConvId,
         ...(sessionId ? { sessionId } : {}),
+        // How seats remember it: table talk as a line, whispers not at all
+        from: speakerName,
+        mode: speechAct === PokerSpeechAct.WHISPER ? PokerHistoryMode.OFF_RECORD : PokerHistoryMode.LINE,
       };
 
       await host.emitEvent(PokerEvent.SPEECH, speechPayload, {
@@ -986,10 +992,19 @@ export async function createPokerGameSession(
     );
 
     const stepRes = await stepInteractiveConversation(host, targetConvId, maxSteps);
-    const [humanTurn, gameState] = await Promise.all([
+    const [humanTurn, gameState, parked] = await Promise.all([
       getWaitingHumanTurn(targetConvId),
       getGameState(targetConvId),
+      prisma.request.findMany({
+        where: { conversationId: targetConvId, status: { in: ['WAITING_FOR_USER', 'WAITING_FOR_EVENT'] } },
+        select: { context: true },
+      }),
     ]);
+    // Timeouts only fire when the processor steps; nothing polls in direct mode, so report the next deadline
+    const waitDeadline = parked
+      .map((r: any) => (typeof r.context === 'string' ? JSON.parse(r.context || '{}') : r.context || {}).waitDeadline as string | undefined)
+      .filter((d): d is string => Boolean(d))
+      .sort()[0];
 
     if (humanTurn) {
       logger.debug(
@@ -1010,6 +1025,7 @@ export async function createPokerGameSession(
       humanTurn,
       gameState,
       steps: stepRes.steps,
+      ...(waitDeadline ? { waitDeadline } : {}),
     };
   };
 

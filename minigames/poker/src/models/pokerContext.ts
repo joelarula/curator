@@ -317,6 +317,8 @@ export interface PokerWorkflowState {
   turnRejections?: number;
   /** RESUME or EXIT while the table is paused. */
   resumeCmd?: { type: 'RESUME' | 'EXIT' } | string;
+  /** Continue between hands; left unset when the pause times out. */
+  handOverChoice?: unknown;
   seatedPlayers?: PokerSeat[];
   /** Written by the engine when the table workflow crashes. */
   lastFailure?: { requestId?: number; nodeId?: string | null; nodeType?: string | null; reason: string; failedAt?: string };
@@ -362,3 +364,9 @@ export const turnCtx: TypedPathProxy<PokerTurnContext> = createContextProxy<Poke
 export const gameState: TypedPathProxy<PokerGameState> = state.gameState;
 /** The seat an actor handler is playing (Bevy component of the acting entity). */
 export const actor: TypedPathProxy<PlayerState> = createContextProxy<PlayerState>('$params.actor');
+
+/**
+ * Keeps a node's Response out of every seat's conversation history: seats remember the table through its
+ * action and speech events (`PokerHistoryMode`), never through raw choice or timeout records.
+ */
+export const offRecord = <T extends object>(node: T): T => ({ ...node, exclude_from_history: true });

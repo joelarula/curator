@@ -53,6 +53,8 @@ export interface PokerEngineConfig {
 }
 
 export const DEFAULT_SEAT_MODEL = 'gemini-2.5-flash';
+/** Table talk is one short line: a lighter, non-thinking model keeps it from holding up the next turn. */
+export const DEFAULT_CHATTER_MODEL = 'gemini-2.5-flash-lite';
 
 /** Typed handle on `$config.poker` for workflow expressions, args and prompt templates. */
 export const pokerConfig: TypedPathProxy<PokerEngineConfig> = defineConfig<PokerEngineConfig>(POKER_CONFIG_NAMESPACE);
@@ -94,6 +96,6 @@ export function resolvePokerConfig(...configs: Array<PokerConfig | undefined>): 
     table: Object.assign({}, DEFAULT_TABLE_SETTINGS, ...configs.map((c) => c?.table || {})),
     rules: Object.assign({}, DEFAULT_RULES_SETTINGS, ...configs.map((c) => c?.rules || {})),
     talk: resolvePokerTalkConfig(...configs),
-    models: { seat, chatter: models.chatter || seat },
+    models: { seat, chatter: models.chatter || DEFAULT_CHATTER_MODEL },
   };
 }

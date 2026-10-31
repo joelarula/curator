@@ -56,7 +56,7 @@ test('start deals a hand and hands the turn to a seat with its legal choices; it
   assert.deepEqual(again.events, []);
 });
 
-test('acting advances streets, settles and starts the next hand on its own', () => {
+test('acting advances streets and settles; start then rotates the button and deals the next hand', () => {
   let s = start(boot());
   const total = chipsInPlay(s);
   const first = act(s, { type: 'CALL' });
@@ -65,11 +65,18 @@ test('acting advances streets, settles and starts the next hand on its own', () 
   assert.match(payload(first, PokerEvent.ACTION_TAKEN).summary, /calls/);
 
   s = callDown(s);
-  assert.equal(s.gameState.handNumber, 2, 'the next hand started');
-  assert.deepEqual(names(s).slice(-4), [PokerEvent.PHASE_STREET, PokerEvent.PHASE_SETTLE, PokerEvent.NEW_ROUND, PokerEvent.PHASE_DEAL],
-    'the last action reached showdown, settled, and dealt the next hand');
+  assert.equal(s.gameState.handNumber, 1, 'the settled hand stays on the table');
+  assert.equal(s.gameState.handOver, true);
+  assert.equal(s.turn, null, 'nobody decides between hands');
+  assert.deepEqual(names(s).slice(-2), [PokerEvent.PHASE_STREET, PokerEvent.PHASE_SETTLE],
+    'the last action reached showdown and settled');
   assert.ok(payload(s, PokerEvent.PHASE_SETTLE).winnerSummary);
   assert.equal(payload(s, PokerEvent.PHASE_SETTLE).gameState.board.length, 5, 'the settle event carries its own snapshot');
+  assert.equal(chipsInPlay(s), total, 'chips are conserved');
+  assert.deepEqual(act(s, { type: 'CHECK' }).events, [], 'acting on a settled hand does nothing');
+
+  s = start(s);
+  assert.deepEqual(names(s), [PokerEvent.NEW_ROUND, PokerEvent.PHASE_DEAL]);
   assert.equal(payload(s, PokerEvent.NEW_ROUND).handNumber, 2);
   assert.equal(s.gameState.buttonIdx, 1, 'the button rotated');
   assert.equal(chipsInPlay(s), total, 'chips are conserved');
@@ -79,7 +86,8 @@ test('acting advances streets, settles and starts the next hand on its own', () 
 test('everyone folding settles the hand without dealing further streets', () => {
   let s = start(boot());
   for (let i = 0; i < 3; i++) s = act(s, { type: 'FOLD' });
-  assert.equal(s.gameState.handNumber, 2);
+  assert.equal(s.gameState.handNumber, 1);
+  assert.equal(s.gameState.handOver, true);
   assert.match(payload(s, PokerEvent.PHASE_SETTLE).winnerSummary, /everyone else folded/);
   assert.ok(!names(s).includes(PokerEvent.PHASE_STREET));
 });

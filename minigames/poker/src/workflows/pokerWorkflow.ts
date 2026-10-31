@@ -5,12 +5,13 @@
  * description: Curator Texas Hold'em Autonomous Event-Driven 5-Phase Game Loop Module
  * ---
  */
-import { state, ifElse, setState, stateMachine } from '../models/pokerContext.ts';
+import { state, ifElse, setState, stateMachine, offRecord } from '../models/pokerContext.ts';
 import { PokerActionType, PokerTablePhase } from '../models/pokerContracts.ts';
 import { GameOver, TablePaused, TableResumed, ResumeAction, TablePhase } from '../models/pokerEvents.ts';
 import {
   defineModule,
   seq,
+  input,
   type CuratorModuleNode,
 } from '../curator.ts';
 import { pokerComposables } from '../composables/pokerComposables.ts';
@@ -28,8 +29,16 @@ const {
 
 const resumes = state.resumeCmd.isCommand(PokerActionType.RESUME);
 
-// The next seat decides while the session lasts; otherwise the summary (exit closes rather than finishes).
+/** How long a settled hand stays on screen before the next one is dealt, unless Continue is chosen. */
+export const HAND_OVER_PAUSE_SECONDS = 10;
+
+const ContinueChoice = { id: 'continue', label: 'Continue - deal the next hand', aliases: ['n', 'next', 'continue'] };
+const hasHumanSeat = gameState.players.some((p) => p.isHuman);
+
+// A settled hand lingers first; then the next seat decides while the session lasts; otherwise the
+// summary (exit closes rather than finishes).
 const sessionTransitions = [
+  { to: PokerTablePhase.HAND_OVER, when: is_game_active.and(gameState.handOver) },
   { to: PokerTablePhase.BETTING, when: is_game_active },
   { to: PokerTablePhase.GAME_OVER },
 ];
@@ -37,7 +46,7 @@ const sessionTransitions = [
 /**
  * Texas Hold'em table as a Bevy-style state machine; the active phase is mirrored into
  * `$state.tablePhase` so other flows can gate on it.
- * Only seat decisions, pausing and leaving are states here: dealing, settling and starting the next hand
+ * Only seat decisions, the pause between hands, pausing and leaving are states here: dealing and settling
  * happen inside the table reducer (engine/pokerTable.ts) whenever an action is applied.
  */
 export function buildTablePhases() {
@@ -60,6 +69,17 @@ export function buildTablePhases() {
     [PokerTablePhase.SUBMIT]: {
       run: submitTurn(),
       next: [{ to: PokerTablePhase.BETTING, when: turnRejected }, ...sessionTransitions],
+    },
+    // Between hands: people get time to read the showdown; Continue deals at once, silence after the pause
+    [PokerTablePhase.HAND_OVER]: {
+      run: [
+        ifElse(hasHumanSeat, offRecord(input('Hand complete. Continue when ready (next hand deals automatically):', [ContinueChoice], {
+          as: state.handOverChoice,
+          timeoutSeconds: HAND_OVER_PAUSE_SECONDS,
+        }))),
+        ...start_hand(),
+      ],
+      next: sessionTransitions,
     },
     [PokerTablePhase.PAUSED]: {
       onEnter: [setState({ isPaused: true }), TablePaused.emit({ tableId: gameState.tableId })],

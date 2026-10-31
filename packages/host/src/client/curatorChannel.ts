@@ -213,6 +213,35 @@ export function createDirectChannel(
 
   const eventSource = session.host?.events ?? session.events;
 
+  // Steps still running; close() waits for them so the session is never torn down mid-step
+  const inFlight = new Set<Promise<unknown>>();
+  const track = async (run: () => Promise<void>) => {
+    const p = run();
+    inFlight.add(p);
+    try {
+      await p;
+    } finally {
+      inFlight.delete(p);
+    }
+  };
+
+  // Nothing polls the processor in-process, so a timed prompt (step result `waitDeadline`) needs a wake-up step
+  let closed = false;
+  let wakeTimer: ReturnType<typeof setTimeout> | undefined;
+  const runStep = async () => {
+    if (wakeTimer) clearTimeout(wakeTimer);
+    wakeTimer = undefined;
+    const res = await session.step!(activeTargetId);
+    const deadline = res?.waitDeadline ? Date.parse(res.waitDeadline) : NaN;
+    if (!closed && Number.isFinite(deadline)) {
+      wakeTimer = setTimeout(() => {
+        wakeTimer = undefined;
+        if (!closed) track(runStep).catch(() => {});
+      }, Math.max(0, deadline - Date.now()) + 50);
+      wakeTimer.unref?.();
+    }
+  };
+
   return {
     targetId: activeTargetId,
     get tableId() {
@@ -228,17 +257,22 @@ export function createDirectChannel(
       return () => {};
     },
     async send(type: string, payload?: any) {
-      await session.send(type, payload, activeTargetId);
-      if (typeof session.step === 'function') {
-        await session.step(activeTargetId);
-      }
+      await track(async () => {
+        await session.send(type, payload, activeTargetId);
+        if (typeof session.step === 'function') {
+          await runStep();
+        }
+      });
     },
     async start() {
       if (typeof session.step === 'function') {
-        await session.step(activeTargetId);
+        await track(runStep);
       }
     },
     async close() {
+      closed = true;
+      if (wakeTimer) clearTimeout(wakeTimer);
+      await Promise.allSettled([...inFlight]);
       await session.close();
     },
   };
