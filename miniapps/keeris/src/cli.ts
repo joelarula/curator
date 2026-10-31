@@ -137,28 +137,32 @@ async function enterInteractiveIfRequested(cmdOpts: any): Promise<void> {
 // ─────────────────────────────────────────────────────────────────────────────
 program
   .command('play', { isDefault: true })
-  .aliases(['client', 'interactive', 'repl', 'i'])
-  .description('Interactive Keeris client REPL (network client or lightweight direct execution)')
-  .option('--direct', 'Run direct lightweight in-process execution mode locally (same database as server)', false)
+  .aliases(['client', 'interactive', 'repl', 'i', 'shell'])
+  .description('Interactive Keeris client REPL (direct in-process host or remote server channel)')
+  .option('--direct', 'Run direct in-process SQLite execution mode locally (default)', true)
+  .option('--no-direct', 'Connect to the remote server given by --server')
   .option('-s, --server <url>', 'Curator server URL', process.env.VITE_SERVER_URL || process.env.SERVER_URL || getServerBaseUrl() || 'http://localhost:4001')
   .option('-d, --db <path>', 'Custom database URL or path for direct mode')
+  .option('-u, --user <name>', 'User display name for client identity', 'Curator')
   .action(async (options) => {
     const globalOpts = program.opts();
-    const isDirect = Boolean(options.direct || globalOpts.direct);
+    const isDirect = options.direct !== false && globalOpts.direct !== false;
     const serverUrl = options.server || globalOpts.server || getServerBaseUrl() || 'http://localhost:4001';
     const { runKeerisClient } = await import('./client/keerisClient.ts');
 
     if (isDirect) {
-      console.log('\x1b[36m[Keeris CLI] Launching direct lightweight in-process execution...\x1b[0m');
+      console.log('\x1b[36m[Keeris CLI] Launching direct lightweight in-process host...\x1b[0m');
       await runKeerisClient({
         direct: true,
         databasePath: options.db || globalOpts.db,
+        userName: options.user || globalOpts.user,
       });
     } else {
       console.log(`\x1b[36m[Keeris CLI] Connecting to Curator Server at ${serverUrl}...\x1b[0m`);
       await runKeerisClient({
         direct: false,
         serverUrl,
+        userName: options.user || globalOpts.user,
       });
     }
   });

@@ -18,9 +18,6 @@
         "input": "{\"output\":\"3\"}",
         "loopIteration": 3,
         "loopRunning": true,
-        "state": {
-          "output": "3"
-        },
         "tick": 3
       },
       "deletedAt": null,
@@ -48,7 +45,6 @@
       },
       "context": {
         "iteration": 1,
-        "state": {},
         "tick": 1
       },
       "deletedAt": null,
@@ -77,9 +73,6 @@
       "context": {
         "input": "{\"output\":\"1\"}",
         "iteration": 2,
-        "state": {
-          "output": "1"
-        },
         "tick": 2
       },
       "deletedAt": null,
@@ -108,9 +101,6 @@
       "context": {
         "input": "{\"output\":\"2\"}",
         "iteration": 3,
-        "state": {
-          "output": "2"
-        },
         "tick": 3
       },
       "deletedAt": null,

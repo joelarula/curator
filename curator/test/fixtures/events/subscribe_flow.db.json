@@ -67,8 +67,7 @@
         "type": "Curator_EmitEvent"
       },
       "context": {
-        "input": "{}",
-        "state": {}
+        "input": "{}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -92,8 +91,7 @@
         "type": "Curator_Unsubscribe"
       },
       "context": {
-        "input": "{}",
-        "state": {}
+        "input": "{}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -119,8 +117,7 @@
         "type": "Curator_EmitEvent"
       },
       "context": {
-        "input": "{}",
-        "state": {}
+        "input": "{}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -146,8 +143,7 @@
         "type": "Curator_EmitEvent"
       },
       "context": {
-        "input": "{}",
-        "state": {}
+        "input": "{}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -209,8 +205,7 @@
         },
         "record": {
           "got": 2
-        },
-        "state": {}
+        }
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -261,19 +256,19 @@
     },
     {
       "aiModelId": null,
-      "content": "{\"got\":2}",
+      "content": "{\"type\":\"EVENT_EMITTED\",\"ok\":true,\"event\":{\"eventName\":\"ping\",\"spawned\":[],\"woken\":[]}}",
       "existent": true,
       "id": "<res:5>",
       "projectId": null,
-      "requestId": "<req:7>"
+      "requestId": "<req:2>"
     },
     {
       "aiModelId": null,
-      "content": "{\"type\":\"EVENT_EMITTED\",\"ok\":true,\"event\":{\"eventName\":\"ping\",\"spawned\":[],\"woken\":[]}}",
+      "content": "{\"got\":2}",
       "existent": true,
       "id": "<res:6>",
       "projectId": null,
-      "requestId": "<req:2>"
+      "requestId": "<req:7>"
     }
   ]
 }

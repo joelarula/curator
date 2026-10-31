@@ -48,8 +48,7 @@
         "$last": "Hi Bob",
         "$response": "Hi Bob",
         "decision": "Hi Bob",
-        "input": "{}",
-        "state": {}
+        "input": "{}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -76,8 +75,7 @@
         "$last": "Hi Bob",
         "$response": "Hi Bob",
         "decision": "Hi Bob",
-        "input": "{}",
-        "state": {}
+        "input": "{}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",

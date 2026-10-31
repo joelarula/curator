@@ -81,16 +81,7 @@
           "echoed": "tick"
         },
         "echoed": "tick",
-        "input": "{\"n\":3,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 3\"}",
-        "state": {
-          "echoed": "tick",
-          "n": 3,
-          "output": "Assigned n = 3",
-          "state": {
-            "n": 0
-          },
-          "status": "State updated"
-        }
+        "input": "{\"n\":3,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 3\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -150,14 +141,7 @@
         "type": "Curator_Sequential"
       },
       "context": {
-        "input": "{\"n\":0,\"status\":\"State updated\",\"state\":{\"n\":0}}",
-        "state": {
-          "n": 0,
-          "state": {
-            "n": 0
-          },
-          "status": "State updated"
-        }
+        "input": "{\"n\":0,\"status\":\"State updated\",\"state\":{\"n\":0}}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -185,15 +169,7 @@
           "echoed": "tick"
         },
         "echoed": "tick",
-        "input": "{\"n\":0,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\"}",
-        "state": {
-          "echoed": "tick",
-          "n": 1,
-          "state": {
-            "n": 0
-          },
-          "status": "State updated"
-        }
+        "input": "{\"n\":0,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -223,14 +199,7 @@
           "echoed": "tick"
         },
         "echoed": "tick",
-        "input": "{\"n\":0,\"status\":\"State updated\",\"state\":{\"n\":0}}",
-        "state": {
-          "n": 0,
-          "state": {
-            "n": 0
-          },
-          "status": "State updated"
-        }
+        "input": "{\"n\":0,\"status\":\"State updated\",\"state\":{\"n\":0}}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -271,16 +240,7 @@
           "echoed": "tick"
         },
         "echoed": "tick",
-        "input": "{\"n\":1,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 1\"}",
-        "state": {
-          "echoed": "tick",
-          "n": 1,
-          "output": "Assigned n = 1",
-          "state": {
-            "n": 0
-          },
-          "status": "State updated"
-        }
+        "input": "{\"n\":1,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 1\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -308,16 +268,7 @@
           "echoed": "tick"
         },
         "echoed": "tick",
-        "input": "{\"n\":1,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 1\"}",
-        "state": {
-          "echoed": "tick",
-          "n": 2,
-          "output": "Assigned n = 1",
-          "state": {
-            "n": 0
-          },
-          "status": "State updated"
-        }
+        "input": "{\"n\":1,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 1\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -347,16 +298,7 @@
           "echoed": "tick"
         },
         "echoed": "tick",
-        "input": "{\"n\":1,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 1\"}",
-        "state": {
-          "echoed": "tick",
-          "n": 1,
-          "output": "Assigned n = 1",
-          "state": {
-            "n": 0
-          },
-          "status": "State updated"
-        }
+        "input": "{\"n\":1,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 1\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -397,16 +339,7 @@
           "echoed": "tick"
         },
         "echoed": "tick",
-        "input": "{\"n\":2,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 2\"}",
-        "state": {
-          "echoed": "tick",
-          "n": 2,
-          "output": "Assigned n = 2",
-          "state": {
-            "n": 0
-          },
-          "status": "State updated"
-        }
+        "input": "{\"n\":2,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 2\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -434,16 +367,7 @@
           "echoed": "tick"
         },
         "echoed": "tick",
-        "input": "{\"n\":2,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 2\"}",
-        "state": {
-          "echoed": "tick",
-          "n": 3,
-          "output": "Assigned n = 2",
-          "state": {
-            "n": 0
-          },
-          "status": "State updated"
-        }
+        "input": "{\"n\":2,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 2\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -473,16 +397,7 @@
           "echoed": "tick"
         },
         "echoed": "tick",
-        "input": "{\"n\":2,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 2\"}",
-        "state": {
-          "echoed": "tick",
-          "n": 2,
-          "output": "Assigned n = 2",
-          "state": {
-            "n": 0
-          },
-          "status": "State updated"
-        }
+        "input": "{\"n\":2,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 2\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",

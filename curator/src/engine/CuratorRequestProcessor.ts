@@ -13,6 +13,7 @@ import { resolveRequestNode, getScriptVersionAst, getEntry, entryAstPath, expand
 import type { Prisma } from '@prisma/client';
 import { LlmFactory } from './llm/LlmFactory.js';
 import { appendStatePatch, STATE_SEQ_KEY } from './ConversationStateLog.js';
+import { STATE_PATCH_KEY, withoutStoredStateCopies } from './RequestContextStorage.js';
 import { recordDeadLetter, TERMINAL_STATUSES } from './DeadLetters.js';
 import { AgentRoleService } from '../services/AgentRoleService.js';
 import { ApprovalService } from '../services/ApprovalService.js';
@@ -183,7 +184,7 @@ export class CuratorRequestProcessor {
   private maintenanceContext!: MaintenanceContext;
 
   constructor(prisma: any, options: CuratorRequestProcessorOptions = {}) {
-    this.prisma = prisma;
+    this.prisma = withoutStoredStateCopies(prisma);
     this.clock = options.now ?? Date.now;
     this.onEvent = options.onEvent;
     this.astStorage = options.astStorage ?? 'reference';
@@ -1371,7 +1372,8 @@ export class CuratorRequestProcessor {
         }
         if (opts.contextPatch) {
           Object.assign(updatedContext, opts.contextPatch);
-          if (updatedContext.state) updatedContext.state = { ...updatedContext.state, ...opts.contextPatch };
+          // Request-only state keys: context.state is not stored, so they ride along under their own key
+          updatedContext[STATE_PATCH_KEY] = { ...(updatedContext[STATE_PATCH_KEY] || {}), ...opts.contextPatch };
         }
 
         await this.prisma.request.update({
@@ -2319,8 +2321,11 @@ export class CuratorRequestProcessor {
     // The event log is authoritative: its live view wins over the snapshot copied into this request when it
     // was scheduled (other flows may have written state since). Snapshot-only keys (e.g. a resumed
     // request's contextPatch) survive.
-    const snapshot = scope == null && typeof req.context.state === 'object' && req.context.state !== null
-      ? req.context.state
+    const snapshot = scope == null
+      ? {
+        ...(typeof req.context.state === 'object' && req.context.state !== null ? req.context.state : {}),
+        ...(req.context[STATE_PATCH_KEY] || {}),
+      }
       : {};
     const convState = this.stateView({ ...snapshot, ...this.getConversationState(conv) }, scope);
     req.context.state = convState;

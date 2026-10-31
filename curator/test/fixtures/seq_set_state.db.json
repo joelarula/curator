@@ -57,15 +57,7 @@
           "echoed": "hello"
         },
         "echoed": "hello",
-        "input": "{\"counter\":1,\"status\":\"State updated\",\"state\":{\"counter\":1},\"echoed\":\"hello\"}",
-        "state": {
-          "counter": 1,
-          "echoed": "hello",
-          "state": {
-            "counter": 1
-          },
-          "status": "State updated"
-        }
+        "input": "{\"counter\":1,\"status\":\"State updated\",\"state\":{\"counter\":1},\"echoed\":\"hello\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -96,14 +88,7 @@
           "echoed": "hello"
         },
         "echoed": "hello",
-        "input": "{\"counter\":1,\"status\":\"State updated\",\"state\":{\"counter\":1}}",
-        "state": {
-          "counter": 1,
-          "state": {
-            "counter": 1
-          },
-          "status": "State updated"
-        }
+        "input": "{\"counter\":1,\"status\":\"State updated\",\"state\":{\"counter\":1}}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",

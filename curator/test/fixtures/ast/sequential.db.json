@@ -47,14 +47,7 @@
         "type": "Curator_Script"
       },
       "context": {
-        "input": "{\"facts\":[\"AI will be autonomous\",\"Agents will collaborate\"],\"draft\":\"The future of AI is collaborative autonomy.\"}",
-        "state": {
-          "draft": "The future of AI is collaborative autonomy.",
-          "facts": [
-            "AI will be autonomous",
-            "Agents will collaborate"
-          ]
-        }
+        "input": "{\"facts\":[\"AI will be autonomous\",\"Agents will collaborate\"],\"draft\":\"The future of AI is collaborative autonomy.\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -78,13 +71,7 @@
         "type": "Curator_Script"
       },
       "context": {
-        "input": "{\"facts\":[\"AI will be autonomous\",\"Agents will collaborate\"]}",
-        "state": {
-          "facts": [
-            "AI will be autonomous",
-            "Agents will collaborate"
-          ]
-        }
+        "input": "{\"facts\":[\"AI will be autonomous\",\"Agents will collaborate\"]}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",

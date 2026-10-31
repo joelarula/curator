@@ -59,17 +59,6 @@
         "input": "{\"phase\":1,\"status\":\"State updated\",\"state\":{\"phase\":1},\"payload\":{\"msg\":\"hi\"},\"msg\":\"hi\"}",
         "payload": {
           "msg": "hi"
-        },
-        "state": {
-          "msg": "hi",
-          "payload": {
-            "msg": "hi"
-          },
-          "phase": 1,
-          "state": {
-            "phase": 1
-          },
-          "status": "State updated"
         }
       },
       "deletedAt": null,
@@ -98,16 +87,6 @@
         "input": "{\"phase\":1,\"status\":\"State updated\",\"state\":{\"phase\":1}}",
         "payload": {
           "msg": "hi"
-        },
-        "state": {
-          "payload": {
-            "msg": "hi"
-          },
-          "phase": 1,
-          "state": {
-            "phase": 1
-          },
-          "status": "State updated"
         }
       },
       "deletedAt": null,

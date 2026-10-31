@@ -46,11 +46,7 @@
         "type": "Curator_Join"
       },
       "context": {
-        "input": "{\"section\":\"Environment\",\"content\":\"Green energy investments will double.\"}",
-        "state": {
-          "content": "Green energy investments will double.",
-          "section": "Environment"
-        }
+        "input": "{\"section\":\"Environment\",\"content\":\"Green energy investments will double.\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",

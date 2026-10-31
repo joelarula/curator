@@ -27,10 +27,7 @@
       },
       "context": {
         "input": "{\"output\":\"optionB\"}",
-        "routeDecided": true,
-        "state": {
-          "output": "optionB"
-        }
+        "routeDecided": true
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",

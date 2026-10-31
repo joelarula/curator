@@ -62,11 +62,6 @@
         },
         "echoed": "CODE-42",
         "input": "{\"status\":\"pre-processed\",\"code\":\"CODE-42\",\"output\":\"CODE-42\"}",
-        "state": {
-          "code": "CODE-42",
-          "output": "CODE-42",
-          "status": "pre-processed"
-        },
         "targetUserId": null
       },
       "deletedAt": null,
@@ -99,10 +94,6 @@
         "choicePrompt": "Please enter your approval code:",
         "code": "CODE-42",
         "input": "{\"status\":\"pre-processed\"}",
-        "state": {
-          "code": "CODE-42",
-          "status": "pre-processed"
-        },
         "targetUserId": null
       },
       "deletedAt": null,

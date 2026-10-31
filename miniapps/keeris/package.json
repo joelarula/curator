@@ -60,7 +60,9 @@
     "sync:remote:dry": "node scripts/sync-db-remote.mjs --dry-run",
     "sync:remote:clean": "node scripts/sync-db-remote.mjs --clean",
     "test:remote": "node scripts/test-remote-docker.mjs",
-    "test": "node --test \"test/*.test.js\""
+    "test": "node --test \"test/*.test.js\"",
+    "test:deterministic": "tsx --test test/keeris_deterministic.test.ts",
+    "test:direct": "tsx --test test/keeris_direct_channel.test.ts"
   },
   "dependencies": {
     "@curator/agent-server": "file:../../curator",

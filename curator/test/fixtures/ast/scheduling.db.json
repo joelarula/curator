@@ -51,8 +51,7 @@
         "$last": "Successfully scheduled my_test_task. ID: 7",
         "$response": "Successfully scheduled my_test_task. ID: 7",
         "decision": "Successfully scheduled my_test_task. ID: 7",
-        "input": "{}",
-        "state": {}
+        "input": "{}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",

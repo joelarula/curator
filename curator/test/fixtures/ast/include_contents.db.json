@@ -49,8 +49,7 @@
         "$last": "Noted.",
         "$response": "Noted.",
         "decision": "Noted.",
-        "input": "{}",
-        "state": {}
+        "input": "{}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -76,8 +75,7 @@
         "$last": "Noted.",
         "$response": "Noted.",
         "decision": "Noted.",
-        "input": "{}",
-        "state": {}
+        "input": "{}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",

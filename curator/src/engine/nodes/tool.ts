@@ -91,7 +91,8 @@ export const toolNode: NodeHandler<CuratorToolNode> = {
           projectId: req.projectId,
           prisma: ctx.prisma,
           context: req.context,
-          state: req.context?.state,
+          // context.state is not stored, so a Request that evaluated nothing yet reads the live view
+          state: req.context?.state ?? await ctx.readState(req.conversationId, req.context?.__scope),
           service: ctx.service,
           tryService: ctx.tryService,
           ...(inflight?.runtimeContext || {})

@@ -52,10 +52,7 @@
           "echoed": "after"
         },
         "echoed": "after",
-        "input": "{\"output\":\"[Tool Error] kaboom\"}",
-        "state": {
-          "output": "[Tool Error] kaboom"
-        }
+        "input": "{\"output\":\"[Tool Error] kaboom\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",

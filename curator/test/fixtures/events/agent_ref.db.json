@@ -8,10 +8,7 @@
         "type": "Curator_AgentRef"
       },
       "context": {
-        "input": "{\"got\":\"from-agent\"}",
-        "state": {
-          "got": "from-agent"
-        }
+        "input": "{\"got\":\"from-agent\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",

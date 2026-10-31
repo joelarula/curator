@@ -107,17 +107,7 @@
         "type": "Curator_Agent"
       },
       "context": {
-        "input": "{\"userTarget\":\"Master Curator\",\"limit\":42,\"status\":\"State updated\",\"state\":{\"userTarget\":\"Master Curator\",\"limit\":42},\"name\":\"Testing Entity\"}",
-        "state": {
-          "limit": 42,
-          "name": "Testing Entity",
-          "state": {
-            "limit": 42,
-            "userTarget": "Master Curator"
-          },
-          "status": "State updated",
-          "userTarget": "Master Curator"
-        }
+        "input": "{\"userTarget\":\"Master Curator\",\"limit\":42,\"status\":\"State updated\",\"state\":{\"userTarget\":\"Master Curator\",\"limit\":42},\"name\":\"Testing Entity\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -141,16 +131,7 @@
         "type": "Curator_Script"
       },
       "context": {
-        "input": "{\"userTarget\":\"Master Curator\",\"limit\":42,\"status\":\"State updated\",\"state\":{\"userTarget\":\"Master Curator\",\"limit\":42}}",
-        "state": {
-          "limit": 42,
-          "state": {
-            "limit": 42,
-            "userTarget": "Master Curator"
-          },
-          "status": "State updated",
-          "userTarget": "Master Curator"
-        }
+        "input": "{\"userTarget\":\"Master Curator\",\"limit\":42,\"status\":\"State updated\",\"state\":{\"userTarget\":\"Master Curator\",\"limit\":42}}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",

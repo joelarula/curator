@@ -38,12 +38,6 @@
       "context": {
         "activeNode": "RED",
         "input": "{\"count\":4,\"currentColor\":\"RED\",\"message\":\"STOP\",\"output\":\"__end__\"}",
-        "state": {
-          "count": 4,
-          "currentColor": "RED",
-          "message": "STOP",
-          "output": "__end__"
-        },
         "stateData": "{\"count\":4,\"currentColor\":\"RED\",\"message\":\"STOP\",\"output\":\"GREEN\"}",
         "waitingFor": "ROUTER"
       },
@@ -93,12 +87,7 @@
         "type": "Curator_Script"
       },
       "context": {
-        "input": "{\"count\":1,\"currentColor\":\"RED\",\"message\":\"Waiting...\"}",
-        "state": {
-          "count": 1,
-          "currentColor": "RED",
-          "message": "Waiting..."
-        }
+        "input": "{\"count\":1,\"currentColor\":\"RED\",\"message\":\"Waiting...\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -122,13 +111,7 @@
         "type": "Curator_Script"
       },
       "context": {
-        "input": "{\"count\":1,\"currentColor\":\"RED\",\"message\":\"Waiting...\"}",
-        "state": {
-          "count": 1,
-          "currentColor": "RED",
-          "message": "Waiting...",
-          "output": "GREEN"
-        }
+        "input": "{\"count\":1,\"currentColor\":\"RED\",\"message\":\"Waiting...\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -152,13 +135,7 @@
         "type": "Curator_Script"
       },
       "context": {
-        "input": "{\"count\":1,\"currentColor\":\"GREEN\",\"message\":\"Go!\",\"output\":\"GREEN\"}",
-        "state": {
-          "count": 1,
-          "currentColor": "GREEN",
-          "message": "Go!",
-          "output": "GREEN"
-        }
+        "input": "{\"count\":1,\"currentColor\":\"GREEN\",\"message\":\"Go!\",\"output\":\"GREEN\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -182,13 +159,7 @@
         "type": "Curator_Script"
       },
       "context": {
-        "input": "{\"count\":1,\"currentColor\":\"YELLOW\",\"message\":\"Slow down!\",\"output\":\"GREEN\"}",
-        "state": {
-          "count": 1,
-          "currentColor": "YELLOW",
-          "message": "Slow down!",
-          "output": "GREEN"
-        }
+        "input": "{\"count\":1,\"currentColor\":\"YELLOW\",\"message\":\"Slow down!\",\"output\":\"GREEN\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -212,13 +183,7 @@
         "type": "Curator_Script"
       },
       "context": {
-        "input": "{\"count\":2,\"currentColor\":\"RED\",\"message\":\"Waiting...\",\"output\":\"GREEN\"}",
-        "state": {
-          "count": 2,
-          "currentColor": "RED",
-          "message": "Waiting...",
-          "output": "GREEN"
-        }
+        "input": "{\"count\":2,\"currentColor\":\"RED\",\"message\":\"Waiting...\",\"output\":\"GREEN\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -242,13 +207,7 @@
         "type": "Curator_Script"
       },
       "context": {
-        "input": "{\"count\":2,\"currentColor\":\"RED\",\"message\":\"Waiting...\",\"output\":\"GREEN\"}",
-        "state": {
-          "count": 2,
-          "currentColor": "RED",
-          "message": "Waiting...",
-          "output": "GREEN"
-        }
+        "input": "{\"count\":2,\"currentColor\":\"RED\",\"message\":\"Waiting...\",\"output\":\"GREEN\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -272,13 +231,7 @@
         "type": "Curator_Script"
       },
       "context": {
-        "input": "{\"count\":2,\"currentColor\":\"GREEN\",\"message\":\"Go!\",\"output\":\"GREEN\"}",
-        "state": {
-          "count": 2,
-          "currentColor": "GREEN",
-          "message": "Go!",
-          "output": "GREEN"
-        }
+        "input": "{\"count\":2,\"currentColor\":\"GREEN\",\"message\":\"Go!\",\"output\":\"GREEN\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -302,13 +255,7 @@
         "type": "Curator_Script"
       },
       "context": {
-        "input": "{\"count\":2,\"currentColor\":\"YELLOW\",\"message\":\"Slow down!\",\"output\":\"GREEN\"}",
-        "state": {
-          "count": 2,
-          "currentColor": "YELLOW",
-          "message": "Slow down!",
-          "output": "GREEN"
-        }
+        "input": "{\"count\":2,\"currentColor\":\"YELLOW\",\"message\":\"Slow down!\",\"output\":\"GREEN\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -332,13 +279,7 @@
         "type": "Curator_Script"
       },
       "context": {
-        "input": "{\"count\":3,\"currentColor\":\"RED\",\"message\":\"Waiting...\",\"output\":\"GREEN\"}",
-        "state": {
-          "count": 3,
-          "currentColor": "RED",
-          "message": "Waiting...",
-          "output": "GREEN"
-        }
+        "input": "{\"count\":3,\"currentColor\":\"RED\",\"message\":\"Waiting...\",\"output\":\"GREEN\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -362,13 +303,7 @@
         "type": "Curator_Script"
       },
       "context": {
-        "input": "{\"count\":3,\"currentColor\":\"RED\",\"message\":\"Waiting...\",\"output\":\"GREEN\"}",
-        "state": {
-          "count": 3,
-          "currentColor": "RED",
-          "message": "Waiting...",
-          "output": "GREEN"
-        }
+        "input": "{\"count\":3,\"currentColor\":\"RED\",\"message\":\"Waiting...\",\"output\":\"GREEN\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -392,13 +327,7 @@
         "type": "Curator_Script"
       },
       "context": {
-        "input": "{\"count\":3,\"currentColor\":\"GREEN\",\"message\":\"Go!\",\"output\":\"GREEN\"}",
-        "state": {
-          "count": 3,
-          "currentColor": "GREEN",
-          "message": "Go!",
-          "output": "GREEN"
-        }
+        "input": "{\"count\":3,\"currentColor\":\"GREEN\",\"message\":\"Go!\",\"output\":\"GREEN\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -422,13 +351,7 @@
         "type": "Curator_Script"
       },
       "context": {
-        "input": "{\"count\":3,\"currentColor\":\"YELLOW\",\"message\":\"Slow down!\",\"output\":\"GREEN\"}",
-        "state": {
-          "count": 3,
-          "currentColor": "YELLOW",
-          "message": "Slow down!",
-          "output": "GREEN"
-        }
+        "input": "{\"count\":3,\"currentColor\":\"YELLOW\",\"message\":\"Slow down!\",\"output\":\"GREEN\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -452,13 +375,7 @@
         "type": "Curator_Script"
       },
       "context": {
-        "input": "{\"count\":4,\"currentColor\":\"RED\",\"message\":\"STOP\",\"output\":\"GREEN\"}",
-        "state": {
-          "count": 4,
-          "currentColor": "RED",
-          "message": "STOP",
-          "output": "GREEN"
-        }
+        "input": "{\"count\":4,\"currentColor\":\"RED\",\"message\":\"STOP\",\"output\":\"GREEN\"}"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",

@@ -11,10 +11,7 @@
       "context": {
         "input": "{\"output\":\"pong\"}",
         "ping": "pong",
-        "spawnedChild": true,
-        "state": {
-          "output": "pong"
-        }
+        "spawnedChild": true
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",

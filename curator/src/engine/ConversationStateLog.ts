@@ -148,6 +148,13 @@ export type StateProjector = (change: StateChange) => Promise<void> | void;
 // Keyed by client so projectors fire for every appender of that database, and never for another database.
 const projectorsByClient = new WeakMap<object, Set<StateProjector>>();
 
+/** Makes `alias` (e.g. an `$extends` client of `prisma`) fire the same projectors, now and as they are registered. */
+export function shareStateProjectors(prisma: object, alias: object): void {
+  let projectors = projectorsByClient.get(prisma);
+  if (!projectors) projectorsByClient.set(prisma, (projectors = new Set()));
+  projectorsByClient.set(alias, projectors);
+}
+
 /** Registers `projector` for every state event appended through `prisma`. Returns an unregister function. */
 export function registerStateProjector(prisma: object, projector: StateProjector): () => void {
   let projectors = projectorsByClient.get(prisma);

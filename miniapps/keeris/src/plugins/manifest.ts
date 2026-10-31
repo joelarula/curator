@@ -135,105 +135,24 @@ export const RADIO_PROGRAMS: Record<string, RadioProgramDefinition> = {
 };
 
 import type { CuratorSequentialNode } from '@curator/agent-server';
+import {
+  buildSingleScrapeAST,
+  buildPipelineScrapeAST,
+  buildRescrapeMissingAST,
+  type ProgramPipelineOptions,
+} from '../workflows/index.ts';
 
-/**
- * Single-step ToolTask AST using formal Curator AST syntax.
- */
-export function buildSingleScrapeAST({ seriesContentId, programTitle }: { seriesContentId: string | number; programTitle: string }): CuratorSequentialNode {
-  return {
-    type: 'Curator_Sequential',
-    name: `seq_scrape_${seriesContentId}`,
-    subAgents: [
-      {
-        type: 'Curator_Tool',
-        toolName: 'vikerraadio_scrape',
-        args: { seriesContentId: String(seriesContentId), programTitle },
-      },
-    ],
-  };
-}
+export {
+  buildSingleScrapeAST,
+  buildPipelineScrapeAST,
+  buildRescrapeMissingAST,
+};
 
 /** Alias matching wasm buildAgentAst */
 export const buildAgentAst = buildSingleScrapeAST;
 
-export interface CreateProgramScrapeASTOptions {
-  seriesContentId: string | number;
-  programTitle: string;
-  limit?: number;
-}
-
-/**
- * Multi-step Pipeline AST using formal Curator AST syntax (discover -> forEach process_episode).
- */
-export function buildPipelineScrapeAST({
-  seriesContentId,
-  programTitle,
-  limit = 50,
-}: CreateProgramScrapeASTOptions): CuratorSequentialNode {
-  if (String(seriesContentId) === 'missing') {
-    return buildRescrapeMissingAST({ limit });
-  }
-
-  return {
-    type: 'Curator_Sequential',
-    name: `pipeline_scrape_${seriesContentId}`,
-    subAgents: [
-      {
-        type: 'Curator_Tool',
-        toolName: 'vikerraadio_discover_episodes',
-        as: 'discovery',
-        args: { seriesContentId: String(seriesContentId), limit },
-      },
-      {
-        type: 'Curator_ForEach',
-        collectionExpression: '{{discovery.data}}',
-        iteratorName: 'episode',
-        body: {
-          type: 'Curator_Tool',
-          toolName: 'vikerraadio_process_episode',
-          args: {
-            url: '{{episode.url}}',
-            episode: '{{episode}}',
-            program: { seriesId: String(seriesContentId), title: programTitle },
-          },
-        },
-      },
-    ],
-  };
-}
-
-/**
- * Pipeline AST for discovering and re-scraping episodes currently missing tracks.
- */
-export function buildRescrapeMissingAST(options: { limit?: number; programId?: number | string } = {}): CuratorSequentialNode {
-  return {
-    type: 'Curator_Sequential',
-    name: 'pipeline_rescrape_missing_episodes',
-    subAgents: [
-      {
-        type: 'Curator_Tool',
-        toolName: 'vikerraadio_discover_missing_episodes',
-        as: 'discovery',
-        args: { limit: options.limit ?? 50, programId: options.programId },
-      },
-      {
-        type: 'Curator_ForEach',
-        collectionExpression: '{{discovery.data}}',
-        iteratorName: 'episode',
-        body: {
-          type: 'Curator_Tool',
-          toolName: 'vikerraadio_process_episode',
-          args: {
-            url: '{{episode.url}}',
-            episode: '{{episode}}',
-            program: { seriesId: '{{episode.seriesId}}', title: '{{episode.programTitle}}' },
-            refresh: true,
-          },
-        },
-      },
-    ],
-  };
-}
+export type CreateProgramScrapeASTOptions = ProgramPipelineOptions;
 
 /** Alias matching server createProgramScrapeAST */
 export const createProgramScrapeAST = buildPipelineScrapeAST;
+

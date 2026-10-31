@@ -19,9 +19,6 @@
         "input": "{\"output\":\"2\"}",
         "loopIteration": 2,
         "loopRunning": true,
-        "state": {
-          "output": "2"
-        },
         "tick": 2
       },
       "deletedAt": null,
@@ -49,7 +46,6 @@
       },
       "context": {
         "iteration": 1,
-        "state": {},
         "tick": 1
       },
       "deletedAt": null,
@@ -78,9 +74,6 @@
       "context": {
         "input": "{\"output\":\"1\"}",
         "iteration": 2,
-        "state": {
-          "output": "1"
-        },
         "tick": 2
       },
       "deletedAt": null,

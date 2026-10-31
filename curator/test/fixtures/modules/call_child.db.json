@@ -36,12 +36,7 @@
         "record": {
           "got": 42
         },
-        "result": 42,
-        "state": {
-          "doubled": 42,
-          "output": "42",
-          "result": 42
-        }
+        "result": 42
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -70,12 +65,7 @@
       "context": {
         "astPath": "",
         "input": "{\"doubled\":42,\"output\":\"Assigned doubled = 42\"}",
-        "result": 42,
-        "state": {
-          "doubled": 42,
-          "output": "Assigned doubled = 42",
-          "result": 42
-        }
+        "result": 42
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
@@ -131,10 +121,7 @@
         "params": {
           "n": 21
         },
-        "ref": "#double",
-        "state": {
-          "doubled": 42
-        }
+        "ref": "#double"
       },
       "deletedAt": null,
       "executionScheduled": "<ts>",
