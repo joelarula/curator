@@ -219,6 +219,25 @@ export async function rebuildStateSnapshot(prisma: any, conversationId: number):
   });
 }
 
+/**
+ * Retention for a finished conversation: replaces its whole EventLog (bus and state events) with one
+ * `__state.patch` holding the current state, so the log still rebuilds the same snapshot. History before it
+ * (replay, rewind targets) is gone. Returns how many log rows were removed.
+ */
+export async function compactConversationLog(prisma: any, conversationId: number): Promise<number> {
+  if (!prisma.eventLog?.deleteMany) return 0;
+  return atomically(prisma, async (db) => {
+    const snap = await materializeIn(db, conversationId);
+    const removed = await db.eventLog.deleteMany({ where: { conversationId } });
+    const row = await db.eventLog.create({ data: { conversationId, eventName: STATE_PATCH, payload: { set: snap.state } } });
+    await db.conversation.update({
+      where: { id: conversationId },
+      data: { metadata: { ...snap.state, [STATE_SEQ_KEY]: row.id } },
+    });
+    return removed.count;
+  });
+}
+
 /** The ordered state events (the audit trail) for debugging UIs and replay. */
 export function listStateEvents(prisma: any, conversationId: number, upTo?: number): Promise<StateEventRow[]> {
   return stateEventsAfter(prisma, conversationId, 0, upTo);

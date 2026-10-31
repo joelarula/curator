@@ -5,6 +5,7 @@ import { curatorEngine, LlmFactory } from './curator.ts';
 import { pokerPlugin } from './plugins/pokerPlugin.ts';
 import { geminiPlugin } from '@curator/plugin-llm-gemini';
 import { getGeminiApiKey, loadPokerAppConfig } from './env.ts';
+import { prunePokerHistory, historyTtlFromEnv } from './db/retention.ts';
 import { resolvePokerConfig, POKER_CONFIG_NAMESPACE, type PokerConfig } from './pokerConfig.ts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -51,7 +52,7 @@ export async function createPokerHost(options: PokerHostOptions = {}): Promise<C
   const appConfig = loadPokerAppConfig({ configPath: options.configPath, profiles: options.profiles });
   const pokerConfig = resolvePokerConfig(appConfig.values, options.config);
 
-  return createCuratorHost({
+  const host = await createCuratorHost({
     // `host:` section of the config files (host profile, retention, ...); explicit options below win
     ...appConfig.host,
     name: options.name || 'poker',
@@ -91,4 +92,17 @@ export async function createPokerHost(options: PokerHostOptions = {}): Promise<C
       return curatorEngine;
     },
   });
+
+  // Retention: finished tables and lobbies drop their step history once past the TTL (the database stays small)
+  try {
+    const pruned = await prunePokerHistory(host.prisma, { projectId: host.project.id, olderThanMs: historyTtlFromEnv() });
+    if (pruned.conversations > 0 && !options.quiet) {
+      console.log(
+        `\x1b[90m[Curator] Retention: pruned ${pruned.conversations} finished conversation(s) (${pruned.requests} requests, ${pruned.responses} responses, ${pruned.events} events)\x1b[0m`
+      );
+    }
+  } catch (err: any) {
+    console.warn(`[Curator] Retention skipped: ${err?.message || err}`);
+  }
+  return host;
 }
