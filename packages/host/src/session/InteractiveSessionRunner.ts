@@ -72,13 +72,17 @@ export async function stepInteractiveConversation(
   conversationId: number,
   maxSteps: number = 500
 ): Promise<ConversationStepResult> {
-  const stepRes = await host.processor.stepUntil({
+  const processor = await host.processorFor(conversationId);
+  const stepRes = await processor.stepUntil({
     conversationId,
     maxSteps,
   });
+  // Direct stepping never runs the poll loop's checkpoint pass: a conversation that just suspended moves now
+  await host.checkpoint();
 
-  const waitingChoice = await getWaitingChoice(host.prisma, conversationId);
-  const latestReq = await host.prisma.request.findFirst({
+  const prisma = await host.prismaFor(conversationId);
+  const waitingChoice = await getWaitingChoice(prisma, conversationId);
+  const latestReq = await prisma.request.findFirst({
     where: { conversationId },
     orderBy: { updatedAt: 'desc' },
     select: { context: true },
@@ -100,8 +104,8 @@ export async function resolveSessionActors(
   host: CuratorHost,
   conversationId: number
 ): Promise<SessionActor[]> {
-  const prisma = host.prisma;
-  const conv = await prisma.conversation.findUnique({
+  const prisma = host.definitionsPrisma;
+  const conv = await (await host.prismaFor(conversationId)).conversation.findUnique({
     where: { id: conversationId },
     include: { user: true },
   });

@@ -50,7 +50,8 @@ export async function seedPokerDatabase(options: PokerSeedOptions = {}): Promise
     autoSeed: true,
   });
 
-  const prisma: any = host.prisma;
+  // Seeded rows are persistent: the configured database, whatever the durability
+  const prisma: any = host.definitionsPrisma;
 
   let user = await prisma.user.findFirst({
     where: { OR: [{ email }, { id: userId }] },

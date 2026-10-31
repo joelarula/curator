@@ -133,8 +133,10 @@ export function createHostCli(
             throw new Error(`Workflow timed out after ${opts.timeout}s`);
           }
 
-          const req = await host.prisma.request.findUnique({
-            where: { id: request.id },
+          // The request may have moved to the configured database ('checkpoint' durability)
+          const located = await host.locateRequest(request.id);
+          const req = await located.prisma.request.findUnique({
+            where: { id: located.id },
             include: { responses: { orderBy: { createdAt: 'desc' } } },
           });
 
@@ -205,8 +207,10 @@ export function createHostCli(
       try {
         const toolsCount = await host.prisma.tool.count();
         const agentsCount = await host.prisma.agent.count();
-        const requestsCount = await host.prisma.request.count();
-        const responsesCount = await host.prisma.response.count();
+        // Both databases with 'checkpoint' durability: memory (running) and configured (moved)
+        const runtimeDbs = [host.prisma, host.durablePrisma].filter(Boolean);
+        const requestsCount = (await Promise.all(runtimeDbs.map((db: any) => db.request.count()))).reduce((a, b) => a + b, 0);
+        const responsesCount = (await Promise.all(runtimeDbs.map((db: any) => db.response.count()))).reduce((a, b) => a + b, 0);
 
         console.log(
           JSON.stringify(
@@ -265,10 +269,19 @@ export function createHostCli(
 
       try {
         while (isRunning) {
-          const waitingReq = await host.prisma.request.findFirst({
-            where: { status: 'WAITING_FOR_USER' },
-            orderBy: { updatedAt: 'desc' },
-          });
+          // Memory first, then the configured database ('checkpoint' durability moves waiting conversations there)
+          let waitingReq: any = null;
+          let waitingDb: any = host.prisma;
+          for (const db of [host.prisma, host.durablePrisma].filter(Boolean)) {
+            waitingReq = await db.request.findFirst({
+              where: { status: 'WAITING_FOR_USER' },
+              orderBy: { updatedAt: 'desc' },
+            });
+            if (waitingReq) {
+              waitingDb = db;
+              break;
+            }
+          }
 
           if (!waitingReq) {
             process.stdout.write('\r[CLI Client] Waiting for agent prompt... ');
@@ -285,7 +298,7 @@ export function createHostCli(
 
           if (!userInput.trim()) continue;
 
-          const userResp = await host.prisma.response.create({
+          const userResp = await waitingDb.response.create({
             data: {
               requestId: waitingReq.id,
               conversationId: waitingReq.conversationId,
@@ -312,7 +325,7 @@ export function createHostCli(
           while (!turnDone && Date.now() - startTime < 15000) {
             await new Promise((r) => setTimeout(r, 400));
 
-            const newResponses = await host.prisma.response.findMany({
+            const newResponses = await waitingDb.response.findMany({
               where: {
                 conversationId: waitingReq.conversationId,
                 id: { gt: lastSeenResponseId },
@@ -330,7 +343,7 @@ export function createHostCli(
               }
             }
 
-            const updatedReq = await host.prisma.request.findUnique({
+            const updatedReq = await waitingDb.request.findUnique({
               where: { id: waitingReq.id },
             });
 

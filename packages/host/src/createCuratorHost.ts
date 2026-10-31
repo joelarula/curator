@@ -8,7 +8,7 @@ import {
   DEFAULT_ID_BASE,
   assertIdHeadroom,
   mirrorDefinitions,
-  withDurableConversationIds,
+  checkpointMemoryClient,
   CuratorRequestProcessor,
   curatorEngine,
   ConversationManager,
@@ -33,7 +33,8 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
   const policy = resolveHostPolicy(config);
 
   // 1. Resolve database connection / path
-  const curatorDbUrl = config.curatorDb?.url ?? process.env.CURATOR_DATABASE_URL ?? process.env.DATABASE_URL;
+  const explicitDbUrl = config.curatorDb?.url ?? process.env.CURATOR_DATABASE_URL;
+  const curatorDbUrl = explicitDbUrl ?? process.env.DATABASE_URL;
   let prisma: any;
   let databasePath: string | undefined;
   const durability = config.durability ?? 'durable';
@@ -43,8 +44,9 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
     prisma = await provisionMemorySqliteDb();
   } else if (curatorDbUrl && (curatorDbUrl.startsWith('mysql://') || curatorDbUrl.startsWith('mariadb://'))) {
     prisma = await provisionMariadbDb(curatorDbUrl);
-  } else if (curatorDbUrl && (curatorDbUrl.startsWith('postgres://') || curatorDbUrl.startsWith('postgresql://'))) {
-    prisma = await provisionPostgresDb(curatorDbUrl);
+  } else if (explicitDbUrl && (explicitDbUrl.startsWith('postgres://') || explicitDbUrl.startsWith('postgresql://'))) {
+    // Only an explicit curator URL: a generic DATABASE_URL is usually the server's own Postgres
+    prisma = await provisionPostgresDb(explicitDbUrl);
   } else {
     const forceReset = Boolean(config.forceReset ?? config.curatorDb?.forceReset);
     databasePath = config.curatorDb?.path ?? process.env.CURATOR_DATABASE_PATH ?? path.join(dataDir, 'state', 'curator.db');
@@ -91,7 +93,7 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
     await assertIdHeadroom(durablePrisma, idBase);
     memoryDb = await provisionMemorySqliteDb({ idBase });
     await mirrorDefinitions(durablePrisma, memoryDb, { replace: true });
-    prisma = withDurableConversationIds(memoryDb, durablePrisma);
+    prisma = checkpointMemoryClient(memoryDb, durablePrisma);
     checkpoint = new CheckpointManager(prisma, durablePrisma, { idBase, minTimerMs: config.checkpoint?.minTimerMs });
   }
   /** After a definition write: brings the memory mirror up to date (no-op unless 'checkpoint'). */
@@ -143,15 +145,12 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
   };
   const processor = new (CuratorRequestProcessor as any)(prisma, processorOptions);
   const durableProcessor = durablePrisma ? new (CuratorRequestProcessor as any)(durablePrisma, processorOptions) : undefined;
-  if (checkpoint) {
-    processor.registerMaintenanceSystem(
-      checkpoint.maintenanceSystem((moved) => {
-        for (const m of moved) events.broadcast('conversation_checkpointed', { conversationId: m.conversationId });
-        events.broadcast('database_change', { tables: ['requests', 'responses'] });
-        durableProcessor.wake();
-      })
-    );
-  }
+  const announceMoves = (moved: Array<{ conversationId: number }>) => {
+    for (const m of moved) events.broadcast('conversation_checkpointed', { conversationId: m.conversationId });
+    events.broadcast('database_change', { tables: ['requests', 'responses'] });
+    durableProcessor.wake();
+  };
+  if (checkpoint) processor.registerMaintenanceSystem(checkpoint.maintenanceSystem(announceMoves));
   const processorForDb = (requestDb: any) => (requestDb === prisma ? processor : durableProcessor ?? processor);
 
   // Plugin projectors run for every state event on this database, whichever component appends it
@@ -241,6 +240,32 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
     durableProcessor,
     prismaFor: async (conversationId: number) => ((await inMemory(conversationId)) ? prisma : durablePrisma),
     processorFor: async (conversationId: number) => ((await inMemory(conversationId)) ? processor : durableProcessor),
+    definitionsPrisma: definitionsDb,
+    syncDefinitions,
+    async findConversations(args: any = {}) {
+      if (!durablePrisma) return prisma.conversation.findMany(args);
+      const rows = await durablePrisma.conversation.findMany(args);
+      if (!rows.length) return rows;
+      const { where: _w, orderBy: _o, take: _t, skip: _s, cursor: _c, distinct: _d, ...shape } = args;
+      const live = await prisma.conversation.findMany({ ...shape, where: { id: { in: rows.map((r: any) => r.id) } } });
+      const byId = new Map(live.map((r: any) => [r.id, r]));
+      return rows.map((r: any) => byId.get(r.id) ?? r);
+    },
+    async locateRequest(requestId: number) {
+      const { db, id } = await requestLocation(requestId);
+      return { prisma: db, id };
+    },
+    async checkpoint() {
+      if (!checkpoint) return [];
+      const moved = await checkpoint.checkpoint();
+      if (moved.length) announceMoves(moved);
+      return moved.map((m) => m.conversationId);
+    },
+    setConversationScope(ids: Iterable<number> | null) {
+      const scope = ids ? [...ids] : null;
+      processor.setConversationScope(scope);
+      durableProcessor?.setConversationScope(scope);
+    },
     engine: registeredEngine,
     conversations,
     user,

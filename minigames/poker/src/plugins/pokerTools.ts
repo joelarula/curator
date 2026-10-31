@@ -77,7 +77,8 @@ function resolveGameState(args?: PokerGetStandingsParams, ctx?: PokerToolContext
 /** Wallet tools act on the session user's bankroll only; identity never comes from args. */
 function resolveWalletOwner(ctx?: PokerToolContext): { prisma: PokerBankrollDb; userId: string; projectId?: string } {
   const host = resolveToolHost(ctx);
-  const prisma = (host?.prisma ?? ctx?.prisma) as PokerBankrollDb | undefined;
+  // Bankrolls outlive tables: the configured database, also while the table runs in memory ('checkpoint')
+  const prisma = (host?.definitionsPrisma ?? host?.prisma ?? ctx?.prisma) as PokerBankrollDb | undefined;
   const userId = host?.user?.id ?? ctx?.userId;
   if (!prisma || !userId) {
     throw new Error('Bankroll tools require a host session with prisma and an authenticated user');
@@ -303,7 +304,7 @@ export const pokerCloseTableTool = defineTool<PokerCloseTableParams, PokerCloseT
       return { closed: false, reason };
     }
 
-    const conv = await host.prisma.conversation.findUnique({ where: { id: conversationId } });
+    const conv = await (await host.prismaFor(conversationId)).conversation.findUnique({ where: { id: conversationId } });
     if (!conv) return { closed: false, reason };
 
     const {

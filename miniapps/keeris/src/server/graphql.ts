@@ -103,6 +103,37 @@ function normalizeText(text: unknown): string {
   return String(text).normalize('NFC').toLowerCase();
 }
 
+/**
+ * A Curator host has two databases with 'checkpoint' durability: memory (running conversations) and the configured
+ * one (moved conversations, definitions). Requests are read and changed in both; agents and scripts are
+ * definitions, written to the configured database and then mirrored into memory.
+ */
+const runtimeDbs = (runtime: any): any[] => [...new Set([runtime.prisma, runtime.durablePrisma].filter(Boolean))];
+
+const definitionsOf = (runtime: any): any => runtime.definitionsPrisma ?? runtime.prisma;
+
+const sumCounts = async (runtime: any, count: (db: any) => Promise<number>): Promise<number> =>
+  (await Promise.all(runtimeDbs(runtime).map(count))).reduce((a, b) => a + b, 0);
+
+const requestsOf = (runtime: any) => ({
+  count: (args?: any) => sumCounts(runtime, (db) => db.request.count(args)),
+  updateMany: async (args: any) => ({
+    count: await sumCounts(runtime, async (db) => (await db.request.updateMany(args)).count),
+  }),
+  findMany: async (args: any) => {
+    const rows = (await Promise.all(runtimeDbs(runtime).map((db) => db.request.findMany(args)))).flat();
+    if (args?.orderBy?.createdAt) {
+      const dir = args.orderBy.createdAt === 'desc' ? -1 : 1;
+      rows.sort((a: any, b: any) => dir * (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()));
+    }
+    return args?.take ? rows.slice(0, args.take) : rows;
+  },
+});
+
+const responsesOf = (runtime: any) => ({
+  count: (args?: any) => sumCounts(runtime, (db) => db.response.count(args)),
+});
+
 export function resolvers(db: any, { curatorRuntime, user }: { curatorRuntime?: any; user?: any } = {}) {
   try {
     if (typeof db.function === 'function') {
@@ -564,10 +595,10 @@ export function resolvers(db: any, { curatorRuntime, user }: { curatorRuntime?: 
 
       if (runtime?.prisma) {
         try {
-          agentsTotal = await runtime.prisma.agent.count();
-          agentsActive = await runtime.prisma.agent.count({ where: { enabled: true } });
-          requestsTotal = await runtime.prisma.request.count();
-          requestsCompleted = await runtime.prisma.response.count();
+          agentsTotal = await definitionsOf(runtime).agent.count();
+          agentsActive = await definitionsOf(runtime).agent.count({ where: { enabled: true } });
+          requestsTotal = await requestsOf(runtime).count();
+          requestsCompleted = await responsesOf(runtime).count();
           requestsPending = Math.max(0, requestsTotal - requestsCompleted);
         } catch (e) {
           console.warn('[GraphQL] Could not count agents/requests via Prisma:', e);
@@ -629,7 +660,7 @@ export function resolvers(db: any, { curatorRuntime, user }: { curatorRuntime?: 
       let agents: any[] = [];
       if (runtime?.prisma) {
         try {
-          agents = await runtime.prisma.agent.findMany({
+          agents = await definitionsOf(runtime).agent.findMany({
             where: { existent: true },
             include: { script: true }
           });
@@ -732,7 +763,7 @@ export function resolvers(db: any, { curatorRuntime, user }: { curatorRuntime?: 
       let requests: any[] = [];
       if (runtime?.prisma) {
         try {
-          requests = await runtime.prisma.request.findMany({
+          requests = await requestsOf(runtime).findMany({
             orderBy: { createdAt: 'desc' },
             take: Math.min(Math.max(Number(limit) || 20, 1), 100),
             include: { responses: true, script: true },
@@ -789,7 +820,7 @@ export function resolvers(db: any, { curatorRuntime, user }: { curatorRuntime?: 
       if (!runtime?.prisma) {
         throw new Error('Curator database connection is not active.');
       }
-      const agentById = await runtime.prisma.agent.findFirst({
+      const agentById = await definitionsOf(runtime).agent.findFirst({
         where: { OR: [{ id: targetName }, { name: targetName }] },
       });
       if (agentById) {
@@ -839,13 +870,14 @@ export function resolvers(db: any, { curatorRuntime, user }: { curatorRuntime?: 
       const runtime = curatorRuntime;
       if (runtime?.prisma) {
         try {
-          const updated = await runtime.prisma.agent.update({
+          const updated = await definitionsOf(runtime).agent.update({
             where: { id },
             data: { enabled: activeState },
             include: { script: true },
           });
+          await runtime.syncDefinitions?.();
           if (!activeState) {
-            await runtime.prisma.request.updateMany({
+            await requestsOf(runtime).updateMany({
               where: {
                 OR: [
                   { agentId: id },
@@ -899,15 +931,16 @@ export function resolvers(db: any, { curatorRuntime, user }: { curatorRuntime?: 
       const runtime = curatorRuntime;
       if (runtime?.prisma) {
         try {
-          const updated = await runtime.prisma.agent.update({
+          const updated = await definitionsOf(runtime).agent.update({
             where: { id: args.id },
             data: { enabled: activeState },
             include: { script: true },
           });
+          await runtime.syncDefinitions?.();
           if (!activeState) {
-            const enabledCount = await runtime.prisma.agent.count({ where: { enabled: true } });
+            const enabledCount = await definitionsOf(runtime).agent.count({ where: { enabled: true } });
             if (enabledCount === 0) {
-              await runtime.prisma.request.updateMany({
+              await requestsOf(runtime).updateMany({
                 where: {
                   status: { in: ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT', 'PAUSED'] }
                 },
@@ -921,7 +954,7 @@ export function resolvers(db: any, { curatorRuntime, user }: { curatorRuntime?: 
               const conditions: any[] = [{ agentId: args.id }, { agentId: updated.name }];
               if (updated.scriptId) conditions.push({ scriptId: updated.scriptId });
 
-              const relatedReqs = await runtime.prisma.request.findMany({
+              const relatedReqs = await requestsOf(runtime).findMany({
                 where: { OR: conditions },
                 select: { conversationId: true }
               });
@@ -930,7 +963,7 @@ export function resolvers(db: any, { curatorRuntime, user }: { curatorRuntime?: 
                 conditions.push({ conversationId: { in: convIds } });
               }
 
-              await runtime.prisma.request.updateMany({
+              await requestsOf(runtime).updateMany({
                 where: {
                   OR: conditions,
                   status: { in: ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT', 'PAUSED'] }
@@ -982,17 +1015,18 @@ export function resolvers(db: any, { curatorRuntime, user }: { curatorRuntime?: 
       const runtime = curatorRuntime;
       if (runtime?.prisma) {
         try {
-          const updated = await runtime.prisma.agent.update({
+          const updated = await definitionsOf(runtime).agent.update({
             where: { id },
             data: { schedule: trimmedSchedule },
             include: { script: true },
           });
+          await runtime.syncDefinitions?.();
 
           // Reschedule all active / pending / waiting requests for this agent to the new scheduled time
           const pendingConditions: any[] = [{ agentId: id }, { agentId: updated.name }];
           if (updated.scriptId) pendingConditions.push({ scriptId: updated.scriptId });
 
-          await runtime.prisma.request.updateMany({
+          await requestsOf(runtime).updateMany({
             where: {
               OR: pendingConditions,
               status: { in: ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT', 'PAUSED'] },
@@ -1119,23 +1153,25 @@ export function resolvers(db: any, { curatorRuntime, user }: { curatorRuntime?: 
       const runtime = curatorRuntime;
       if (runtime?.prisma) {
         try {
-          const agent = await runtime.prisma.agent.findFirst({
+          const agent = await definitionsOf(runtime).agent.findFirst({
             where: { OR: [{ id }, { name: id }] },
             include: { script: true },
           });
           if (agent) {
             const now = new Date();
-            await runtime.prisma.agent.update({
+            await definitionsOf(runtime).agent.update({
               where: { id: agent.id },
               data: { existent: false, deletedAt: now, enabled: false },
             });
+            await runtime.syncDefinitions?.();
             if (agent.scriptId) {
-              await runtime.prisma.script.update({
+              await definitionsOf(runtime).script.update({
                 where: { id: agent.scriptId },
                 data: { existent: false, deletedAt: now },
               });
+              await runtime.syncDefinitions?.();
             }
-            await runtime.prisma.request.updateMany({
+            await requestsOf(runtime).updateMany({
               where: {
                 OR: [{ agentId: agent.id }, { scriptId: agent.scriptId ?? undefined }],
                 status: { in: ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT', 'PAUSED'] },

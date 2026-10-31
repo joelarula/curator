@@ -288,11 +288,12 @@ export async function closePokerLobbyConversation(
   const targetId = Number(lobbyId);
   if (Number.isNaN(targetId)) return;
 
-  const conv = await host.prisma.conversation.findUnique({ where: { id: targetId } });
+  const db = await host.prismaFor(targetId);
+  const conv = await db.conversation.findUnique({ where: { id: targetId } });
   if (!conv) return;
 
-  await markConversationClosed(host.prisma, targetId, reason);
-  await finalizeOpenRequests(host.prisma, targetId, 'CANCELLED');
+  await markConversationClosed(db, targetId, reason);
+  await finalizeOpenRequests(db, targetId, 'CANCELLED');
 }
 
 /** State a finished state machine leaves in its phase key. */
@@ -310,7 +311,7 @@ export async function ensureLobbyConversation(
     return createLobbyConversation(host, options);
   }
 
-  const convs = await host.prisma.conversation.findMany({
+  const convs = await host.findConversations({
     where: { projectId: host.project.id, userId: host.user.id },
     orderBy: { id: 'desc' },
   });
@@ -344,14 +345,14 @@ export async function ensureTableConversation(
   if (options.tableId !== undefined) {
     const targetId = Number(options.tableId);
     if (!Number.isNaN(targetId)) {
-      const existing = await prisma.conversation.findFirst({
+      const [existing] = await host.findConversations({
         where: { id: targetId, projectId: project.id },
       });
       if (existing) return existing;
     }
   }
 
-  const convs = await prisma.conversation.findMany({
+  const convs = await host.findConversations({
     where: { projectId: project.id },
     orderBy: { id: 'asc' },
   });
@@ -382,7 +383,7 @@ export async function createPokerGameTable(
   const smallBlind = options.smallBlind || 10;
   const bigBlind = options.bigBlind || 20;
 
-  const convs = await prisma.conversation.findMany({ where: { projectId: project.id } });
+  const convs = await host.findConversations({ where: { projectId: project.id } });
   const tableCount = convs.filter((c: any) => !isLobbyMeta(parseConversationMetadata(c.metadata))).length;
   const title = options.title || `Table #${tableCount + 1}`;
 
@@ -420,7 +421,8 @@ export async function createPokerGameTable(
     humanTurn: null,
   };
 
-  await syncPokerTableResource(prisma, {
+  // Knowledge-graph resources are long-lived: they belong in the configured database
+  await syncPokerTableResource(host.definitionsPrisma, {
     tableId: newConv.id,
     title,
     conversationId: newConv.id,
@@ -454,8 +456,9 @@ export async function closePokerGameTable(
   reason: string = 'closed',
   broadcast: boolean = true
 ): Promise<void> {
-  const { prisma, user, project } = host;
+  const { user, project } = host;
   const convId = Number(tableId);
+  const prisma = await host.prismaFor(convId);
 
   // Cash out human player chips back into their persistent bankroll
   try {
@@ -464,7 +467,7 @@ export async function closePokerGameTable(
       (p) => p.isHuman || p.id === user.id || p.name === user.name
     );
     if (human && typeof human.chips === 'number' && human.chips > 0) {
-      await cashOutToBankroll(prisma, user.id, human.chips, convId, project.id);
+      await cashOutToBankroll(host.definitionsPrisma, user.id, human.chips, convId, project.id);
     }
   } catch {
     // Best-effort cash out on table close
@@ -513,7 +516,7 @@ export async function enqueueTableASTRequest(
 ): Promise<any> {
   const targetScript = options.scriptName || PokerModule.WORKFLOW;
   const ast = await getScriptAST(host.prisma, targetScript);
-  return host.prisma.request.create({
+  return (await host.prismaFor(conversationId)).request.create({
     data: {
       userId: host.user.id,
       projectId: host.project.id,
@@ -537,7 +540,8 @@ export async function ensureHumanActorInDatabase(
   conversationId: number,
   options: { playerName?: string; playerId?: string } = {}
 ): Promise<any> {
-  const { prisma } = host;
+  // Users are definitions (configured database); participants are conversation state
+  const prisma = host.definitionsPrisma;
   const playerName = (options.playerName || host.user?.name || 'You').trim();
   const playerSlug = playerName.toLowerCase().replace(/[^a-z0-9_-]/g, '_').replace(/^_+|_+$/g, '') || 'hero';
   const playerId =
@@ -560,6 +564,7 @@ export async function ensureHumanActorInDatabase(
         data: { id: playerId, name: playerName, email: playerEmail },
       });
     }
+    if (user !== existing) await host.syncDefinitions();
   } catch {
     user = host.user;
   }
@@ -584,7 +589,8 @@ export async function ensureHumanActorInDatabase(
 
   // 3. Register human actor as active participant in Conversation metadata
   try {
-    const conv = await prisma.conversation.findUnique({ where: { id: conversationId } });
+    const convDb = await host.prismaFor(conversationId);
+    const conv = await convDb.conversation.findUnique({ where: { id: conversationId } });
     if (conv) {
       const meta = parseConversationMetadata(conv.metadata);
       const participants = Array.isArray(meta.participants) ? [...meta.participants] : [];
@@ -601,7 +607,7 @@ export async function ensureHumanActorInDatabase(
           roles: HUMAN_ROLES,
         });
       }
-      await appendStatePatch(prisma, conversationId, { set: { participants } });
+      await appendStatePatch(convDb, conversationId, { set: { participants } });
     }
   } catch {
     // Conversation may be ephemeral or already closed
@@ -614,10 +620,11 @@ export async function getConversationActors(
   host: CuratorHost,
   conversationId: number | string
 ): Promise<CuratorActor[]> {
-  const { prisma } = host;
+  const prisma = host.definitionsPrisma;
   const convIdNum = Number(conversationId);
+  const convDb = await host.prismaFor(convIdNum);
 
-  const conv = await prisma.conversation
+  const conv = await convDb.conversation
     .findUnique({ where: { id: convIdNum }, include: { project: true } })
     .catch(() => null);
 
@@ -648,7 +655,7 @@ export async function getConversationActors(
     })
     .catch(() => []);
 
-  const gameState = await readConversationState(prisma, convIdNum)
+  const gameState = await readConversationState(convDb, convIdNum)
     .then((s) => s.gameState ?? null)
     .catch(() => null);
 
@@ -714,8 +721,15 @@ export async function createPokerGameSession(
 
   const { prisma, user, project } = host;
 
+  // Both databases with 'checkpoint' durability (memory and configured)
+  const resetAll = async (quiet?: boolean): Promise<ResetLightResult> => {
+    let result: ResetLightResult | undefined;
+    for (const db of [...new Set([prisma, host.definitionsPrisma])]) result = await resetPokerDatabaseLight(db, { quiet });
+    return result!;
+  };
+
   if (options.resetLight) {
-    await resetPokerDatabaseLight(prisma, { quiet: options.quiet });
+    await resetAll(options.quiet);
   }
 
   const isTableTargeted = options.tableId !== undefined;
@@ -733,8 +747,9 @@ export async function createPokerGameSession(
     playerId: options.playerId || user?.id || 'player',
   });
 
+  const conversationDb = await host.prismaFor(conversation.id);
   let rootRequest = isTableTargeted
-    ? await prisma.request.findFirst({
+    ? await conversationDb.request.findFirst({
         where: {
           conversationId: conversation.id,
           status: { in: [...OPEN_REQUEST_STATUSES] },
@@ -744,7 +759,7 @@ export async function createPokerGameSession(
     : null;
 
   if (!rootRequest) {
-    await finalizeOpenRequests(prisma, conversation.id, 'CANCELLED');
+    await finalizeOpenRequests(conversationDb, conversation.id, 'CANCELLED');
     rootRequest = await enqueueTableASTRequest(host, conversation.id, {
       startingChips,
       smallBlind,
@@ -766,12 +781,14 @@ export async function createPokerGameSession(
   const resolveConvId = (tableId?: string | number): number =>
     tableId !== undefined ? Number(tableId) : conversation.id;
 
-  const getGameState = async (tableId?: string | number): Promise<PokerGameState | null> =>
-    (await readConversationState(prisma, resolveConvId(tableId))).gameState ?? null;
+  const getGameState = async (tableId?: string | number): Promise<PokerGameState | null> => {
+    const convId = resolveConvId(tableId);
+    return (await readConversationState(await host.prismaFor(convId), convId)).gameState ?? null;
+  };
 
   const getWaitingHumanTurn = async (tableId?: string | number): Promise<HumanTurnPromptInfo | null> => {
     const targetConvId = resolveConvId(tableId);
-    const choiceInfo = await getWaitingChoice(prisma, targetConvId);
+    const choiceInfo = await getWaitingChoice(await host.prismaFor(targetConvId), targetConvId);
     if (!choiceInfo) return null;
 
     const gameState = await getGameState(targetConvId);
@@ -919,7 +936,7 @@ export async function createPokerGameSession(
   };
 
   const resetLight = async (): Promise<ResetLightResult> => {
-    const res = await resetPokerDatabaseLight(prisma, { quiet: false });
+    const res = await resetAll(false);
     const newConv = await ensureTableConversation(host, { maxSeats });
     await enqueueTableASTRequest(host, newConv.id, {
       startingChips,
@@ -948,10 +965,12 @@ export async function createPokerGameSession(
     const [gState, waiting, latestReq] = await Promise.all([
       getGameState(c.id),
       getWaitingHumanTurn(c.id),
-      prisma.request.findFirst({
-        where: { conversationId: c.id },
-        orderBy: { updatedAt: 'desc' },
-      }),
+      host.prismaFor(c.id).then((db: any) =>
+        db.request.findFirst({
+          where: { conversationId: c.id },
+          orderBy: { updatedAt: 'desc' },
+        })
+      ),
     ]);
     const meta = parseConversationMetadata(c.metadata);
     const isPaused = latestReq?.status === 'PAUSED' || meta.isPaused === true;
@@ -968,7 +987,7 @@ export async function createPokerGameSession(
   };
 
   const listTables = async (): Promise<PokerTableInfo[]> => {
-    const convs = await prisma.conversation.findMany({
+    const convs = await host.findConversations({
       where: { projectId: project.id },
       orderBy: { id: 'asc' },
     });
@@ -982,7 +1001,7 @@ export async function createPokerGameSession(
   };
 
   const getTable = async (tableId?: string | number): Promise<PokerTableInfo | null> => {
-    const c = await prisma.conversation.findUnique({ where: { id: resolveConvId(tableId) } });
+    const [c] = await host.findConversations({ where: { id: resolveConvId(tableId) } });
     return c ? resolveTableInfo(c) : null;
   };
 
@@ -1004,15 +1023,17 @@ export async function createPokerGameSession(
     );
 
     const stepRes = await stepInteractiveConversation(host, targetConvId, maxSteps);
+    // After stepping: the conversation may have moved to the configured database at its wait
+    const stepDb = await host.prismaFor(targetConvId);
     const [humanTurn, gameState, parked, deferred] = await Promise.all([
       getWaitingHumanTurn(targetConvId),
       getGameState(targetConvId),
-      prisma.request.findMany({
+      stepDb.request.findMany({
         where: { conversationId: targetConvId, status: { in: ['WAITING_FOR_USER', 'WAITING_FOR_EVENT'] } },
         select: { context: true },
       }),
       // Requests scheduled for later (e.g. an LLM call rescheduled after a rate limit)
-      prisma.request.findFirst({
+      stepDb.request.findFirst({
         where: { conversationId: targetConvId, status: 'NEW', scheduledAt: { gt: new Date() } },
         orderBy: { scheduledAt: 'asc' },
         select: { scheduledAt: true },
@@ -1033,7 +1054,7 @@ export async function createPokerGameSession(
     }
 
     if (stepRes.done) {
-      const conv = await prisma.conversation.findUnique({ where: { id: targetConvId } });
+      const conv = await stepDb.conversation.findUnique({ where: { id: targetConvId } });
       if (isLobbyMeta(parseConversationMetadata(conv?.metadata))) {
         await closePokerLobbyConversation(host, targetConvId, 'lobby_completed');
       }

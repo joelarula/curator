@@ -6,7 +6,7 @@ import type { CuratorHostConfig } from './types.js';
 
 /** Host settings an app config file may carry under its reserved `host:` key. */
 export type AppHostSettings = Partial<
-  Pick<CuratorHostConfig, 'profile' | 'definitions' | 'retention' | 'astStorage' | 'logLevel' | 'intervalMs' | 'approvalTtlMs'>
+  Pick<CuratorHostConfig, 'profile' | 'definitions' | 'retention' | 'astStorage' | 'logLevel' | 'intervalMs' | 'approvalTtlMs' | 'durability' | 'checkpoint'>
 >;
 
 type Env = Record<string, string | undefined>;

@@ -11,7 +11,7 @@ import type { MaintenanceSystem } from './nodes/NodeHandler.js';
  * durable. The move is one way.
  *
  * Identity across the move:
- *  - Conversation ids come from the durable database (`withDurableConversationIds`), so a conversation keeps
+ *  - Conversation ids come from the durable database (`checkpointMemoryClient`), so a conversation keeps
  *    its id (tableId, sessions) when it moves.
  *  - Definitions (users, projects, roles, tools, scripts, agents, global subscriptions) are copied from the
  *    durable database with their ids (`mirrorDefinitions`).
@@ -107,11 +107,30 @@ export async function mirrorDefinitions(durable: any, memory: any, options: { re
 }
 
 /**
- * Memory client whose new conversations are first created in the durable database and then mirrored with the
- * same id, so a conversation keeps its id when it moves.
+ * The memory client of a checkpoint host:
+ *  - a new conversation is first created in the durable database and mirrored with the same id, so it keeps its
+ *    id when it moves;
+ *  - a user or project a new conversation or request refers to is copied from the durable database when the
+ *    mirror does not have it yet (one written durably after the last `mirrorDefinitions`), since the memory
+ *    database enforces foreign keys.
  */
-export function withDurableConversationIds(memory: any, durable: any): any {
+export function checkpointMemoryClient(memory: any, durable: any): any {
   const fields = modelFields(memory, 'conversation');
+  const present = new Set<string>();
+  const pull = async (model: 'user' | 'project', id: string | null | undefined): Promise<void> => {
+    if (id == null || present.has(`${model}:${id}`)) return;
+    if (!(await memory[model].findUnique({ where: { id }, select: { id: true } }))) {
+      const row = await durable[model].findUnique({ where: { id } });
+      if (!row) return;
+      if (model === 'project') await pull('user', row.userId);
+      await memory[model].create({ data: scalarData(row, modelFields(memory, model)) });
+    }
+    present.add(`${model}:${id}`);
+  };
+  const pullOwners = async (data: any) => {
+    await pull('user', data?.userId ?? data?.user?.connect?.id);
+    await pull('project', data?.projectId ?? data?.project?.connect?.id);
+  };
   const reserve = async (data: any) => {
     const scalars = scalarData(data ?? {}, fields, ['id']);
     const project = data?.project?.connect?.id;
@@ -124,13 +143,28 @@ export function withDurableConversationIds(memory: any, durable: any): any {
   return memory.$extends({
     query: {
       conversation: {
-        create: async ({ args, query }: any) => (args.data?.id != null ? query(args) : query({ ...args, data: await reserve(args.data) })),
+        create: async ({ args, query }: any) => {
+          await pullOwners(args.data);
+          return args.data?.id != null ? query(args) : query({ ...args, data: await reserve(args.data) });
+        },
         upsert: async ({ args, query }: any) => {
           const existing = await memory.conversation.findUnique({ where: args.where, select: { id: true } });
-          return existing || args.create?.id != null ? query(args) : query({ ...args, create: await reserve(args.create) });
+          if (existing) return query(args);
+          await pullOwners(args.create);
+          return args.create?.id != null ? query(args) : query({ ...args, create: await reserve(args.create) });
         },
         createMany: async () => {
           throw new Error('[Checkpoint] conversation.createMany is not supported on a checkpoint database; create conversations one by one');
+        },
+      },
+      request: {
+        create: async ({ args, query }: any) => {
+          await pullOwners(args.data);
+          return query(args);
+        },
+        createMany: async ({ args, query }: any) => {
+          for (const data of [].concat(args.data ?? [])) await pullOwners(data);
+          return query(args);
         },
       },
     },

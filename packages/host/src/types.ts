@@ -159,6 +159,27 @@ export interface CuratorHost {
   /** The database / processor a conversation lives in now (always `prisma` / `processor` unless 'checkpoint'). */
   prismaFor(conversationId: number): Promise<any>;
   processorFor(conversationId: number): Promise<any>;
+  /**
+   * The configured database: write long-lived data here (users, roles, bankrolls, knowledge resources) and call
+   * `syncDefinitions()` after definition writes. Same as `prisma` unless 'checkpoint'.
+   */
+  definitionsPrisma: any;
+  /** Brings the memory mirror up to date after a definition write (no-op unless 'checkpoint'). */
+  syncDefinitions(): Promise<void>;
+  /**
+   * `conversation.findMany` over every conversation, wherever it lives: rows still in memory come from memory
+   * (their state is current there). `where` filters on the durable copy, whose metadata may be stale for those.
+   */
+  findConversations(args?: any): Promise<any[]>;
+  /** Where a request is now: its database and id (a request that moved with 'checkpoint' has a new id). */
+  locateRequest(requestId: number): Promise<{ prisma: any; id: number }>;
+  /**
+   * Moves suspended and finished conversations to the configured database now (the poll loop does this every
+   * tick; direct stepping does not poll). Returns the moved conversation ids; [] unless 'checkpoint'.
+   */
+  checkpoint(): Promise<number[]>;
+  /** Limits the polling of every processor of the host to these conversations (see processor.setConversationScope). */
+  setConversationScope(ids: Iterable<number> | null): void;
   engine: any;
   conversations: ConversationRouter;
   user: any;

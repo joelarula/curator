@@ -59,6 +59,8 @@ export interface CreateKeerisHostOptions {
   forceReset?: boolean;
   configPath?: string;
   profiles?: string | string[];
+  /** Where conversations run (default: the config file's `host.durability`, else 'durable'); see CuratorHostConfig.durability. */
+  durability?: 'durable' | 'ephemeral' | 'checkpoint';
 }
 
 export async function createKeerisHost(options: CreateKeerisHostOptions = {}): Promise<CuratorHost> {
@@ -163,6 +165,7 @@ export async function createKeerisHost(options: CreateKeerisHostOptions = {}): P
     ...(options.autoSeed !== undefined ? { autoSeed: options.autoSeed } : {}),
     ...(options.forceReset !== undefined ? { forceReset: options.forceReset } : {}),
     ...(effectiveLogLevel ? { logLevel: effectiveLogLevel } : {}),
+    ...(options.durability ? { durability: options.durability } : {}),
     logger: options.quiet
       ? { log: () => {}, info: () => {}, warn: console.warn, error: console.error }
       : {

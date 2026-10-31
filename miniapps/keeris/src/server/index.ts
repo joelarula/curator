@@ -63,7 +63,8 @@ app.use((_req, res, next) => {
 });
 app.use(express.json({ limit: '256kb' }));
 
-setupAuth(app, () => host.prisma);
+// Users and sessions are long-lived: the configured database, also with 'checkpoint' durability
+setupAuth(app, () => host.definitionsPrisma);
 
 const dataDir = join(root, 'data');
 if (existsSync(dataDir)) {
@@ -156,7 +157,7 @@ app.post('/graphql', async (request, response) => {
   if (typeof request.body?.query !== 'string') return response.status(400).json({ errors: [{ message: 'query is required' }] });
   const authHeader = request.headers.authorization;
   const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : (request.query?.token as string);
-  const user = token ? await getUserFromToken(token, host.prisma) : null;
+  const user = token ? await getUserFromToken(token, host.definitionsPrisma) : null;
   const result = await executeGraphql(db, request.body.query, request.body.variables, { curatorRuntime: host, user });
   response.status(result.errors ? 400 : 200).json(result);
 });

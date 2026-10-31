@@ -37,6 +37,8 @@ export interface PokerHostOptions {
   profiles?: string | string[];
   /** Settings layered over the config file (`talk`, `agents`). */
   config?: PokerConfig;
+  /** Where tables run (default: the config file's `host.durability`, else 'durable'); see CuratorHostConfig.durability. */
+  durability?: 'durable' | 'ephemeral' | 'checkpoint';
 }
 
 /**
@@ -71,6 +73,7 @@ export async function createPokerHost(options: PokerHostOptions = {}): Promise<C
     },
     ...(options.intervalMs !== undefined ? { intervalMs: options.intervalMs } : {}),
     ...(options.logLevel ? { logLevel: options.logLevel } : {}),
+    ...(options.durability ? { durability: options.durability } : {}),
     logger: options.quiet
       ? { log: () => { }, info: () => { }, warn: console.warn, error: console.error }
       : {
@@ -99,7 +102,8 @@ export async function createPokerHost(options: PokerHostOptions = {}): Promise<C
   // Runs at startup and then hourly, so a server that stays up keeps pruning.
   const pruneHistory = async () => {
     try {
-      const pruned = await prunePokerHistory(host.prisma, { projectId: host.project.id, olderThanMs: historyTtlFromEnv() });
+      // Finished conversations live in the configured database (with 'checkpoint' they move there when they finish)
+      const pruned = await prunePokerHistory(host.definitionsPrisma, { projectId: host.project.id, olderThanMs: historyTtlFromEnv() });
       if (pruned.conversations > 0 && !options.quiet) {
         console.log(
           `[90m[Curator] Retention: pruned ${pruned.conversations} finished conversation(s) (${pruned.requests} requests, ${pruned.responses} responses, ${pruned.events} events)[0m`

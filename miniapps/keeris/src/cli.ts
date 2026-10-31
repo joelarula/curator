@@ -377,8 +377,10 @@ program
           const timeoutMs = 10 * 60 * 1000;
           const started = Date.now();
           while (Date.now() - started < timeoutMs) {
-            const req = await host.prisma.request.findUnique({
-              where: { id: request.id },
+            // The request may have moved to the configured database ('checkpoint' durability)
+            const located = await host.locateRequest(request.id);
+            const req = await located.prisma.request.findUnique({
+              where: { id: located.id },
               include: { responses: { orderBy: { createdAt: 'desc' } } },
             });
             if (req && ['COMPLETED', 'FAILED', 'CANCELLED', 'SKIPPED'].includes(req.status)) {

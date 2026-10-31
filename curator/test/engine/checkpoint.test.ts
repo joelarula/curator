@@ -8,7 +8,7 @@ import {
   DEFAULT_ID_BASE,
   assertIdHeadroom,
   mirrorDefinitions,
-  withDurableConversationIds,
+  checkpointMemoryClient,
 } from '../../src/engine/Checkpoint.ts';
 import { STATE_SEQ_KEY } from '../../src/engine/ConversationStateLog.ts';
 
@@ -31,7 +31,7 @@ async function checkpointEnv(name: string) {
   const raw = await provisionMemorySqliteDb({ idBase: DEFAULT_ID_BASE });
   await assertIdHeadroom(env.prisma, DEFAULT_ID_BASE);
   await mirrorDefinitions(env.prisma, raw, { replace: true });
-  const memory = withDurableConversationIds(raw, env.prisma);
+  const memory = checkpointMemoryClient(raw, env.prisma);
   const fake = makeFakeEngine(canned);
   const processor = new CuratorRequestProcessor(memory, { engine: fake.engine, now: () => FIXED_NOW, retention: { completedContext: 'keep' } } as any);
   const checkpoint = new CheckpointManager(memory, env.prisma, { now: () => FIXED_NOW });
@@ -133,6 +133,19 @@ test('checkpoint: definitions written durably later reach memory without disturb
     assert.ok(await cp.memory.project.findUnique({ where: { id: 'late' } }));
     assert.equal(await cp.memory.request.count({ where: { conversationId } }), before);
     await assert.rejects(mirrorDefinitions(cp.env.prisma, cp.memory, { replace: true }), /before any request exists/);
+  } finally {
+    await cp.cleanup();
+  }
+});
+
+test('checkpoint: a user written durably after the mirror is pulled into memory when a request needs it', async () => {
+  const cp = await checkpointEnv('checkpoint_owners');
+  try {
+    const late = await cp.env.prisma.user.create({ data: { id: 'late-user', name: 'Late', email: 'late@example.com' } });
+    const conversation = await cp.memory.conversation.create({ data: { userId: late.id } });
+    await cp.memory.request.create({ data: { userId: late.id, conversationId: conversation.id, status: 'NEW', toolName: 'Curator_Workflow', ast: tool('echo', { text: 'x' }) } });
+    assert.ok(await cp.memory.user.findUnique({ where: { id: late.id } }));
+    assert.equal((await cp.processor.stepUntil({ conversationId: conversation.id })).done, true);
   } finally {
     await cp.cleanup();
   }

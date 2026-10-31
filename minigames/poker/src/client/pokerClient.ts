@@ -74,7 +74,7 @@ function scopeProcessorTo(host: CuratorHost): (targetId: string) => void {
     const id = Number(targetId);
     if (!Number.isInteger(id)) return;
     opened.add(id);
-    host.processor.setConversationScope(opened);
+    host.setConversationScope(opened);
   };
 }
 

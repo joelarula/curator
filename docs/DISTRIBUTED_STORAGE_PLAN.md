@@ -70,16 +70,27 @@ SQLite memory database (`provisionMemorySqliteDb`, ~30 ms; schema from a cached 
 - `ephemeral`: the host's database is the memory database; the configured database is never touched.
 - `checkpoint` (`src/engine/Checkpoint.ts`): definitions are written to the configured database and mirrored
   into memory with their ids (`mirrorDefinitions`); conversation ids are reserved durably
-  (`withDurableConversationIds`); memory rows get ids from 1e9 up. A maintenance system on the memory processor
+  (`checkpointMemoryClient`, which also pulls users/projects missing from the mirror); memory rows get ids from 1e9 up. A maintenance system on the memory processor
   moves each conversation that is suspended (human input, event wait, pause, timer further than 5 s away) or
   finished to the durable database in one transaction (`demoteConversation`: request/event/subscription ids
   remapped, including `notifyId`, `parentId`, `eventCursor`, `__stateSeq`, `HISTORY_SUMMARY`, `SUBSCRIBED`), then
   it runs on a second, durable processor. `host.runTool` / `emitEvent` / `triggerAgent` / `pauseRequest` /
   `resumeRequest` route by where the conversation lives; `host.prismaFor` / `processorFor` expose that.
+- App contract (poker and keeris follow it; enable with `host: { durability: checkpoint }` in the app config or
+  the `durability` option of `createPokerHost` / `createKeerisHost`):
+  - conversation data (requests, state, waits): `await host.prismaFor(conversationId)`;
+  - long-lived data (users, roles, bankrolls, knowledge resources, auth): `host.definitionsPrisma`, then
+    `host.syncDefinitions()` after a definition write;
+  - listing conversations: `host.findConversations(args)` (memory copies win, since their state is current);
+  - a request id kept across a move: `host.locateRequest(id)`; direct stepping: `host.checkpoint()` after a step
+    (`stepInteractiveConversation` does it); polling scope: `host.setConversationScope(ids)`.
 - Limits: the move is one way (no rehydration); conversations linked to another memory conversation or to
-  resources stay in memory; apps reading `host.prisma` directly (poker, keeris) must switch to `prismaFor` before
-  using `checkpoint`; MariaDB/Postgres `Permission`/`RolePermission` are not mirrored (SQLite has no such tables);
-  in a cluster, ownership of a moved conversation is unguarded until Phase 4 leases.
+  resources stay in memory; state projectors (e.g. poker's table resource) update their read model only once the
+  conversation is durable, since the resource lives there; MariaDB/Postgres `Permission`/`RolePermission` are not
+  mirrored (SQLite has no such tables); in a cluster, ownership of a moved conversation is unguarded until Phase 4
+  leases.
+- Only an explicit curator URL (`curatorDb.url` / `CURATOR_DATABASE_URL`) selects Postgres; a generic
+  `DATABASE_URL` is usually the server's own Postgres and keeps its old meaning (SQLite unless MySQL/MariaDB).
 
 The original design below is kept for reference.
 
