@@ -13,3 +13,4 @@ export interface CuratorToolContract<TArgs = Record<string, unknown>, TOutput = 
   readonly requiresHumanApproval?: boolean;
   readonly requiresConfirmation?: boolean;
 }
+

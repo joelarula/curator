@@ -6,3 +6,4 @@ export interface CuratorReducerContract<TArgs = Record<string, unknown>, TOutput
   readonly reducerName?: string;
   (args: TArgs): TOutput;
 }
+

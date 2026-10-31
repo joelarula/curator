@@ -26,12 +26,16 @@ import {
   CuratorCoreEvent,
   extractGameState,
   normalizeChoices,
-} from '../models/pokerContracts.ts';
+} from '../models/index.ts';
 
 export { resolvePlayerIdentity, type PlayerIdentity };
 
 export interface PokerClientOptions extends PokerSessionOptions {
   direct?: boolean;
+  /** Direct mode: `'processor'` (default) runs the host's concurrent polling loop in-process; `'step'` steps it synchronously. */
+  drive?: 'step' | 'processor';
+  /** Direct processor mode: poll interval in ms (default 300); in-process work wakes the loop at once. */
+  pollInterval?: number;
   serverUrl?: string;
   playerName?: string;
   tableId?: string | number;
@@ -61,6 +65,20 @@ export async function createWebSocketChannel(options: PokerClientOptions = {}): 
 }
 
 /**
+ * Keeps the host's polling loop on the conversations this client opened (lobby, tables), so parked or
+ * queued requests of old tables in the same database do not resume in the background.
+ */
+function scopeProcessorTo(host: CuratorHost): (targetId: string) => void {
+  const opened = new Set<number>();
+  return (targetId) => {
+    const id = Number(targetId);
+    if (!Number.isInteger(id)) return;
+    opened.add(id);
+    host.processor.setConversationScope(opened);
+  };
+}
+
+/**
  * Creates a lightweight in-process direct Curator channel.
  * Zero outer APIs, zero network/TCP ports, pure direct AST execution from human action A to B.
  */
@@ -87,7 +105,15 @@ export async function createDirectSessionChannel(
     }
   }
 
-  const baseChannel = createDirectChannel(session, options.tableId);
+  // The processor loop needs the host this channel owns; a passed-in session keeps stepping
+  const ownHost = host;
+  const baseChannel = ownHost && options.drive !== 'step'
+    ? createDirectChannel(session, options.tableId, {
+      drive: 'processor',
+      startProcessor: () => ownHost.start(options.pollInterval ?? 300),
+      onTarget: scopeProcessorTo(ownHost),
+    })
+    : createDirectChannel(session, options.tableId, { drive: 'step' });
   const origClose = baseChannel.close.bind(baseChannel);
   return Object.assign(baseChannel, {
     runTool: (toolName: string, args?: Record<string, any>) => session.runTool(toolName, args, baseChannel.tableId),

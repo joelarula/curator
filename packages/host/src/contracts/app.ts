@@ -22,3 +22,4 @@ export function defineMiniApp<T extends MiniAppContract>(definition: T): T {
   }
   return definition;
 }
+

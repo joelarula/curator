@@ -12,6 +12,9 @@
     "paths": {
       "@curator/agent-server": ["../../curator/src/index.ts"],
       "@curator/host": ["../../packages/host/src/index.ts"],
+      "@curator/host/config": ["../../packages/host/src/appConfig.ts"],
+      "@curator/host/contracts": ["../../packages/host/src/contracts/index.ts"],
+      "@curator/host/client": ["../../packages/host/src/client/index.ts"],
       "@curator/plugin-auth": ["../../packages/plugin-auth/src/index.ts"]
     }
   },

@@ -6,8 +6,8 @@ import {
 } from '../curator.ts';
 import type { PlayerAction, PlayerJoinOptions } from '../types.ts';
 import { agent_decision } from '../workflows/agentTurn.ts';
-import { ctx, gameState, state, params, setState } from '../models/pokerContext.ts';
-import { SessionExited } from '../models/pokerEvents.ts';
+import { ctx, gameState, state, params, setState } from '../models/index.ts';
+import { SessionExited } from '../models/index.ts';
 import {
   PokerEvent,
   PokerModule,
@@ -15,7 +15,7 @@ import {
   PokerTool,
   PokerSessionReason,
   PokerActionType,
-} from '../models/pokerContracts.ts';
+} from '../models/index.ts';
 import { PokerTableCommand, type PokerTableCommandInput } from '../engine/pokerTable.ts';
 import { pokerConfig, tableSettings, setting, DEFAULT_TABLE_SETTINGS } from '../pokerConfig.ts';
 import { pokerTable } from '../plugins/pokerNodes.ts';

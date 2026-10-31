@@ -197,6 +197,8 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
     async stop(): Promise<void> {
       if (processor && typeof processor.stop === 'function') {
         processor.stop();
+        // Polled requests still running (e.g. an LLM turn) finish before the DB goes away
+        await processor.idle?.();
       }
       events.close();
       unregisterProjectors.forEach((unregister: () => void) => unregister());

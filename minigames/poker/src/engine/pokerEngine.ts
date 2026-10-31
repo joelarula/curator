@@ -20,7 +20,7 @@ import {
   type TableRulesDefinition,
 } from './pokerRules.ts';
 import { DEFAULT_TABLE_PLAYERS } from '../workflows/agentProfiles.ts';
-import { PokerActionType, PokerStreet } from '../models/pokerContracts.ts';
+import { PokerActionType, PokerStreet } from '../models/index.ts';
 
 export function getTableRules(): TableRulesDefinition {
   return tableRules;

@@ -199,19 +199,36 @@ export async function createWebSocketChannel(
   };
 }
 
+export interface DirectChannelOptions {
+  /**
+   * How the in-process processor advances: `'step'` runs it synchronously after each send, one request
+   * at a time (deterministic; tests, replay); `'processor'` leaves it to the host's own polling loop,
+   * which runs requests concurrently (an LLM turn and table talk at once).
+   */
+  drive?: 'step' | 'processor';
+  /** Processor mode: starts the host's polling loop; called once by start(), after handlers are attached. */
+  startProcessor?: () => Promise<void>;
+  /** Called with the initial target and every later one (e.g. to scope the processor to them). */
+  onTarget?: (targetId: string) => void;
+}
+
 /**
  * Creates a universal direct in-process channel executing against an active
  * session target without network ports or HTTP/WS overhead.
  */
 export function createDirectChannel(
   session: DirectChannelTarget,
-  targetId?: string | number
+  targetId?: string | number,
+  options: DirectChannelOptions = {}
 ): CuratorChannel {
   let activeTargetId = String(
     targetId !== undefined ? targetId : session.tableId ?? session.conversationId ?? '1'
   );
 
   const eventSource = session.host?.events ?? session.events;
+  options.onTarget?.(activeTargetId);
+  const stepping = options.drive !== 'processor' && typeof session.step === 'function';
+  let processorStarted: Promise<void> | undefined;
 
   // Steps still running; close() waits for them so the session is never torn down mid-step
   const inFlight = new Set<Promise<unknown>>();
@@ -248,7 +265,9 @@ export function createDirectChannel(
       return activeTargetId;
     },
     set tableId(id: string | undefined) {
-      if (id !== undefined) activeTargetId = String(id);
+      if (id === undefined) return;
+      activeTargetId = String(id);
+      options.onTarget?.(activeTargetId);
     },
     on(handler: (event: any) => void) {
       if (eventSource && typeof (eventSource as any).onEvent === 'function') {
@@ -259,14 +278,18 @@ export function createDirectChannel(
     async send(type: string, payload?: any) {
       await track(async () => {
         await session.send(type, payload, activeTargetId);
-        if (typeof session.step === 'function') {
+        if (stepping) {
           await runStep();
         }
       });
     },
     async start() {
-      if (typeof session.step === 'function') {
+      if (stepping) {
         await track(runStep);
+      } else if (options.startProcessor) {
+        // Selecting another table calls start() again; the loop already serves every conversation
+        processorStarted ??= options.startProcessor();
+        await processorStarted;
       }
     },
     async close() {

@@ -95,6 +95,8 @@ program
   .command('play', { isDefault: true })
   .description('Play Texas Hold\'em (network client or lightweight direct execution)')
   .option('--direct', 'Run direct lightweight execution mode locally (zero network APIs)', false)
+  .option('--step', 'Direct mode: step the processor synchronously, one request at a time (deterministic)', false)
+  .option('--poll-interval <ms>', 'Direct mode: processor poll interval in ms', '300')
   .option('--server <url>', 'Poker server URL', 'http://127.0.0.1:4000')
   .option('-t, --table <id>', 'Target table/conversation ID to join')
   .option('-c, --chips <amount>', 'Starting chips for each player (direct mode)', '1000')
@@ -126,6 +128,8 @@ program
       }
       await runPokerClient({
         direct: true,
+        drive: opts.step ? 'step' : 'processor',
+        pollInterval: parseInt(opts.pollInterval, 10) || 300,
         databasePath: opts.db,
         forceReset: Boolean(opts.reset),
         resetLight: Boolean(opts.resetLight),

@@ -23,3 +23,4 @@ export function defineMiniGame<T extends MiniGameContract>(definition: T): T {
   }
   return definition;
 }
+

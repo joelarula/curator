@@ -25,3 +25,4 @@ export interface CuratorAppManifest {
   /** Capabilities required from the host runtime for backward/forward compatibility negotiation. */
   readonly requiredHostCapabilities?: readonly HostCapability[];
 }
+

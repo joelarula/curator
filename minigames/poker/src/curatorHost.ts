@@ -1,1 +1,1 @@
-export * from '../../../packages/host/dist/index.js';
+export * from '@curator/host';

@@ -6,7 +6,7 @@ import {
   profilesEnvKey,
   profilesFromArgv,
   type AppConfig,
-} from '../../../packages/host/dist/appConfig.js'; // direct module: keeps CLI boot free of the full host
+} from '@curator/host/config';
 import type { PokerConfig } from './pokerConfig.ts';
 
 const __filename = fileURLToPath(import.meta.url);

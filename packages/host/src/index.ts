@@ -47,6 +47,7 @@ export {
   type CuratorChannel,
   type WebSocketChannelOptions,
   type DirectChannelTarget,
+  type DirectChannelOptions,
   normalizeWsUrl,
   createWebSocketChannel,
   createDirectChannel,
@@ -61,4 +62,5 @@ export {
   type ConversationStepResult,
   type SessionActor,
 } from './session/InteractiveSessionRunner.js';
+export * from './contracts/index.js';
 export * from './types.js';

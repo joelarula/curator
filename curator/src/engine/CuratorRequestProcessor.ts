@@ -150,6 +150,9 @@ export class CuratorRequestProcessor {
   private isPolling = false;
   private wakePending = false;
   private activeTasks = 0;
+  private runningTasks = new Set<Promise<void>>();
+  /** Conversations the polling loop serves; null serves all (see setConversationScope). */
+  private conversationScope: Set<number> | null = null;
   private backoffUntil: number = 0;
   private workerId = `curator-worker-${Math.random().toString(36).substring(7)}`;
   private onEvent?: (type: string, payload: any) => void;
@@ -693,6 +696,21 @@ export class CuratorRequestProcessor {
 
   private lastScheduleMinuteBucket: number = 0;
 
+  /**
+   * Limits the polling loop (pickup, prompt timeouts, resumes) to these conversations; null serves all.
+   * An embedded host uses it so other conversations in a shared database (old tables) are left alone.
+   */
+  public setConversationScope(ids: Iterable<number> | null) {
+    this.conversationScope = ids ? new Set(ids) : null;
+    this.wake();
+  }
+
+  /** Prisma filter for the conversation scope: an explicit conversation, else the polling scope. */
+  private scopeWhere(conversationId?: number): Record<string, any> {
+    if (conversationId !== undefined) return { conversationId };
+    return this.conversationScope ? { conversationId: { in: [...this.conversationScope] } } : {};
+  }
+
   public stop() {
     this.isStopped = true;
     if (this.timer) {
@@ -784,7 +802,8 @@ export class CuratorRequestProcessor {
       where: {
         // A locked WAITING request is being executed (e.g. an agent saving its tool-call turns), not parked.
         OR: [{ status: 'WAITING_FOR_USER' }, { status: 'WAITING', lockedBy: null }],
-        responses: { some: {} } // Has at least one response
+        responses: { some: {} }, // Has at least one response
+        ...this.scopeWhere()
       },
       include: { responses: { orderBy: { createdAt: 'desc' }, take: 1 } },
       take: 5
@@ -857,7 +876,8 @@ export class CuratorRequestProcessor {
         where: {
           status: 'NEW',
           pendingDependencies: { lte: 0 },
-          scheduledAt: { lte: new Date(this.clock()) }
+          scheduledAt: { lte: new Date(this.clock()) },
+          ...this.scopeWhere()
         },
         orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
         take: availableSlots
@@ -1035,18 +1055,31 @@ export class CuratorRequestProcessor {
 
   private async runTask(req: any) {
     this.activeTasks++;
-    try {
-      // Yield to the Node.js event loop before starting heavy task to let web requests process smoothly
-      await new Promise(resolve => setImmediate(resolve));
-      await this.processRequest(req);
-    } catch (err) {
-      logger.error(`[CuratorRequestProcessor] Task execution error for request ${req.id}:`, err);
-    } finally {
-      this.activeTasks = Math.max(0, this.activeTasks - 1);
-      // Immediately evaluate next pending tasks if capacity is available
-      if (!this.isStopped && this.timer) {
-        setImmediate(() => this.pollRequests());
+    const task = (async () => {
+      try {
+        // Yield to the Node.js event loop before starting heavy task to let web requests process smoothly
+        await new Promise(resolve => setImmediate(resolve));
+        await this.processRequest(req);
+      } catch (err) {
+        logger.error(`[CuratorRequestProcessor] Task execution error for request ${req.id}:`, err);
+      } finally {
+        this.activeTasks = Math.max(0, this.activeTasks - 1);
+        // Evaluate next pending tasks at once (children it spawned); wake() queues the poll if one is running
+        this.wake();
       }
+    })();
+    this.runningTasks.add(task);
+    try {
+      await task;
+    } finally {
+      this.runningTasks.delete(task);
+    }
+  }
+
+  /** Resolves once no polled task is running; call after stop() so nothing is torn down mid-request. */
+  public async idle(): Promise<void> {
+    while (this.runningTasks.size > 0) {
+      await Promise.allSettled([...this.runningTasks]);
     }
   }
 
@@ -1811,7 +1844,7 @@ export class CuratorRequestProcessor {
     const parked = await this.prisma.request.findMany({
       where: {
         status: { in: ['WAITING_FOR_USER', 'WAITING_FOR_EVENT'] },
-        ...(conversationId !== undefined ? { conversationId } : {})
+        ...this.scopeWhere(conversationId)
       },
       orderBy: { updatedAt: 'asc' },
       take: 50
