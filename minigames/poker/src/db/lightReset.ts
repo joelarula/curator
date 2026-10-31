@@ -7,6 +7,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_POKER_DB = path.resolve(__dirname, '../../data/poker.db');
 
+/**
+ * History outside Request/Response/Conversation: the event log, conversation-scoped subscriptions, and the
+ * projected `poker:table:*` resources (with their triples), which would otherwise list deleted tables.
+ */
+const HISTORY_SQL = [
+  'DELETE FROM EventLog;',
+  'DELETE FROM EventSubscription WHERE conversationId IS NOT NULL;',
+  "DELETE FROM Relation WHERE subjectId IN (SELECT id FROM Resource WHERE uri LIKE 'poker:table:%') OR objectId IN (SELECT id FROM Resource WHERE uri LIKE 'poker:table:%');",
+  "DELETE FROM Resource WHERE uri LIKE 'poker:table:%';",
+];
+
 export interface ResetLightResult {
   deletedResponses: number;
   deletedRequests: number;
@@ -15,7 +26,7 @@ export interface ResetLightResult {
 
 /**
  * Performs an ultra-fast, non-destructive light reset of the poker database (sub-millisecond).
- * Cleans all Response, Request, and Conversation records so the game
+ * Cleans all Response, Request, and Conversation records (plus their event history and table resources) so the game
  * can be tested completely from scratch without touching Users, Projects, Roles, or Tools.
  */
 export async function resetPokerDatabaseLight(
@@ -30,6 +41,7 @@ export async function resetPokerDatabaseLight(
     try {
       await prisma.$executeRawUnsafe('DELETE FROM _RequestResources;').catch(() => {});
       await prisma.$executeRawUnsafe('DELETE FROM _ConversationResources;').catch(() => {});
+      for (const sql of HISTORY_SQL) await prisma.$executeRawUnsafe(sql).catch(() => {});
     } catch (_) {}
 
     const deletedResponses = (await prisma.response.deleteMany({})).count;
@@ -73,6 +85,9 @@ export async function resetPokerDatabaseLight(
   } catch (_) {}
   try { db.exec('DELETE FROM _RequestResources;'); } catch (_) {}
   try { db.exec('DELETE FROM _ConversationResources;'); } catch (_) {}
+  for (const sql of HISTORY_SQL) {
+    try { db.exec(sql); } catch (_) {}
+  }
   db.exec('PRAGMA foreign_keys = ON;');
   db.close();
 

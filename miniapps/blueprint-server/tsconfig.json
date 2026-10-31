@@ -12,6 +12,15 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "types": ["node"],
+    "paths": {
+      "@curator/agent-server": ["../../curator/dist/src/index.d.ts"],
+      "@curator/host": ["../../packages/host/dist/index.d.ts"],
+      "@curator/host/config": ["../../packages/host/dist/appConfig.d.ts"],
+      "@curator/mcp-server": ["../../packages/mcp-server/dist/index.d.ts"],
+      "@curator/auth-client": ["../../packages/auth-client/dist/index.d.ts"],
+      "@curator/plugin-scraper": ["../../packages/plugin-scraper/dist/index.d.ts"],
+      "@curator/plugin-mcp-client": ["../../packages/plugin-mcp-client/dist/index.d.ts"]
+    },
     "typeRoots": [
       "./node_modules/@types",
       "../../node_modules/@types",

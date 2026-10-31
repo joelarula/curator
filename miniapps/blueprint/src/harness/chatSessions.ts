@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { CuratorHost } from '../../../../packages/host/dist/index.js';
+import type { CuratorHost } from '@curator/host';
 import { ASSISTANT_AGENT } from './assistantPlugin.js';
 
 /**

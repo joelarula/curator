@@ -1,4 +1,4 @@
-import { createCuratorHost, resolveClientIdentity, type CuratorHost } from '../../../packages/host/dist/index.js';
+import { createCuratorHost, resolveClientIdentity, type CuratorHost } from '@curator/host';
 import { curatorEngine } from '../../../curator/dist/src/index.js';
 import { AuthSessionManager } from '../../../packages/auth-client/dist/index.js';
 import { geminiPlugin } from '../../../packages/plugin-llm-gemini/dist/index.js';

@@ -35,6 +35,16 @@ const DATA_DIR = path.join(CURATOR_ROOT, 'data');
  * Brings an existing database up to the remote-MCP model (McpServer/McpResource/McpPrompt,
  * Tool.origin & friends). DDL mirrors `prisma migrate diff` for prisma-sqlite; every step is idempotent.
  */
+/** Mirrors the Request / Response `@@index`es of prisma-sqlite for databases created before they existed. */
+const REQUEST_RESPONSE_INDEXES = [
+  'CREATE INDEX IF NOT EXISTS "Request_conversationId_status_idx" ON "Request"("conversationId", "status");',
+  'CREATE INDEX IF NOT EXISTS "Request_conversationId_updatedAt_idx" ON "Request"("conversationId", "updatedAt");',
+  'CREATE INDEX IF NOT EXISTS "Request_parentId_idx" ON "Request"("parentId");',
+  'CREATE INDEX IF NOT EXISTS "Request_notifyId_idx" ON "Request"("notifyId");',
+  'CREATE INDEX IF NOT EXISTS "Response_requestId_idx" ON "Response"("requestId");',
+  'CREATE INDEX IF NOT EXISTS "Response_conversationId_createdAt_idx" ON "Response"("conversationId", "createdAt");',
+];
+
 export function migrateMcpTables(db: DatabaseSync): void {
   const statements = [
     `CREATE TABLE IF NOT EXISTS "McpServer" (
@@ -227,6 +237,10 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
         migDb.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ScriptVersion_scriptId_hash_key ON ScriptVersion(scriptId, hash);`);
       } catch (_) {}
       try { migDb.exec('ALTER TABLE ScriptVersion ADD COLUMN createdBy TEXT;'); } catch (_) {}
+      // Processor lookups by conversation / parent / notify target / request; without these each is a full scan
+      for (const ddl of REQUEST_RESPONSE_INDEXES) {
+        try { migDb.exec(ddl); } catch (_) {}
+      }
       migrateMcpTables(migDb);
       migDb.close();
     } catch (_) {}
@@ -260,6 +274,15 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
   try {
     await prisma.$executeRawUnsafe('PRAGMA synchronous = OFF;');
   } catch (_) {}
+  // WAL lets reads run while a request writes (the polling processor runs requests concurrently).
+  // Not on network shares (WAL needs shared memory); CURATOR_SQLITE_WAL=0 keeps the rollback journal.
+  const isNetworkPath = /^(\\\\|\/\/)/.test(dbPath);
+  if (!isNetworkPath && process.env.CURATOR_SQLITE_WAL !== '0') {
+    try {
+      await prisma.$queryRawUnsafe('PRAGMA journal_mode = WAL;');
+      await prisma.$queryRawUnsafe('PRAGMA busy_timeout = 10000;');
+    } catch (_) {}
+  }
 
   // Ensure system user and project exist
   const user = await prisma.user.upsert({

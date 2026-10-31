@@ -1,5 +1,5 @@
-import { defineTool, type CuratorPluginDefinition } from '../../../curator/dist/src/index.js';
-import { webScrapeTool, type SafeFetchOptions } from '../../../packages/plugin-scraper/dist/index.js';
+import { defineTool, type CuratorPluginDefinition } from '@curator/agent-server';
+import { webScrapeTool, type SafeFetchOptions } from '@curator/plugin-scraper';
 
 export const WEB_READER_ROLE = 'web_reader';
 

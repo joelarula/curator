@@ -192,7 +192,8 @@ export async function runPokerClientUi(
         currentGameState = extractedState;
       }
 
-      renderPokerEvent(event, currentGameState);
+      // Events arrive while the prompt is shown: print above it, never into the line being typed
+      shell.printAbove(() => renderPokerEvent(event, currentGameState));
 
       if (type === PokerEvent.TABLE_SELECTED) {
         const targetTableId = payload?.tableId || payload?.id;
@@ -217,9 +218,11 @@ export async function runPokerClientUi(
 
       // Lobby choice presentation (non-blocking)
       if (type === PokerEvent.LOBBY_PROMPT) {
-        console.log("\n\x1b[1m\x1b[36m╔══════════════════════════════════════════════════════════════════════╗\x1b[0m");
-        console.log("\x1b[1m\x1b[36m║                    Curator Texas Hold'em Lounge                      ║\x1b[0m");
-        console.log("\x1b[1m\x1b[36m╚══════════════════════════════════════════════════════════════════════╝\x1b[0m\n");
+        shell.printAsync(
+          "\n\x1b[1m\x1b[36m╔══════════════════════════════════════════════════════════════════════╗\x1b[0m",
+          "\x1b[1m\x1b[36m║                    Curator Texas Hold'em Lounge                      ║\x1b[0m",
+          "\x1b[1m\x1b[36m╚══════════════════════════════════════════════════════════════════════╝\x1b[0m\n",
+        );
 
         const rawChoices = payload?.choices || payload?.options || [];
         shell.setChoices(rawChoices, { blocking: false });
@@ -230,12 +233,12 @@ export async function runPokerClientUi(
       if (type === PokerEvent.REQUEST_TABLE_SELECTION) {
         const rawChoices: any[] = payload?.choices || payload?.tables || [];
         if (rawChoices.length === 0) {
-          console.log("\x1b[33mNo existing tables found. Starting fresh table instead...\x1b[0m\n");
+          shell.printAsync("\x1b[33mNo existing tables found. Starting fresh table instead...\x1b[0m\n");
           await channel.send(PokerEvent.TABLE_SELECTED, { id: PokerClientConstant.DEFAULT_TABLE_ID });
           return;
         }
 
-        console.log("\n\x1b[1m=== Available Tables ===\x1b[0m");
+        shell.printAsync("\n\x1b[1m=== Available Tables ===\x1b[0m");
         shell.setChoices(rawChoices, { blocking: false });
         return;
       }
@@ -250,7 +253,7 @@ export async function runPokerClientUi(
           ? payload.choices
           : [];
         if (payload?.prompt) {
-          console.log(`\n\x1b[1m${payload.prompt}\x1b[0m`);
+          shell.printAsync(`\n\x1b[1m${payload.prompt}\x1b[0m`);
         }
         shell.setChoices(rawChoices, {
           blocking: Boolean(payload?.blocking),

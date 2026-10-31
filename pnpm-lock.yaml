@@ -457,12 +457,21 @@ importers:
       '@curator/agent-server':
         specifier: file:../../curator
         version: link:../../curator
+      '@curator/auth-client':
+        specifier: file:../../packages/auth-client
+        version: link:../../packages/auth-client
       '@curator/host':
         specifier: file:../../packages/host
         version: link:../../packages/host
       '@curator/mcp-server':
         specifier: file:../../packages/mcp-server
         version: file:packages/mcp-server(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.7)
+      '@curator/plugin-mcp-client':
+        specifier: file:../../packages/plugin-mcp-client
+        version: link:../../packages/plugin-mcp-client
+      '@curator/plugin-scraper':
+        specifier: file:../../packages/plugin-scraper
+        version: link:../../packages/plugin-scraper
     devDependencies:
       '@types/node':
         specifier: ^22.19.1

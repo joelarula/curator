@@ -267,7 +267,15 @@ async function ensureCuratorMariadbSchema(pool: any): Promise<void> {
       existent BOOLEAN DEFAULT TRUE,
       createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_resp_existent (existent)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+    // Processor lookups by conversation / parent / notify target / request
+    `CREATE INDEX IF NOT EXISTS Request_conversationId_status_idx ON Request (conversationId, status);`,
+    `CREATE INDEX IF NOT EXISTS Request_conversationId_updatedAt_idx ON Request (conversationId, updatedAt);`,
+    `CREATE INDEX IF NOT EXISTS Request_parentId_idx ON Request (parentId);`,
+    `CREATE INDEX IF NOT EXISTS Request_notifyId_idx ON Request (notifyId);`,
+    `CREATE INDEX IF NOT EXISTS Response_requestId_idx ON Response (requestId);`,
+    `CREATE INDEX IF NOT EXISTS Response_conversationId_createdAt_idx ON Response (conversationId, createdAt);`
   ];
 
   for (const sql of ddl) {

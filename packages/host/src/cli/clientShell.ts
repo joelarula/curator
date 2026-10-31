@@ -277,13 +277,23 @@ export class ClientShell<TState = any, TAction = ToolAction> {
    * line, prints, then redraws the prompt with what the user has typed so far.
    */
   public printAsync(...lines: string[]): void {
+    this.printAbove(() => {
+      for (const line of lines) console.log(line);
+    });
+  }
+
+  /** Like printAsync, for a renderer that writes to the console itself (e.g. an event renderer). */
+  public printAbove(render: () => void): void {
     const atPrompt = !!this.rl && this.isRunning && !this.isHandlingLine;
     if (atPrompt && process.stdout.isTTY) {
       readline.clearLine(process.stdout, 0);
       readline.cursorTo(process.stdout, 0);
     }
-    for (const line of lines) console.log(line);
-    if (atPrompt) this.rl!.prompt(true);
+    try {
+      render();
+    } finally {
+      if (atPrompt) this.rl!.prompt(true);
+    }
   }
 
   public printChoices(): void {

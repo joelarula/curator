@@ -9,7 +9,7 @@ import {
   profilesFromArgv,
   resolvePlaceholders,
   type AppHostSettings,
-} from '../../../../packages/host/dist/appConfig.js'; // direct module: keeps config loading free of the full host
+} from '@curator/host/config';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const BLUEPRINT_ROOT = path.resolve(here, '../..');

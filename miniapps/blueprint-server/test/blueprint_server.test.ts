@@ -8,9 +8,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { createBlueprintServer } from '../dist/createBlueprintServer.js';
 
-import { CuratorEngine } from '../../../curator/dist/src/index.js';
-import { createCuratorHost } from '../../../packages/host/dist/index.js';
-import { createMcpClientPlugin } from '../../../packages/plugin-mcp-client/dist/index.js';
+import { CuratorEngine } from '@curator/agent-server';
+import { createCuratorHost } from '@curator/host';
+import { createMcpClientPlugin } from '@curator/plugin-mcp-client';
 
 const CLIENT_ID = 'demo-client.apps.googleusercontent.com';
 const ISSUER = 'https://accounts.google.com';

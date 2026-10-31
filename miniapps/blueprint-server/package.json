@@ -13,6 +13,9 @@
   },
   "dependencies": {
     "@curator/agent-server": "file:../../curator",
+    "@curator/auth-client": "file:../../packages/auth-client",
+    "@curator/plugin-mcp-client": "file:../../packages/plugin-mcp-client",
+    "@curator/plugin-scraper": "file:../../packages/plugin-scraper",
     "@curator/host": "file:../../packages/host",
     "@curator/mcp-server": "file:../../packages/mcp-server"
   },

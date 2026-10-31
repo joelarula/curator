@@ -17,6 +17,7 @@ import {
   PokerConversationType,
   CuratorCoreEvent,
   DEFAULT_LOBBY_CHOICES,
+  LOBBY_PHASE_KEY,
   type ChoiceOption,
   type PokerStreetType,
   type PokerWorkflowState,
@@ -294,6 +295,9 @@ export async function closePokerLobbyConversation(
   await finalizeOpenRequests(host.prisma, targetId, 'CANCELLED');
 }
 
+/** State a finished state machine leaves in its phase key. */
+const LOBBY_FLOW_ENDED = '__end__';
+
 /**
  * Resolves or creates a dedicated lounge lobby conversation scoped directly to the host's project and user.
  * Skips closed lobbies and creates an isolated concierge conversation for the client.
@@ -311,10 +315,18 @@ export async function ensureLobbyConversation(
     orderBy: { id: 'desc' },
   });
 
-  const existing = convs.find((c: any) => {
+  let existing: any;
+  for (const c of convs) {
     const meta = parseConversationMetadata(c.metadata);
-    return isLobbyMeta(meta) && isOpenMeta(meta);
-  });
+    if (!isLobbyMeta(meta) || !isOpenMeta(meta)) continue;
+    // A lobby whose flow ended still holds that run's table in its state: a new run would boot it again
+    if (meta[LOBBY_PHASE_KEY] === LOBBY_FLOW_ENDED) {
+      await closePokerLobbyConversation(host, c.id, 'lobby_completed');
+      continue;
+    }
+    existing = c;
+    break;
+  }
 
   return existing ?? createLobbyConversation(host, options);
 }

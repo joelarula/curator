@@ -323,6 +323,9 @@ model Request {
 
   @@index([status, existent])
   @@index([existent])
+  @@index([conversationId, status])
+  @@index([conversationId, updatedAt])
+  @@index([parentId])
 }
 
 
@@ -345,6 +348,8 @@ model Response {
   createdAt      DateTime     @default(now())
 
   @@index([existent])
+  @@index([requestId])
+  @@index([conversationId, createdAt])
 }
 
 

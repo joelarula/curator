@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadAppConfig, profilesFromArgv } from '../../../packages/host/dist/appConfig.js';
+import { loadAppConfig, profilesFromArgv } from '@curator/host/config';
 import { createBlueprintServer } from './createBlueprintServer.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
