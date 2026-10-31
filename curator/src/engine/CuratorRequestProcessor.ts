@@ -15,7 +15,7 @@ import { LlmFactory } from './llm/LlmFactory.js';
 import { appendStatePatch, STATE_SEQ_KEY } from './ConversationStateLog.js';
 import { STATE_PATCH_KEY, withoutStoredStateCopies } from './RequestContextStorage.js';
 import { recordDeadLetter, TERMINAL_STATUSES } from './DeadLetters.js';
-import { clearRequestContexts, completedChildrenWithContext, reclaimFreePages, sweepCompletedContexts } from './Retention.js';
+import { clearRequestContexts, completedChildrenWithContext, sweepCompletedContexts } from './Retention.js';
 import { AgentRoleService } from '../services/AgentRoleService.js';
 import { ApprovalService } from '../services/ApprovalService.js';
 import { defaultOutputFormats, type OutputFormats } from './output/OutputFormats.js';
@@ -1971,7 +1971,7 @@ export class CuratorRequestProcessor {
   /**
    * Retention sweep (policy `completedContext: 'trim'`): clears the context of COMPLETED Requests whose notify
    * target is gone or terminal, 10 minutes after they last changed. Runs every 10 minutes, or every tick while
-   * a backlog remains, and returns freed SQLite pages afterwards.
+   * a backlog remains.
    */
   public async trimCompletedContexts(force = false): Promise<number> {
     if (this.retention.completedContext !== 'trim') return 0;
@@ -1985,10 +1985,7 @@ export class CuratorRequestProcessor {
       maxBatches,
       batchSize,
     });
-    if (trimmed > 0) {
-      await reclaimFreePages(this.prisma);
-      logger.debug(`[CuratorRequestProcessor] Retention: trimmed the context of ${trimmed} completed request(s).`);
-    }
+    if (trimmed > 0) logger.debug(`[CuratorRequestProcessor] Retention: trimmed the context of ${trimmed} completed request(s).`);
     if (trimmed >= maxBatches * batchSize) this.lastContextSweepAt = 0; // backlog left: continue next tick
     return trimmed;
   }

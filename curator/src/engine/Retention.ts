@@ -101,15 +101,3 @@ export async function pruneConversationHistory(prisma: any, conversationId: numb
   const events = await compactConversationLog(prisma, conversationId);
   return { requests: requests.count, responses: responses.count, events };
 }
-
-/**
- * SQLite: returns free pages to the file system (databases provisioned with `auto_vacuum = INCREMENTAL`).
- * A no-op elsewhere.
- */
-export async function reclaimFreePages(prisma: any): Promise<void> {
-  try {
-    await prisma.$queryRawUnsafe('PRAGMA incremental_vacuum;');
-  } catch {
-    // not SQLite
-  }
-}

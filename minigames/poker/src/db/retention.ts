@@ -1,4 +1,4 @@
-import { pruneConversationHistory, readSnapshot, reclaimFreePages } from '../curator.ts';
+import { pruneConversationHistory, readSnapshot } from '../curator.ts';
 
 /** Finished tables and lobbies keep their full history this long (`POKER_HISTORY_TTL_HOURS`, default 24). */
 export const DEFAULT_HISTORY_TTL_MS = 24 * 60 * 60 * 1000;
@@ -18,7 +18,7 @@ export function historyTtlFromEnv(env: NodeJS.ProcessEnv = process.env): number 
 /**
  * Retention for finished conversations of a project (closed tables and lobbies, games that are over):
  * deletes their Requests, Responses and subscriptions and compacts their EventLog to one state event
- * (`pruneConversationHistory`), then returns the freed SQLite pages.
+ * (`pruneConversationHistory`).
  * The Conversation row keeps its final state (results, cash-outs), so nothing that is listed or resumable
  * changes; live and paused tables are never touched.
  */
@@ -52,6 +52,5 @@ export async function prunePokerHistory(
     result.responses += pruned.responses;
     result.events += pruned.events;
   }
-  if (result.conversations > 0) await reclaimFreePages(prisma);
   return result;
 }
