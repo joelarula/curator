@@ -858,7 +858,7 @@ export async function createPokerGameSession(
         contextPatch: sessionId ? { sessionId } : undefined,
       });
 
-      host.events.broadcast(PokerEvent.SPEECH_RESPONSE, speechPayload);
+      // The broadcast `poker:speech` is the one copy every UI renders; replies arrive as their own speech events
       return speechPayload;
     }
 

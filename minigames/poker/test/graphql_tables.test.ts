@@ -206,18 +206,18 @@ test('GraphQL over WebSocket & Session ID: Queries, Mutations, and Subscriptions
     let rawSpeechEvent: any = null;
     for (let i = 0; i < 20; i++) {
       subFrame = receivedGraphqlFrames.find(
-        (f) => f.id === 'sub-table-events' && f.payload?.data?.tableEvents?.type === 'poker:speech_response'
+        (f) => f.id === 'sub-table-events' && f.payload?.data?.tableEvents?.type === 'poker:speech'
       );
-      rawSpeechEvent = receivedWsEvents.find((e) => e.type === 'poker:speech_response');
+      rawSpeechEvent = receivedWsEvents.find((e) => e.type === 'poker:speech');
       if (subFrame && rawSpeechEvent) break;
       await new Promise((r) => setTimeout(r, 100));
     }
 
-    assert.ok(subFrame, 'Expected subscription frame for poker:speech_response');
+    assert.ok(subFrame, 'Expected subscription frame for poker:speech');
     assert.equal(subFrame.payload.data.tableEvents.sessionId, testSessionId);
     assert.equal(subFrame.payload.data.tableEvents.tableId, table1Id);
 
-    assert.ok(rawSpeechEvent, 'Expected raw poker:speech_response event');
+    assert.ok(rawSpeechEvent, 'Expected raw poker:speech event');
     assert.equal(rawSpeechEvent.sessionId, testSessionId);
     assert.equal(rawSpeechEvent.tableId, table1Id);
 
