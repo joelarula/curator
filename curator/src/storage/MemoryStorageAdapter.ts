@@ -1,193 +1,215 @@
 import type {
   IStorageAdapter,
-  IRequestRepository,
-  IAgentRepository,
-  IToolRepository,
-  CreateRequestInput,
-  UpdateRequestInput,
-  CreateResponseInput,
-  StoredAgent,
-  StoredTool,
-  RequestStatus,
+  RequestRepository,
+  ResponseRepository,
+  EventRepository,
+  StorageScope,
+  StoredRequest,
+  StoredResponse,
+  StoredEvent,
+  NewRequest,
 } from './IStorageAdapter.js';
-import type { CuratorRequestRecord, CuratorResponseRecord } from '../engine/CuratorContracts.js';
+import { assertWritableProject, scopeProjectIds } from './IStorageAdapter.js';
+import { TERMINAL_STATUSES } from '../engine/DeadLetters.js';
 
+/** The rows behind a memory store, shared by its scoped views. */
+class MemoryRows {
+  readonly requests = new Map<number, StoredRequest>();
+  readonly responses = new Map<number, StoredResponse>();
+  readonly events: StoredEvent[] = [];
+  /** conversationId -> projectId, learned from requests, for scoping events. */
+  readonly conversations = new Map<number, string | null>();
+  nextRequestId = 1;
+  nextResponseId = 1;
+  nextEventId = 1;
+}
+
+/**
+ * In-process store for ephemeral runs: nothing survives the process and nothing is shared with other nodes.
+ * Claims are atomic because each operation runs without awaiting between its read and its write.
+ * Records are copied in and out, so callers can never mutate stored state by reference.
+ */
 export class MemoryStorageAdapter implements IStorageAdapter {
   public readonly dialect = 'memory';
+  public readonly capabilities = { durable: false, shared: false };
 
-  private requestCounter = 1;
-  private responseCounter = 1;
-  private agentCounter = 1;
-  private toolCounter = 1;
+  constructor(
+    public readonly scope?: StorageScope,
+    private readonly clock: () => number = Date.now,
+    private readonly db: MemoryRows = new MemoryRows()
+  ) {}
 
-  public requestsMap = new Map<number, CuratorRequestRecord>();
-  public responsesMap = new Map<number, CuratorResponseRecord>();
-  public agentsMap = new Map<string, StoredAgent>();
-  public toolsMap = new Map<string, StoredTool>();
+  public withScope(scope: StorageScope): MemoryStorageAdapter {
+    return new MemoryStorageAdapter(scope, this.clock, this.db);
+  }
 
-  public async init(): Promise<void> {
-    // In-memory: immediate ready
+  /** Records a conversation's project so its events can be scoped before any request exists in it. */
+  public registerConversation(conversationId: number, projectId: string | null): void {
+    this.db.conversations.set(conversationId, projectId);
   }
 
   public async close(): Promise<void> {
-    this.requestsMap.clear();
-    this.responsesMap.clear();
-    this.agentsMap.clear();
-    this.toolsMap.clear();
+    this.db.requests.clear();
+    this.db.responses.clear();
+    this.db.events.length = 0;
+    this.db.conversations.clear();
   }
 
-  public requests: IRequestRepository = {
-    createRequest: async (data: CreateRequestInput): Promise<CuratorRequestRecord> => {
-      const id = this.requestCounter++;
-      const record: CuratorRequestRecord = {
-        id,
-        userId: data.userId,
-        projectId: data.projectId,
-        conversationId: data.conversationId,
-        ast: data.ast,
-        context: data.context ?? null,
-        status: 'NEW',
-        priority: data.priority ?? 0,
+  private visible(projectId: string | null): boolean {
+    return !this.scope || projectId == null || scopeProjectIds(this.scope).includes(projectId);
+  }
+
+  private visibleConversation(conversationId: number): boolean {
+    return !this.scope || (this.db.conversations.has(conversationId) && this.visible(this.db.conversations.get(conversationId)!));
+  }
+
+  private row(id: number): StoredRequest | undefined {
+    const row = this.db.requests.get(id);
+    return row && this.visible(row.projectId) ? row : undefined;
+  }
+
+  public requests: RequestRepository = {
+    create: async (input: NewRequest) => {
+      assertWritableProject(this.scope, input.projectId);
+      const now = new Date(this.clock());
+      const row: StoredRequest = {
+        id: this.db.nextRequestId++,
+        status: input.status ?? 'NEW',
+        userId: input.userId,
+        projectId: input.projectId ?? null,
+        conversationId: input.conversationId,
+        agentId: input.agentId ?? null,
+        scriptId: input.scriptId ?? null,
+        scriptVersion: input.scriptVersion ?? null,
+        toolName: input.toolName ?? null,
+        ast: input.ast ?? null,
+        context: input.context ?? null,
+        priority: input.priority ?? 0,
+        notifyId: input.notifyId ?? null,
+        parentId: input.parentId ?? null,
+        pendingDependencies: input.pendingDependencies ?? 0,
+        retryCount: 0,
+        eventCursor: null,
+        scheduledAt: input.scheduledAt ?? now,
         lockedBy: null,
         lockedAt: null,
-        notifyId: data.notifyId ?? null,
-        pendingDependencies: data.pendingDependencies ?? 0,
-        retryCount: 0,
+        createdAt: now,
+        updatedAt: now,
       };
-      this.requestsMap.set(id, record);
-      return record;
+      this.db.requests.set(row.id, structuredClone(row));
+      if (!this.db.conversations.has(row.conversationId)) this.db.conversations.set(row.conversationId, row.projectId);
+      return row;
     },
 
-    getRequestById: async (id: number): Promise<CuratorRequestRecord | null> => {
-      return this.requestsMap.get(id) || null;
+    get: async (id) => {
+      const row = this.row(id);
+      return row ? structuredClone(row) : null;
     },
 
-    pollAndLockRequests: async (workerId: string, limit = 10): Promise<CuratorRequestRecord[]> => {
-      const candidates: CuratorRequestRecord[] = [];
-      for (const req of this.requestsMap.values()) {
-        if (req.status === 'NEW' && req.pendingDependencies <= 0) {
-          req.status = 'WAITING';
-          req.lockedBy = workerId;
-          req.lockedAt = new Date();
-          candidates.push({ ...req });
-          if (candidates.length >= limit) break;
+    claim: async (workerId, { limit, now = new Date(this.clock()), conversationIds }) => {
+      const inConversation = conversationIds ? new Set(conversationIds) : undefined;
+      const runnable = [...this.db.requests.values()]
+        .filter(
+          r =>
+            r.status === 'NEW' &&
+            r.pendingDependencies <= 0 &&
+            r.scheduledAt != null &&
+            r.scheduledAt.getTime() <= now.getTime() &&
+            (!inConversation || inConversation.has(r.conversationId)) &&
+            this.visible(r.projectId)
+        )
+        .sort((a, b) => b.priority - a.priority || a.createdAt.getTime() - b.createdAt.getTime() || a.id - b.id)
+        .slice(0, Math.max(0, limit));
+      const lockedAt = new Date(this.clock());
+      for (const r of runnable) Object.assign(r, { status: 'WAITING', lockedBy: workerId, lockedAt, updatedAt: lockedAt });
+      return runnable.map(r => structuredClone(r));
+    },
+
+    update: async (id, patch) => {
+      const row = this.row(id);
+      if (!row) throw new Error(`[storage] Request ${id} not found`);
+      Object.assign(row, structuredClone(patch), { updatedAt: new Date(this.clock()) });
+      return structuredClone(row);
+    },
+
+    dependencyDone: async (id) => {
+      const row = this.row(id);
+      if (!row || TERMINAL_STATUSES.has(row.status)) return null;
+      if (row.pendingDependencies <= 0) return structuredClone(row);
+      row.pendingDependencies -= 1;
+      if (row.pendingDependencies === 0 && (row.status === 'WAITING' || row.status === 'NEW')) {
+        Object.assign(row, { status: 'NEW', lockedBy: null, lockedAt: null });
+      }
+      row.updatedAt = new Date(this.clock());
+      return structuredClone(row);
+    },
+
+    releaseStale: async (lockedBefore) => {
+      let released = 0;
+      for (const r of this.db.requests.values()) {
+        if (
+          r.status === 'WAITING' &&
+          r.lockedBy != null &&
+          r.lockedAt != null &&
+          r.lockedAt.getTime() <= lockedBefore.getTime() &&
+          r.pendingDependencies === 0 &&
+          this.visible(r.projectId)
+        ) {
+          Object.assign(r, { status: 'NEW', lockedBy: null, lockedAt: null, updatedAt: new Date(this.clock()) });
+          released++;
         }
       }
-      return candidates;
-    },
-
-    updateRequest: async (id: number, data: UpdateRequestInput): Promise<void> => {
-      const req = this.requestsMap.get(id);
-      if (req) {
-        if (data.status) req.status = data.status;
-        if (data.lockedBy !== undefined) req.lockedBy = data.lockedBy;
-        if (data.lockedAt !== undefined) req.lockedAt = data.lockedAt;
-        if (data.retryCount !== undefined) req.retryCount = data.retryCount;
-        if (data.pendingDependencies !== undefined) req.pendingDependencies = data.pendingDependencies;
-        if (data.context !== undefined) req.context = data.context;
-        if (data.ast !== undefined) req.ast = data.ast;
-      }
-    },
-
-    createResponse: async (data: CreateResponseInput): Promise<CuratorResponseRecord> => {
-      const id = this.responseCounter++;
-      const record: CuratorResponseRecord = {
-        id,
-        requestId: data.requestId,
-        userId: data.userId,
-        projectId: data.projectId,
-        conversationId: data.conversationId,
-        content: data.content,
-        state: data.state ?? null,
-        status: 'COMPLETED',
-        retryCount: 0,
-        createdAt: new Date(),
-        completedAt: new Date(),
-      };
-      this.responsesMap.set(id, record);
-      return record;
-    },
-
-    pauseRequest: async (id: number): Promise<boolean> => {
-      const req = this.requestsMap.get(id);
-      if (req && (req.status === 'NEW' || req.status === 'WAITING' || req.status === 'RUNNING')) {
-        req.status = 'PAUSED';
-        req.lockedBy = null;
-        req.lockedAt = null;
-        return true;
-      }
-      return false;
-    },
-
-    resumeRequest: async (id: number): Promise<boolean> => {
-      const req = this.requestsMap.get(id);
-      if (req && req.status === 'PAUSED') {
-        req.status = 'NEW';
-        req.lockedBy = null;
-        req.lockedAt = null;
-        return true;
-      }
-      return false;
-    },
-
-    decrementPendingDependencies: async (parentRequestId: number): Promise<number> => {
-      const req = this.requestsMap.get(parentRequestId);
-      if (req) {
-        req.pendingDependencies = Math.max(0, req.pendingDependencies - 1);
-        if (req.pendingDependencies === 0 && req.status === 'WAITING') {
-          req.status = 'NEW';
-        }
-        return req.pendingDependencies;
-      }
-      return 0;
+      return released;
     },
   };
 
-  public agents: IAgentRepository = {
-    upsertAgent: async (agentData): Promise<StoredAgent> => {
-      const existing = this.agentsMap.get(agentData.name);
-      if (existing) {
-        Object.assign(existing, agentData, { updatedAt: new Date() });
-        return existing;
-      }
-      const agent: StoredAgent = {
-        ...agentData,
-        id: this.agentCounter++,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+  public responses: ResponseRepository = {
+    append: async (input) => {
+      assertWritableProject(this.scope, input.projectId);
+      const row: StoredResponse = {
+        id: this.db.nextResponseId++,
+        requestId: input.requestId,
+        conversationId: input.conversationId,
+        projectId: input.projectId ?? null,
+        content: input.content,
+        createdAt: new Date(this.clock()),
       };
-      this.agentsMap.set(agent.name, agent);
-      return agent;
+      this.db.responses.set(row.id, row);
+      return { ...row };
     },
 
-    getAgentByName: async (name: string): Promise<StoredAgent | null> => {
-      return this.agentsMap.get(name) || null;
+    latest: async (requestId) => {
+      const rows = await this.responses.listForRequest(requestId);
+      return rows[rows.length - 1] ?? null;
     },
 
-    listScheduledAgents: async (): Promise<StoredAgent[]> => {
-      return Array.from(this.agentsMap.values()).filter((a) => !!a.schedule && a.enabled !== false);
-    },
+    listForRequest: async (requestId) =>
+      [...this.db.responses.values()].filter(r => r.requestId === requestId && this.visible(r.projectId)).map(r => ({ ...r })),
   };
 
-  public tools: IToolRepository = {
-    upsertTool: async (toolData): Promise<StoredTool> => {
-      const existing = this.toolsMap.get(toolData.name);
-      if (existing) {
-        Object.assign(existing, toolData, { updatedAt: new Date() });
-        return existing;
+  public events: EventRepository = {
+    append: async (input) => {
+      if (!this.visibleConversation(input.conversationId)) {
+        throw new Error(`[storage] Conversation ${input.conversationId} is outside the active scope`);
       }
-      const tool: StoredTool = {
-        ...toolData,
-        id: this.toolCounter++,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+      const row: StoredEvent = {
+        id: this.db.nextEventId++,
+        conversationId: input.conversationId,
+        eventName: input.eventName,
+        payload: structuredClone(input.payload ?? null),
+        target: input.target ?? null,
+        source: input.source ?? null,
+        createdAt: new Date(this.clock()),
       };
-      this.toolsMap.set(tool.name, tool);
-      return tool;
+      this.db.events.push(row);
+      return structuredClone(row);
     },
 
-    listTools: async (): Promise<StoredTool[]> => {
-      return Array.from(this.toolsMap.values());
+    after: async (conversationId, afterId, { eventNames, limit } = {}) => {
+      if (!this.visibleConversation(conversationId)) return [];
+      const names = eventNames ? new Set(eventNames) : undefined;
+      const rows = this.db.events.filter(e => e.conversationId === conversationId && e.id > afterId && (!names || names.has(e.eventName)));
+      return structuredClone(limit != null ? rows.slice(0, limit) : rows);
     },
   };
 }

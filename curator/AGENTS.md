@@ -1,5 +1,6 @@
 # curator (agent-server) rules
-- Prisma: `prisma-sqlite/` (no PG features/vectors), `prisma-mariadb/` (cPanel). One engine per folder; never co-locate schemas.
+- Prisma: `prisma-sqlite/` (no PG features/vectors), `prisma-mariadb/` (cPanel), `prisma-postgres/` (derived from the MariaDB schema; keep models in sync, regenerate with `prisma:postgres:generate`). One engine per folder; never co-locate schemas.
+- Raw SQL goes through `sqlFor(prisma)` (`src/db/sqlDialect.ts`) so it runs on all three engines. New request/response/event storage code targets the `IStorageAdapter` port (`src/storage/`); see `docs/DISTRIBUTED_STORAGE_PLAN.md`.
 - Sync core model changes (`Project, User, Agent, Request, Response, Conversation`) with `server/prisma/schema/core.prisma`.
 - Custom Prisma output (`src/generated/prisma-sqlite`): map `@prisma/client` in `tsconfig.json` paths.
 - Execution: `CuratorRequestProcessor` runs AST nodes (`Sequence, ForEach, IfElse, Spawn, While, ToolTask`); commits context and creates a `Response` per step. No AuditLog table.

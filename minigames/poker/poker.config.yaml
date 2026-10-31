@@ -33,5 +33,5 @@ models:
 
 # Per agent profile (viper, maddog, barnaby, ...); profiles carry their own defaults
 # agents:
-#   viper: { chattiness: 0.25 }
-#   maddog: { chattiness: 0.7 }
+#   viplala: { chattiness: 0.25 }
+#   mack: { chattiness: 0.7 }

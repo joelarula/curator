@@ -1,5 +1,6 @@
 import { compactConversationLog } from './ConversationStateLog.js';
 import { TERMINAL_STATUSES } from './DeadLetters.js';
+import { sqlFor } from '../db/sqlDialect.js';
 
 /**
  * Storage retention. Request data is short lived: a Request's `context` is working memory, read by the
@@ -12,13 +13,13 @@ const ID_CHUNK = 500;
 
 /** Sets `context` to NULL. Raw SQL so `updatedAt` (which orders "latest request" lookups) is left as is. */
 export async function clearRequestContexts(prisma: any, ids: number[]): Promise<number> {
+  const sql = sqlFor(prisma);
   let cleared = 0;
   for (let i = 0; i < ids.length; i += ID_CHUNK) {
     const chunk = ids.slice(i, i + ID_CHUNK);
     cleared += Number(
       await prisma.$executeRawUnsafe(
-        `UPDATE Request SET context = NULL WHERE context IS NOT NULL AND id IN (${chunk.map(() => '?').join(',')})`,
-        ...chunk
+        ...sql`UPDATE "Request" SET "context" = NULL WHERE "context" IS NOT NULL AND "id" IN (${chunk})`
       )
     );
   }
@@ -27,9 +28,9 @@ export async function clearRequestContexts(prisma: any, ids: number[]): Promise<
 
 /** Completed children of `parentId` whose context is still stored (the ones its next run may read). */
 export async function completedChildrenWithContext(prisma: any, parentId: number): Promise<number[]> {
+  const sql = sqlFor(prisma);
   const rows: Array<{ id: unknown }> = await prisma.$queryRawUnsafe(
-    `SELECT id FROM Request WHERE notifyId = ? AND status = 'COMPLETED' AND context IS NOT NULL`,
-    parentId
+    ...sql`SELECT "id" FROM "Request" WHERE "notifyId" = ${parentId} AND "status" = 'COMPLETED' AND "context" IS NOT NULL`
   );
   return rows.map(r => Number(r.id));
 }
@@ -43,13 +44,13 @@ export async function sweepCompletedContexts(
   prisma: any,
   options: { olderThan: Date; maxBatches?: number; batchSize?: number }
 ): Promise<number> {
+  const sql = sqlFor(prisma);
   const batchSize = options.batchSize ?? ID_CHUNK;
   let afterId = 0;
   let trimmed = 0;
   for (let batch = 0; batch < (options.maxBatches ?? 10); batch++) {
     const rows: Array<{ id: unknown; notifyId: unknown; updatedAt: unknown }> = await prisma.$queryRawUnsafe(
-      `SELECT id, notifyId, updatedAt FROM Request WHERE status = 'COMPLETED' AND context IS NOT NULL AND id > ? ORDER BY id LIMIT ${batchSize}`,
-      afterId
+      ...sql`SELECT "id", "notifyId", "updatedAt" FROM "Request" WHERE "status" = 'COMPLETED' AND "context" IS NOT NULL AND "id" > ${afterId} ORDER BY "id" LIMIT ${batchSize}`
     );
     if (rows.length === 0) break;
     afterId = Number(rows[rows.length - 1].id);
@@ -84,17 +85,17 @@ export async function pruneConversationHistory(prisma: any, conversationId: numb
     where: { conversationId: { not: conversationId }, parent: { is: { conversationId } } },
     data: { parentId: null },
   });
+  const sql = sqlFor(prisma);
+  // The derived table works around MySQL's "can't update a table used in a subquery"; harmless elsewhere
   await prisma.$executeRawUnsafe(
-    'UPDATE Request SET notifyId = NULL WHERE conversationId <> ? AND notifyId IN (SELECT id FROM (SELECT id FROM Request WHERE conversationId = ?) AS own)',
-    conversationId,
-    conversationId
+    ...sql`UPDATE "Request" SET "notifyId" = NULL WHERE "conversationId" <> ${conversationId} AND "notifyId" IN (SELECT "id" FROM (SELECT "id" FROM "Request" WHERE "conversationId" = ${conversationId}) AS own)`
   );
 
   const responses = await prisma.response.deleteMany({
     where: { OR: [{ conversationId }, { request: { is: { conversationId } } }] },
   });
   await prisma
-    .$executeRawUnsafe('DELETE FROM _RequestResources WHERE A IN (SELECT id FROM Request WHERE conversationId = ?)', conversationId)
+    .$executeRawUnsafe(...sql`DELETE FROM "_RequestResources" WHERE "A" IN (SELECT "id" FROM "Request" WHERE "conversationId" = ${conversationId})`)
     .catch(() => {});
   const requests = await prisma.request.deleteMany({ where: { conversationId } });
   await prisma.eventSubscription?.deleteMany?.({ where: { conversationId } });

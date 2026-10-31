@@ -1,92 +1,192 @@
-import type { CuratorAstNode } from '../engine/CuratorAst.js';
-import type { CuratorExecutionContext, CuratorRequestRecord, CuratorResponseRecord } from '../engine/CuratorContracts.js';
+import type { CuratorExecutionContext } from '../engine/CuratorContracts.js';
+import type { SqlDialect } from '../db/sqlDialect.js';
+import { getReadableProjectIds } from '../services/ProjectScopeService.js';
 
-export type RequestStatus = 'NEW' | 'WAITING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'PAUSED' | 'CANCELLED';
+/**
+ * Storage port for the request lifecycle: the work queue (`Request`), step output (`Response`) and the
+ * conversation event log (`EventLog`). Shapes follow the Prisma schemas (`prisma-sqlite/`, `prisma-mariadb/`,
+ * `prisma-postgres/`); see docs/DISTRIBUTED_STORAGE_PLAN.md for why the engine goes through this port.
+ *
+ * Scoping: a store built with a `StorageScope` reads rows whose `projectId` is one of the scope's project IDs,
+ * `'system'`, or null (global rows, as in `buildProjectScopeWhere`), and only writes rows in the scope's projects
+ * or `'system'`. Events are scoped through their conversation. Scope IDs come from the host
+ * session (`x-project-id`), never from request payloads. A store without a scope is unscoped (embedded
+ * single-tenant runs and maintenance).
+ */
 
-export interface CreateRequestInput {
-  userId: number;
-  projectId?: number | null;
-  conversationId: string;
-  ast: CuratorAstNode;
+export type RequestStatus =
+  | 'NEW'
+  | 'WAITING'
+  | 'WAITING_FOR_USER'
+  | 'WAITING_FOR_EVENT'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELLED'
+  | 'PAUSED'
+  | 'SKIPPED';
+
+export interface StorageScope {
+  /** Active project IDs; `'system'` is always visible in addition. */
+  projectIds: readonly string[];
+}
+
+export interface StoredRequest {
+  id: number;
+  status: RequestStatus;
+  userId: string;
+  projectId: string | null;
+  conversationId: number;
+  agentId: string | null;
+  scriptId: number | null;
+  scriptVersion: number | null;
+  toolName: string | null;
+  /** Null in reference mode: the node lives in ScriptVersion, addressed by `context.astPath`. */
+  ast: unknown | null;
+  context: CuratorExecutionContext | null;
+  priority: number;
+  /** Request to wake (decrement) when this one completes. */
+  notifyId: number | null;
+  parentId: number | null;
+  pendingDependencies: number;
+  retryCount: number;
+  eventCursor: number | null;
+  scheduledAt: Date | null;
+  lockedBy: string | null;
+  lockedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface NewRequest {
+  userId: string;
+  projectId?: string | null;
+  conversationId: number;
+  status?: RequestStatus;
+  agentId?: string | null;
+  scriptId?: number | null;
+  scriptVersion?: number | null;
+  toolName?: string | null;
+  ast?: unknown | null;
   context?: CuratorExecutionContext | null;
   priority?: number;
-  toolName?: string;
-  scheduledAt?: Date | null;
   notifyId?: number | null;
+  parentId?: number | null;
   pendingDependencies?: number;
+  /** Default: now. */
+  scheduledAt?: Date;
 }
 
-export interface UpdateRequestInput {
-  status?: RequestStatus;
-  lockedBy?: string | null;
-  lockedAt?: Date | null;
-  scheduledAt?: Date | null;
-  retryCount?: number;
-  pendingDependencies?: number;
-  context?: CuratorExecutionContext | null;
-  ast?: CuratorAstNode;
+export type RequestPatch = Partial<
+  Pick<
+    StoredRequest,
+    'status' | 'context' | 'ast' | 'priority' | 'pendingDependencies' | 'retryCount' | 'eventCursor' | 'scheduledAt' | 'lockedBy' | 'lockedAt'
+  >
+>;
+
+export interface ClaimOptions {
+  /** Most requests to claim. */
+  limit: number;
+  /** Requests scheduled after this are not due yet. Default: now. */
+  now?: Date;
+  /** Only claim from these conversations (the processor's polling scope). */
+  conversationIds?: readonly number[];
 }
 
-export interface CreateResponseInput {
+export interface StoredResponse {
+  id: number;
   requestId: number;
-  userId: number;
-  projectId?: number | null;
-  conversationId: string;
+  conversationId: number;
+  projectId: string | null;
   content: string;
-  state?: Record<string, unknown> | null;
-}
-
-export interface StoredAgent {
-  id: number;
-  name: string;
-  description?: string | null;
-  userId: number;
-  projectId?: number | null;
-  enabled?: boolean;
-  schedule?: string | null;
-  ast?: CuratorAstNode | null;
   createdAt: Date;
-  updatedAt: Date;
 }
 
-export interface StoredTool {
+export interface NewResponse {
+  requestId: number;
+  conversationId: number;
+  projectId?: string | null;
+  content: string;
+}
+
+export interface StoredEvent {
   id: number;
-  name: string;
-  description: string;
-  parametersSchema?: Record<string, unknown> | null;
-  sourceCode?: string | null;
-  version?: string;
+  conversationId: number;
+  eventName: string;
+  payload: unknown;
+  target: string | null;
+  /** Request that emitted the event. */
+  source: number | null;
   createdAt: Date;
-  updatedAt: Date;
 }
 
-export interface IRequestRepository {
-  createRequest(data: CreateRequestInput): Promise<CuratorRequestRecord>;
-  getRequestById(id: number): Promise<CuratorRequestRecord | null>;
-  pollAndLockRequests(workerId: string, limit?: number): Promise<CuratorRequestRecord[]>;
-  updateRequest(id: number, data: UpdateRequestInput): Promise<void>;
-  createResponse(data: CreateResponseInput): Promise<CuratorResponseRecord>;
-  pauseRequest(id: number): Promise<boolean>;
-  resumeRequest(id: number): Promise<boolean>;
-  decrementPendingDependencies(parentRequestId: number): Promise<number>;
+export interface NewEvent {
+  conversationId: number;
+  eventName: string;
+  payload?: unknown;
+  target?: string | null;
+  source?: number | null;
 }
 
-export interface IAgentRepository {
-  upsertAgent(agent: Omit<StoredAgent, 'id' | 'createdAt' | 'updatedAt'>): Promise<StoredAgent>;
-  getAgentByName(name: string): Promise<StoredAgent | null>;
-  listScheduledAgents(): Promise<StoredAgent[]>;
+export interface RequestRepository {
+  create(input: NewRequest): Promise<StoredRequest>;
+  get(id: number): Promise<StoredRequest | null>;
+  /**
+   * Atomically moves up to `limit` runnable requests (NEW, no pending dependencies, due) to WAITING, locked by
+   * `workerId`: highest priority first, then oldest. Two workers never claim the same request.
+   */
+  claim(workerId: string, options: ClaimOptions): Promise<StoredRequest[]>;
+  /** Throws when the request does not exist (or is outside the scope). */
+  update(id: number, patch: RequestPatch): Promise<StoredRequest>;
+  /**
+   * A dependency of `id` finished: decrements its pending dependencies and, when that reaches 0, makes a
+   * WAITING or NEW request runnable again (NEW, unlocked). With no pending dependencies left it changes nothing:
+   * a claimed request (WAITING, locked, 0 dependencies) must not be unlocked and run twice. Returns the request,
+   * or null when it is gone or terminal. Atomic, unlike a read followed by a write.
+   */
+  dependencyDone(id: number): Promise<StoredRequest | null>;
+  /** Returns WAITING requests locked before `lockedBefore` with no pending dependencies to NEW (crashed workers). */
+  releaseStale(lockedBefore: Date): Promise<number>;
 }
 
-export interface IToolRepository {
-  upsertTool(tool: Omit<StoredTool, 'id' | 'createdAt' | 'updatedAt'>): Promise<StoredTool>;
-  listTools(): Promise<StoredTool[]>;
+export interface ResponseRepository {
+  append(input: NewResponse): Promise<StoredResponse>;
+  /** The most recent response of a request (its result, or why it failed). */
+  latest(requestId: number): Promise<StoredResponse | null>;
+  listForRequest(requestId: number): Promise<StoredResponse[]>;
+}
+
+export interface EventRepository {
+  append(input: NewEvent): Promise<StoredEvent>;
+  /** Events of a conversation with id greater than `afterId`, ascending (replay from a cursor). */
+  after(conversationId: number, afterId: number, options?: { eventNames?: readonly string[]; limit?: number }): Promise<StoredEvent[]>;
+}
+
+export interface StorageCapabilities {
+  /** Survives a process restart. */
+  durable: boolean;
+  /** Several processes can share it (claims are safe across nodes). */
+  shared: boolean;
 }
 
 export interface IStorageAdapter {
-  readonly dialect: string;
-  init(): Promise<void>;
+  readonly dialect: SqlDialect | 'memory';
+  readonly capabilities: StorageCapabilities;
+  readonly scope?: StorageScope;
+  requests: RequestRepository;
+  responses: ResponseRepository;
+  events: EventRepository;
+  /** A view over the same rows limited to `scope` (e.g. one per host session). */
+  withScope(scope: StorageScope): IStorageAdapter;
   close(): Promise<void>;
-  requests: IRequestRepository;
-  agents: IAgentRepository;
-  tools: IToolRepository;
+}
+
+/** Projects a scope may read and write: its own plus `'system'`. */
+export const scopeProjectIds = (scope: StorageScope): string[] => getReadableProjectIds([...scope.projectIds]);
+
+/** Rejects a write whose project is outside the scope (null project included). */
+export function assertWritableProject(scope: StorageScope | undefined, projectId: string | null | undefined): void {
+  if (!scope) return;
+  if (projectId == null || !scopeProjectIds(scope).includes(projectId)) {
+    throw new Error(`[storage] Project '${projectId ?? 'null'}' is outside the active scope`);
+  }
 }

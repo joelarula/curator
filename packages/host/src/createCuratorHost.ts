@@ -2,6 +2,7 @@ import path from 'node:path';
 import {
   provisionSqliteDb,
   provisionMariadbDb,
+  provisionPostgresDb,
   CuratorRequestProcessor,
   curatorEngine,
   ConversationManager,
@@ -32,6 +33,8 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
 
   if (curatorDbUrl && (curatorDbUrl.startsWith('mysql://') || curatorDbUrl.startsWith('mariadb://'))) {
     prisma = await provisionMariadbDb(curatorDbUrl);
+  } else if (curatorDbUrl && (curatorDbUrl.startsWith('postgres://') || curatorDbUrl.startsWith('postgresql://'))) {
+    prisma = await provisionPostgresDb(curatorDbUrl);
   } else {
     const forceReset = Boolean(config.forceReset ?? config.curatorDb?.forceReset);
     databasePath = config.curatorDb?.path ?? process.env.CURATOR_DATABASE_PATH ?? path.join(dataDir, 'state', 'curator.db');

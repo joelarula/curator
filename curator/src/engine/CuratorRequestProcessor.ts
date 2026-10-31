@@ -619,20 +619,37 @@ export class CuratorRequestProcessor {
           args: (agentDef as any).args || {}
         };
 
-        const script = await this.prisma.script.upsert({
-          where: { name },
-          update: { body: `// Workflow: ${name}`, ast: cleanAst, userId: user.id, projectId: project.id },
-          create: { name, body: `// Workflow: ${name}`, ast: cleanAst, userId: user.id, projectId: project.id }
+        // Same identity as the host seeder (seedAgentsAndTools): id = def.id || key, name = def.name || key.
+        // Matching only on the registry key duplicated agents whose definition has a display name.
+        const agentId = (agentDef as any).id || name;
+        const agentName = (agentDef as any).name || name;
+        const existing = await this.prisma.agent.findFirst({
+          where: { OR: [{ id: agentId }, { name: agentName }] },
+          include: { script: { select: { name: true } } }
         });
+
+        // Keep a script the seeder assigned; only (re)write the one this sync owns.
+        let scriptId: number | null = existing?.scriptId ?? null;
+        if (!existing?.script || existing.script.name === name) {
+          const script = await this.prisma.script.upsert({
+            where: { name },
+            update: { body: `// Workflow: ${name}`, ast: cleanAst, userId: user.id, projectId: project.id },
+            create: { name, body: `// Workflow: ${name}`, ast: cleanAst, userId: user.id, projectId: project.id }
+          });
+          scriptId = script.id;
+        }
 
         const isAgentEnabled = (agentDef as any).enabled === true;
         // No schedule = trigger-only ('manual'); the AgentScheduleSupervisor starts no loop for it.
         const schedule = (agentDef as any).schedule ?? 'manual';
-        const agent = await this.prisma.agent.upsert({
-          where: { name },
-          update: { scriptId: script.id, userId: user.id, projectId: project.id, schedule },
-          create: { name, scriptId: script.id, userId: user.id, projectId: project.id, enabled: isAgentEnabled, schedule }
-        });
+        const agent = existing
+          ? await this.prisma.agent.update({
+              where: { id: existing.id },
+              data: { scriptId, userId: user.id, projectId: project.id, schedule }
+            })
+          : await this.prisma.agent.create({
+              data: { id: agentId, name: agentName, scriptId, userId: user.id, projectId: project.id, enabled: isAgentEnabled, schedule }
+            });
 
         if (workerRole) {
           await this.prisma.agentRole.upsert({

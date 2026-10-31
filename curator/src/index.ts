@@ -42,6 +42,8 @@ export * from './services/DefaultProjectService.js';
 export * from './services/SecretService.js';
 export * from './db/sqliteProvisioner.js';
 export * from './db/mariadbProvisioner.js';
+export * from './db/postgresProvisioner.js';
+export * from './db/sqlDialect.js';
 
 // Built-in Plugins
 export * from './plugins/core/index.js';

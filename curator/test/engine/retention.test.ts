@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createEnv, runAst, runScript, saveScript } from '../helpers/harness.ts';
+import { pruneConversationHistory } from '../../src/engine/Retention.ts';
 
 const tool = (name: string, args: any = {}, as?: string) => ({ type: 'Curator_Tool', toolName: name, args, ...(as ? { as } : {}) });
 
@@ -78,6 +79,22 @@ test('retention: completedContext keep leaves every context in place', async () 
     assert.equal(await env.processor.trimCompletedContexts(true), 0);
     const requests = await env.prisma.request.findMany();
     assert.ok(requests.every((r: any) => r.context !== null));
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('retention: pruning a finished conversation removes its requests and responses', async () => {
+  const env = await createEnv('retention_prune', canned, trim);
+  try {
+    const { result } = await runScript(env, (await saveScript(env, 'doubler', callModule())).scriptId);
+    assert.equal(result.done, true);
+    const { conversationId } = await env.prisma.request.findFirstOrThrow();
+
+    const pruned = await pruneConversationHistory(env.prisma, conversationId);
+    assert.ok(pruned.requests > 0);
+    assert.equal(await env.prisma.request.count({ where: { conversationId } }), 0);
+    assert.equal(await env.prisma.response.count({ where: { conversationId } }), 0);
   } finally {
     await env.cleanup();
   }

@@ -21,12 +21,23 @@ database:
 
 crawler:
   baseUrl: https://eestiraadio.err.ee
-  seriesContentId: 1037846
   archiveLimit: 100
   requestTimeoutMs: 20000
   requestDelayMs: ${REQUEST_DELAY_MS:1000}
   maxRetries: 3
-  userAgent: "keeris-kauamangiv-scraper/1.0 (research use)"
+  userAgent: ${USER_AGENT:"curator-keeris-archive/2.0 (ERR radio archive research; curator-miniapp)"}
+
+# Radio programs & crawler agents.
+# Keeris registers 18+ crawler agents across Vikerraadio and Klassikaraadio (defined in src/plugins/manifest.ts).
+# Each agent defines its own seriesContentId/URL, schedule, and workflow AST.
+# Overrides (enable/disable, custom cron schedules) can be layered per profile here:
+# programs:
+#   vikerraadio_kauamangiv_scrape:
+#     enabled: true
+#     schedule: "0 14 * * 1-5"
+#   klassikaraadio_fantaasia_scrape:
+#     enabled: true
+#     schedule: "0 2 * * *"
 
 server:
   port: ${PORT:4001}

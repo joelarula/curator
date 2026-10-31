@@ -27,12 +27,14 @@
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
-    "prisma:mariadb:generate": "prisma generate --schema=prisma-mariadb/schema.prisma"
+    "prisma:mariadb:generate": "prisma generate --schema=prisma-mariadb/schema.prisma",
+    "prisma:postgres:generate": "prisma generate --schema=prisma-postgres/schema.prisma"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@prisma/adapter-better-sqlite3": "^7.8.0",
     "@prisma/adapter-mariadb": "^7.10.0",
+    "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.6.0",
     "@prisma/client-runtime-utils": "7.10.1",
     "ajv": "^8.20.0",
@@ -41,6 +43,7 @@
     "commander": "^14.0.2",
     "dotenv": "^16.6.1",
     "mariadb": "^3.5.4",
+    "pg": "^8.16.3",
     "tsx": "^4.19.1",
     "winston": "^3.19.0",
     "yaml": "^2.9.0"
@@ -53,6 +56,7 @@
   "devDependencies": {
     "@types/coffeescript": "^2.5.7",
     "@types/node": "^22.19.1",
+    "@types/pg": "^8.18.0",
     "prisma": "^7.6.0",
     "typescript": "^5.6.2"
   }

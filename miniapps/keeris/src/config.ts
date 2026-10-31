@@ -16,7 +16,7 @@ export const config: KeerisConfig = {
   requestTimeoutMs: 20_000,
   requestDelayMs: Number(process.env.REQUEST_DELAY_MS ?? 1000),
   maxRetries: 3,
-  userAgent: 'keeris-kauamangiv-scraper/1.0 (research use)',
+  userAgent: process.env.USER_AGENT || 'curator-keeris-archive/2.0 (ERR radio archive research; curator-miniapp)',
   defaultDatabase: process.env.DATABASE_URL || 'data/keeris.db'
 };
 

@@ -1,0 +1,599 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Curator — Postgres Schema (derived from prisma-mariadb/schema.prisma; keep the models in sync)
+// Provider: postgresql, generates to ../src/generated/prisma-postgres/
+// ─────────────────────────────────────────────────────────────────────────────
+
+generator postgresClient {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma-postgres"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Actor / RBAC models (Curator canonical schema)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id        String      @id @default(cuid())
+  email     String      @unique
+  name      String?
+  googleId  String?     @unique
+  roles     UserRole[]
+  agents    Agent[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  requests  Request[]
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Core models
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum RequestStatus {
+  NEW
+  WAITING
+  WAITING_FOR_USER
+  WAITING_FOR_EVENT
+  COMPLETED
+  FAILED
+  CANCELLED
+  PAUSED
+  SKIPPED
+}
+
+model Project {
+  id            String         @id @default(cuid())
+  name          String
+  userId        String
+  resources     Resource[]
+  relations     Relation[]
+  scripts       Script[]
+  agents        Agent[]
+  requests      Request[]
+  conversations Conversation[]
+  responses     Response[]
+  resourceTrees ResourceTree[]
+  roles         Role[]
+  projectRoles  ProjectRole[]
+  userRoles     UserRole[]
+  mcpServers    McpServer[]
+  tools         Tool[]
+  existent      Boolean?       @default(true)
+  deletedAt     DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([userId, existent])
+}
+
+model Tool {
+  id                   Int          @id @default(autoincrement())
+  name                 String       @unique
+  description          String?
+  version              String?
+  accessLevel          String       @default("safe_write")
+  requiredRole         String?
+  requiresConfirmation Boolean      @default(false)
+  enabled              Boolean      @default(true)
+  existent             Boolean?     @default(true)
+  permissions          Permission[]
+  roles                ToolRole[]
+  origin               String       @default("local") // local | remote
+  mcpServerId          Int?
+  mcpServer            McpServer?   @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
+  remoteName           String?      // tool name on the remote provider
+  projectId            String?      // set for remote tools (= McpServer.projectId); null for local tools
+  project              Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  inputSchema          Json?
+  annotations          Json?        // remote hints (readOnlyHint, destructiveHint, ...), untrusted
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  @@index([existent])
+  @@unique([mcpServerId, remoteName])
+  @@index([origin])
+  @@index([projectId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Remote MCP providers and their catalog (tools live in Tool with origin=remote)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model McpServer {
+  id           Int           @id @default(autoincrement())
+  name         String        // unique per project; namespace for remote tools: mcp.<name>.<tool>
+  url          String
+  transport    String        @default("streamable-http")
+  authService  String?       // @curator/auth-client service supplying tokens
+  status       String        @default("registered") // registered | connected | auth_required | error | disabled
+  lastError    String?
+  serverInfo   Json?         // initialize result: name, version, capabilities
+  instructions String?
+  expectations Json?         // declared tools/resources/prompts (roles, access levels, strict)
+  enabled      Boolean       @default(true)
+  lastSyncedAt DateTime?
+  projectId    String        // owning project ('system' scope for shared servers)
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy    String?
+  tools        Tool[]
+  resources    McpResource[]
+  prompts      McpPrompt[]
+  existent     Boolean?      @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@unique([projectId, name])
+  @@index([projectId, existent])
+}
+
+model McpResource {
+  id          Int       @id @default(autoincrement())
+  mcpServerId Int
+  mcpServer   McpServer @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
+  uri         String    @db.VarChar(512) // resource URI, or RFC 6570 URI template when isTemplate
+  isTemplate  Boolean   @default(false)
+  name        String
+  title       String?
+  description String?
+  mimeType    String?
+  size        Int?
+  annotations Json?
+  existent    Boolean?  @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([mcpServerId, uri])
+  @@index([mcpServerId, existent])
+}
+
+model McpPrompt {
+  id          Int       @id @default(autoincrement())
+  mcpServerId Int
+  mcpServer   McpServer @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
+  name        String
+  title       String?
+  description String?
+  arguments   Json?     // [{ name, description, required }]
+  existent    Boolean?  @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([mcpServerId, name])
+  @@index([mcpServerId, existent])
+}
+
+model Resource {
+  id                 Int            @id @default(autoincrement())
+  uri                String
+  title              String?
+  description        String?
+  isPublished        Boolean        @default(false)
+  userId             String
+  projectId          String?
+  project            Project?       @relation(fields: [projectId], references: [id])
+  metadata           Json?
+  existent           Boolean?       @default(true)
+  deletedAt          DateTime?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  requests           Request[]      @relation("RequestResources")
+  conversations      Conversation[] @relation("ConversationResources")
+  texts              Text[]         @relation("ResourceTexts")
+  subjectRelations   Relation[]     @relation("RelationSubject")
+  predicateRelations Relation[]     @relation("RelationPredicate")
+  objectRelations    Relation[]     @relation("RelationObject")
+  treeNodes          ResourceTree[]
+  attachments        Attachment[]
+
+  @@unique([uri])
+  @@unique([id, existent])
+  @@index([uri, existent])
+  @@index([existent])
+  @@index([deletedAt])
+  @@index([projectId])
+}
+
+model Text {
+  resourceId  Int?
+  resource    Resource? @relation("ResourceTexts", fields: [resourceId], references: [id])
+  id          String    @id @default(cuid())
+  content     String
+  role        String    @default("MAIN")
+  mimeType    String?   @default("text/plain")
+  extension   String?   @default("txt")
+  isPublished Boolean   @default(false)
+  existent    Boolean?  @default(true)
+  deletedAt   DateTime?
+  userId      String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([resourceId, existent])
+  @@index([existent])
+  @@unique([resourceId, role])
+}
+
+model Relation {
+  id              Int       @id @default(autoincrement())
+  subjectId       Int
+  predicateId     Int
+  objectId        Int
+  subject         Resource  @relation("RelationSubject",   fields: [subjectId],   references: [id], onDelete: Cascade)
+  predicate       Resource  @relation("RelationPredicate", fields: [predicateId], references: [id], onDelete: Cascade)
+  object          Resource  @relation("RelationObject",    fields: [objectId],    references: [id], onDelete: Cascade)
+  createdAt       DateTime  @default(now())
+  aiModelId       Int?
+  aiModel         AIModel?  @relation(fields: [aiModelId], references: [id])
+  literalValue    Float?
+  literalString   String?
+  literalDate     DateTime?
+  literalBoolean  Boolean?
+  literalDatatype String?
+  selectionStart  Int?
+  selectionEnd    Int?
+  justification   String?
+  projectId       String?
+  project         Project?  @relation(fields: [projectId], references: [id])
+  existent        Boolean?  @default(true)
+
+  @@unique([subjectId, predicateId, objectId])
+  @@index([subjectId, existent])
+  @@index([predicateId, existent])
+  @@index([objectId, existent])
+  @@index([existent])
+  @@index([projectId])
+}
+
+model Attachment {
+  resourceId Int?
+  resource   Resource? @relation(fields: [resourceId], references: [id])
+  id         String    @id @default(cuid())
+  uri        String    @unique
+  filename   String
+  mimetype   String
+  url        String
+  size       Int
+  existent   Boolean?  @default(true)
+  createdAt  DateTime  @default(now())
+
+  @@index([existent])
+}
+
+model AIModel {
+  id        Int        @id @default(autoincrement())
+  shortName String     @unique
+  name      String     @unique
+  provider  String
+  type      String
+  version   String?
+  url       String?
+  requests  Request[]
+  responses Response[]
+  relations Relation[]
+  deletedAt DateTime?
+  existent  Boolean?   @default(true)
+  createdAt DateTime   @default(now())
+
+  @@index([existent])
+}
+
+model Script {
+  id        Int       @id @default(autoincrement())
+  name      String
+  body      String?
+  toolCalls Json?
+  ast       Json?
+  userId    String?
+  projectId String?
+  project   Project?  @relation(fields: [projectId], references: [id])
+  requests  Request[]
+  agents    Agent[]
+  eventSubscriptions EventSubscription[]
+  /// Points to ScriptVersion.version that is active. Script.ast/body mirror it (deprecated, kept for compatibility).
+  currentVersion Int @default(0)
+  versions       ScriptVersion[]
+  existent  Boolean?  @default(true)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([existent])
+  @@unique([name])
+}
+
+/// Immutable definition history. A new row is created only when the AST hash changes.
+model ScriptVersion {
+  id        Int      @id @default(autoincrement())
+  scriptId  Int
+  script    Script   @relation(fields: [scriptId], references: [id], onDelete: Cascade)
+  version   Int
+  hash      String
+  ast       Json?
+  body      String?
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  @@unique([scriptId, version])
+  @@unique([scriptId, hash])
+}
+
+model Request {
+  /// ScriptVersion.version executed (with scriptId). Request.ast is null in reference mode.
+  scriptVersion      Int?
+  id                 Int           @id @default(autoincrement())
+  status             RequestStatus @default(NEW)
+  toolName           String?
+  retryCount         Int           @default(0)
+  scriptId           Int?
+  script             Script?       @relation(fields: [scriptId], references: [id])
+  aiModelId          Int?
+  aiModel            AIModel?      @relation(fields: [aiModelId], references: [id])
+  userId             String
+  user               User          @relation(fields: [userId], references: [id])
+  projectId          String?
+  project            Project?      @relation(fields: [projectId], references: [id])
+  ast                Json?
+  context            Json?
+  resources          Resource[]    @relation("RequestResources")
+  conversationId     Int
+  conversation       Conversation  @relation(fields: [conversationId], references: [id])
+  agentId            String?
+  agent              Agent?        @relation(fields: [agentId], references: [id])
+  scheduledAt        DateTime?     @default(now())
+  executionScheduled DateTime?     @default(now())
+  priority           Int           @default(0)
+  notifyId           Int?
+  pendingDependencies Int          @default(0)
+  /// Highest EventLog.id this flow has consumed or emitted; wait_event replays later events so none are lost.
+  eventCursor        Int?
+  lockedBy           String?
+  lockedAt           DateTime?
+  deletedAt          DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  responses          Response[]
+  parentId           Int?
+  parent             Request?      @relation("Workflow", fields: [parentId], references: [id])
+  children           Request[]     @relation("Workflow")
+  existent           Boolean?      @default(true)
+
+  @@index([status, existent])
+  @@index([existent])
+  @@index([conversationId, status])
+  @@index([conversationId, updatedAt])
+  @@index([parentId])
+  @@index([notifyId])
+}
+
+model Response {
+  id             Int          @id @default(autoincrement())
+  requestId      Int
+  request        Request      @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  conversationId Int
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  content        String
+  aiModelId      Int?
+  aiModel        AIModel?     @relation(fields: [aiModelId], references: [id])
+  projectId      String?
+  project        Project?     @relation(fields: [projectId], references: [id])
+  existent       Boolean?     @default(true)
+  createdAt      DateTime     @default(now())
+
+  @@index([existent])
+  @@index([requestId])
+  @@index([conversationId, createdAt])
+}
+
+model Conversation {
+  id         Int        @id @default(autoincrement())
+  externalId String     @unique @default(cuid())
+  userId     String
+  projectId  String?
+  project    Project?   @relation(fields: [projectId], references: [id])
+  requests   Request[]
+  responses  Response[]
+  resources  Resource[] @relation("ConversationResources")
+  metadata   Json?
+  existent   Boolean?   @default(true)
+  deletedAt  DateTime?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  
+  @@index([existent])
+}
+
+model ResourceTree {
+  id         Int            @id @default(autoincrement())
+  treeName   String
+  resourceId Int
+  resource   Resource       @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  parentId   Int?
+  parent     ResourceTree?  @relation("TreeHierarchy", fields: [parentId], references: [id])
+  children   ResourceTree[] @relation("TreeHierarchy")
+  treeStart  Float
+  treeEnd    Float
+  depth      Int            @default(0)
+  projectId  String?
+  project    Project?       @relation(fields: [projectId], references: [id])
+  deletedAt  DateTime?
+  existent   Boolean?       @default(true)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@unique([treeName, resourceId])
+  @@index([treeName, treeStart, treeEnd, existent])
+  @@index([existent])
+  @@index([deletedAt])
+}
+
+/// Materialized from event declarations in a Script AST; the AST is the source of truth.
+/// Firing is recorded as the spawned child Request, never here.
+model EventSubscription {
+  id             Int      @id @default(autoincrement())
+  eventName      String
+  scriptId       Int
+  script         Script   @relation(fields: [scriptId], references: [id], onDelete: Cascade)
+  agentId        String?
+  agent          Agent?   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  conversationId Int?
+  userId         String
+  projectId      String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  /// Subroutine name in the Script module; null = main.
+  entry          String?
+  /// Filter expression copied from the declaration.
+  when           String?
+  /// Handler param receiving the payload (declaration `as`); null = 'event'.
+  payloadAs      String?
+
+  @@unique([scriptId, entry, eventName, conversationId])
+  @@index([eventName, isActive])
+}
+
+/// Append-only per-conversation log of every dispatched event (the mailbox behind lossless wait_event).
+model EventLog {
+  id             Int      @id @default(autoincrement())
+  conversationId Int
+  eventName      String
+  payload        Json?
+  target         String?
+  source         Int?
+  createdAt      DateTime @default(now())
+
+  @@index([conversationId, eventName, id])
+}
+
+
+model Agent {
+  id           String      @id @default(cuid())
+  name         String
+  scriptId     Int?
+  script       Script?     @relation(fields: [scriptId], references: [id])
+  schedule     String      @default("every 10 minutes")
+  lastPolledAt DateTime?
+  userId       String
+  user         User        @relation(fields: [userId], references: [id])
+  projectId    String?
+  project      Project?    @relation(fields: [projectId], references: [id])
+  enabled      Boolean     @default(true)
+  roles        AgentRole[]
+  existent     Boolean?    @default(true)
+  deletedAt    DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  requests     Request[]
+  eventSubscriptions EventSubscription[]
+
+  @@unique([name])
+  @@index([existent])
+}
+
+model Permission {
+  id                   String           @id @default(cuid())
+  name                 String           @unique
+  description          String?
+  toolName             String?
+  tool                 Tool?            @relation(fields: [toolName], references: [name], onDelete: Cascade)
+  accessLevel          String?
+  requiresConfirmation Boolean          @default(false)
+  roles                RolePermission[]
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+}
+
+model Role {
+  id          String            @id
+  name        String
+  description String?
+  projectId   String?
+  project     Project?          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  permissions RolePermission[]
+  tools       ToolRole[]
+  users       UserRole[]
+  agents      AgentRole[]
+  projects    ProjectRole[]
+  parentRoles RoleInheritance[] @relation("SubRole")
+  subRoles    RoleInheritance[] @relation("ParentRole")
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@unique([projectId, name])
+  @@index([projectId])
+}
+
+model ToolRole {
+  id        Int      @id @default(autoincrement())
+  toolId    Int
+  tool      Tool     @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  roleId    String
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([toolId, roleId])
+  @@index([toolId])
+  @@index([roleId])
+}
+
+model RoleInheritance {
+  parentId  String
+  parent    Role   @relation("ParentRole", fields: [parentId], references: [id], onDelete: Cascade)
+  subRoleId String
+  subRole   Role   @relation("SubRole", fields: [subRoleId], references: [id], onDelete: Cascade)
+
+  @@id([parentId, subRoleId])
+}
+
+model RolePermission {
+  roleId       String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model ProjectRole {
+  id        Int      @id @default(autoincrement())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  roleId    String
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, roleId])
+  @@index([projectId])
+  @@index([roleId])
+}
+
+model UserRole {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId    String
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, roleId, projectId])
+  @@index([userId])
+  @@index([roleId])
+  @@index([projectId])
+}
+
+model AgentRole {
+  id      Int    @id @default(autoincrement())
+  agentId String
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  roleId  String
+  role    Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, roleId])
+  @@index([agentId])
+  @@index([roleId])
+}
