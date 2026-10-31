@@ -1,4 +1,4 @@
-import { compactConversationLog, readSnapshot } from '../curator.ts';
+import { pruneConversationHistory, readSnapshot, reclaimFreePages } from '../curator.ts';
 
 /** Finished tables and lobbies keep their full history this long (`POKER_HISTORY_TTL_HOURS`, default 24). */
 export const DEFAULT_HISTORY_TTL_MS = 24 * 60 * 60 * 1000;
@@ -17,7 +17,8 @@ export function historyTtlFromEnv(env: NodeJS.ProcessEnv = process.env): number 
 
 /**
  * Retention for finished conversations of a project (closed tables and lobbies, games that are over):
- * deletes their Requests, Responses and subscriptions and compacts their EventLog to one state event.
+ * deletes their Requests, Responses and subscriptions and compacts their EventLog to one state event
+ * (`pruneConversationHistory`), then returns the freed SQLite pages.
  * The Conversation row keeps its final state (results, cash-outs), so nothing that is listed or resumable
  * changes; live and paused tables are never touched.
  */
@@ -45,31 +46,12 @@ export async function prunePokerHistory(
     ]);
     if (requestCount === 0 && eventCount <= 1) continue; // already pruned
 
-    // Requests elsewhere may point here (a table's flow started by the lobby): detach, never cascade into them
-    await prisma.request.updateMany({
-      where: { conversationId: { not: conv.id }, parent: { is: { conversationId: conv.id } } },
-      data: { parentId: null },
-    });
-    await prisma.$executeRawUnsafe(
-      'UPDATE Request SET notifyId = NULL WHERE conversationId <> ? AND notifyId IN (SELECT id FROM Request WHERE conversationId = ?)',
-      conv.id,
-      conv.id
-    );
-
-    const responses = await prisma.response.deleteMany({
-      where: { OR: [{ conversationId: conv.id }, { request: { is: { conversationId: conv.id } } }] },
-    });
-    await prisma
-      .$executeRawUnsafe('DELETE FROM _RequestResources WHERE A IN (SELECT id FROM Request WHERE conversationId = ?)', conv.id)
-      .catch(() => {});
-    const requests = await prisma.request.deleteMany({ where: { conversationId: conv.id } });
-    await prisma.eventSubscription?.deleteMany?.({ where: { conversationId: conv.id } });
-    const events = await compactConversationLog(prisma, conv.id);
-
+    const pruned = await pruneConversationHistory(prisma, conv.id);
     result.conversations++;
-    result.requests += requests.count;
-    result.responses += responses.count;
-    result.events += events;
+    result.requests += pruned.requests;
+    result.responses += pruned.responses;
+    result.events += pruned.events;
   }
+  if (result.conversations > 0) await reclaimFreePages(prisma);
   return result;
 }

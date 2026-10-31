@@ -20,11 +20,17 @@
    - Composable AST step builders in `keerisComposables.ts` (`discoverEpisodesStep`, `processEpisodeStep`, `scrapeSingleStep`, `forEachEpisode`).
    - Pure AST generators in `keerisWorkflows.ts` (`buildPipelineScrapeAST`, `buildRescrapeMissingAST`, `buildSingleScrapeAST`, `KEERIS_WORKFLOW_ASTS`).
 
+6. **Layered Host Profiles & Properties (`keeris.config.yaml`):**
+   - Built on `loadAppConfig` from `@curator/host/config`.
+   - Profiles layer `keeris.config.<profile>.yaml` (and `.env.<profile>`) over `keeris.config.yaml` (e.g. `keeris.config.local.yaml` for offline development).
+   - Configurable via `--profile <name>`, `$KEERIS_PROFILES`, `$CURATOR_PROFILES`, or `profiles.active`.
+   - Host properties (`host.intervalMs`, `host.logLevel`, `host.profile`, `host.retention`) flow directly into `createCuratorHost`.
+
 ## Conventions
 - **No Direct Tool Invocations:** Workflows, clients, and tests must invoke tools through `host.runTool` or step transitions, never by calling `tool.execute` directly.
 - **AST Workflows Only:** Never use legacy callback loops or imperative scraper runners; all agentic scraping operations execute as compiled AST v2 graphs.
 - **UI Decoupling:** Never import terminal UI code (`blessed`, `chalk`, `cli.ts`) into `src/models/`, `src/contracts/`, `src/plugins/`, or `src/workflows/`.
-- **Database Isolation:** When running in local SQLite or test mode, suppress remote MariaDB URLs (`url: ''`) to prevent network hangs.
+- **Dual Database Support:** Direct mode seamlessly runs on MariaDB/MySQL (default when `DATABASE_URL` / `CURATOR_DATABASE_URL` is configured or passed via `-d / --db`) or local SQLite (`data/keeris.db` / `:memory:`). When an explicit local SQLite path is requested (e.g. in test suites), remote MariaDB URL connections are suppressed to guarantee test isolation.
 
 ## Verification
 - `npm run test:deterministic` (manifest, contracts, RBAC roles, AST v2 workflow compilation).

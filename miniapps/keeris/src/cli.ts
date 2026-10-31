@@ -32,6 +32,7 @@ program
   .option('-s, --server <url>', 'Server endpoint URL', process.env.VITE_SERVER_URL || process.env.SERVER_URL || getServerBaseUrl() || 'http://localhost:4001')
   .option('--direct', 'Run direct lightweight in-process execution mode locally (using same database as server)', false)
   .option('-d, --db <path>', 'Custom database URL or path for direct mode')
+  .option('-p, --profile <profiles>', 'Active configuration profile(s), comma-separated (e.g. dev, local, sqlite, mariadb)')
   .option('-i, --interactive', 'Keep interactive client prompt open after running command', false);
 
 /**
@@ -139,10 +140,11 @@ program
   .command('play', { isDefault: true })
   .aliases(['client', 'interactive', 'repl', 'i', 'shell'])
   .description('Interactive Keeris client REPL (direct in-process host or remote server channel)')
-  .option('--direct', 'Run direct in-process SQLite execution mode locally (default)', true)
+  .option('--direct', 'Run direct in-process host execution mode locally (MariaDB or SQLite, same as server) (default)', true)
   .option('--no-direct', 'Connect to the remote server given by --server')
   .option('-s, --server <url>', 'Curator server URL', process.env.VITE_SERVER_URL || process.env.SERVER_URL || getServerBaseUrl() || 'http://localhost:4001')
-  .option('-d, --db <path>', 'Custom database URL or path for direct mode')
+  .option('-d, --db <path>', 'Custom database URL or path for direct mode (e.g. mysql://... or data/keeris.db)')
+  .option('-p, --profile <profiles>', 'Active configuration profile(s), comma-separated (e.g. dev, local, sqlite, mariadb)')
   .option('-u, --user <name>', 'User display name for client identity', 'Curator')
   .action(async (options) => {
     const globalOpts = program.opts();
@@ -156,6 +158,7 @@ program
         direct: true,
         databasePath: options.db || globalOpts.db,
         userName: options.user || globalOpts.user,
+        profiles: options.profile || globalOpts.profile,
       });
     } else {
       console.log(`\x1b[36m[Keeris CLI] Connecting to Curator Server at ${serverUrl}...\x1b[0m`);
@@ -163,6 +166,7 @@ program
         direct: false,
         serverUrl,
         userName: options.user || globalOpts.user,
+        profiles: options.profile || globalOpts.profile,
       });
     }
   });

@@ -8,6 +8,8 @@ import { getGeminiApiKey, loadPokerAppConfig } from './env.ts';
 import { prunePokerHistory, historyTtlFromEnv } from './db/retention.ts';
 import { resolvePokerConfig, POKER_CONFIG_NAMESPACE, type PokerConfig } from './pokerConfig.ts';
 
+const HISTORY_PRUNE_INTERVAL_MS = 60 * 60 * 1000;
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_POKER_DB = path.resolve(__dirname, '../data/poker.db');
@@ -93,16 +95,29 @@ export async function createPokerHost(options: PokerHostOptions = {}): Promise<C
     },
   });
 
-  // Retention: finished tables and lobbies drop their step history once past the TTL (the database stays small)
-  try {
-    const pruned = await prunePokerHistory(host.prisma, { projectId: host.project.id, olderThanMs: historyTtlFromEnv() });
-    if (pruned.conversations > 0 && !options.quiet) {
-      console.log(
-        `\x1b[90m[Curator] Retention: pruned ${pruned.conversations} finished conversation(s) (${pruned.requests} requests, ${pruned.responses} responses, ${pruned.events} events)\x1b[0m`
-      );
+  // Retention: finished tables and lobbies drop their step history once past the TTL (the database stays small).
+  // Runs at startup and then hourly, so a server that stays up keeps pruning.
+  const pruneHistory = async () => {
+    try {
+      const pruned = await prunePokerHistory(host.prisma, { projectId: host.project.id, olderThanMs: historyTtlFromEnv() });
+      if (pruned.conversations > 0 && !options.quiet) {
+        console.log(
+          `[90m[Curator] Retention: pruned ${pruned.conversations} finished conversation(s) (${pruned.requests} requests, ${pruned.responses} responses, ${pruned.events} events)[0m`
+        );
+      }
+    } catch (err: any) {
+      console.warn(`[Curator] Retention skipped: ${err?.message || err}`);
     }
-  } catch (err: any) {
-    console.warn(`[Curator] Retention skipped: ${err?.message || err}`);
-  }
+  };
+  await pruneHistory();
+  let lastHistoryPruneAt = Date.now();
+  host.processor.registerMaintenanceSystem?.({
+    name: 'prunePokerHistory',
+    run: async () => {
+      if (Date.now() - lastHistoryPruneAt < HISTORY_PRUNE_INTERVAL_MS) return;
+      lastHistoryPruneAt = Date.now();
+      await pruneHistory();
+    },
+  });
   return host;
 }

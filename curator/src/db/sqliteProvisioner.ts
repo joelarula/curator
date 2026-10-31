@@ -283,6 +283,17 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
       await prisma.$queryRawUnsafe('PRAGMA busy_timeout = 10000;');
     } catch (_) {}
   }
+  // Incremental auto-vacuum: pages freed by retention go back to the file system (`PRAGMA incremental_vacuum`)
+  // without a full VACUUM. An existing file switches mode only through one VACUUM, done here once.
+  try {
+    const [row] = (await prisma.$queryRawUnsafe('PRAGMA auto_vacuum;')) as Array<Record<string, unknown>>;
+    if (Number(row?.auto_vacuum) !== 2) {
+      await prisma.$executeRawUnsafe('PRAGMA auto_vacuum = INCREMENTAL;');
+      await prisma.$executeRawUnsafe('VACUUM;');
+    }
+  } catch (err: any) {
+    console.warn(`[sqliteProvisioner] Could not enable incremental auto-vacuum: ${err?.message || err}`);
+  }
 
   // Ensure system user and project exist
   const user = await prisma.user.upsert({

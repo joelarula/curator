@@ -1,4 +1,25 @@
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import readline from 'node:readline';
+
+// Guarantee exact same environment loading as server
+const currentDir = dirname(fileURLToPath(import.meta.url));
+const keerisRoot = dirname(currentDir);
+const envCandidates = [
+  join(keerisRoot, '.env'),
+  join(process.cwd(), '.env'),
+  join(keerisRoot, '.env.production'),
+];
+for (const envPath of envCandidates) {
+  if (existsSync(envPath)) {
+    try {
+      process.loadEnvFile(envPath);
+      break;
+    } catch {}
+  }
+}
+
 import {
   type CuratorChannel,
   type CuratorHost,
@@ -14,6 +35,7 @@ import {
 } from './keerisClientShell.ts';
 import { KeerisConstant } from '../models/index.ts';
 import { getServerBaseUrl } from '../adapters/server-adapter.ts';
+import { config } from '../config.ts';
 
 export {
   KEERIS_COMMANDS,
@@ -40,6 +62,8 @@ export interface KeerisClientOptions {
   userName?: string;
   quiet?: boolean;
   logLevel?: string;
+  profiles?: string | string[];
+  configPath?: string;
 }
 
 export type KeerisChannel = CuratorChannel & {
@@ -75,6 +99,8 @@ export async function createDirectSessionChannel(
       actor: { displayName: options.userName },
       quiet: options.quiet,
       logLevel: options.logLevel,
+      profiles: options.profiles,
+      configPath: options.configPath,
     });
   }
 
@@ -148,11 +174,19 @@ export async function runKeerisClientUi(
   const isDirect = Boolean(options.direct || host);
   const serverUrl = options.serverUrl || getServerBaseUrl() || KeerisConstant.DEFAULT_SERVER_URL;
 
+  const dbTarget = options.databasePath || process.env.DATABASE_URL || process.env.DATABASE_PATH || config.defaultDatabase;
+  const isMariaDb = typeof dbTarget === 'string' && (dbTarget.startsWith('mysql://') || dbTarget.startsWith('mariadb://'));
+  const dbEngine = isMariaDb ? 'MariaDB/MySQL' : 'SQLite';
+  const dbTargetMasked = typeof dbTarget === 'string' ? dbTarget.replace(/:[^:@]+@/, ':****@') : 'in-memory';
+
   console.log('\n\x1b[1m\x1b[36m====================================================\x1b[0m');
   console.log('\x1b[1m\x1b[36m   🎵 Curator Keeris Music & Radio Archive Client\x1b[0m');
   console.log('\x1b[1m\x1b[36m====================================================\x1b[0m');
-  console.log(`Mode:    \x1b[33m${isDirect ? 'Direct In-Process Host (Zero Network/Ports)' : `Remote Server (${serverUrl})`}\x1b[0m`);
-  console.log('Channel: \x1b[32m✔ Connected & Interactive\x1b[0m\n');
+  console.log(`Mode:     \x1b[33m${isDirect ? `Direct In-Process Host (${dbEngine})` : `Remote Server (${serverUrl})`}\x1b[0m`);
+  if (isDirect) {
+    console.log(`Database: \x1b[32m${dbEngine}\x1b[0m (${dbTargetMasked})`);
+  }
+  console.log('Channel:  \x1b[32m✔ Connected & Interactive\x1b[0m\n');
   console.log('Commands:');
   console.log('  \x1b[33msearch <query>\x1b[0m           Search tracks (tool: keeris_search_tracks)');
   console.log('  \x1b[33mstats\x1b[0m                    Display archive catalog statistics (tool: keeris_get_stats)');

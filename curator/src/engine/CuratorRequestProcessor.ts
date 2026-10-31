@@ -15,6 +15,7 @@ import { LlmFactory } from './llm/LlmFactory.js';
 import { appendStatePatch, STATE_SEQ_KEY } from './ConversationStateLog.js';
 import { STATE_PATCH_KEY, withoutStoredStateCopies } from './RequestContextStorage.js';
 import { recordDeadLetter, TERMINAL_STATUSES } from './DeadLetters.js';
+import { clearRequestContexts, completedChildrenWithContext, reclaimFreePages, sweepCompletedContexts } from './Retention.js';
 import { AgentRoleService } from '../services/AgentRoleService.js';
 import { ApprovalService } from '../services/ApprovalService.js';
 import { defaultOutputFormats, type OutputFormats } from './output/OutputFormats.js';
@@ -43,8 +44,11 @@ export interface CuratorRequestProcessorOptions {
   toolContextExtras?: Record<string, any>;
   /** Default lifetime of an approval wait in ms (0 = never expires). Default 24h. Tool nodes may override (`approvalTtlMs`). */
   approvalTtlMs?: number;
-  /** Retention of completed read-only direct tool Requests. Workflow Requests are never pruned. */
-  retention?: { readOnlyRequests?: 'keep' | 'prune'; readOnlyTtlMs?: number };
+  /**
+   * Retention. `readOnlyRequests`: completed read-only direct tool Requests (workflow Requests are never pruned).
+   * `completedContext`: 'trim' (default) clears a completed Request's context once nothing can read it; 'keep' keeps it.
+   */
+  retention?: { readOnlyRequests?: 'keep' | 'prune'; readOnlyTtlMs?: number; completedContext?: 'trim' | 'keep' };
   /** Clock (epoch ms) for scheduling, wait deadlines and approval expiry. Default Date.now; injectable for deterministic tests. */
   now?: () => number;
   /** Additional node handlers (plugin node types, or built-in overrides). */
@@ -169,8 +173,9 @@ export class CuratorRequestProcessor {
   /** In-process data of direct tool Requests: runtime-only inputs and the raw output/error. */
   private inflight = new Map<number, InflightToolCall>();
   private approvalTtlMs: number;
-  private retention: { readOnlyRequests: 'keep' | 'prune'; readOnlyTtlMs: number };
+  private retention: { readOnlyRequests: 'keep' | 'prune'; readOnlyTtlMs: number; completedContext: 'trim' | 'keep' };
   private lastPruneAt = 0;
+  private lastContextSweepAt = 0;
   private clock: () => number;
   /** AST node type → handler. */
   private nodes = new NodeRegistry();
@@ -194,7 +199,8 @@ export class CuratorRequestProcessor {
     this.approvalTtlMs = options.approvalTtlMs ?? 24 * 60 * 60 * 1000;
     this.retention = {
       readOnlyRequests: options.retention?.readOnlyRequests ?? 'keep',
-      readOnlyTtlMs: options.retention?.readOnlyTtlMs ?? 30 * 24 * 60 * 60 * 1000
+      readOnlyTtlMs: options.retention?.readOnlyTtlMs ?? 30 * 24 * 60 * 60 * 1000,
+      completedContext: options.retention?.completedContext ?? 'trim'
     };
 
     // Capacity & Web Headroom Configuration:
@@ -316,6 +322,7 @@ export class CuratorRequestProcessor {
       { name: 'expireApprovalWaits', run: () => this.expireApprovalWaits() },
       { name: 'expireHumanWaits', run: () => this.expireHumanWaits() },
       { name: 'pruneReadOnlyRequests', run: async () => { await this.pruneReadOnlyRequests(); } },
+      { name: 'trimCompletedContexts', run: async () => { await this.trimCompletedContexts(); } },
       { name: 'resumeUserResponses', run: () => this.resumeUserRespondedRequests() },
     ];
     this.maintenance = builtins.filter(s => !this.disabledMaintenance.has(s.name));
@@ -1084,7 +1091,31 @@ export class CuratorRequestProcessor {
     }
   }
 
+  /** Runs a request; afterwards the contexts of children that had completed before this run (it consumed them) are trimmed. */
   public async processRequest(request: any) {
+    const consumed = await this.consumableChildren(request.id);
+    try {
+      await this.executeRequest(request);
+    } finally {
+      if (consumed.length > 0) {
+        await clearRequestContexts(this.prisma, consumed).catch((err: any) =>
+          logger.warn(`[CuratorRequestProcessor] Retention: trimming children of req ${request.id} failed: ${err?.message || err}`)
+        );
+      }
+    }
+  }
+
+  private async consumableChildren(requestId: number): Promise<number[]> {
+    if (this.retention.completedContext !== 'trim') return [];
+    try {
+      return await completedChildrenWithContext(this.prisma, requestId);
+    } catch (err: any) {
+      logger.warn(`[CuratorRequestProcessor] Retention: listing children of req ${requestId} failed: ${err?.message || err}`);
+      return [];
+    }
+  }
+
+  private async executeRequest(request: any) {
     logger.debug(`[CuratorRequestProcessor] Processing request ${request.id}`);
     this.emit('request_start', { requestId: request.id });
     try {
@@ -1935,6 +1966,31 @@ export class CuratorRequestProcessor {
     const deleted = await this.prisma.request.deleteMany({ where: { id: { in: ids } } });
     logger.debug(`[CuratorRequestProcessor] Retention: pruned ${deleted.count} read-only tool request(s) older than ${cutoff.toISOString()}.`);
     return deleted.count;
+  }
+
+  /**
+   * Retention sweep (policy `completedContext: 'trim'`): clears the context of COMPLETED Requests whose notify
+   * target is gone or terminal, 10 minutes after they last changed. Runs every 10 minutes, or every tick while
+   * a backlog remains, and returns freed SQLite pages afterwards.
+   */
+  public async trimCompletedContexts(force = false): Promise<number> {
+    if (this.retention.completedContext !== 'trim') return 0;
+    if (!force && Date.now() - this.lastContextSweepAt < 10 * 60 * 1000) return 0;
+    this.lastContextSweepAt = Date.now();
+
+    const maxBatches = 10;
+    const batchSize = 500;
+    const trimmed = await sweepCompletedContexts(this.prisma, {
+      olderThan: new Date(Date.now() - 10 * 60 * 1000), // updatedAt is wall-clock time, not the injectable clock
+      maxBatches,
+      batchSize,
+    });
+    if (trimmed > 0) {
+      await reclaimFreePages(this.prisma);
+      logger.debug(`[CuratorRequestProcessor] Retention: trimmed the context of ${trimmed} completed request(s).`);
+    }
+    if (trimmed >= maxBatches * batchSize) this.lastContextSweepAt = 0; // backlog left: continue next tick
+    return trimmed;
   }
 
   private async interpolateTemplate(template: string | undefined, req: any): Promise<string | undefined> {

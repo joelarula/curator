@@ -1,0 +1,41 @@
+# Keeris Music & Radio Archive configuration.
+# Lookup: $KEERIS_CONFIG, then keeris.config.yaml / .yml / .json in cwd, then module root.
+# Profiles layer keeris.config.<profile>.yaml (and .env.<profile>) over this file, later winning.
+# Active profiles: --profile a,b, $KEERIS_PROFILES, $CURATOR_PROFILES, then profiles.active below.
+# String values may reference the environment as ${VAR} or ${VAR:default}.
+
+# profiles:
+#   active: dev
+
+# Host settings passed directly to createCuratorHost (profile, intervalMs, logLevel, retention)
+host:
+  profile: embedded
+  intervalMs: 3000
+  logLevel: info
+
+database:
+  url: ${DATABASE_URL:mysql://curator:curator_secret@192.168.1.110:3306/keeris}
+  curatorUrl: ${CURATOR_DATABASE_URL:mysql://curator:curator_secret@192.168.1.110:3306/keeris}
+  sqlitePath: data/keeris.db
+  curatorSqlitePath: data/curator.db
+
+crawler:
+  baseUrl: https://eestiraadio.err.ee
+  seriesContentId: 1037846
+  archiveLimit: 100
+  requestTimeoutMs: 20000
+  requestDelayMs: ${REQUEST_DELAY_MS:1000}
+  maxRetries: 3
+  userAgent: "keeris-kauamangiv-scraper/1.0 (research use)"
+
+server:
+  port: ${PORT:4001}
+  apiUrl: ${VITE_API_URL:http://localhost:4001/graphql}
+  frontendUrl: ${FRONTEND_URL:http://localhost:3001}
+
+auth:
+  jwtSecret: ${JWT_SECRET:padagaskar-super-secret-key-replace-me}
+  google:
+    clientId: ${GOOGLE_CLIENT_ID}
+    clientSecret: ${GOOGLE_CLIENT_SECRET}
+    callbackUrl: ${GOOGLE_CALLBACK_URL:http://localhost:4001/auth/google/callback}

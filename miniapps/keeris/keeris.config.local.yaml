@@ -1,0 +1,10 @@
+# Local profile for isolated development and offline testing
+host:
+  profile: embedded
+  logLevel: info
+  intervalMs: 1000
+
+database:
+  url: data/keeris.db
+  curatorUrl: ""
+

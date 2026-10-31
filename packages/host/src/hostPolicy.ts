@@ -18,19 +18,19 @@ const PROFILE_DEFAULTS: Record<CuratorHostProfile, ResolvedHostPolicy> = {
   server: {
     profile: 'server',
     definitions: { owner: 'database', onDrift: 'keep' },
-    retention: { readOnlyRequests: 'keep', readOnlyTtlMs: 30 * DAY_MS },
+    retention: { readOnlyRequests: 'keep', readOnlyTtlMs: 30 * DAY_MS, completedContext: 'trim' },
     astStorage: 'reference',
   },
   embedded: {
     profile: 'embedded',
     definitions: { owner: 'code', onDrift: 'update' },
-    retention: { readOnlyRequests: 'keep', readOnlyTtlMs: 30 * DAY_MS },
+    retention: { readOnlyRequests: 'keep', readOnlyTtlMs: 30 * DAY_MS, completedContext: 'trim' },
     astStorage: 'reference',
   },
   ephemeral: {
     profile: 'ephemeral',
     definitions: { owner: 'code', onDrift: 'update' },
-    retention: { readOnlyRequests: 'prune', readOnlyTtlMs: DAY_MS },
+    retention: { readOnlyRequests: 'prune', readOnlyTtlMs: DAY_MS, completedContext: 'trim' },
     astStorage: 'snapshot',
   },
 };

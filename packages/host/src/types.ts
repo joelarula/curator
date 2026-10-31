@@ -39,6 +39,8 @@ export interface CuratorRetentionPolicy {
   /** Prune completed read-only tool Requests (Responses cascade). Workflow Requests are never auto-pruned. */
   readOnlyRequests?: 'keep' | 'prune';
   readOnlyTtlMs?: number;
+  /** 'trim' (default): a completed Request's context is cleared once nothing can read it; 'keep' keeps it (debugging). */
+  completedContext?: 'trim' | 'keep';
 }
 
 export interface CuratorHostConfig {

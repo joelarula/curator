@@ -6,6 +6,7 @@ export * from './engine/nodes/index.js';
 export * from './engine/CuratorContext.js';
 export * from './engine/CuratorContracts.js';
 export * from './engine/ConversationStateLog.js';
+export * from './engine/Retention.js';
 export * from './engine/CuratorAst.js';
 export * from './engine/CuratorBuilder.js';
 export * from './engine/builder/index.js';

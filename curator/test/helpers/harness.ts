@@ -161,7 +161,9 @@ export async function createEnv(
   copyFileSync(await ensureTemplateDb(), dbPath);
   const prisma = await provisionSqliteDb(name, false, { databasePath: dbPath });
   const { engine, calls } = makeFakeEngine(canned);
-  const processor = new CuratorRequestProcessor(prisma, { engine, now: () => FIXED_NOW, ...processorOptions } as any);
+  // Goldens record completed contexts, so tests keep them unless a test opts into trimming
+  const retention = { completedContext: 'keep', ...processorOptions.retention };
+  const processor = new CuratorRequestProcessor(prisma, { engine, now: () => FIXED_NOW, ...processorOptions, retention } as any);
 
   const user = await prisma.user.create({ data: { name: 'Tester', email: 'tester@example.com' } });
   await prisma.role.create({ data: { id: 'admin', name: 'admin' } });

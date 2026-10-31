@@ -89,3 +89,55 @@ test('Keeris Deterministic: AST Workflows Compilation (AST v2)', () => {
   assert.ok(keerisScripts[KeerisModule.SINGLE_SCRAPE]);
 });
 
+test('Keeris Deterministic: Dual Database Mode (MariaDB & SQLite support)', async () => {
+  const { openDatabase } = await import('../src/db.ts');
+  assert.equal(typeof openDatabase, 'function');
+
+  // 1. MariaDB adapter detection
+  const mysqlUrl = 'mysql://curator:secret@127.0.0.1:3306/keeris_test';
+  const mariaAdapter = openDatabase(mysqlUrl);
+  assert.equal(mariaAdapter.isMysql, true);
+  assert.equal(mariaAdapter.isPostgres, false);
+  try {
+    await mariaAdapter.close();
+  } catch (_) {}
+
+  // 2. SQLite adapter detection
+  const sqliteAdapter = openDatabase(':memory:');
+  assert.equal(sqliteAdapter.isMysql, false);
+  assert.equal(sqliteAdapter.isPostgres, false);
+  try {
+    if (typeof sqliteAdapter.close === 'function') sqliteAdapter.close();
+  } catch (_) {}
+});
+
+test('Keeris Deterministic: Host Profiles & Layered Config Properties', async () => {
+  const { loadAppConfig } = await import('@curator/host/config');
+  const path = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const currentDir = path.dirname(fileURLToPath(import.meta.url));
+  const keerisRoot = path.resolve(currentDir, '..');
+
+  // 1. Test loading base config
+  const baseApp = loadAppConfig({
+    appId: 'keeris',
+    searchDirs: [keerisRoot],
+  });
+  assert.equal(baseApp.appId, 'keeris');
+  assert.ok(baseApp.values.database);
+  assert.ok(baseApp.values.crawler);
+  assert.equal(baseApp.host.intervalMs, 3000);
+
+  // 2. Test layering local profile properties
+  const localApp = loadAppConfig({
+    appId: 'keeris',
+    profiles: 'local',
+    searchDirs: [keerisRoot],
+  });
+  assert.ok(localApp.activeProfiles.includes('local'));
+  assert.equal(localApp.values.database.url, 'data/keeris.db');
+  assert.equal(localApp.values.database.curatorUrl, '');
+  assert.equal(localApp.host.intervalMs, 1000);
+  assert.equal(localApp.host.profile, 'embedded');
+});
+
