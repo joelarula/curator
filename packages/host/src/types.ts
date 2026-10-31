@@ -28,6 +28,23 @@ export interface CuratorHostRbacConfig {
 
 export type CuratorHostProfile = 'server' | 'embedded' | 'ephemeral';
 
+/**
+ * Where conversations live (docs/DISTRIBUTED_STORAGE_PLAN.md, Phase 1):
+ * - 'durable' (default): the configured database, every step persisted.
+ * - 'ephemeral': an in-process memory database; nothing survives the process or reaches the configured database.
+ * - 'checkpoint': conversations run in memory and move to the configured database at their first suspension
+ *   point (human input, event wait, timer, pause) or when they finish, then run durable. Definitions (users,
+ *   projects, roles, scripts, agents) are written to the configured database and mirrored into memory.
+ */
+export type CuratorDurability = 'durable' | 'ephemeral' | 'checkpoint';
+
+export interface CuratorCheckpointConfig {
+  /** First id of rows created in memory; durable ids must stay below it. Default 1e9. */
+  idBase?: number;
+  /** A timer due sooner than this keeps its conversation in memory. Default 5000. */
+  minTimerMs?: number;
+}
+
 export interface CuratorDefinitionsPolicy {
   /** 'code': code definitions are re-seeded as versions; 'database': DB edits win, seeding only creates missing scripts. */
   owner?: 'code' | 'database';
@@ -65,6 +82,9 @@ export interface CuratorHostConfig {
   retention?: CuratorRetentionPolicy;
   /** 'reference': Requests point to scriptId+scriptVersion; 'snapshot': Requests carry the full AST. */
   astStorage?: 'reference' | 'snapshot';
+  /** Where conversations live; default 'durable'. Independent of `profile`. */
+  durability?: CuratorDurability;
+  checkpoint?: CuratorCheckpointConfig;
   /** Default lifetime of approval waits in ms (0 = never expire). Default 24h; Curator_Tool `approvalTtlMs` overrides. */
   approvalTtlMs?: number;
   registerPlugins?: (ctx: PluginRegistrationContext) => Promise<any> | any;
@@ -130,8 +150,15 @@ export interface CuratorHost {
   /** Emits one event as a Request (EVENT_EMITTED Response): spawns subscriptions and resumes waits. */
   emitEvent(eventName: string, payload?: any, opts?: HostEmitEventOptions): Promise<{ requestId: number; eventName: string; spawned: number[]; woken: number[] }>;
   events: CuratorHostEvents;
+  /** Working database: the memory database with 'ephemeral'/'checkpoint' durability. */
   prisma: any;
   processor: any;
+  /** 'checkpoint' only: the configured database and the processor running conversations that moved there. */
+  durablePrisma?: any;
+  durableProcessor?: any;
+  /** The database / processor a conversation lives in now (always `prisma` / `processor` unless 'checkpoint'). */
+  prismaFor(conversationId: number): Promise<any>;
+  processorFor(conversationId: number): Promise<any>;
   engine: any;
   conversations: ConversationRouter;
   user: any;

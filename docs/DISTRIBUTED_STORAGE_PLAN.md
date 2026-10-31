@@ -62,7 +62,27 @@ Consequences:
 - Remaining: move `CuratorRequestProcessor` onto the port (it still calls Prisma directly), and run the
   contract tests against MariaDB and Postgres.
 
-### Phase 1: Durability tiers
+### Phase 1: Durability tiers (done per host; per script/conversation still open)
+
+Built as host config `durability: 'durable' | 'ephemeral' | 'checkpoint'` (`packages/host`), on an in-process
+SQLite memory database (`provisionMemorySqliteDb`, ~30 ms; schema from a cached template of
+`prisma-sqlite/schema.prisma`). The processor runs unchanged on it.
+- `ephemeral`: the host's database is the memory database; the configured database is never touched.
+- `checkpoint` (`src/engine/Checkpoint.ts`): definitions are written to the configured database and mirrored
+  into memory with their ids (`mirrorDefinitions`); conversation ids are reserved durably
+  (`withDurableConversationIds`); memory rows get ids from 1e9 up. A maintenance system on the memory processor
+  moves each conversation that is suspended (human input, event wait, pause, timer further than 5 s away) or
+  finished to the durable database in one transaction (`demoteConversation`: request/event/subscription ids
+  remapped, including `notifyId`, `parentId`, `eventCursor`, `__stateSeq`, `HISTORY_SUMMARY`, `SUBSCRIBED`), then
+  it runs on a second, durable processor. `host.runTool` / `emitEvent` / `triggerAgent` / `pauseRequest` /
+  `resumeRequest` route by where the conversation lives; `host.prismaFor` / `processorFor` expose that.
+- Limits: the move is one way (no rehydration); conversations linked to another memory conversation or to
+  resources stay in memory; apps reading `host.prisma` directly (poker, keeris) must switch to `prismaFor` before
+  using `checkpoint`; MariaDB/Postgres `Permission`/`RolePermission` are not mirrored (SQLite has no such tables);
+  in a cluster, ownership of a moved conversation is unguarded until Phase 4 leases.
+
+The original design below is kept for reference.
+
 A durability setting per script or conversation:
 - `durable`: today's behaviour, persisting every step.
 - `checkpoint`: runs in memory. Writes only at suspension points (human waits, `scheduledAt` in the future,
@@ -112,6 +132,6 @@ Phase 4 depends on the storage port and tiers.
 ## Open decisions
 
 1. ~~Rebuild or replace `src/storage/IStorageAdapter.ts`~~: rebuilt (Phase 0).
-2. Where the durability tier is declared: script metadata, agent config, host config, or all three with precedence.
+2. Where the durability tier is declared: host config is done (Phase 1); per script or per conversation still open.
 3. MariaDB partitioning versus keeping foreign keys on `Request`/`Response`.
 4. Whether a Redis/NATS dependency is acceptable for wake-ups and the shared ephemeral tier.

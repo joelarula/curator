@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { PrismaClient } from '@prisma/client';
 import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -246,29 +247,7 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
     } catch (_) {}
   }
 
-  // Return a PrismaClient pointed at the SQLite file via better-sqlite3 adapter.
-  let SqlitePrismaClient: any;
-  const potentialPaths = [
-    path.join(CURATOR_ROOT, 'src/generated/prisma-sqlite/index.js'),
-    path.join(__dirname, '../../src/generated/prisma-sqlite/index.js'),
-    path.join(__dirname, '../generated/prisma-sqlite/index.js'),
-    path.join(CURATOR_ROOT, 'dist/src/generated/prisma-sqlite/index.js'),
-  ];
-  for (const p of potentialPaths) {
-    if (fs.existsSync(p)) {
-      const mod = await import(pathToFileURL(p).href);
-      SqlitePrismaClient = mod.PrismaClient;
-      break;
-    }
-  }
-  if (!SqlitePrismaClient) {
-    const mod = await import('../generated/prisma-sqlite/index.js');
-    SqlitePrismaClient = mod.PrismaClient;
-  }
-
-  const { PrismaBetterSqlite3 } = await import('@prisma/adapter-better-sqlite3');
-  const adapter = new PrismaBetterSqlite3({ url: dbUrl });
-  const prisma = new SqlitePrismaClient({ adapter }) as any;
+  const prisma = await createSqlitePrismaClient(dbUrl);
 
   // Set PRAGMA synchronous = OFF on the connection to bypass remote FlushFileBuffers calls over network shares
   try {
@@ -296,7 +275,38 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
     console.warn(`[sqliteProvisioner] Could not enable auto-vacuum: ${err?.message || err}`);
   }
 
-  // Ensure system user and project exist
+  await seedSystemRows(prisma);
+  return prisma;
+}
+
+/** A PrismaClient on the SQLite database at `dbUrl` (`file:<path>` or `:memory:`) via the better-sqlite3 adapter. */
+async function createSqlitePrismaClient(dbUrl: string): Promise<any> {
+  let SqlitePrismaClient: any;
+  const potentialPaths = [
+    path.join(CURATOR_ROOT, 'src/generated/prisma-sqlite/index.js'),
+    path.join(__dirname, '../../src/generated/prisma-sqlite/index.js'),
+    path.join(__dirname, '../generated/prisma-sqlite/index.js'),
+    path.join(CURATOR_ROOT, 'dist/src/generated/prisma-sqlite/index.js'),
+  ];
+  for (const p of potentialPaths) {
+    if (fs.existsSync(p)) {
+      const mod = await import(pathToFileURL(p).href);
+      SqlitePrismaClient = mod.PrismaClient;
+      break;
+    }
+  }
+  if (!SqlitePrismaClient) {
+    const mod = await import('../generated/prisma-sqlite/index.js');
+    SqlitePrismaClient = mod.PrismaClient;
+  }
+
+  const { PrismaBetterSqlite3 } = await import('@prisma/adapter-better-sqlite3');
+  const adapter = new PrismaBetterSqlite3({ url: dbUrl });
+  return new SqlitePrismaClient({ adapter }) as any;
+}
+
+/** Ensure system user and project exist */
+async function seedSystemRows(prisma: any): Promise<void> {
   const user = await prisma.user.upsert({
     where: { email: 'system@local' },
     update: {},
@@ -308,6 +318,58 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
     update: {},
     create: { id: '1', name: 'System Project', userId: user.id }
   });
+}
 
+let schemaDdl: Promise<string[]> | undefined;
+
+/**
+ * The schema's DDL (tables first, then indexes), read from a template database pushed once from
+ * prisma-sqlite/schema.prisma and cached in the temp directory under the schema's hash, so it never drifts.
+ */
+function sqliteSchemaDdl(): Promise<string[]> {
+  schemaDdl ??= (async () => {
+    const hash = createHash('sha1').update(fs.readFileSync(SQLITE_SCHEMA_PATH)).digest('hex').slice(0, 12);
+    const templatePath = path.join(os.tmpdir(), `curator-schema-${hash}.db`);
+    if (!fs.existsSync(templatePath) || fs.statSync(templatePath).size === 0) {
+      const stagingPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'curator-schema-')), 'template.db');
+      const staging = await provisionSqliteDb('schema_template', true, { databasePath: stagingPath });
+      await staging.$disconnect();
+      // Atomic publish: concurrent processes never read a half-written template
+      fs.copyFileSync(stagingPath, `${templatePath}.${process.pid}`);
+      fs.renameSync(`${templatePath}.${process.pid}`, templatePath);
+      fs.rmSync(path.dirname(stagingPath), { recursive: true, force: true });
+    }
+    const db = new DatabaseSync(templatePath, { readOnly: true });
+    try {
+      const rows = db
+        .prepare("SELECT sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY type = 'index', rowid")
+        .all() as Array<{ sql: string }>;
+      return rows.map(r => r.sql);
+    } finally {
+      db.close();
+    }
+  })();
+  return schemaDdl;
+}
+
+/**
+ * A curator database that lives only in this process (the `ephemeral` durability tier): same schema as
+ * provisionSqliteDb, created in milliseconds, gone when the client disconnects or the process exits.
+ *
+ * `idBase` starts every autoincrement id at that value, so rows created here never collide with rows copied in
+ * from a durable database with their original (lower) ids. Ids are 32-bit, so durable ids must stay below it.
+ */
+export async function provisionMemorySqliteDb(options: { idBase?: number } = {}): Promise<any> {
+  const prisma = await createSqlitePrismaClient(':memory:');
+  for (const ddl of await sqliteSchemaDdl()) await prisma.$executeRawUnsafe(ddl);
+  if (options.idBase) {
+    const tables = (await prisma.$queryRawUnsafe(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND sql LIKE '%AUTOINCREMENT%'"
+    )) as Array<{ name: string }>;
+    for (const { name } of tables) {
+      await prisma.$executeRawUnsafe('INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)', name, options.idBase - 1);
+    }
+  }
+  await seedSystemRows(prisma);
   return prisma;
 }

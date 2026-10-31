@@ -3,6 +3,12 @@ import {
   provisionSqliteDb,
   provisionMariadbDb,
   provisionPostgresDb,
+  provisionMemorySqliteDb,
+  CheckpointManager,
+  DEFAULT_ID_BASE,
+  assertIdHeadroom,
+  mirrorDefinitions,
+  withDurableConversationIds,
   CuratorRequestProcessor,
   curatorEngine,
   ConversationManager,
@@ -30,8 +36,12 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
   const curatorDbUrl = config.curatorDb?.url ?? process.env.CURATOR_DATABASE_URL ?? process.env.DATABASE_URL;
   let prisma: any;
   let databasePath: string | undefined;
+  const durability = config.durability ?? 'durable';
 
-  if (curatorDbUrl && (curatorDbUrl.startsWith('mysql://') || curatorDbUrl.startsWith('mariadb://'))) {
+  if (durability === 'ephemeral') {
+    // Nothing reaches the configured database
+    prisma = await provisionMemorySqliteDb();
+  } else if (curatorDbUrl && (curatorDbUrl.startsWith('mysql://') || curatorDbUrl.startsWith('mariadb://'))) {
     prisma = await provisionMariadbDb(curatorDbUrl);
   } else if (curatorDbUrl && (curatorDbUrl.startsWith('postgres://') || curatorDbUrl.startsWith('postgresql://'))) {
     prisma = await provisionPostgresDb(curatorDbUrl);
@@ -69,6 +79,26 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
     });
   }
 
+  // Definitions (users, projects, roles, scripts, agents) live in the configured database. With 'checkpoint',
+  // conversations run in a memory mirror of it and move there at their first suspension point.
+  const definitionsDb = prisma;
+  let durablePrisma: any;
+  let memoryDb: any;
+  let checkpoint: CheckpointManager | undefined;
+  if (durability === 'checkpoint') {
+    const idBase = config.checkpoint?.idBase ?? DEFAULT_ID_BASE;
+    durablePrisma = prisma;
+    await assertIdHeadroom(durablePrisma, idBase);
+    memoryDb = await provisionMemorySqliteDb({ idBase });
+    await mirrorDefinitions(durablePrisma, memoryDb, { replace: true });
+    prisma = withDurableConversationIds(memoryDb, durablePrisma);
+    checkpoint = new CheckpointManager(prisma, durablePrisma, { idBase, minTimerMs: config.checkpoint?.minTimerMs });
+  }
+  /** After a definition write: brings the memory mirror up to date (no-op unless 'checkpoint'). */
+  const syncDefinitions = async () => {
+    if (memoryDb) await mirrorDefinitions(durablePrisma, memoryDb);
+  };
+
   let conversation = await prisma.conversation.findFirst({
     where: { userId: user.id, projectId: project.id },
   });
@@ -96,7 +126,7 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
   // 5. Instantiate RequestProcessor
   // The host itself reaches tools as a service (`CuratorHostService`), provided once it is built.
   const toolContextExtras: Record<string, any> = config.domainDb ? { domainDb: config.domainDb } : {};
-  const processor = new (CuratorRequestProcessor as any)(prisma, {
+  const processorOptions = {
     astStorage: policy.astStorage,
     retention: policy.retention,
     approvalTtlMs: config.approvalTtlMs,
@@ -110,12 +140,33 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
         });
       }
     },
-  });
+  };
+  const processor = new (CuratorRequestProcessor as any)(prisma, processorOptions);
+  const durableProcessor = durablePrisma ? new (CuratorRequestProcessor as any)(durablePrisma, processorOptions) : undefined;
+  if (checkpoint) {
+    processor.registerMaintenanceSystem(
+      checkpoint.maintenanceSystem((moved) => {
+        for (const m of moved) events.broadcast('conversation_checkpointed', { conversationId: m.conversationId });
+        events.broadcast('database_change', { tables: ['requests', 'responses'] });
+        durableProcessor.wake();
+      })
+    );
+  }
+  const processorForDb = (requestDb: any) => (requestDb === prisma ? processor : durableProcessor ?? processor);
 
   // Plugin projectors run for every state event on this database, whichever component appends it
-  const unregisterProjectors = registeredEngine.plugins.flatMap((plugin: any) =>
-    (plugin.stateProjectors ?? []).map((projector: any) => registerStateProjector(prisma, projector))
+  const unregisterProjectors = [prisma, durablePrisma].filter(Boolean).flatMap((db: any) =>
+    registeredEngine.plugins.flatMap((plugin: any) =>
+      (plugin.stateProjectors ?? []).map((projector: any) => registerStateProjector(db, projector))
+    )
   );
+  const inMemory = async (conversationId: number) => !checkpoint || (await checkpoint.inMemory(conversationId));
+  /** The database holding a request (memory first; an id from before a move is translated). */
+  const requestLocation = async (requestId: number): Promise<{ db: any; id: number }> => {
+    if (!durablePrisma) return { db: prisma, id: requestId };
+    if (await prisma.request.findUnique({ where: { id: requestId }, select: { id: true } })) return { db: prisma, id: requestId };
+    return { db: durablePrisma, id: checkpoint!.durableRequestId(requestId) };
+  };
 
   // 6. Instantiate ConversationManager & ConversationRouter for native intra-node agent communication
   const convManager = new ConversationManager({
@@ -186,6 +237,10 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
     events,
     prisma,
     processor,
+    durablePrisma,
+    durableProcessor,
+    prismaFor: async (conversationId: number) => ((await inMemory(conversationId)) ? prisma : durablePrisma),
+    processorFor: async (conversationId: number) => ((await inMemory(conversationId)) ? processor : durableProcessor),
     engine: registeredEngine,
     conversations,
     user,
@@ -193,20 +248,29 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
 
     async start(intervalMs?: number): Promise<void> {
       const interval = intervalMs ?? config.intervalMs ?? 3000;
+      if (durableProcessor) {
+        // Its startup writes default roles/agents durably; the memory mirror picks them up before work starts
+        await durableProcessor.start(interval);
+        await syncDefinitions();
+      }
       await processor.start(interval);
       logger.info?.(`[CuratorHost:${name}] RequestProcessor polling started (${interval}ms)`);
     },
 
     async stop(): Promise<void> {
-      if (processor && typeof processor.stop === 'function') {
-        processor.stop();
-        // Polled requests still running (e.g. an LLM turn) finish before the DB goes away
-        await processor.idle?.();
+      for (const p of [processor, durableProcessor]) {
+        if (p && typeof p.stop === 'function') {
+          p.stop();
+          // Polled requests still running (e.g. an LLM turn) finish before the DB goes away
+          await p.idle?.();
+        }
       }
       events.close();
       unregisterProjectors.forEach((unregister: () => void) => unregister());
-      if (prisma && typeof prisma.$disconnect === 'function') {
-        await prisma.$disconnect();
+      for (const db of [prisma, durablePrisma]) {
+        if (db && typeof db.$disconnect === 'function') {
+          await db.$disconnect();
+        }
       }
       logger.info?.(`[CuratorHost:${name}] Host stopped cleanly`);
     },
@@ -216,7 +280,8 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
     },
 
     async runTool(toolName: string, args: Record<string, any> = {}, opts: HostRunToolOptions = {}) {
-      return processor.runToolRequest({
+      const target = await host.processorFor(opts.conversationId ?? conversation.id);
+      return target.runToolRequest({
         toolName,
         args,
         runtimeArgs: opts.runtimeArgs,
@@ -232,7 +297,8 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
     },
 
     async emitEvent(eventName: string, payload?: any, opts: HostEmitEventOptions = {}) {
-      return processor.emitEventRequest({
+      const target = await host.processorFor(opts.conversationId ?? conversation.id);
+      return target.emitEventRequest({
         ...opts,
         eventName,
         payload,
@@ -244,7 +310,7 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
     },
 
     async seed(): Promise<SeedResult> {
-      const result = await seedAgentsAndTools(prisma, registeredEngine, {
+      const result = await seedAgentsAndTools(definitionsDb, registeredEngine, {
         projectName,
         projectId,
         userId,
@@ -254,6 +320,7 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
         rbacManagers: config.rbac?.managers,
         definitions: policy.definitions,
       });
+      await syncDefinitions();
       return {
         ...result,
         databasePath,
@@ -268,14 +335,15 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
       let conversationId = conversation.id;
       if (options.conversationId != null && options.conversationId !== conversation.id) {
         // Only conversations of the host's own project and user.
-        const target = await prisma.conversation.findFirst({
+        const target = await definitionsDb.conversation.findFirst({
           where: { id: options.conversationId, projectId: project.id, userId: user.id },
         });
         if (!target) throw new Error(`Conversation ${options.conversationId} not found in project '${project.id}'`);
         conversationId = target.id;
       }
 
-      const agent = await prisma.agent.findFirst({
+      const db = await host.prismaFor(conversationId);
+      const agent = await db.agent.findFirst({
         where: { OR: [{ id: agentName }, { name: agentName }], existent: true },
         include: { script: true },
       });
@@ -286,12 +354,12 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
         );
       }
 
-      const script = agent?.script || (await prisma.script.findFirst({ where: { name: agentName } }));
+      const script = agent?.script || (await db.script.findFirst({ where: { name: agentName } }));
       if (!script) {
         throw new Error(`Curator script or workflow for agent '${agentName}' not found`);
       }
 
-      const request = await prisma.request.create({
+      const request = await db.request.create({
         data: {
           user: { connect: { id: user.id } },
           project: { connect: { id: project.id } },
@@ -305,13 +373,13 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
       });
 
       events.broadcast('request_start', { requestId: request.id, agent: agentName });
-      processor.wake();
+      processorForDb(db).wake();
       return request;
     },
 
     async pauseRequest(requestId: number | string): Promise<any> {
-      const id = typeof requestId === 'string' ? parseInt(requestId, 10) : requestId;
-      const updated = await prisma.request.update({
+      const { db, id } = await requestLocation(typeof requestId === 'string' ? parseInt(requestId, 10) : requestId);
+      const updated = await db.request.update({
         where: { id },
         data: { status: 'PAUSED', lockedBy: null, lockedAt: null },
       });
@@ -320,13 +388,13 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
     },
 
     async resumeRequest(requestId: number | string): Promise<any> {
-      const id = typeof requestId === 'string' ? parseInt(requestId, 10) : requestId;
-      const updated = await prisma.request.update({
+      const { db, id } = await requestLocation(typeof requestId === 'string' ? parseInt(requestId, 10) : requestId);
+      const updated = await db.request.update({
         where: { id },
         data: { status: 'NEW', lockedBy: null, lockedAt: null },
       });
       events.broadcast('request_resumed', { requestId: id });
-      processor.wake();
+      processorForDb(db).wake();
       return updated;
     },
 
@@ -341,11 +409,11 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
       const pId = options.id || `proj_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       const pUserId = options.userId || user.id;
 
-      let newProject = await prisma.project.findFirst({
+      let newProject = await definitionsDb.project.findFirst({
         where: { id: pId },
       });
       if (!newProject) {
-        newProject = await prisma.project.create({
+        newProject = await definitionsDb.project.create({
           data: {
             id: pId,
             name: options.name,
@@ -372,17 +440,17 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
         registeredEngine.roles ? Array.from(registeredEngine.roles.keys()) : []
       );
 
-      if (prisma.projectRole) {
+      if (definitionsDb.projectRole) {
         for (const roleName of rolesToAssign) {
-          const roleRec = await prisma.role.findFirst({
+          const roleRec = await definitionsDb.role.findFirst({
             where: { OR: [{ id: roleName }, { name: roleName }] },
           });
           if (roleRec) {
-            const existing = await prisma.projectRole.findFirst({
+            const existing = await definitionsDb.projectRole.findFirst({
               where: { projectId: newProject.id, roleId: roleRec.id },
             });
             if (!existing) {
-              await prisma.projectRole.create({
+              await definitionsDb.projectRole.create({
                 data: { projectId: newProject.id, roleId: roleRec.id },
               });
             }
@@ -392,7 +460,7 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
       }
 
       // Optionally assign default user roles to the project creator / human user
-      if (options.assignDefaultRolesToUser !== false && prisma.userRole) {
+      if (options.assignDefaultRolesToUser !== false && definitionsDb.userRole) {
         const defaultRoles: string[] = [];
         if (registeredEngine?.plugins) {
           for (const plugin of registeredEngine.plugins) {
@@ -402,13 +470,13 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
           }
         }
         for (const roleName of defaultRoles) {
-          const roleRec = await prisma.role.findFirst({ where: { OR: [{ id: roleName }, { name: roleName }] } });
+          const roleRec = await definitionsDb.role.findFirst({ where: { OR: [{ id: roleName }, { name: roleName }] } });
           if (roleRec) {
-            const existingUr = await prisma.userRole.findFirst({
+            const existingUr = await definitionsDb.userRole.findFirst({
               where: { userId: pUserId, roleId: roleRec.id, projectId: newProject.id },
             });
             if (!existingUr) {
-              await prisma.userRole.create({
+              await definitionsDb.userRole.create({
                 data: { userId: pUserId, roleId: roleRec.id, projectId: newProject.id },
               });
             }
@@ -416,12 +484,13 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
         }
       }
 
+      await syncDefinitions();
       events.broadcast('project_created', { projectId: newProject.id, name: newProject.name });
       return { project: newProject, conversation: newConversation, projectRoles };
     },
 
     async listProjects(): Promise<any[]> {
-      const projects = await prisma.project.findMany({
+      const projects = await definitionsDb.project.findMany({
         where: { existent: true },
         include: {
           projectRoles: { include: { role: true } },
@@ -439,7 +508,7 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
     },
 
     async getProject(projectId: string): Promise<any | null> {
-      const p = await prisma.project.findFirst({
+      const p = await definitionsDb.project.findFirst({
         where: { id: projectId, existent: true },
         include: {
           projectRoles: { include: { role: true } },
@@ -458,35 +527,37 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
     },
 
     async assignUserProjectRole(userId: string, roleName: string, projectId: string): Promise<any> {
-      const roleRec = await prisma.role.findFirst({
+      const roleRec = await definitionsDb.role.findFirst({
         where: { OR: [{ id: roleName }, { name: roleName }] },
       });
       if (!roleRec) {
         throw new Error(`Role '${roleName}' not found.`);
       }
       // Ensure role is assigned to the project as a ProjectRole
-      if (prisma.projectRole) {
-        const pr = await prisma.projectRole.findFirst({
+      if (definitionsDb.projectRole) {
+        const pr = await definitionsDb.projectRole.findFirst({
           where: { projectId, roleId: roleRec.id },
         });
         if (!pr) {
-          await prisma.projectRole.create({
+          await definitionsDb.projectRole.create({
             data: { projectId, roleId: roleRec.id },
           });
         }
       }
       // Ensure userRole with projectId exists
-      const existing = await prisma.userRole.findFirst({
+      const existing = await definitionsDb.userRole.findFirst({
         where: { userId, roleId: roleRec.id, projectId },
       });
       if (existing) return existing;
-      return prisma.userRole.create({
+      const created = await definitionsDb.userRole.create({
         data: { userId, roleId: roleRec.id, projectId },
       });
+      await syncDefinitions();
+      return created;
     },
 
     async getUserProjectRoles(userId: string, projectId: string): Promise<string[]> {
-      const userRoles = await prisma.userRole.findMany({
+      const userRoles = await definitionsDb.userRole.findMany({
         where: {
           userId,
           OR: [{ projectId }, { projectId: null }],
@@ -497,6 +568,7 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
     },
   };
   processor.provideService(CuratorHostService, host);
+  durableProcessor?.provideService(CuratorHostService, host);
 
   // 7. Seed tools, scripts, and agents if not already in database (idempotent setup)
   if (config.autoSeed !== false) {

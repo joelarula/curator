@@ -322,6 +322,8 @@ Minimum expected reporting in handoff:
 - **Bypassing package boundaries with relative `dist/` imports**: Importing `../../../packages/host/dist/...` couples apps to internal folder layouts and breaks packaging/bundling. Always use `@curator/host` or subpath exports (`@curator/host/config`).
 - **Leaky package exports (`./*`)**: Exposing `"./*": "./dist/*"` in `package.json` allows consumers to depend on private engine classes. Use explicit subpaths (`.`, `./config`, `./contracts`, `./client`).
 - **Fragmented internal file imports**: Bypassing domain barrel files (`index.ts`) by importing directly from `../models/someInternalFile.ts` causes brittle refactoring breaks. Use index exports.
+- **Wildcard barrel sprawl (`export * from '...'`)**: Using unrestricted `export *` in domain `index.ts` files accidentally exposes volatile internal helpers as public contract symbols. Refactoring or deleting an internal file then silently breaks external consumers and test suites. Use explicit named exports.
+- **Reinventing Host shell services in MiniApps**: Implementing custom local user identity, TTY prompts, and JSON file stores (e.g. `pokerProfile.ts`) inside miniapps fragments identity logic. Always use `@curator/host` identity providers (`resolveClientIdentity`, `createClientShell`).
 
 ## 12. Preferred implementation style
 
@@ -355,3 +357,55 @@ When uncertain, document assumptions in the handoff and isolate the change to th
 6. Validate with targeted build/test commands
 
 Following this sequence keeps cross-module behavior predictable and easier to debug.
+
+## 15. Contract-based MiniApp & MiniGame Architecture
+
+To enable rapid core development in `@curator/agent-server` and `@curator/host` without breaking downstream consumers (`miniapps/*`, `minigames/*`), follow the **5-Pillar Contract Architecture**.
+
+### 15.1 Diagnosis: Root Causes of Downstream Fragility
+1. **Leaky Boundary Surfaces (Barrel `export *` Sprawl)**: When domain `models/index.ts` files do wildcard exports (`export * from './pokerGuards.ts'`), internal helpers become implicit public APIs. Moving or removing them breaks downstream tests and external consumers.
+2. **Deep and Direct File Coupling**: Reaching into internal relative engine paths (`../../packages/host/dist/...` or `@curator/agent-server/src/...`) couples downstream apps to internal directory layouts.
+3. **Core Shell Features Invented in MiniApps**: Reinventing client identity resolution, prompt handling, and local profile storage inside games (e.g. `pokerProfile.ts`) duplicates logic and creates inconsistencies across apps.
+4. **Abrupt Deletions**: Deleting public symbols without warning immediately breaks consumers that rely on them.
+
+### 15.2 The 5-Pillar Architectural Guidelines
+
+#### Pillar 1: Promote Shell & Identity Logic into `@curator/host` (`HostProfileProvider`)
+- Identity resolution (CLI flags `--name`, stored profiles `~/.curator/identities/<appId>.json`, interactive TTY prompts, deterministic `user_${slug}` actor IDs) belongs in `@curator/host`.
+- MiniApps configure options on `createClientShell` or `resolveClientIdentity`; they must **never** build ad-hoc JSON storage or custom readline prompt loops.
+
+#### Pillar 2: The Contract Boundary Pattern
+- Downstream apps develop against pure contracts (`@curator/host/contracts`, `@curator/host/client`).
+- Core internals (Prisma models, SQLite low-level provisioners, AST compiler internals, internal execution routers) must never be imported into MiniApps/MiniGames.
+- Barrels must explicitly declare exported symbols:
+  ```typescript
+  // DO: Explicit named exports
+  export { PokerTableShape, PokerBankrollShape } from './pokerShapes.ts';
+  export { isCard, isStreet } from './pokerGuards.ts';
+
+  // DON'T: Wildcard export that accidentally publishes internal refactoring churn
+  export * from './pokerGuards.ts';
+  ```
+
+#### Pillar 3: Schema-First Transport Protocols
+Communication between Host, Channel, and MiniApp REPL happens over 4 standardized message envelopes:
+1. **`EventIntent`**: `{ type, payload, conversationId, requestId }` — intent from Actor/User into Engine.
+2. **`ChoicesPrompt`**: `{ prompt, choices: [{ id, label, action, amount }], blocking }` — engine choice request to Actor.
+3. **`ToolExecution`**: `{ tool, args, conversationId }` — direct tool invocation boundary.
+4. **`SpeechMessage`**: `{ text, speaker, speechAct, targetId }` — conversational or ambient chatter.
+
+Because this wire protocol is standardized, Core can refactor AST execution, subroutines, or storage without breaking client channels.
+
+#### Pillar 4: Deprecation Shims & Facades (No Abrupt Deletions)
+- When public symbols, types, or guards are moved or replaced (e.g., relocating `isCard` from `pokerGuards.ts` to `engine/pokerRules.ts`):
+  - **Never delete the old file immediately**.
+  - Retain the old file as a 1-release re-export shim with `@deprecated` JSDoc annotations:
+    ```typescript
+    /** @deprecated Import directly from '../engine/pokerRules.ts' or '../models/pokerContracts.ts' */
+    export { isCard, isStreet } from '../engine/pokerRules.ts';
+    ```
+- This allows existing tests and downstream consumers to transition without immediate breakage.
+
+#### Pillar 5: Downstream Contract Verification Suite
+- Verify public contract compliance using targeted static checks (`tsc --noEmit`) across all modules.
+- Ensure that public tool registrations, workflow AST shapes, and event definitions conform to the Host contracts before committing changes to Core.
