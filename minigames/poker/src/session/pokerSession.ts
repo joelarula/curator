@@ -992,17 +992,25 @@ export async function createPokerGameSession(
     );
 
     const stepRes = await stepInteractiveConversation(host, targetConvId, maxSteps);
-    const [humanTurn, gameState, parked] = await Promise.all([
+    const [humanTurn, gameState, parked, deferred] = await Promise.all([
       getWaitingHumanTurn(targetConvId),
       getGameState(targetConvId),
       prisma.request.findMany({
         where: { conversationId: targetConvId, status: { in: ['WAITING_FOR_USER', 'WAITING_FOR_EVENT'] } },
         select: { context: true },
       }),
+      // Requests scheduled for later (e.g. an LLM call rescheduled after a rate limit)
+      prisma.request.findFirst({
+        where: { conversationId: targetConvId, status: 'NEW', scheduledAt: { gt: new Date() } },
+        orderBy: { scheduledAt: 'asc' },
+        select: { scheduledAt: true },
+      }),
     ]);
-    // Timeouts only fire when the processor steps; nothing polls in direct mode, so report the next deadline
-    const waitDeadline = parked
-      .map((r: any) => (typeof r.context === 'string' ? JSON.parse(r.context || '{}') : r.context || {}).waitDeadline as string | undefined)
+    // Timeouts and deferred requests only run when the processor steps; nothing polls in direct mode, so report the next deadline
+    const waitDeadline = [
+      ...parked.map((r: any) => (typeof r.context === 'string' ? JSON.parse(r.context || '{}') : r.context || {}).waitDeadline as string | undefined),
+      deferred?.scheduledAt ? new Date(deferred.scheduledAt).toISOString() : undefined,
+    ]
       .filter((d): d is string => Boolean(d))
       .sort()[0];
 

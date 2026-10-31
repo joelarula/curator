@@ -1046,12 +1046,15 @@ export function defineSubroutine<TParams = any>(
       returns?: string | TypedPathProxy<any>;
       description?: string;
       defaultMode?: 'child' | 'inline';
+      priority?: number;
     },
   subOptions?: {
     params?: Record<string, CuratorParamSpec>;
     returns?: string | TypedPathProxy<any>;
     description?: string;
     defaultMode?: 'child' | 'inline';
+    /** Request priority of the subroutine's flow and everything it spawns (higher runs first; default 0). */
+    priority?: number;
   }
 ): TypedSubroutine<TParams> {
   let resolvedBody: any;
@@ -1059,6 +1062,7 @@ export function defineSubroutine<TParams = any>(
   let returns: string | undefined;
   let description: string | undefined;
   let defaultMode: 'child' | 'inline' | undefined;
+  let priority: number | undefined;
 
   if (typeof bodyOrOptions === 'function') {
     resolvedBody = bodyOrOptions();
@@ -1066,6 +1070,7 @@ export function defineSubroutine<TParams = any>(
     returns = subOptions?.returns ? String(subOptions.returns) : undefined;
     description = subOptions?.description;
     defaultMode = subOptions?.defaultMode;
+    priority = subOptions?.priority;
   } else if (
     bodyOrOptions &&
     typeof bodyOrOptions === 'object' &&
@@ -1078,12 +1083,14 @@ export function defineSubroutine<TParams = any>(
     returns = opts.returns ? String(opts.returns) : undefined;
     description = opts.description;
     defaultMode = opts.defaultMode;
+    priority = opts.priority;
   } else {
     resolvedBody = bodyOrOptions;
     params = subOptions?.params;
     returns = subOptions?.returns ? String(subOptions.returns) : undefined;
     description = subOptions?.description;
     defaultMode = subOptions?.defaultMode;
+    priority = subOptions?.priority;
   }
 
   if (Array.isArray(resolvedBody)) {
@@ -1094,6 +1101,9 @@ export function defineSubroutine<TParams = any>(
     resolvedBody = { type: CuratorNodeType.Sequential, subAgents: unwrapped };
   } else if (resolvedBody && typeof resolvedBody.build === 'function') {
     resolvedBody = resolvedBody.build();
+  }
+  if (priority !== undefined && resolvedBody && typeof resolvedBody === 'object') {
+    resolvedBody = { ...resolvedBody, priority };
   }
 
   const cleanName = name.replace(/^#+/, '');

@@ -83,10 +83,11 @@ export function renderPokerEvent(
       const spk = payload?.speakerName || payload?.speaker || 'Player';
       const to = payload?.targetId ? ` -> @${payload.targetId}` : '';
       const tag = payload?.targetId ? `[${PokerSpeechAct.WHISPER}]` : (payload?.speechAct ? `[${payload.speechAct}]` : `[${PokerSpeechAct.TABLE_TALK}]`);
-      console.log(`\x1b[35m${tag} ${spk}${to}: "${payload?.text}"\x1b[0m`);
+      // Bright tag + bold speaker + bright white text stays readable on dark terminals
+      console.log(`\x1b[95m${tag}\x1b[0m \x1b[1m\x1b[95m${spk}${to}:\x1b[0m \x1b[97m"${payload?.text}"\x1b[0m`);
       if (payload?.aiReply) {
-        const aiSpk = payload?.aiSpeaker ? `\x1b[1m${payload.aiSpeaker}\x1b[0m: ` : '';
-        console.log(`\x1b[36m[REPLY] ${aiSpk}"${payload.aiReply}"\x1b[0m`);
+        const aiSpk = payload?.aiSpeaker ? `\x1b[1m\x1b[96m${payload.aiSpeaker}:\x1b[0m ` : '';
+        console.log(`\x1b[96m[REPLY]\x1b[0m ${aiSpk}\x1b[97m"${payload.aiReply}"\x1b[0m`);
       }
       break;
     }

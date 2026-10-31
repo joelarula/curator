@@ -168,6 +168,9 @@ const cuedSeat = gameState.players.find((p) => p.id.eq(cue.speakerId));
 /** The cue still holds the table (no newer cue took it over) and its seat is still there. */
 const holdsTable = state.talk.open.not().or(state.talk.open.cueId.eq(cue.cueId)).and(cuedSeat.isTruthy());
 
+/** Chatter runs below the game flow, so a seat's turn never waits behind a table-talk line. */
+export const CHATTER_PRIORITY = -10;
+
 /**
  * Speaks a cue through its seat, then releases the table. A cue that lost the table to a concurrent one,
  * or whose seat has left, stays silent.
@@ -175,7 +178,7 @@ const holdsTable = state.talk.open.not().or(state.talk.open.cueId.eq(cue.cueId))
 export const speakChatter = defineSubroutine('speak_chatter', [
   ifElse(holdsTable, [voiceSeat({ actor: cuedSeat, cue })]),
   ChatterDone.emit({ cueId: cue.cueId }),
-], { params: { cue: { type: 'object' } } });
+], { params: { cue: { type: 'object' } }, priority: CHATTER_PRIORITY });
 
 const tableLive = TablePhase.notIn(PokerTablePhase.PAUSED, PokerTablePhase.EXITED, PokerTablePhase.GAME_OVER);
 const salientAction = action.action.type

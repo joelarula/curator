@@ -159,7 +159,7 @@ export class CuratorRequestProcessor {
   private astStorage: 'reference' | 'snapshot';
   private maxCallDepth: number;
   /** Script version of the Request being executed; pins child Requests to the same version. */
-  private execScope = new AsyncLocalStorage<{ scriptId?: number | null; scriptVersion?: number | null }>();
+  private execScope = new AsyncLocalStorage<{ scriptId?: number | null; scriptVersion?: number | null; priority?: number }>();
   private engine: ProcessorEngine;
   private toolContextExtras: Record<string, any>;
   /** In-process data of direct tool Requests: runtime-only inputs and the raw output/error. */
@@ -359,6 +359,12 @@ export class CuratorRequestProcessor {
     const scope = this.execScope.getStore();
     if (scope?.scriptVersion && args.data.scriptId != null && args.data.scriptId === scope.scriptId && args.data.scriptVersion === undefined) {
       args = { ...args, data: { ...args.data, scriptVersion: scope.scriptVersion } };
+    }
+    // Priority: the explicit one, else the node's own, else the spawning Request's (a flow keeps its priority)
+    if (args.data.priority == null) {
+      const priority = args.data.ast?.priority ?? scope?.priority;
+      const { priority: _unset, ...rest } = args.data;
+      args = { ...args, data: priority != null ? { ...rest, priority } : rest };
     }
     if (args.data.ast == null && args.data.scriptId != null) {
       // Reference mode: the node lives in ScriptVersion (validated on save), addressed by context.astPath.
@@ -907,7 +913,7 @@ export class CuratorRequestProcessor {
    * Can be filtered to a specific conversation (e.g. specific table) or step all pending tasks.
    */
   public async step(options?: { conversationId?: number; take?: number }): Promise<number> {
-    await this.expireHumanWaits();
+    await this.expireHumanWaits(options?.conversationId);
     const availableSlots = options?.take ?? this.getAvailableConcurrencySlots();
     if (availableSlots <= 0) return 0;
 
@@ -955,10 +961,10 @@ export class CuratorRequestProcessor {
     const convId = options?.conversationId;
 
     while (steps < maxSteps) {
-      await this.expireHumanWaits();
-      // 1. Execute one AST step cycle. A flow parked at a wait does not stop the others: concurrent
-      //    flows (systems, subscriptions) keep running until nothing in the conversation is runnable.
-      const processed = await this.step({ conversationId: convId });
+      // 1. Execute one request (step() also expires timed waits). A flow parked at a wait does not stop the others:
+      //    concurrent flows (systems, subscriptions) keep running until nothing in the conversation is runnable.
+      //    One at a time so requests spawned meanwhile are ordered by priority too.
+      const processed = await this.step({ conversationId: convId, take: 1 });
 
       if (processed === 0) {
         // Idle: report the wait gate the conversation is parked at, if any
@@ -981,9 +987,14 @@ export class CuratorRequestProcessor {
           };
         }
 
+        // Work scheduled for later (e.g. a rate-limit retry) keeps the conversation alive
+        const deferred = await this.prisma.request.count({
+          where: { ...(convId !== undefined ? { conversationId: convId } : {}), status: 'NEW', scheduledAt: { gt: new Date(this.clock()) } },
+        });
+
         return {
           steps,
-          done: true,
+          done: deferred === 0,
           waiting: false,
           waitingRequest: null,
         };
@@ -1120,7 +1131,7 @@ export class CuratorRequestProcessor {
       }
       const ast: CuratorAstNode = validation.node!;
 
-      await this.execScope.run({ scriptId: req.scriptId, scriptVersion: req.scriptVersion }, () => curatorContext.run({
+      await this.execScope.run({ scriptId: req.scriptId, scriptVersion: req.scriptVersion, priority: req.priority ?? undefined }, () => curatorContext.run({
         userId: req.userId,
         projectId: req.projectId || 1,
         userIds: [req.userId],
@@ -1240,19 +1251,23 @@ export class CuratorRequestProcessor {
       let astData: any;
       let astPath: string | undefined;
       let scriptVersion: number | undefined;
+      // A handler runs at its own priority, not the emitter's
+      let priority: number | undefined;
       try {
         if (sub.script.currentVersion > 0) {
           const loaded = await getScriptVersionAst(this.prisma, sub.scriptId, sub.script.currentVersion);
           scriptVersion = loaded.version;
           astPath = entryAstPath(loaded.ast, sub.entry);
+          const entryNode = getEntry(loaded.ast, sub.entry ?? undefined).node;
+          priority = entryNode.priority;
           if (this.astStorage === 'snapshot') {
-            const entryNode = getEntry(loaded.ast, sub.entry ?? undefined).node;
             astData = loaded.ast.type === 'Curator_Module' ? expandInlineCalls(entryNode, loaded.ast as any) : entryNode;
           }
         } else {
           const legacy = typeof sub.script.ast === 'string' ? JSON.parse(sub.script.ast) : sub.script.ast;
           if (!legacy) continue;
           astData = getEntry(legacy, sub.entry ?? undefined).node;
+          priority = astData.priority;
         }
       } catch (err: any) {
         logger.warn(`[CuratorRequestProcessor] Subscription ${sub.id} for '${eventName}' skipped: ${err.message}`);
@@ -1270,6 +1285,7 @@ export class CuratorRequestProcessor {
           agentId: sub.agentId ?? undefined,
           status: 'NEW',
           ast: astData,
+          priority: priority ?? 0,
           // An addressed event spawns a private handler: it cannot read or write other flows' state.
           context: { params: { [alias]: payload }, input: payload, eventName, origin: 'AST', astPath, ...(target ? { __scope: target } : {}) }
         }
@@ -1791,9 +1807,12 @@ export class CuratorRequestProcessor {
    * Human prompts with `timeoutSeconds` park with `context.waitDeadline`. Past it, the prompt completes with a
    * HUMAN_TIMEOUT Response (nothing is bound to `as`), so the script can re-ask (loop), nudge or give up.
    */
-  private async expireHumanWaits() {
+  private async expireHumanWaits(conversationId?: number) {
     const parked = await this.prisma.request.findMany({
-      where: { status: { in: ['WAITING_FOR_USER', 'WAITING_FOR_EVENT'] } },
+      where: {
+        status: { in: ['WAITING_FOR_USER', 'WAITING_FOR_EVENT'] },
+        ...(conversationId !== undefined ? { conversationId } : {})
+      },
       orderBy: { updatedAt: 'asc' },
       take: 50
     });

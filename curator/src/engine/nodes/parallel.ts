@@ -43,7 +43,7 @@ export const parallelNode: NodeHandler<CuratorParallelNode> = {
           notifyId: joinReq.id,
           ast: nodeAst,
           context: branchContext,
-          priority: nodeAst.priority ?? 0,
+          priority: nodeAst.priority,
           scheduledAt: ctx.resolveScheduledAt(nodeAst) ?? null
         }
       });

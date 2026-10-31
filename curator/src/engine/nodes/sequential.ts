@@ -26,7 +26,7 @@ export const sequentialNode: NodeHandler<CuratorSequentialNode> = {
           notifyId: currentNotifyId,
           ast: nodeAst,
           context: isFirst ? req.context : undefined,
-          priority: nodeAst.priority ?? 0,
+          priority: nodeAst.priority,
           scheduledAt: ctx.resolveScheduledAt(nodeAst) ?? null
         }
       });
