@@ -1,8 +1,8 @@
 /**
  * Poker Client Shell Specification & Configuration.
  * Pure declarative configuration for Texas Hold'em interactive shell:
- * whitelisted tools (poker_get_standings, poker_list_tables, poker_create_table),
- * inspection commands (table, standings, pause, resume), and free-text speech routing.
+ * whitelisted tools (poker_get_standings, poker_get_rules, poker_list_tables, poker_create_table),
+ * inspection commands (table, standings, rules, pause, resume), and free-text speech routing.
  * Seat actions and speech are events (`poker:human_action`, `poker:speech`), never tool calls.
  */
 import {
@@ -25,6 +25,7 @@ import {
 import { renderTable, renderCompactStatus, renderStandings } from '../ui/tableRenderer.ts';
 import {
   pokerGetStandingsTool,
+  pokerGetRulesTool,
   pokerListTablesTool,
   pokerCreateTableTool,
 } from '../plugins/pokerPlugin.ts';
@@ -36,6 +37,7 @@ export { type ShellCommand, type ToolAction };
  */
 export const POKER_WHITELISTED_TOOLS: (string | CuratorToolDefinition)[] = [
   pokerGetStandingsTool,
+  pokerGetRulesTool,
   pokerListTablesTool,
   pokerCreateTableTool,
 ];
@@ -153,6 +155,24 @@ export const POKER_COMMANDS: ReplCommand[] = [
       })) as any;
       if (res?.standings) {
         console.log(renderStandings(res.standings));
+      }
+    },
+  },
+  {
+    name: 'rules',
+    aliases: ['hands', 'rankings'],
+    description: 'Show the poker rules and hand rankings with their odds',
+    execute: async (_args, _tokens, ctx) => {
+      const state = ctx?.getState?.() as PokerGameState | undefined;
+      const res = (await pokerGetRulesTool.runAsync({
+        args: { state },
+        toolContext: ctx as any,
+      })) as any;
+      if (res?.text) {
+        console.log(`
+[1m[36m--- POKER RULES ---[0m
+${res.text}
+`);
       }
     },
   },

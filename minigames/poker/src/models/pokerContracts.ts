@@ -35,6 +35,7 @@ export const PokerNodeType = {
 /** Tools: everything that touches the database or the session user. */
 export const PokerTool = {
   GET_STANDINGS: 'poker_get_standings',
+  GET_RULES: 'poker_get_rules',
   LIST_TABLES: 'poker_list_tables',
   CREATE_TABLE: 'poker_create_table',
   GET_BANKROLL: 'poker_get_bankroll',
@@ -56,6 +57,7 @@ export type PokerConversationType = (typeof PokerConversationType)[keyof typeof 
 
 export const PokerToolAlias = {
   STANDINGS: 'standings_tool',
+  RULES: 'rules_tool',
   LIST_TABLES: 'list_tables',
 } as const;
 

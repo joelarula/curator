@@ -18,6 +18,7 @@ import type {
   PokerTool,
 } from './pokerContracts.ts';
 import type { PokerTableCommandInput, PokerTurn, PokerTableEvent } from '../engine/pokerTable.ts';
+import type { HandRankingEntry } from '../engine/pokerRules.ts';
 import type { PokerTalkConfig, TableTalkCommandInput, TableTalkState } from '../engine/tableTalk.ts';
 import type { PokerEngineConfig } from '../pokerConfig.ts';
 import type {
@@ -77,6 +78,18 @@ export interface PokerStandingsResult {
   message?: string;
 }
 
+export interface PokerGetRulesParams {
+  /** Optional table state; its blinds replace the defaults in the rules sheet. */
+  state?: PokerGameState;
+}
+
+export interface PokerRulesResult {
+  /** Printable rules sheet: table setup, betting protocol and hand rankings. */
+  text: string;
+  handRankings: HandRankingEntry[];
+  blinds: { smallBlind: number; bigBlind: number };
+}
+
 /** No parameters: identity and project scope are resolved from the host session. */
 export type PokerListTablesParams = Record<string, unknown>;
 
@@ -133,6 +146,7 @@ export interface PokerCloseTableResult {
 
 export interface PokerToolParamsMap {
   [PokerTool.GET_STANDINGS]: PokerGetStandingsParams;
+  [PokerTool.GET_RULES]: PokerGetRulesParams;
   [PokerTool.LIST_TABLES]: PokerListTablesParams;
   [PokerTool.CREATE_TABLE]: PokerCreateTableParams;
   [PokerTool.GET_BANKROLL]: PokerGetBankrollParams;
@@ -145,6 +159,7 @@ export interface PokerToolParamsMap {
 
 export interface PokerToolResultsMap {
   [PokerTool.GET_STANDINGS]: PokerStandingsResult;
+  [PokerTool.GET_RULES]: PokerRulesResult;
   [PokerTool.LIST_TABLES]: PokerListTablesResult;
   [PokerTool.CREATE_TABLE]: PokerCreateTableResult;
   [PokerTool.GET_BANKROLL]: BankrollSummary;

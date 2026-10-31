@@ -10,6 +10,7 @@ import {
 } from '../models/pokerContracts.ts';
 import type { Suit, Rank } from '../types.ts';
 import { SUITS, RANKS } from '../types.ts';
+import { HandCategory } from './pokerEvaluator.ts';
 
 export interface TableRulesDefinition {
   name: string;
@@ -86,6 +87,73 @@ export function getRulesDescription(): string {
 - When raising: your total wager must be at least Cost to Call + Min Raise, up to your total chip stack.
 - When chips <= Cost to Call: your only aggressive options are CALL (putting you ALL-IN) or ALL_IN.
 - Table Discourse: You autonomously choose when to speak (TABLE_TALK, BANTER, WHISPER, PROVOKE, GOSSIP) or stay silent based on your persona.`;
+}
+
+export interface HandRankingEntry {
+  /** 10 = strongest; matches the evaluator's category rank. */
+  rank: number;
+  category: HandCategory;
+  name: string;
+  description: string;
+  example: string;
+  /** Number of 7-card deals (2 hole + 5 board) whose best hand is this category, out of C(52,7). */
+  combinations: number;
+  /** Chance that the best 7-card hand is this category, in percent. */
+  probability: number;
+  /** Odds against, as "N : 1". */
+  oddsAgainst: string;
+}
+
+const SEVEN_CARD_DEALS = 133_784_560;
+
+const HAND_RANKING_SPECS: Array<Omit<HandRankingEntry, 'probability' | 'oddsAgainst'>> = [
+  { rank: 10, category: HandCategory.ROYAL_FLUSH, name: 'Royal Flush', description: 'A-K-Q-J-10, all the same suit', example: 'A♠ K♠ Q♠ J♠ 10♠', combinations: 4_324 },
+  { rank: 9, category: HandCategory.STRAIGHT_FLUSH, name: 'Straight Flush', description: 'Five cards in sequence, all the same suit', example: '9♥ 8♥ 7♥ 6♥ 5♥', combinations: 37_260 },
+  { rank: 8, category: HandCategory.FOUR_OF_A_KIND, name: 'Four of a Kind', description: 'Four cards of the same rank', example: 'Q♣ Q♦ Q♥ Q♠ 7♦', combinations: 224_848 },
+  { rank: 7, category: HandCategory.FULL_HOUSE, name: 'Full House', description: 'Three of a kind plus a pair', example: 'J♠ J♥ J♦ 4♣ 4♠', combinations: 3_473_184 },
+  { rank: 6, category: HandCategory.FLUSH, name: 'Flush', description: 'Five cards of the same suit, not in sequence', example: 'K♦ 10♦ 8♦ 5♦ 2♦', combinations: 4_047_644 },
+  { rank: 5, category: HandCategory.STRAIGHT, name: 'Straight', description: 'Five cards in sequence, mixed suits (A-2-3-4-5 counts)', example: '10♣ 9♦ 8♠ 7♥ 6♣', combinations: 6_180_020 },
+  { rank: 4, category: HandCategory.THREE_OF_A_KIND, name: 'Three of a Kind', description: 'Three cards of the same rank', example: '8♠ 8♥ 8♦ K♣ 3♠', combinations: 6_461_620 },
+  { rank: 3, category: HandCategory.TWO_PAIR, name: 'Two Pair', description: 'Two different pairs', example: 'A♥ A♣ 6♠ 6♦ J♥', combinations: 31_433_400 },
+  { rank: 2, category: HandCategory.ONE_PAIR, name: 'One Pair', description: 'Two cards of the same rank', example: '10♥ 10♠ K♦ 7♣ 4♥', combinations: 58_627_800 },
+  { rank: 1, category: HandCategory.HIGH_CARD, name: 'High Card', description: 'None of the above; highest card plays', example: 'A♦ J♣ 8♥ 6♠ 2♣', combinations: 23_294_460 },
+];
+
+/** Hold'em hand rankings, strongest first, with how often each is the best 7-card hand. */
+export function getHandRankings(): HandRankingEntry[] {
+  return HAND_RANKING_SPECS.map((h) => {
+    const against = (SEVEN_CARD_DEALS - h.combinations) / h.combinations;
+    const odds = against < 10 ? against.toFixed(1) : Math.round(against).toLocaleString('en-US');
+    return {
+      ...h,
+      probability: Math.round((h.combinations / SEVEN_CARD_DEALS) * 1e6) / 1e4,
+      oddsAgainst: `${odds} : 1`,
+    };
+  });
+}
+
+/** Plain-text rules sheet for players: table setup, betting protocol and hand rankings. */
+export function formatPokerRulesSheet(blinds?: { smallBlind?: number; bigBlind?: number }): string {
+  const sb = blinds?.smallBlind ?? tableRules.blinds.smallBlind;
+  const bb = blinds?.bigBlind ?? tableRules.blinds.bigBlind;
+  const streets = tableRules.streets.map((s) => s.name).join(' → ');
+  const rows = getHandRankings().map(
+    (h) =>
+      `  ${String(h.rank).padStart(2)}. ${h.name.padEnd(16)} ${h.example.padEnd(18)} ${`${h.probability.toFixed(4)}%`.padStart(9)}  ${h.oddsAgainst.padStart(13)}  ${h.description}`
+  );
+  return [
+    `${tableRules.name}`,
+    `- Up to ${tableRules.maxSeats} seats, ${tableRules.deck.cards}-card deck, blinds ${sb}/${bb}.`,
+    `- Each player gets 2 hole cards; 5 community cards are dealt: ${streets}.`,
+    `- Best five-card hand from your 2 hole cards + 5 board cards wins; equal hands split the pot.`,
+    '',
+    // The discourse line is persona guidance for AI seats, not a rule
+    ...getRulesDescription().split('\n').filter((line) => !line.startsWith('- Table Discourse')),
+    '',
+    'Hand rankings (strongest first; chance it is your best 7-card hand):',
+    `  ${'#'.padStart(2)}  ${'Hand'.padEnd(16)} ${'Example'.padEnd(18)} ${'Chance'.padStart(9)}  ${'Odds against'.padStart(13)}  Description`,
+    ...rows,
+  ].join('\n');
 }
 
 function extractRawAction(raw: any): { type: string; amount?: number } {
@@ -269,6 +337,8 @@ export function getPokerRules() {
   return {
     tableRules,
     getRulesDescription,
+    getHandRankings,
+    formatPokerRulesSheet,
     sanitizeAction,
     getLegalChoices,
   };

@@ -77,6 +77,7 @@ export const pokerPlugin: CuratorPlugin = {
       tools: [
         PokerTool.LIST_TABLES,
         PokerTool.GET_STANDINGS,
+        PokerTool.GET_RULES,
         PokerTool.GET_BANKROLL,
         PokerTool.GET_BUY_IN_OPTIONS,
       ],

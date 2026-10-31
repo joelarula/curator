@@ -17,6 +17,8 @@ import {
   type PokerTableTalkParams,
   type PokerGetStandingsParams,
   type PokerStandingsResult,
+  type PokerGetRulesParams,
+  type PokerRulesResult,
   type PokerListTablesParams,
   type PokerListTablesResult,
   type PokerCreateTableParams,
@@ -39,6 +41,7 @@ import {
 import type { PokerGameState } from '../types.ts';
 import { getPokerStandings } from '../engine/pokerEngine.ts';
 import { reduceTable, type PokerTableStep } from '../engine/pokerTable.ts';
+import { tableRules, getHandRankings, formatPokerRulesSheet } from '../engine/pokerRules.ts';
 import { reduceTableTalk, resolveTalkConfig, type TableTalkState } from '../engine/tableTalk.ts';
 import { queryActivePokerTables } from '../services/pokerTableStore.ts';
 import {
@@ -118,6 +121,23 @@ export const pokerGetStandingsTool = defineTool<PokerGetStandingsParams, PokerSt
     return !s || !s.players
       ? { standings: [], message: 'No active table game state found. Table may be in lobby or paused.' }
       : getPokerStandings(s);
+  },
+});
+
+export const pokerGetRulesTool = defineTool<PokerGetRulesParams, PokerRulesResult>({
+  name: PokerTool.GET_RULES,
+  description: "Returns the Texas Hold'em rules sheet: table setup, betting protocol and hand rankings with their odds.",
+  aliases: [PokerToolAlias.RULES],
+  requiredRole: PokerRole.SPECTATOR,
+  accessLevel: CuratorAccessLevel.READ_ONLY,
+  parameters: { type: 'object', properties: { state: { type: 'object' } } },
+  execute: async (args, ctx: PokerToolContext) => {
+    const s = resolveGameState(args, ctx);
+    const blinds = {
+      smallBlind: s?.sbAmount || tableRules.blinds.smallBlind,
+      bigBlind: s?.bbAmount || tableRules.blinds.bigBlind,
+    };
+    return { text: formatPokerRulesSheet(blinds), handRankings: getHandRankings(), blinds };
   },
 });
 
@@ -304,6 +324,7 @@ export const pokerCloseTableTool = defineTool<PokerCloseTableParams, PokerCloseT
 
 export const pokerToolsList = [
   pokerGetStandingsTool,
+  pokerGetRulesTool,
   pokerListTablesTool,
   pokerCreateTableTool,
   pokerGetBankrollTool,

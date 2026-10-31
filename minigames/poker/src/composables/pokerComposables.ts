@@ -21,6 +21,7 @@ import { pokerConfig, tableSettings, setting, DEFAULT_TABLE_SETTINGS } from '../
 import { pokerTable } from '../plugins/pokerNodes.ts';
 import {
   pokerGetStandingsTool,
+  pokerGetRulesTool,
   pokerListTablesTool,
   pokerCreateTableTool,
   pokerGetBankrollTool,
@@ -99,6 +100,7 @@ export const pokerComposables = {
 
   // First-class callable tools (Pillar 2): `defineTool` instances are directly callable to build `Curator_Tool` nodes
   get_standings: pokerGetStandingsTool,
+  get_rules: pokerGetRulesTool,
   list_tables: pokerListTablesTool,
   create_table: pokerCreateTableTool,
   get_bankroll: pokerGetBankrollTool,
