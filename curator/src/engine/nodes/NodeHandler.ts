@@ -8,6 +8,7 @@ import type { DispatchEventOptions } from '../CuratorRequestProcessor.js';
 import type { ILlmProvider } from '../llm/ILlmProvider.js';
 import type { OutputFormats } from '../output/OutputFormats.js';
 import type { CuratorHistoryCompactor } from '../history/HistoryCompaction.js';
+import type { IStorageAdapter } from '../../storage/IStorageAdapter.js';
 
 /**
  * Typed handle for a plugin-provided service (like a Bevy resource type). Keys are compared by identity,
@@ -130,6 +131,9 @@ export interface NodeContext extends ServiceAccess {
   calls: NodeCallServices;
   history: NodeHistoryServices;
   llm: NodeLlmServices;
+  /** Requests, Responses and bus events of the engine's database (the storage port). */
+  store: IStorageAdapter;
+  /** Everything else in the database (agents, scripts, conversations, history). */
   prisma: any;
   /** Clock (epoch ms) used for scheduling and deadlines. */
   now(): number;

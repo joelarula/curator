@@ -15,15 +15,7 @@ export const waitEventNode: NodeHandler<any> = {
       const identity = ctx.events.identityOf(req);
       const myFlow = await ctx.events.flowChain(req.id);
       // The emitting flow never hears its own events, but events other flows logged meanwhile are kept.
-      const candidates = await ctx.prisma.busEvent.findMany({
-        where: {
-          conversationId: req.conversationId,
-          eventName: allEvents.length === 1 ? allEvents[0] : { in: allEvents },
-          id: { gt: cursor },
-          OR: identity ? [{ target: null }, { target: identity }] : [{ target: null }],
-        },
-        orderBy: { id: 'asc' },
-      });
+      const candidates = await ctx.store.events.after(req.conversationId, cursor, { eventNames: allEvents, forTarget: identity || null });
       let missed: any = null;
       for (const c of candidates) {
         if (c.source != null) {
@@ -70,9 +62,6 @@ export const waitEventNode: NodeHandler<any> = {
     };
     delete updatedContext.waitDeadline;
     if (timeoutSeconds > 0) updatedContext.waitDeadline = new Date(ctx.now() + timeoutSeconds * 1000).toISOString();
-    await ctx.prisma.request.update({
-      where: { id: req.id },
-      data: { status: 'WAITING_FOR_EVENT', context: updatedContext }
-    });
+    await ctx.store.requests.update(req.id, { status: 'WAITING_FOR_EVENT', context: updatedContext });
   },
 };

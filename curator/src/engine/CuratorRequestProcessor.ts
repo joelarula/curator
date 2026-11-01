@@ -17,7 +17,8 @@ import { STATE_PATCH_KEY, withoutStoredStateCopies } from './RequestContextStora
 import { recordDeadLetter, TERMINAL_STATUSES } from './DeadLetters.js';
 import { clearRequestContexts, completedChildrenWithContext, sweepCompletedContexts, retireByAge } from './Retention.js';
 import { PrismaStorageAdapter } from '../storage/PrismaStorageAdapter.js';
-import { StepTraceWriter, isControlNode, requestOutput, LATEST_RESPONSE } from './StepTrace.js';
+import type { RequestFilter, RequestPatch, RequestStatus } from '../storage/IStorageAdapter.js';
+import { StepTraceWriter, isControlNode } from './StepTrace.js';
 import { PostgresWakeChannel } from './WakeChannel.js';
 import { sqlDialect, type SqlDialect } from '../db/sqlDialect.js';
 import { AgentRoleService } from '../services/AgentRoleService.js';
@@ -32,6 +33,9 @@ import {
 } from './nodes/index.js';
 import type { NodeContext, NodeHandler, MaintenanceContext, MaintenanceSystem, InflightToolCall, ToolAccessResult, ToolRoleAccessResult, ServiceBinding, ServiceKey } from './nodes/index.js';
 // Audit trail = Request/Response rows (see AuditService for the derived read view).
+
+/** Statuses of a request that has not ended. */
+const LIVE_STATUSES: RequestStatus[] = ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT', 'PAUSED'];
 
 export interface CuratorRequestProcessorOptions {
   onEvent?: (type: string, payload: any) => void;
@@ -96,8 +100,8 @@ export interface CuratorRequestProcessorOptions {
    */
   newFlowMaxWaitMs?: number;
   /**
-   * How long definitions read for every request are reused: agent lookups (and whether all agents are disabled)
-   * and tool access decisions (roles). A change to an agent or a role applies within this time. Default 5s; 0 reads
+   * How long definitions read for every request are reused: agent lookups (and whether all agents are disabled),
+   * tool access decisions (roles) and actor permissions. A change to an agent or a role applies within this time. Default 5s; 0 reads
    * them for every request.
    */
   definitionCacheMs?: number;
@@ -362,6 +366,7 @@ export class CuratorRequestProcessor {
       calls: { maxDepth: this.maxCallDepth, astStorage: this.astStorage },
       history: { compactor: (name) => (this.engine.historyCompactors ?? defaultHistoryCompactors).get(name) },
       llm: { provider: (name, baseUrl) => LlmFactory.getProvider(name, baseUrl) },
+      store: this.store,
       prisma: this.prisma,
       now: () => this.clock(),
       emit: (type, payload) => this.emit(type, payload),
@@ -482,7 +487,7 @@ export class CuratorRequestProcessor {
       // Reference mode: the node lives in ScriptVersion (validated on save), addressed by context.astPath.
       const { ast: _omit, ...refData } = args.data;
       if (refData.scheduledAt === null || refData.scheduledAt === undefined) delete refData.scheduledAt;
-      return this.prisma.request.create({ ...args, data: refData });
+      return this.store.requests.create(refData);
     }
     const validation = validateCuratorAst(args.data.ast);
     if (!validation.valid) {
@@ -492,10 +497,7 @@ export class CuratorRequestProcessor {
     if (cleanData.scheduledAt === null || cleanData.scheduledAt === undefined) {
       delete cleanData.scheduledAt;
     }
-    return this.prisma.request.create({
-      ...args,
-      data: cleanData
-    });
+    return this.store.requests.create(cleanData);
   }
 
   private getConversationState(conv: any): Record<string, any> {
@@ -558,15 +560,12 @@ export class CuratorRequestProcessor {
         ...childData,
       },
     });
-    await this.prisma.request.update({
-      where: { id: req.id },
-      data: {
-        status: parentStatus,
-        lockedBy: null,
-        lockedAt: null,
-        pendingDependencies: 1,
-        context: { ...this.parseContext(req.context), ...parentContextUpdates },
-      },
+    await this.store.requests.update(req.id, {
+      status: parentStatus,
+      lockedBy: null,
+      lockedAt: null,
+      pendingDependencies: 1,
+      context: { ...this.parseContext(req.context), ...parentContextUpdates },
     });
   }
 
@@ -613,15 +612,10 @@ export class CuratorRequestProcessor {
     const backoff = Math.min(base * 2 ** this.idleStreak, Math.max(base, this.idleMaxIntervalMs));
     if (backoff <= base) return base;
     try {
-      const next = await this.prisma.request.findFirst({
-        where: {
-          status: 'NEW',
-          scheduledAt: { gt: new Date(this.clock()) },
-          ...(this.conversationScope ? { conversationId: { in: [...this.conversationScope] } } : {}),
-        },
-        orderBy: { scheduledAt: 'asc' },
-        select: { scheduledAt: true },
-      });
+      const next = await this.store.requests.first(
+        { status: 'NEW', scheduledAfter: new Date(this.clock()), ...this.scopeFilter() },
+        { orderBy: 'scheduledAt' }
+      );
       if (next?.scheduledAt) return Math.min(backoff, Math.max(base, new Date(next.scheduledAt).getTime() - this.clock()));
     } catch (_) {
       return base;
@@ -821,33 +815,19 @@ export class CuratorRequestProcessor {
 
         if (totalCount > 0 && enabledCount === 0) {
           logger.debug(`[CuratorRequestProcessor] All agents are disabled. Cancelling all active/pending/waiting requests in DB...`);
-          await this.prisma.request.updateMany({
-            where: {
-              status: { in: ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT', 'PAUSED'] }
-            },
-            data: { status: 'CANCELLED', lockedBy: null, lockedAt: null }
-          });
+          await this.store.requests.updateWhere({ status: LIVE_STATUSES }, { status: 'CANCELLED', lockedBy: null, lockedAt: null });
         } else if (disabledAgents.length > 0) {
           for (const da of disabledAgents) {
-            const conditions: any[] = [{ agentId: da.id }, { agentId: da.name }];
+            const conditions: RequestFilter[] = [{ agentId: [da.id, da.name] }];
             if (da.scriptId) conditions.push({ scriptId: da.scriptId });
 
-            const relatedReqs = await this.prisma.request.findMany({
-              where: { OR: conditions },
-              select: { conversationId: true }
-            });
-            const convIds = Array.from(new Set(relatedReqs.map((r: any) => r.conversationId).filter(Boolean)));
+            const relatedReqs = await this.store.requests.find({ any: conditions });
+            const convIds = Array.from(new Set(relatedReqs.map(r => r.conversationId).filter(Boolean)));
             if (convIds.length > 0) {
-              conditions.push({ conversationId: { in: convIds } });
+              conditions.push({ conversationId: convIds });
             }
 
-            await this.prisma.request.updateMany({
-              where: {
-                OR: conditions,
-                status: { in: ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT', 'PAUSED'] }
-              },
-              data: { status: 'CANCELLED', lockedBy: null, lockedAt: null }
-            });
+            await this.store.requests.updateWhere({ any: conditions, status: LIVE_STATUSES }, { status: 'CANCELLED', lockedBy: null, lockedAt: null });
           }
         }
       } catch (cleanErr) {
@@ -869,10 +849,10 @@ export class CuratorRequestProcessor {
     this.wake();
   }
 
-  /** Prisma filter for the conversation scope: an explicit conversation, else the polling scope. */
-  private scopeWhere(conversationId?: number): Record<string, any> {
+  /** Request filter for the conversation scope: an explicit conversation, else the polling scope. */
+  private scopeFilter(conversationId?: number): RequestFilter {
     if (conversationId !== undefined) return { conversationId };
-    return this.conversationScope ? { conversationId: { in: [...this.conversationScope] } } : {};
+    return this.conversationScope ? { conversationId: [...this.conversationScope] } : {};
   }
 
   public stop() {
@@ -952,45 +932,31 @@ export class CuratorRequestProcessor {
    */
   private async unlockStaleRequests() {
     try {
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-      const staleWhere = { status: 'WAITING', lockedBy: { not: null }, lockedAt: { lte: fiveMinutesAgo }, pendingDependencies: 0 };
-      // Find first (a plain read), then update those rows by id: an update filtered on status alone locks every
-      // WAITING row it scans on MariaDB and deadlocked with completions updating those rows
-      const ids = (await this.prisma.request.findMany({ where: staleWhere, select: { id: true }, take: 500 })).map((r: any) => r.id);
-      if (!ids.length) return;
-      const stale = await this.prisma.request.updateMany({
-        where: { id: { in: ids }, ...staleWhere },
-        data: {
-          status: 'NEW',
-          lockedBy: null,
-          lockedAt: null
-        }
-      });
-      if (stale.count > 0) {
-        logger.warn(`[CuratorRequestProcessor] Recovered ${stale.count} stale/abandoned requests.`);
+      const stale = await this.store.requests.releaseStale(new Date(Date.now() - 5 * 60 * 1000));
+      if (stale > 0) {
+        logger.warn(`[CuratorRequestProcessor] Recovered ${stale} stale/abandoned requests.`);
       }
     } catch (_) {}
   }
 
   /** Wakes requests WAITING_FOR_USER that just received a response (maintenance system). */
   private async resumeUserRespondedRequests() {
-    const userRespondedRequests = await this.prisma.request.findMany({
-      where: {
+    const userRespondedRequests = await this.store.requests.find(
+      {
         // A locked WAITING request is being executed (e.g. an agent saving its tool-call turns), not parked.
-        OR: [{ status: 'WAITING_FOR_USER' }, { status: 'WAITING', lockedBy: null }],
-        responses: { some: {} }, // Has at least one response
-        ...this.scopeWhere()
+        any: [{ status: 'WAITING_FOR_USER' }, { status: 'WAITING', lockedBy: null }],
+        hasResponses: true,
+        ...this.scopeFilter(),
       },
-      include: { responses: { orderBy: { createdAt: 'desc' }, take: 1 } },
-      take: 5
-    });
+      { take: 5 }
+    );
 
     for (const req of userRespondedRequests) {
       // Approval waits are resumed only by an approval (approveRequest) or by expiry, never by a Response.
       if ((req.context as any)?.pendingToolCall) continue;
 
       // System records written on the parked Request itself (prompt, approval notice, ...) are not human input.
-      const latest = (req as any).responses?.[0];
+      const latest: any = await this.store.responses.latest(req.id);
       let latestParsed: any = null;
       try { latestParsed = typeof latest?.content === 'string' ? JSON.parse(latest.content) : null; } catch (_) {}
       if (CuratorRequestProcessor.isStructuredRecord(latestParsed) && latestParsed.type !== 'CHOICE_RECEIVED') continue;
@@ -998,21 +964,16 @@ export class CuratorRequestProcessor {
       // Check targetUserId — if set, only a response from that specific user counts
       const targetUserId = (req.context as any)?.targetUserId;
       if (targetUserId) {
-        const latestResponse = (req as any).responses?.[0];
-        if (!latestResponse || latestResponse.userId !== targetUserId) {
+        if (!latest || latest.userId !== targetUserId) {
           continue; // Not yet answered by the right player
         }
       }
 
       logger.debug(`[CuratorRequestProcessor] Request ${req.id} received human input. Resuming...`);
       // We lock it briefly so another worker doesn't double-complete it
-      await this.prisma.request.update({
-        where: { id: req.id },
-        data: { status: 'WAITING', lockedBy: this.workerId, lockedAt: new Date() }
-      });
+      await this.store.requests.update(req.id, { status: 'WAITING', lockedBy: this.workerId, lockedAt: new Date() });
 
-      const latestResponse = (req as any).responses?.[0];
-      let inputContent = latestResponse?.content;
+      let inputContent = latest?.content;
       let parsedContent: any = inputContent;
       try {
         parsedContent = JSON.parse(inputContent);
@@ -1150,13 +1111,10 @@ export class CuratorRequestProcessor {
 
       if (processed === 0) {
         // Idle: report the wait gate the conversation is parked at, if any
-        const finalWait = await this.prisma.request.findFirst({
-          where: {
-            ...(convId !== undefined ? { conversationId: convId } : {}),
-            status: { in: ['WAITING_FOR_EVENT', 'WAITING_FOR_USER', 'PAUSED'] },
-          },
-          orderBy: { updatedAt: 'desc' },
-        });
+        const finalWait = await this.store.requests.first(
+          { ...(convId !== undefined ? { conversationId: convId } : {}), status: ['WAITING_FOR_EVENT', 'WAITING_FOR_USER', 'PAUSED'] },
+          { orderBy: 'updatedAt desc' }
+        );
 
         if (finalWait) {
           const ctx = (finalWait.context as any) || {};
@@ -1170,8 +1128,10 @@ export class CuratorRequestProcessor {
         }
 
         // Work scheduled for later (e.g. a rate-limit retry) keeps the conversation alive
-        const deferred = await this.prisma.request.count({
-          where: { ...(convId !== undefined ? { conversationId: convId } : {}), status: 'NEW', scheduledAt: { gt: new Date(this.clock()) } },
+        const deferred = await this.store.requests.count({
+          ...(convId !== undefined ? { conversationId: convId } : {}),
+          status: 'NEW',
+          scheduledAfter: new Date(this.clock()),
         });
 
         return {
@@ -1186,12 +1146,7 @@ export class CuratorRequestProcessor {
 
       // 2. Optional custom predicate check
       if (options?.until) {
-        const latestReq = await this.prisma.request.findFirst({
-          where: {
-            ...(convId !== undefined ? { conversationId: convId } : {}),
-          },
-          orderBy: { updatedAt: 'desc' },
-        });
+        const latestReq = await this.store.requests.first(convId !== undefined ? { conversationId: convId } : {}, { orderBy: 'updatedAt desc' });
         if (latestReq && options.until(latestReq)) {
           return {
             steps,
@@ -1342,7 +1297,7 @@ export class CuratorRequestProcessor {
     this.emit('request_start', { requestId: request.id });
     try {
       // A claimed row was read just after its claim; a bare `{ id }` is loaded
-      const req = 'status' in request && 'ast' in request ? request : await this.prisma.request.findUnique({ where: { id: request.id } });
+      const req: any = 'status' in request && 'ast' in request ? request : await this.store.requests.get(request.id);
       if (!req) throw new Error(`Request ${request.id} not found`);
 
       let agent: any = null;
@@ -1459,13 +1414,13 @@ export class CuratorRequestProcessor {
       const isRateLimit = msg.includes('429') || msg.includes('Quota exceeded') || !!retryMatch;
       const MAX_RETRIES = 5;
 
-      const req = await this.prisma.request.findUnique({ where: { id: request.id } });
+      const req = await this.store.requests.get(request.id);
       if (isRateLimit && req && req.retryCount < MAX_RETRIES) {
         let delayMs = 5000 * Math.pow(2, req.retryCount);
         if (retryMatch) delayMs = parseFloat(retryMatch[1]) * 1000 + 1000;
         const scheduledAt = new Date(this.clock() + delayMs);
         logger.debug(`[CuratorRequestProcessor] Rate limit. Rescheduling request ${request.id} in ${Math.round(delayMs/1000)}s (Attempt ${req.retryCount + 1}/${MAX_RETRIES})`);
-        await this.prisma.request.update({ where: { id: request.id }, data: { status: 'NEW', lockedBy: null, lockedAt: null, retryCount: req.retryCount + 1, scheduledAt } });
+        await this.store.requests.update(request.id, { status: 'NEW', lockedBy: null, lockedAt: null, retryCount: req.retryCount + 1, scheduledAt });
         return;
       }
 
@@ -1584,12 +1539,7 @@ export class CuratorRequestProcessor {
     }
 
     // Wake up WAITING_FOR_EVENT and WAITING_FOR_USER requests matching waitEvent
-    const waitingRequests = await this.prisma.request.findMany({
-      where: {
-        conversationId: req.conversationId,
-        status: { in: ['WAITING_FOR_EVENT', 'WAITING_FOR_USER'] }
-      }
-    });
+    const waitingRequests = await this.store.requests.find({ conversationId: req.conversationId, status: ['WAITING_FOR_EVENT', 'WAITING_FOR_USER'] });
 
     const woken: number[] = [];
     for (const waitReq of waitingRequests) {
@@ -1632,10 +1582,7 @@ export class CuratorRequestProcessor {
           updatedContext[STATE_PATCH_KEY] = { ...(updatedContext[STATE_PATCH_KEY] || {}), ...opts.contextPatch };
         }
 
-        await this.prisma.request.update({
-          where: { id: waitReq.id },
-          data: { status: 'NEW', context: updatedContext }
-        });
+        await this.store.requests.update(waitReq.id, { status: 'NEW', context: updatedContext });
         woken.push(waitReq.id);
         if (eventSeq !== null) await this.advanceEventCursor(waitReq.id, eventSeq);
       }
@@ -1648,9 +1595,7 @@ export class CuratorRequestProcessor {
   /** Appends to the conversation's bus events; returns its sequence id (null if the DB has no BusEvent table). */
   private async logEvent(conversationId: number, eventName: string, payload: any, target: string | null = null, source: number | null = null): Promise<number | null> {
     if (!this.prisma.busEvent || conversationId == null) return null;
-    const row = await this.prisma.busEvent.create({
-      data: { conversationId, eventName, payload: payload === undefined ? null : payload, target, source },
-    });
+    const row = await this.store.events.append({ conversationId, eventName, payload: payload === undefined ? null : payload, target, source });
     return row.id;
   }
 
@@ -1659,7 +1604,7 @@ export class CuratorRequestProcessor {
     const ids = new Set<number>();
     let id = reqId ?? null;
     for (let depth = 0; id != null && depth < 500; depth++) {
-      const r: any = await this.prisma.request.findUnique({ where: { id }, select: { ast: true, notifyId: true } });
+      const r = await this.store.requests.get(id);
       if (!r || this.parseAst(r.ast)?.type === 'Curator_Join') break;
       ids.add(id);
       id = r.notifyId;
@@ -1669,8 +1614,7 @@ export class CuratorRequestProcessor {
 
   private async latestEventSeq(conversationId: number): Promise<number> {
     if (!this.prisma.busEvent) return 0;
-    const last = await this.prisma.busEvent.findFirst({ where: { conversationId }, orderBy: { id: 'desc' } });
-    return last?.id ?? 0;
+    return (await this.store.events.latest(conversationId))?.id ?? 0;
   }
 
   /**
@@ -1680,12 +1624,9 @@ export class CuratorRequestProcessor {
   private async advanceEventCursor(reqId: number, seq: number) {
     let id: number | null = reqId;
     for (let depth = 0; id != null && depth < 500; depth++) {
-      const r: any = await this.prisma.request.findUnique({ where: { id }, select: { ast: true, notifyId: true } });
+      const r = await this.store.requests.get(id);
       if (!r || this.parseAst(r.ast)?.type === 'Curator_Join') return;
-      await this.prisma.request.updateMany({
-        where: { id, OR: [{ eventCursor: null }, { eventCursor: { lt: seq } }] },
-        data: { eventCursor: seq },
-      });
+      await this.store.requests.updateWhere({ ids: [id], eventCursorBelow: seq }, { eventCursor: seq });
       id = r.notifyId;
     }
   }
@@ -1699,7 +1640,7 @@ export class CuratorRequestProcessor {
     let id: number | null = reqId;
     let anchor: Date | null = null;
     for (let depth = 0; id != null && depth < 500; depth++) {
-      const r: any = await this.prisma.request.findUnique({ where: { id }, select: { ast: true, notifyId: true, eventCursor: true, createdAt: true } });
+      const r = await this.store.requests.get(id);
       if (!r) break;
       anchor = r.createdAt;
       if (this.parseAst(r.ast)?.type === 'Curator_Join') break;
@@ -1708,11 +1649,7 @@ export class CuratorRequestProcessor {
     }
     if (replay) return 0;
     if (!anchor) return this.latestEventSeq(conversationId);
-    const before = await this.prisma.busEvent.findFirst({
-      where: { conversationId, createdAt: { lt: anchor } },
-      orderBy: { id: 'desc' },
-    });
-    return before?.id ?? 0;
+    return (await this.store.events.latest(conversationId, { before: anchor }))?.id ?? 0;
   }
 
   /**
@@ -1752,7 +1689,7 @@ export class CuratorRequestProcessor {
         if (req.scriptVersion) return;
         const script = await this.prisma.script.findUnique({ where: { id: req.scriptId }, select: { currentVersion: true } });
         if (!script?.currentVersion) return;
-        await this.prisma.request.update({ where: { id: req.id }, data: { scriptVersion: script.currentVersion } });
+        await this.store.requests.update(req.id, { scriptVersion: script.currentVersion });
         req.scriptVersion = script.currentVersion;
         return;
       }
@@ -1760,7 +1697,7 @@ export class CuratorRequestProcessor {
       // Light single-tool Requests stay snapshot-only (no script per distinct argument set).
       if (!ast?.type || ast.type === 'Curator_Tool') return;
       const saved = await saveAdhocScript(this.prisma, ast, { userId: req.userId, projectId: req.projectId });
-      await this.prisma.request.update({ where: { id: req.id }, data: { scriptId: saved.scriptId, scriptVersion: saved.version } });
+      await this.store.requests.update(req.id, { scriptId: saved.scriptId, scriptVersion: saved.version });
       req.scriptId = saved.scriptId;
       req.scriptVersion = saved.version;
     } catch (err: any) {
@@ -1810,19 +1747,17 @@ export class CuratorRequestProcessor {
     const resolved = this.engine.resolveTool?.(input.toolName, { projectId: input.projectId }) ?? this.engine.tools.get(input.toolName);
     if (!resolved) throw new Error(`Tool '${input.toolName}' not found`);
     // Created locked (WAITING + lockedBy) so the poller never picks it up concurrently.
-    const created = await this.prisma.request.create({
-      data: {
-        userId: input.userId,
-        projectId: input.projectId ?? null,
-        conversationId: input.conversationId,
-        agentId: input.agentId ?? undefined,
-        toolName: input.toolName,
-        status: 'WAITING',
-        lockedBy: this.workerId,
-        lockedAt: new Date(),
-        ast: { type: 'Curator_Tool', toolName: input.toolName, args: input.args ?? {} },
-        context: { ...(input.context || {}), origin: input.origin, literalArgs: true }
-      }
+    const created = await this.store.requests.create({
+      userId: input.userId,
+      projectId: input.projectId ?? null,
+      conversationId: input.conversationId,
+      agentId: input.agentId ?? undefined,
+      toolName: input.toolName,
+      status: 'WAITING',
+      lockedBy: this.workerId,
+      lockedAt: new Date(),
+      ast: { type: 'Curator_Tool', toolName: input.toolName, args: input.args ?? {} },
+      context: { ...(input.context || {}), origin: input.origin, literalArgs: true } as any,
     });
     this.inflight.set(created.id, { runtimeArgs: input.runtimeArgs, runtimeContext: input.runtimeContext, broadcastToolEvents: input.broadcastToolEvents });
     try {
@@ -1830,8 +1765,8 @@ export class CuratorRequestProcessor {
       const flight = this.inflight.get(created.id);
       if (flight?.error) throw flight.error;
 
-      const done = await this.prisma.request.findUnique({ where: { id: created.id }, include: LATEST_RESPONSE });
-      const content = requestOutput(done);
+      const done = await this.store.requests.get(created.id);
+      const content = done?.output ?? (await this.store.responses.latest(created.id))?.content ?? null;
       let parsed: any = content;
       if (typeof content === 'string') {
         try { parsed = JSON.parse(content); } catch { /* plain text */ }
@@ -1858,18 +1793,16 @@ export class CuratorRequestProcessor {
    * Uses the same matcher as Curator_EmitEvent (subscriptions + waits).
    */
   public async emitEventRequest(input: EmitEventRequestInput): Promise<CuratorEventEmitResult & { requestId: number }> {
-    const req = await this.prisma.request.create({
-      data: {
-        userId: input.userId,
-        projectId: input.projectId ?? null,
-        conversationId: input.conversationId,
-        agentId: input.agentId ?? undefined,
-        status: 'WAITING',
-        lockedBy: this.workerId,
-        lockedAt: new Date(),
-        ast: { type: 'Curator_EmitEvent', eventName: input.eventName, payload: input.payload ?? null },
-        context: { origin: input.origin }
-      }
+    const req = await this.store.requests.create({
+      userId: input.userId,
+      projectId: input.projectId ?? null,
+      conversationId: input.conversationId,
+      agentId: input.agentId ?? undefined,
+      status: 'WAITING',
+      lockedBy: this.workerId,
+      lockedAt: new Date(),
+      ast: { type: 'Curator_EmitEvent', eventName: input.eventName, payload: input.payload ?? null },
+      context: { origin: input.origin } as any,
     });
     try {
       const result = await this.dispatchEvent(input.eventName, input.payload, req, input.targetAgentId, input);
@@ -2021,9 +1954,11 @@ export class CuratorRequestProcessor {
 
     // 3. Check granular actor permissions in database if present
     try {
-      const totalPermissionsCount = await this.prisma.permission?.count?.() || 0;
+      const totalPermissionsCount = (await this.definition('permissions:count', async () => (await this.prisma.permission?.count?.()) || 0)) as number;
       if (totalPermissionsCount > 0) {
-        const actorPerms = await this.resolveActorPermissions({ userId: req.userId, agentId: req.agentId });
+        const actorPerms = await this.definition(`permissions:${req.userId ?? ''}:${req.agentId ?? ''}`, () =>
+          this.resolveActorPermissions({ userId: req.userId, agentId: req.agentId })
+        );
         if (actorPerms.size > 0) {
           const hasDirectPerm = actorPerms.has(`tool:${toolName}:execute`) || actorPerms.has('*') || actorPerms.has('admin');
           if (!hasDirectPerm) {
@@ -2053,11 +1988,7 @@ export class CuratorRequestProcessor {
    * completes it with `{ ok: false, expired: true }` under `as` / toolName so the flow can branch.
    */
   private async expireApprovalWaits() {
-    const parked = await this.prisma.request.findMany({
-      where: { status: 'WAITING_FOR_USER' },
-      orderBy: { updatedAt: 'asc' },
-      take: 50
-    });
+    const parked = await this.store.requests.find({ status: 'WAITING_FOR_USER' }, { orderBy: 'updatedAt', take: 50 });
     const now = this.clock();
     for (const req of parked) {
       const ctx = (typeof req.context === 'string' ? JSON.parse(req.context) : req.context) || {};
@@ -2065,11 +1996,11 @@ export class CuratorRequestProcessor {
       if (!pending?.expiresAt || Date.parse(pending.expiresAt) > now) continue;
 
       // Claim it atomically so only one worker expires it.
-      const claimed = await this.prisma.request.updateMany({
-        where: { id: req.id, status: 'WAITING_FOR_USER' },
-        data: { status: 'WAITING', lockedBy: this.workerId, lockedAt: new Date() }
-      });
-      if (claimed.count === 0) continue;
+      const claimed = await this.store.requests.updateWhere(
+        { ids: [req.id], status: 'WAITING_FOR_USER' },
+        { status: 'WAITING', lockedBy: this.workerId, lockedAt: new Date() }
+      );
+      if (claimed === 0) continue;
 
       logger.debug(`[CuratorRequestProcessor] Approval wait for '${pending.name}' on request ${req.id} expired.`);
       const record: CuratorStructuredResponse = {
@@ -2083,10 +2014,9 @@ export class CuratorRequestProcessor {
         nextCtx[pending.name] = outcome;
         if (pending.as) nextCtx[pending.as] = outcome;
       }
-      await this.prisma.request.update({ where: { id: req.id }, data: { context: nextCtx } });
       req.context = nextCtx;
       await this.saveResponse(req, JSON.stringify(record));
-      await this.completeRequest(req.id, proceed ? 'COMPLETED' : 'FAILED');
+      await this.completeRequest(req.id, proceed ? 'COMPLETED' : 'FAILED', false, { context: nextCtx });
     }
   }
 
@@ -2095,24 +2025,20 @@ export class CuratorRequestProcessor {
    * HUMAN_TIMEOUT Response (nothing is bound to `as`), so the script can re-ask (loop), nudge or give up.
    */
   private async expireHumanWaits(conversationId?: number) {
-    const parked = await this.prisma.request.findMany({
-      where: {
-        status: { in: ['WAITING_FOR_USER', 'WAITING_FOR_EVENT'] },
-        ...this.scopeWhere(conversationId)
-      },
-      orderBy: { updatedAt: 'asc' },
-      take: 50
-    });
+    const parked = await this.store.requests.find(
+      { status: ['WAITING_FOR_USER', 'WAITING_FOR_EVENT'], ...this.scopeFilter(conversationId) },
+      { orderBy: 'updatedAt', take: 50 }
+    );
     const now = this.clock();
     for (const req of parked) {
       const ctx = this.parseContext(req.context);
       if (!ctx.waitDeadline || ctx.pendingToolCall || Date.parse(ctx.waitDeadline) > now) continue;
 
-      const claimed = await this.prisma.request.updateMany({
-        where: { id: req.id, status: req.status },
-        data: { status: 'WAITING', lockedBy: this.workerId, lockedAt: new Date() }
-      });
-      if (claimed.count === 0) continue;
+      const claimed = await this.store.requests.updateWhere(
+        { ids: [req.id], status: req.status },
+        { status: 'WAITING', lockedBy: this.workerId, lockedAt: new Date() }
+      );
+      if (claimed === 0) continue;
 
       const isEventWait = req.status === 'WAITING_FOR_EVENT';
       logger.debug(`[CuratorRequestProcessor] Human prompt on request ${req.id} timed out.`);
@@ -2121,7 +2047,6 @@ export class CuratorRequestProcessor {
       delete nextCtx.waitEvents;
       delete nextCtx.waitDeadline;
       delete nextCtx.payloadAlias;
-      await this.prisma.request.update({ where: { id: req.id }, data: { context: nextCtx } });
       req.context = nextCtx;
       const record: CuratorStructuredResponse = { type: isEventWait ? 'WAIT_TIMEOUT' : 'HUMAN_TIMEOUT', ok: false, deadline: ctx.waitDeadline, reason: isEventWait ? ctx.waitEvent : ctx.choicePrompt };
       await this.saveResponse(req, JSON.stringify(record));
@@ -2142,12 +2067,11 @@ export class CuratorRequestProcessor {
             context: nextCtx,
           },
         });
-        await this.prisma.request.update({ where: { id: req.id }, data: { notifyId: null } });
-        await this.completeRequest(req.id, 'COMPLETED', true);
+        await this.completeRequest(req.id, 'COMPLETED', true, { context: nextCtx, notifyId: null });
         continue;
       }
 
-      await this.completeRequest(req.id, 'COMPLETED');
+      await this.completeRequest(req.id, 'COMPLETED', false, { context: nextCtx });
     }
   }
 
@@ -2182,11 +2106,9 @@ export class CuratorRequestProcessor {
       take: 500
     });
     if (victims.length === 0) return 0;
-    const ids = victims.map((v: any) => v.id);
-    await this.prisma.response.deleteMany({ where: { requestId: { in: ids } } });
-    const deleted = await this.prisma.request.deleteMany({ where: { id: { in: ids } } });
-    logger.debug(`[CuratorRequestProcessor] Retention: pruned ${deleted.count} read-only tool request(s) older than ${cutoff.toISOString()}.`);
-    return deleted.count;
+    const deleted = await this.store.requests.delete(victims.map((v: any) => v.id));
+    logger.debug(`[CuratorRequestProcessor] Retention: pruned ${deleted} read-only tool request(s) older than ${cutoff.toISOString()}.`);
+    return deleted;
   }
 
   /**
@@ -2297,17 +2219,10 @@ export class CuratorRequestProcessor {
   private async saveResponse(req: any, content: string) {
     try {
       if (isControlNode(this.nodeTypeOf(req))) {
-        await this.prisma.request.update({ where: { id: req.id }, data: { output: content } });
+        await this.store.requests.update(req.id, { output: content });
         return;
       }
-      await this.prisma.response.create({
-        data: {
-          requestId: req.id,
-          conversationId: req.conversationId,
-          projectId: req.projectId ?? null,
-          content,
-        }
-      });
+      await this.store.responses.append({ requestId: req.id, conversationId: req.conversationId, projectId: req.projectId ?? null, content });
       const running = this.executing.get(req.id);
       if (running) running.lastResponse = content;
     } catch (err: any) {
@@ -2339,7 +2254,7 @@ export class CuratorRequestProcessor {
   private async handleUnsuccessful(req: any, status: string, skipNotify: boolean) {
     const reason =
       req.output ??
-      (await this.prisma.response.findFirst({ where: { requestId: req.id }, orderBy: { id: 'desc' } }))?.content ??
+      (await this.store.responses.latest(req.id))?.content ??
       `Request ended ${status} without a recorded reason`;
     const reqAst = this.parseAst(req.ast);
 
@@ -2360,7 +2275,7 @@ export class CuratorRequestProcessor {
           context: { ...this.parseContext(req.context), lastError: reason },
         },
       });
-      await this.prisma.request.update({ where: { id: req.id }, data: { notifyId: null } });
+      await this.store.requests.update(req.id, { notifyId: null });
       return;
     }
 
@@ -2397,9 +2312,7 @@ export class CuratorRequestProcessor {
 
   /** Poison pill downwards: children of a dead request are cancelled; their own children follow recursively. */
   private async cancelOrphans(parentId: number) {
-    const orphans = await this.prisma.request.findMany({
-      where: { parentId, status: { in: ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT', 'PAUSED'] } },
-    });
+    const orphans = await this.store.requests.find({ parentId, status: LIVE_STATUSES });
     for (const orphan of orphans) {
       await this.saveResponse(orphan, `ERROR: cancelled, parent request ${parentId} ended without completing`);
       await this.completeRequest(orphan.id, 'CANCELLED', true);
@@ -2421,18 +2334,18 @@ export class CuratorRequestProcessor {
 
   /** One attempt of poisonDownstream: false when the target's dependency count changed since it was read. */
   private async poisonDownstreamOnce(req: any, status: string): Promise<boolean> {
-    const target = await this.prisma.request.findUnique({ where: { id: req.notifyId } });
+    const target = await this.store.requests.get(req.notifyId);
     if (!target || TERMINAL_STATUSES.has(target.status)) return true;
 
     const targetAst = this.parseAst(target.ast);
-    const siblings = await this.prisma.request.findMany({ where: { notifyId: target.id } });
+    const siblings = await this.store.requests.find({ notifyId: target.id });
     const isFanIn = siblings.length > 1 || (target.pendingDependencies || 0) > 1 || targetAst?.type === 'Curator_Join';
 
     if (isFanIn) {
       const pending = Math.max(0, (target.pendingDependencies || 0) - 1);
-      const data: any = { pendingDependencies: pending };
+      const data: RequestPatch = { pendingDependencies: pending };
       const counted = async () =>
-        (await this.prisma.request.updateMany({ where: { id: target.id, pendingDependencies: target.pendingDependencies }, data })).count > 0;
+        (await this.store.requests.updateWhere({ ids: [target.id], pendingDependencies: target.pendingDependencies }, data)) > 0;
 
       const otherBranches = siblings.filter((s: any) => s.id !== req.id);
       const hasLiveBranches = otherBranches.some((s: any) => !TERMINAL_STATUSES.has(s.status));
@@ -2478,37 +2391,34 @@ export class CuratorRequestProcessor {
    */
   private async dependencyDone(
     targetId: number,
-    known?: { pendingDependencies?: number | null; status: string; data?: Record<string, any> }
+    known?: { pendingDependencies?: number | null; status: string; data?: RequestPatch }
   ): Promise<void> {
     for (let attempt = 1; attempt <= 50; attempt++) {
       const target = attempt === 1 && known
         ? known
-        : await this.prisma.request.findUnique({ where: { id: targetId }, select: { pendingDependencies: true, status: true } });
+        : await this.store.requests.get(targetId);
       const pending = target?.pendingDependencies ?? 0;
       const data = attempt === 1 ? known?.data : undefined;
       if (pending <= 0) {
-        if (data) await this.prisma.request.update({ where: { id: targetId }, data });
+        if (data) await this.store.requests.update(targetId, data);
         return;
       }
       const wake = pending === 1 && (target!.status === 'WAITING' || target!.status === 'NEW');
-      const counted = await this.prisma.request.updateMany({
-        where: { id: targetId, pendingDependencies: pending, ...(wake ? { status: { in: ['WAITING', 'NEW'] } } : {}) },
-        data: { ...data, ...(wake ? { pendingDependencies: 0, status: 'NEW', lockedBy: null, lockedAt: null } : { pendingDependencies: pending - 1 }) },
-      });
-      if (counted.count > 0) return;
-      if (data) await this.prisma.request.update({ where: { id: targetId }, data });
+      const counted = await this.store.requests.updateWhere(
+        { ids: [targetId], pendingDependencies: pending, ...(wake ? { status: ['WAITING', 'NEW'] as RequestStatus[] } : {}) },
+        { ...data, ...(wake ? { pendingDependencies: 0, status: 'NEW' as const, lockedBy: null, lockedAt: null } : { pendingDependencies: pending - 1 }) }
+      );
+      if (counted > 0) return;
+      if (data) await this.store.requests.update(targetId, data);
     }
     logger.error(`[CuratorRequestProcessor] dependencyDone: could not count a finished dependency of req ${targetId}`);
   }
 
   /** Sets the final status (with `data`, e.g. `{ context }`, in the same update) and notifies the waiting request. */
-  private async completeRequest(requestId: number, status: string = 'COMPLETED', skipNotify: boolean = false, data?: Record<string, any>) {
+  private async completeRequest(requestId: number, status: string = 'COMPLETED', skipNotify: boolean = false, data?: RequestPatch) {
     let req: any;
     try {
-      req = await this.prisma.request.update({
-        where: { id: requestId },
-        data: { ...data, status, lockedBy: null, lockedAt: null }
-      });
+      req = await this.store.requests.update(requestId, { ...data, status: status as RequestStatus, lockedBy: null, lockedAt: null });
     } catch (err: any) {
       if (err?.code === 'P2028' || err?.message?.includes('Transaction already closed')) {
         logger.warn(`[CuratorRequestProcessor] completeRequest: status update skipped for req ${requestId} (closed tx): ${err.message}`);
@@ -2541,9 +2451,9 @@ export class CuratorRequestProcessor {
         const lastContent =
           req.output ??
           this.executing.get(requestId)?.lastResponse ??
-          (await this.prisma.response.findMany({ where: { requestId }, orderBy: { createdAt: 'desc' }, take: 1 }))[0]?.content;
+          (await this.store.responses.latest(requestId))?.content;
 
-        const targetReq = await this.prisma.request.findUnique({ where: { id: req.notifyId } });
+        const targetReq = await this.store.requests.get(req.notifyId);
         if (targetReq && !TERMINAL_STATUSES.has(targetReq.status)) {
           const updatedData: any = {};
 

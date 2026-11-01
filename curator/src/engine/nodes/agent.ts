@@ -216,18 +216,15 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
               logger.debug(`[CuratorRequestProcessor] Request ${req.id} pausing on WAITING_FOR_USER for tool '${toolKey}'.`);
               const ttlMs = (tool as any).approvalTtlMs ?? ctx.tools.approvalTtlMs;
               const expiresAt = ttlMs > 0 ? new Date(ctx.now() + ttlMs).toISOString() : undefined;
-              await ctx.prisma.request.update({
-                where: { id: req.id },
-                data: {
-                  status: 'WAITING_FOR_USER',
-                  lockedBy: null,
-                  lockedAt: null,
-                  context: {
-                    ...req.context,
-                    // Approvals are granted for the resolved key; llmName is what the model called.
-                    pendingToolCall: { ...tc, name: toolKey, llmName: tc.name, expiresAt, onExpired: 'fail' },
-                    reason: accessCheck.reason
-                  }
+              await ctx.store.requests.update(req.id, {
+                status: 'WAITING_FOR_USER',
+                lockedBy: null,
+                lockedAt: null,
+                context: {
+                  ...req.context,
+                  // Approvals are granted for the resolved key; llmName is what the model called.
+                  pendingToolCall: { ...tc, name: toolKey, llmName: tc.name, expiresAt, onExpired: 'fail' },
+                  reason: accessCheck.reason
                 }
               });
               await ctx.saveResponse(req, JSON.stringify({

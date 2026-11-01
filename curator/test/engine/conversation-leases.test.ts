@@ -17,7 +17,9 @@ async function leaseEnv(makeEnv: () => Promise<TestEnv>) {
   const conversation = async () => (await env.prisma.conversation.create({ data: { userId: env.userId } })).id;
   const request = (conversationId: number) =>
     env.prisma.request.create({ data: { userId: env.userId, conversationId, status: 'NEW', scheduledAt: new Date(now - 1000) } });
-  return { env, store, conversation, request, advance: (ms: number) => (now += ms), lease: (conversationId: number) => env.prisma.conversationLease.findUnique({ where: { conversationId } }) };
+  // Another node's store (its own memory of the leases it holds)
+  const otherNode = () => new PrismaStorageAdapter(env.prisma, { clock, leases: { ttlMs: TTL } });
+  return { env, store, otherNode, conversation, request, advance: (ms: number) => (now += ms), lease: (conversationId: number) => env.prisma.conversationLease.findUnique({ where: { conversationId } }) };
 }
 
 // Claim SQL differs per engine: real servers too when CURATOR_TEST_POSTGRES_URL / CURATOR_TEST_MARIADB_URL are set
@@ -69,6 +71,40 @@ for (const [target, makeEnv] of TARGETS) {
       assert.equal(await le.store.releaseLeases('w2', [conv]), 0, 'kept while in flight');
       assert.equal(await le.store.releaseLeases('w2'), 1);
       assert.equal(await le.lease(conv), null);
+    } finally {
+      await le.env.cleanup();
+    }
+  });
+
+  test(`leases (${target}): a fresh lease is not re-taken on every claim, a lapsed one is never trusted`, async () => {
+    const le = await leaseEnv(() => makeEnv('leases_held'));
+    try {
+      const conv = await le.conversation();
+      await le.request(conv);
+      await le.store.claimRows('w1', { limit: 1 });
+      const taken = (await le.lease(conv))!.leaseUntil.getTime();
+
+      le.advance(1_000);
+      await le.request(conv);
+      assert.equal((await le.store.claimRows('w1', { limit: 1 })).length, 1);
+      assert.equal((await le.lease(conv))!.leaseUntil.getTime(), taken, 'more than half the ttl left: not written again');
+
+      le.advance(TTL / 2);
+      await le.request(conv);
+      await le.store.claimRows('w1', { limit: 1 });
+      assert.ok((await le.lease(conv))!.leaseUntil.getTime() > taken, 'less than half left: extended');
+
+      // w1's lease lapses, w2 takes the conversation over and lets it go; w1's renew then matches nothing and
+      // must not make w1 believe it still holds the lease
+      le.advance(2 * TTL);
+      await le.request(conv);
+      const node2 = le.otherNode();
+      await node2.claimRows('w2', { limit: 1 });
+      await node2.releaseLeases('w2');
+      await le.store.renewLeases('w1', [conv]);
+      await le.request(conv);
+      assert.equal((await le.store.claimRows('w1', { limit: 1 })).length, 1);
+      assert.equal((await le.lease(conv))?.owner, 'w1', 'taken again, not assumed');
     } finally {
       await le.env.cleanup();
     }

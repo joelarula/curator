@@ -17,12 +17,7 @@ export const assignNode: NodeHandler = {
 
     // Also update req.context.state for subsequent operations in this loop
     const newContext = { ...(req.context || {}), state: newState };
-    await ctx.prisma.request.update({
-      where: { id: req.id },
-      data: { context: newContext }
-    });
-
     await ctx.saveResponse(req, `Assigned ${ast.key} = ${JSON.stringify(evaluatedValue)}`);
-    await ctx.completeRequest(req.id, 'COMPLETED');
+    await ctx.completeRequest(req.id, 'COMPLETED', false, { context: newContext });
   },
 };

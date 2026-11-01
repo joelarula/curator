@@ -8,14 +8,48 @@ import type {
   StoredResponse,
   StoredEvent,
   ClaimOptions,
+  RequestFilter,
+  RequestQuery,
 } from './IStorageAdapter.js';
 import { assertWritableProject, scopeProjectIds } from './IStorageAdapter.js';
 import { buildProjectScopeWhere } from '../services/ProjectScopeService.js';
 import { TERMINAL_STATUSES } from '../engine/DeadLetters.js';
-import { sqlDialect, sqlTag, sqlPart, SQL_EMPTY, type SqlDialect, type SqlTag } from '../db/sqlDialect.js';
+import { sqlDialect, sqlTag, sqlPart, SQL_EMPTY, type SqlDialect, type SqlFragment, type SqlTag } from '../db/sqlDialect.js';
 import { DbNull } from '@prisma/client-runtime-utils';
 
 const CLAIM_ORDER = [{ priority: 'desc' }, { createdAt: 'asc' }, { id: 'asc' }] as const;
+const ORDERS: Record<NonNullable<RequestQuery['orderBy']>, unknown> = {
+  id: { id: 'asc' },
+  'id desc': { id: 'desc' },
+  claim: CLAIM_ORDER,
+  updatedAt: [{ updatedAt: 'asc' }, { id: 'asc' }],
+  'updatedAt desc': [{ updatedAt: 'desc' }, { id: 'desc' }],
+  scheduledAt: [{ scheduledAt: 'asc' }, { id: 'asc' }],
+};
+const listOrOne = <T>(v: T | readonly T[]) => (Array.isArray(v) ? { in: [...(v as readonly T[])] } : v);
+
+/** Prisma `where` for a RequestFilter (unscoped). */
+function requestWhere(f: RequestFilter): Record<string, unknown> {
+  const and: Record<string, unknown>[] = [];
+  const where: Record<string, unknown> = {};
+  if (f.ids !== undefined) where.id = { in: [...f.ids] };
+  if (f.conversationId !== undefined) where.conversationId = listOrOne(f.conversationId);
+  if (f.status !== undefined) where.status = listOrOne(f.status);
+  if (f.notifyId !== undefined) where.notifyId = f.notifyId;
+  if (f.parentId !== undefined) where.parentId = f.parentId;
+  if (f.lockedBy !== undefined) where.lockedBy = f.lockedBy;
+  if (f.lockedBefore !== undefined) where.lockedAt = { lte: f.lockedBefore };
+  if (f.scheduledAfter !== undefined) where.scheduledAt = { gt: f.scheduledAfter };
+  if (f.pendingDependencies !== undefined) where.pendingDependencies = f.pendingDependencies;
+  if (f.priorityBelow !== undefined) where.priority = { lt: f.priorityBelow };
+  if (f.agentId !== undefined) where.agentId = { in: [...f.agentId] };
+  if (f.scriptId !== undefined) where.scriptId = f.scriptId;
+  if (f.hasResponses !== undefined) where.responses = f.hasResponses ? { some: {} } : { none: {} };
+  if (f.hasOutput) and.push({ OR: [{ output: { not: null } }, { responses: { some: {} } }] });
+  if (f.eventCursorBelow !== undefined) and.push({ OR: [{ eventCursor: null }, { eventCursor: { lt: f.eventCursorBelow } }] });
+  if (f.any !== undefined) and.push({ OR: f.any.map(requestWhere) });
+  return and.length ? { ...where, AND: and } : where;
+}
 /** Default for `newFlowMaxWaitMs`: how long a new flow's first request yields to running flows' follow-ups. */
 export const NEW_FLOW_MAX_WAIT_MS = 10_000;
 /** Prisma's code for a write conflict or deadlock (Galera certification failures surface as deadlocks). */
@@ -54,6 +88,7 @@ const toRequest = (r: any): StoredRequest => ({
   toolName: r.toolName ?? null,
   ast: parseJson(r.ast),
   context: parseJson(r.context) as StoredRequest['context'],
+  output: r.output ?? null,
   priority: r.priority,
   notifyId: r.notifyId ?? null,
   parentId: r.parentId ?? null,
@@ -66,6 +101,19 @@ const toRequest = (r: any): StoredRequest => ({
   createdAt: r.createdAt,
   updatedAt: r.updatedAt,
 });
+
+const INT_COLUMNS = ['id', 'scriptId', 'scriptVersion', 'aiModelId', 'conversationId', 'priority', 'retryCount', 'notifyId', 'pendingDependencies', 'eventCursor', 'parentId'] as const;
+
+/** A Request row read with raw SQL, shaped like a Prisma row (numbers, parsed Json; MariaDB returns Json as text). */
+const rawRequest = (r: any): any => {
+  const row = { ...r, ast: parseJson(r.ast), context: parseJson(r.context) };
+  for (const key of INT_COLUMNS) if (row[key] != null) row[key] = Number(row[key]);
+  if (row.existent != null) row.existent = Boolean(Number(row.existent));
+  return row;
+};
+
+const byClaimOrder = (a: any, b: any) =>
+  b.priority - a.priority || new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() || a.id - b.id;
 
 const toResponse = (r: any): StoredResponse => ({
   id: r.id,
@@ -105,6 +153,11 @@ export class PrismaStorageAdapter implements IStorageAdapter {
   private readonly sql: SqlTag;
   private readonly clock: () => number;
   private readonly leases?: { ttlMs: number };
+  /**
+   * Leases this store took or renewed: conversation -> owner and expiry (this process's clock). A claim skips
+   * re-taking one with more than half its ttl left: until it expires no other worker can take it.
+   */
+  private readonly held = new Map<number, { owner: string; until: number }>();
   private readonly newFlowMaxWaitMs: number;
 
   constructor(
@@ -152,7 +205,11 @@ export class PrismaStorageAdapter implements IStorageAdapter {
     return row.notifyId != null || row.parentId != null || new Date(row.createdAt) < cutoff ? 0 : 1;
   }
 
-  private async claimIds(workerId: string, limit: number, now: Date, conversationIds?: readonly number[]): Promise<number[]> {
+  /**
+   * Claims up to `limit` requests: their ids (SQLite, which reads the rows afterwards) or the claimed rows themselves
+   * (Postgres `RETURNING`, MariaDB from the locking select), saving a read per claim.
+   */
+  private async claimIds(workerId: string, limit: number, now: Date, conversationIds?: readonly number[]): Promise<number[] | any[]> {
     const lockedAt = new Date(this.clock());
     const cutoff = new Date(lockedAt.getTime() - this.newFlowMaxWaitMs);
     if (this.dialect === 'sqlite') {
@@ -191,8 +248,8 @@ export class PrismaStorageAdapter implements IStorageAdapter {
       return claimed;
     }
 
-    const runnable = sqlPart`
-      SELECT "id" FROM "Request"
+    const runnable = (columns: SqlFragment) => sqlPart`
+      SELECT ${columns} FROM "Request"
       WHERE "status" = 'NEW' AND "pendingDependencies" <= 0 AND "scheduledAt" <= ${now}
       ${conversationIds ? sqlPart`AND "conversationId" IN (${[...conversationIds]})` : SQL_EMPTY}
       ${this.scope ? sqlPart`AND ("projectId" IN (${scopeProjectIds(this.scope)}) OR "projectId" IS NULL)` : SQL_EMPTY}
@@ -210,21 +267,18 @@ export class PrismaStorageAdapter implements IStorageAdapter {
       FOR UPDATE SKIP LOCKED`;
 
     if (this.dialect === 'postgresql') {
-      const rows: Array<{ id: unknown }> = await this.prisma.$queryRawUnsafe(
+      return this.prisma.$queryRawUnsafe(
         ...this.sql`UPDATE "Request" SET "status" = 'WAITING', "lockedBy" = ${workerId}, "lockedAt" = ${lockedAt}, "updatedAt" = ${lockedAt}
-          WHERE "id" IN (${runnable}) RETURNING "id"`
+          WHERE "id" IN (${runnable(sqlPart`"id"`)}) RETURNING *`
       );
-      return rows.map(r => Number(r.id));
     }
 
     // MySQL/MariaDB: no UPDATE … RETURNING, and no LIMIT inside an IN subquery
     return this.prisma.$transaction(async (tx: any) => {
-      const rows: Array<{ id: unknown }> = await tx.$queryRawUnsafe(...this.sql`${runnable}`);
-      const ids = rows.map(r => Number(r.id));
-      if (ids.length) {
-        await tx.request.updateMany({ where: { id: { in: ids } }, data: { status: 'WAITING', lockedBy: workerId, lockedAt } });
-      }
-      return ids;
+      const rows: any[] = await tx.$queryRawUnsafe(...this.sql`${runnable(sqlPart`*`)}`);
+      if (!rows.length) return [];
+      await tx.request.updateMany({ where: { id: { in: rows.map(r => Number(r.id)) } }, data: { status: 'WAITING', lockedBy: workerId, lockedAt, updatedAt: lockedAt } });
+      return rows.map(r => ({ ...r, status: 'WAITING', lockedBy: workerId, lockedAt, updatedAt: lockedAt }));
     });
   }
 
@@ -237,18 +291,24 @@ export class PrismaStorageAdapter implements IStorageAdapter {
     const now = new Date(this.clock());
     const leaseUntil = new Date(now.getTime() + this.leases!.ttlMs);
     for (const conversationId of new Set(conversationIds)) {
+      const mine = this.held.get(conversationId);
+      if (mine?.owner === workerId && mine.until - now.getTime() > this.leases!.ttlMs / 2) continue;
       const taken = await this.prisma.conversationLease.updateMany({
         where: { conversationId, OR: [{ owner: workerId }, { leaseUntil: { lte: now } }] },
         data: { owner: workerId, leaseUntil },
       });
-      if (taken.count > 0) continue;
-      try {
-        await this.prisma.conversationLease.create({ data: { conversationId, owner: workerId, leaseUntil } });
-      } catch (err: any) {
-        // Unique violation: another worker created it first
-        if (err?.code !== 'P2002') throw err;
-        lost.add(conversationId);
+      if (taken.count === 0) {
+        try {
+          await this.prisma.conversationLease.create({ data: { conversationId, owner: workerId, leaseUntil } });
+        } catch (err: any) {
+          // Unique violation: another worker created it first
+          if (err?.code !== 'P2002') throw err;
+          this.held.delete(conversationId);
+          lost.add(conversationId);
+          continue;
+        }
       }
+      this.held.set(conversationId, { owner: workerId, until: leaseUntil.getTime() });
     }
     return lost;
   }
@@ -258,9 +318,11 @@ export class PrismaStorageAdapter implements IStorageAdapter {
     if (limit <= 0 || conversationIds?.length === 0) return [];
     for (let attempt = 1; ; attempt++) {
       try {
-        const ids = await this.claimIds(workerId, limit, now, conversationIds);
-        if (!ids.length) return [];
-        const rows = await this.prisma.request.findMany({ where: { id: { in: ids } }, orderBy: CLAIM_ORDER });
+        const claimed = await this.claimIds(workerId, limit, now, conversationIds);
+        if (!claimed.length) return [];
+        const rows = typeof claimed[0] === 'number'
+          ? await this.prisma.request.findMany({ where: { id: { in: claimed } }, orderBy: CLAIM_ORDER })
+          : claimed.map(rawRequest).sort(byClaimOrder);
         if (!this.leases) return rows;
         const lost = await this.acquireLeases(workerId, rows.map((r: any) => r.conversationId));
         if (!lost.size) return rows;
@@ -279,10 +341,19 @@ export class PrismaStorageAdapter implements IStorageAdapter {
   /** Extends this worker's leases on the conversations it still has requests of in flight. */
   public async renewLeases(workerId: string, conversationIds: readonly number[]): Promise<void> {
     if (!this.leases || !conversationIds.length) return;
+    const now = this.clock();
+    const until = now + this.leases.ttlMs;
     await this.prisma.conversationLease.updateMany({
       where: { owner: workerId, conversationId: { in: [...new Set(conversationIds)] } },
-      data: { leaseUntil: new Date(this.clock() + this.leases.ttlMs) },
+      data: { leaseUntil: new Date(until) },
     });
+    // Only a lease still unexpired is surely this worker's (a lapsed one may have been taken over meanwhile)
+    for (const conversationId of conversationIds) {
+      const mine = this.held.get(conversationId);
+      if (mine?.owner !== workerId) continue;
+      if (mine.until > now) mine.until = until;
+      else this.held.delete(conversationId);
+    }
   }
 
   /**
@@ -314,6 +385,7 @@ export class PrismaStorageAdapter implements IStorageAdapter {
         data: { owner: workerId, leaseUntil: new Date(now.getTime() + this.leases.ttlMs) },
       });
       if (!taken.count) continue;
+      this.held.set(conversationId, { owner: workerId, until: now.getTime() + this.leases.ttlMs });
       const freed = await this.prisma.request.updateMany({
         where: { conversationId, ...claimedBy(owner) },
         data: { status: 'NEW', lockedBy: null, lockedAt: null },
@@ -329,6 +401,9 @@ export class PrismaStorageAdapter implements IStorageAdapter {
     const released = await this.prisma.conversationLease.deleteMany({
       where: { owner: workerId, ...(keep.length ? { conversationId: { notIn: [...new Set(keep)] } } : {}) },
     });
+    for (const [conversationId, mine] of this.held) {
+      if (mine.owner === workerId && !keep.includes(conversationId)) this.held.delete(conversationId);
+    }
     return released.count;
   }
 
@@ -379,6 +454,30 @@ export class PrismaStorageAdapter implements IStorageAdapter {
       });
       return released.count;
     },
+
+    find: async (filter, { orderBy = 'id', take } = {}) => {
+      const rows = await this.prisma.request.findMany({ where: this.scoped(requestWhere(filter)), orderBy: ORDERS[orderBy], ...(take != null ? { take } : {}) });
+      return rows.map(toRequest);
+    },
+
+    first: async (filter, { orderBy = 'id' } = {}) => {
+      const row = await this.prisma.request.findFirst({ where: this.scoped(requestWhere(filter)), orderBy: ORDERS[orderBy] });
+      return row ? toRequest(row) : null;
+    },
+
+    count: async filter => this.prisma.request.count({ where: this.scoped(requestWhere(filter)) }),
+
+    updateWhere: async (filter, patch) =>
+      (await this.prisma.request.updateMany({ where: this.scoped(requestWhere(filter)), data: withJsonNulls(patch, 'update') })).count,
+
+    delete: async ids => {
+      const visible = this.scope
+        ? (await this.prisma.request.findMany({ where: this.scoped({ id: { in: [...ids] } }), select: { id: true } })).map((r: any) => r.id)
+        : [...ids];
+      if (!visible.length) return 0;
+      await this.prisma.response.deleteMany({ where: { requestId: { in: visible } } });
+      return (await this.prisma.request.deleteMany({ where: { id: { in: visible } } })).count;
+    },
   };
 
   public responses: ResponseRepository = {
@@ -396,6 +495,14 @@ export class PrismaStorageAdapter implements IStorageAdapter {
       const rows = await this.prisma.response.findMany({ where: this.scoped({ requestId }), orderBy: { id: 'asc' } });
       return rows.map(toResponse);
     },
+
+    latestFor: async requestIds => {
+      const latest = new Map<number, StoredResponse>();
+      if (!requestIds.length) return latest;
+      const rows = await this.prisma.response.findMany({ where: this.scoped({ requestId: { in: [...requestIds] } }), orderBy: { id: 'asc' } });
+      for (const row of rows) latest.set(row.requestId, toResponse(row));
+      return latest;
+    },
   };
 
   public events: EventRepository = {
@@ -406,14 +513,28 @@ export class PrismaStorageAdapter implements IStorageAdapter {
       return toEvent(await this.prisma.busEvent.create({ data: input }));
     },
 
-    after: async (conversationId, afterId, { eventNames, limit } = {}) => {
+    after: async (conversationId, afterId, { eventNames, limit, forTarget } = {}) => {
       if (!(await this.conversationVisible(conversationId))) return [];
       const rows = await this.prisma.busEvent.findMany({
-        where: { conversationId, id: { gt: afterId }, ...(eventNames ? { eventName: { in: [...eventNames] } } : {}) },
+        where: {
+          conversationId,
+          id: { gt: afterId },
+          ...(eventNames ? { eventName: { in: [...eventNames] } } : {}),
+          ...(forTarget !== undefined ? { OR: forTarget != null ? [{ target: null }, { target: forTarget }] : [{ target: null }] } : {}),
+        },
         orderBy: { id: 'asc' },
         ...(limit != null ? { take: limit } : {}),
       });
       return rows.map(toEvent);
+    },
+
+    latest: async (conversationId, { before } = {}) => {
+      if (!(await this.conversationVisible(conversationId))) return null;
+      const row = await this.prisma.busEvent.findFirst({
+        where: { conversationId, ...(before ? { createdAt: { lt: before } } : {}) },
+        orderBy: { id: 'desc' },
+      });
+      return row ? toEvent(row) : null;
     },
   };
 }

@@ -8,9 +8,23 @@ import type {
   StoredResponse,
   StoredEvent,
   NewRequest,
+  RequestFilter,
+  RequestQuery,
 } from './IStorageAdapter.js';
 import { assertWritableProject, scopeProjectIds } from './IStorageAdapter.js';
 import { TERMINAL_STATUSES } from '../engine/DeadLetters.js';
+
+const oneOf = <T>(value: T, wanted: T | readonly T[] | undefined): boolean =>
+  wanted === undefined || (Array.isArray(wanted) ? (wanted as readonly T[]).includes(value) : value === wanted);
+
+const ORDERS: Record<NonNullable<RequestQuery['orderBy']>, (a: StoredRequest, b: StoredRequest) => number> = {
+  id: (a, b) => a.id - b.id,
+  'id desc': (a, b) => b.id - a.id,
+  claim: (a, b) => b.priority - a.priority || a.createdAt.getTime() - b.createdAt.getTime() || a.id - b.id,
+  updatedAt: (a, b) => a.updatedAt.getTime() - b.updatedAt.getTime() || a.id - b.id,
+  'updatedAt desc': (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || b.id - a.id,
+  scheduledAt: (a, b) => (a.scheduledAt?.getTime() ?? 0) - (b.scheduledAt?.getTime() ?? 0) || a.id - b.id,
+};
 
 /** The rows behind a memory store, shared by its scoped views. */
 class MemoryRows {
@@ -63,6 +77,32 @@ export class MemoryStorageAdapter implements IStorageAdapter {
     return !this.scope || (this.db.conversations.has(conversationId) && this.visible(this.db.conversations.get(conversationId)!));
   }
 
+  private matches(r: StoredRequest, f: RequestFilter): boolean {
+    return (
+      (f.ids === undefined || f.ids.includes(r.id)) &&
+      oneOf(r.conversationId, f.conversationId) &&
+      oneOf(r.status, f.status) &&
+      (f.notifyId === undefined || r.notifyId === f.notifyId) &&
+      (f.parentId === undefined || r.parentId === f.parentId) &&
+      (f.lockedBy === undefined || r.lockedBy === f.lockedBy) &&
+      (f.lockedBefore === undefined || (r.lockedAt != null && r.lockedAt.getTime() <= f.lockedBefore.getTime())) &&
+      (f.scheduledAfter === undefined || (r.scheduledAt != null && r.scheduledAt.getTime() > f.scheduledAfter.getTime())) &&
+      (f.pendingDependencies === undefined || r.pendingDependencies === f.pendingDependencies) &&
+      (f.priorityBelow === undefined || r.priority < f.priorityBelow) &&
+      (f.agentId === undefined || (r.agentId != null && f.agentId.includes(r.agentId))) &&
+      (f.scriptId === undefined || r.scriptId === f.scriptId) &&
+      (f.eventCursorBelow === undefined || r.eventCursor == null || r.eventCursor < f.eventCursorBelow) &&
+      (f.hasResponses === undefined || [...this.db.responses.values()].some(x => x.requestId === r.id) === f.hasResponses) &&
+      (f.hasOutput === undefined || r.output != null || [...this.db.responses.values()].some(x => x.requestId === r.id)) &&
+      (f.any === undefined || f.any.some(sub => this.matches(r, sub)))
+    );
+  }
+
+  private select(filter: RequestFilter, { orderBy = 'id', take }: RequestQuery = {}): StoredRequest[] {
+    const rows = [...this.db.requests.values()].filter(r => this.visible(r.projectId) && this.matches(r, filter)).sort(ORDERS[orderBy]);
+    return take != null ? rows.slice(0, take) : rows;
+  }
+
   private row(id: number): StoredRequest | undefined {
     const row = this.db.requests.get(id);
     return row && this.visible(row.projectId) ? row : undefined;
@@ -84,6 +124,7 @@ export class MemoryStorageAdapter implements IStorageAdapter {
         toolName: input.toolName ?? null,
         ast: input.ast ?? null,
         context: input.context ?? null,
+        output: null,
         priority: input.priority ?? 0,
         notifyId: input.notifyId ?? null,
         parentId: input.parentId ?? null,
@@ -91,8 +132,8 @@ export class MemoryStorageAdapter implements IStorageAdapter {
         retryCount: 0,
         eventCursor: null,
         scheduledAt: input.scheduledAt ?? now,
-        lockedBy: null,
-        lockedAt: null,
+        lockedBy: input.lockedBy ?? null,
+        lockedAt: input.lockedAt ?? null,
         createdAt: now,
         updatedAt: now,
       };
@@ -161,6 +202,26 @@ export class MemoryStorageAdapter implements IStorageAdapter {
       }
       return released;
     },
+
+    find: async (filter, query) => structuredClone(this.select(filter, query)),
+
+    first: async (filter, query) => structuredClone(this.select(filter, { ...query, take: 1 })[0] ?? null),
+
+    count: async filter => this.select(filter).length,
+
+    updateWhere: async (filter, patch) => {
+      const rows = this.select(filter);
+      const updatedAt = new Date(this.clock());
+      for (const r of rows) Object.assign(r, structuredClone(patch), { updatedAt });
+      return rows.length;
+    },
+
+    delete: async ids => {
+      const rows = this.select({ ids });
+      for (const r of rows) this.db.requests.delete(r.id);
+      for (const [id, res] of this.db.responses) if (ids.includes(res.requestId)) this.db.responses.delete(id);
+      return rows.length;
+    },
   };
 
   public responses: ResponseRepository = {
@@ -185,6 +246,14 @@ export class MemoryStorageAdapter implements IStorageAdapter {
 
     listForRequest: async (requestId) =>
       [...this.db.responses.values()].filter(r => r.requestId === requestId && this.visible(r.projectId)).map(r => ({ ...r })),
+
+    latestFor: async (requestIds) => {
+      const latest = new Map<number, StoredResponse>();
+      for (const r of this.db.responses.values()) {
+        if (requestIds.includes(r.requestId) && this.visible(r.projectId)) latest.set(r.requestId, { ...r });
+      }
+      return latest;
+    },
   };
 
   public events: EventRepository = {
@@ -205,11 +274,23 @@ export class MemoryStorageAdapter implements IStorageAdapter {
       return structuredClone(row);
     },
 
-    after: async (conversationId, afterId, { eventNames, limit } = {}) => {
+    after: async (conversationId, afterId, { eventNames, limit, forTarget } = {}) => {
       if (!this.visibleConversation(conversationId)) return [];
       const names = eventNames ? new Set(eventNames) : undefined;
-      const rows = this.db.events.filter(e => e.conversationId === conversationId && e.id > afterId && (!names || names.has(e.eventName)));
+      const rows = this.db.events.filter(
+        e =>
+          e.conversationId === conversationId &&
+          e.id > afterId &&
+          (!names || names.has(e.eventName)) &&
+          (forTarget === undefined || e.target == null || (forTarget != null && e.target === forTarget))
+      );
       return structuredClone(limit != null ? rows.slice(0, limit) : rows);
+    },
+
+    latest: async (conversationId, { before } = {}) => {
+      if (!this.visibleConversation(conversationId)) return null;
+      const rows = this.db.events.filter(e => e.conversationId === conversationId && (!before || e.createdAt.getTime() < before.getTime()));
+      return structuredClone(rows[rows.length - 1] ?? null);
     },
   };
 }

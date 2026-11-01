@@ -19,15 +19,12 @@ export const interruptNode: NodeHandler<any> = {
 
     if (mode === 'play') {
       // Resume all PAUSED requests in this conversation
-      const resumed = await ctx.prisma.request.updateMany({
-        where: {
-          conversationId: req.conversationId,
-          status: 'PAUSED'
-        },
-        data: { status: 'NEW', lockedBy: null, lockedAt: null }
-      });
-      logger.debug(`[CuratorRequestProcessor] Resumed ${resumed.count} paused requests.`);
-      await ctx.saveResponse(req, JSON.stringify({ status: 'play', resumed: resumed.count }));
+      const resumed = await ctx.store.requests.updateWhere(
+        { conversationId: req.conversationId, status: 'PAUSED' },
+        { status: 'NEW', lockedBy: null, lockedAt: null }
+      );
+      logger.debug(`[CuratorRequestProcessor] Resumed ${resumed} paused requests.`);
+      await ctx.saveResponse(req, JSON.stringify({ status: 'play', resumed }));
       await ctx.completeRequest(req.id, 'COMPLETED');
       return;
     }
@@ -41,15 +38,11 @@ export const interruptNode: NodeHandler<any> = {
       }
 
       // Suspend all NEW requests below threshold
-      const paused = await ctx.prisma.request.updateMany({
-        where: {
-          conversationId: req.conversationId,
-          status: 'NEW',
-          priority: { lt: cancelThreshold }
-        },
-        data: { status: 'PAUSED' }
-      });
-      logger.debug(`[CuratorRequestProcessor] Paused ${paused.count} requests.`);
+      const paused = await ctx.store.requests.updateWhere(
+        { conversationId: req.conversationId, status: 'NEW', priorityBelow: cancelThreshold },
+        { status: 'PAUSED' }
+      );
+      logger.debug(`[CuratorRequestProcessor] Paused ${paused} requests.`);
 
       // Run handler if provided
       if (ast.handler) {
@@ -66,27 +59,22 @@ export const interruptNode: NodeHandler<any> = {
         });
         // Park until the handler finishes; `interruptHandled` makes the wake-up complete instead of pausing again.
         // No Response while parked: the poller treats a WAITING Request with a Response as answered.
-        await ctx.prisma.request.update({
-          where: { id: req.id },
-          data: { status: 'WAITING', pendingDependencies: 1, lockedBy: null, lockedAt: null, context: { ...(req.context || {}), interruptHandled: true } }
+        await ctx.store.requests.update(req.id, {
+          status: 'WAITING', pendingDependencies: 1, lockedBy: null, lockedAt: null, context: { ...(req.context || {}), interruptHandled: true }
         });
       } else {
-        await ctx.saveResponse(req, JSON.stringify({ status: 'pause', paused: paused.count }));
+        await ctx.saveResponse(req, JSON.stringify({ status: 'pause', paused }));
         await ctx.completeRequest(req.id, 'COMPLETED');
       }
       return;
     }
 
     // mode === 'stop': cancel all pending requests below threshold
-    const cancelled = await ctx.prisma.request.updateMany({
-      where: {
-        conversationId: req.conversationId,
-        status: 'NEW',
-        priority: { lt: cancelThreshold }
-      },
-      data: { status: 'FAILED' }
-    });
-    logger.debug(`[CuratorRequestProcessor] Cancelled ${cancelled.count} lower-priority requests.`);
+    const cancelled = await ctx.store.requests.updateWhere(
+      { conversationId: req.conversationId, status: 'NEW', priorityBelow: cancelThreshold },
+      { status: 'FAILED' }
+    );
+    logger.debug(`[CuratorRequestProcessor] Cancelled ${cancelled} lower-priority requests.`);
 
     // Run the interrupt handler at high priority
     if (ast.handler) {
@@ -120,7 +108,7 @@ export const interruptNode: NodeHandler<any> = {
       });
     }
 
-    await ctx.saveResponse(req, JSON.stringify({ status: 'stop', cancelled: cancelled.count }));
+    await ctx.saveResponse(req, JSON.stringify({ status: 'stop', cancelled: cancelled }));
     await ctx.completeRequest(req.id, 'COMPLETED');
   },
 };

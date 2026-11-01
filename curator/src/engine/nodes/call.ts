@@ -1,6 +1,5 @@
 import type { NodeContext, NodeHandler } from './NodeHandler.js';
 import type { CuratorAstNode, CuratorCallNode, CuratorParamSpec } from '../CuratorAst.js';
-import { HAS_OUTPUT, LATEST_RESPONSE, requestOutput } from '../StepTrace.js';
 import { resolveRef, getScriptVersionAst, entryAstPath, expandInlineCalls } from '../ScriptRegistry.js';
 
 /**
@@ -17,12 +16,8 @@ export async function runCall(ast: CuratorCallNode, req: any, ctx: NodeContext, 
 
   if (callContext.callPending) {
     // Phase 2: the callee chain finished; the result of the latest request that notified us is the result.
-    const last = await ctx.prisma.request.findFirst({
-      where: { notifyId: req.id, status: 'COMPLETED', ...HAS_OUTPUT },
-      orderBy: { id: 'desc' },
-      include: LATEST_RESPONSE
-    });
-    let result: any = requestOutput(last);
+    const last = await ctx.store.requests.first({ notifyId: req.id, status: 'COMPLETED', hasOutput: true }, { orderBy: 'id desc' });
+    let result: any = last ? (last.output ?? (await ctx.store.responses.latest(last.id))?.content ?? null) : null;
     if (typeof result === 'string') {
       try { result = JSON.parse(result); } catch { /* plain text result */ }
     }
@@ -39,9 +34,8 @@ export async function runCall(ast: CuratorCallNode, req: any, ctx: NodeContext, 
       const conv = await ctx.prisma.conversation.findUnique({ where: { id: req.conversationId } });
       newContext.state = ctx.getConversationState(conv);
     }
-    await ctx.prisma.request.update({ where: { id: req.id }, data: { context: newContext } });
     await ctx.saveResponse(req, typeof result === 'string' ? result : JSON.stringify(result ?? null));
-    await ctx.completeRequest(req.id, 'COMPLETED');
+    await ctx.completeRequest(req.id, 'COMPLETED', false, { context: newContext });
     return;
   }
 
@@ -62,12 +56,9 @@ export async function runCall(ast: CuratorCallNode, req: any, ctx: NodeContext, 
   }
 
   // Park the caller first so a fast callee can never complete before we are WAITING.
-  await ctx.prisma.request.update({
-    where: { id: req.id },
-    data: {
-      status: 'WAITING', pendingDependencies: 1, lockedBy: null, lockedAt: null,
-      context: { ...callContext, callPending: true, callReturns: target.returns ?? null, callAs: ast.as ?? null }
-    }
+  await ctx.store.requests.update(req.id, {
+    status: 'WAITING', pendingDependencies: 1, lockedBy: null, lockedAt: null,
+    context: { ...callContext, callPending: true, callReturns: target.returns ?? null, callAs: ast.as ?? null }
   });
 
   await ctx.createRequest({

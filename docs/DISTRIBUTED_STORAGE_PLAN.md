@@ -22,8 +22,8 @@ every node polls the same `Request` rows (`findMany` followed by a separate clai
 - **SQLite**: single process, direct or embedded runs. No clustering features. Stays the default for the
   CLI, tests and minigames.
 - **MariaDB**: single primary, primary plus replicas, or a Galera cluster. Already supported (`prisma-mariadb/`).
-- **Postgres**: primary plus streaming replicas (for example Patroni), optionally behind PgBouncer. Not yet
-  supported in `curator/`. Needs a `prisma-postgres/` schema folder (one engine per folder, see `curator/AGENTS.md`).
+- **Postgres**: primary plus streaming replicas (for example Patroni), optionally behind PgBouncer. Supported
+  through `prisma-postgres/` (one engine per folder, see `curator/AGENTS.md`).
 
 The multi-node design must hold for MariaDB and Postgres clusters. SQLite only has to keep working.
 
@@ -47,7 +47,7 @@ Consequences:
 
 ## Plan
 
-### Phase 0: Storage layer that works across databases (done, except wiring the processor)
+### Phase 0: Storage layer that works across databases (done)
 - `curator/src/db/sqlDialect.ts`: detects `sqlite | mysql | postgresql` from the Prisma client and builds
   dialect-correct SQL (placeholders, identifier quoting, optional fragments). `Retention.ts` uses it.
 - `prisma-postgres/` (derived from `prisma-mariadb/`) and `provisionPostgresDb` (`src/db/postgresProvisioner.ts`).
@@ -60,7 +60,14 @@ Consequences:
   LOCKED` and `UPDATE` in one transaction, retried on write conflicts) and `MemoryStorageAdapter`.
   Contract tests: `test/engine/storage-adapter.test.ts` (memory, SQLite, and Postgres 17 / MariaDB 11.4 via
   the test containers; passing on all, 2026-11-01).
-- Remaining: move `CuratorRequestProcessor` onto the port (it still calls Prisma directly).
+- The processor and the node handlers run the request lifecycle through the port (2026-11-01): `requests` also
+  has `find` / `first` / `count` over a typed `RequestFilter`, `updateWhere` (a compare-and-swap when the filter
+  carries ids and expected values) and `delete`; `responses.latestFor` (a Join's branch results in one read) and
+  `events.latest` / `after(..., { forTarget })`. Node handlers get it as `ctx.store`; `ctx.prisma` stays for
+  everything outside the lifecycle (agents, scripts, conversations, LLM history). Still on Prisma by design: the
+  agent lookup by conversation (cached, see `definitionCacheMs`) and the read-only-request prune query
+  (relation filters, retention). Claims on Postgres (`RETURNING *`) and MariaDB (the locking `SELECT *`) return
+  the claimed rows, so a claim no longer reads them again.
 
 ### Phase 1: Durability tiers (done per host; per script/conversation still open)
 
@@ -166,7 +173,7 @@ above every `EventLog` id, so existing cursors stay valid. Checkpoint moves a co
   (`Retention.ts` already works in chunks of 500) and run them off-peak.
 - SQLite: unchanged.
 
-### Phase 4: Conversation ownership (leases done; in-memory state and group commit open)
+### Phase 4: Conversation ownership (leases and owner-side savings done; deferred state writes rejected)
 Done: model `ConversationLease` (all three schemas; MariaDB DDL; added to existing SQLite files at startup;
 Postgres pushes it when missing). A claim skips conversations another worker holds a live lease on, takes the
 lease on what it claimed, and puts back requests whose lease it lost in a race. The processor renews the leases of
@@ -176,8 +183,25 @@ worker's `recoverLapsedLeases` pass takes over each expired lease whose owner st
 those back to NEW, so the conversation resumes after `ttlMs` (measured: ~30s) instead of the 5-minute stale-lock sweep;
 the step the dead node was executing runs again (at-least-once). On by default for
 MariaDB/Postgres, off for SQLite; option `conversationLeases`. This also covers the checkpoint tier: a moved
-conversation is run by one durable worker at a time. Open: keeping the owner's conversation state in memory and
-batching its writes (below); both build on the leases.
+conversation is run by one durable worker at a time.
+
+Owner-side savings (2026-11-01, chosen over batching every write, which would replay a window of steps after a
+crash):
+- The store remembers the leases it took or renewed; a claim does not re-take one with more than half its ttl
+  left (no other worker can take it before it expires). A renew extends only entries not yet expired: a lapsed
+  lease may have been taken over meanwhile. Lease writes per claim: ~1 per request -> ~0.
+- A state write reads the log's head in the same statement as its row lock and skips the catch-up read when the
+  snapshot is at the head (as every append leaves it): BEGIN, lock+head, insert, snapshot, COMMIT.
+- Actor permissions join the definition cache.
+- Rejected: deferring state events (group commit). Request contexts do not store state copies, so state lives
+  only in the log; a crash would lose updates that later steps already acted on (wrong results, not replays).
+  Also not done: caching the state the owner reads for a tool step (`toolContext.state`, one read per tool step):
+  other nodes and the server write state too, so the cache needs cross-node invalidation (no NOTIFY on MariaDB).
+- Postgres profile of the load-test flow: 14.6 -> 12.4 operations per request plus one transaction per state
+  write. Load test: Postgres 7.9-8.8s (was 12.1-13.6s), step-to-step p95 135-171ms, flow p50 4.8-5.3s;
+  MariaDB 15.1-21.4s. All checks PASS.
+
+Original sketch:
 
 - Lease table `ConversationLease(conversationId, owner, leaseUntil)`. Only the owner node runs a
   conversation's requests, and it keeps that conversation's state in memory.
@@ -287,6 +311,19 @@ concurrency 3 per host):
     `UPDATE … WHERE status = 'WAITING' …` that locked every WAITING row it scanned through the status index, while
     a completion held a row and waited for its index entry. The sweeps (`unlockStaleRequests`, `releaseStale`) now
     read first and update by id. 0 deadlocks in the next runs; MariaDB 100 flows in 17-18s (was ~30s).
+
+- Query reduction (2026-11-01): fewer database round trips per request: definition cache (agents, tool access;
+  `definitionCacheMs`, default 5s, `invalidateDefinitions()`), the claimed row reused instead of re-read, a
+  step's context written with its final status, the notify target's context written in the dependency
+  compare-and-swap, the notify reusing the Response and state it just wrote, one-read claims. SQLite profile of
+  the load-test flow: 14.6 -> 11.4 operations per request (`Request` updates 28 -> 12, reads 24 -> 9).
+  State writes of one conversation now lock its row (`FOR UPDATE` on Postgres/MariaDB in `ConversationStateLog`):
+  without it concurrent writers folded the same snapshot and one write was lost (`test/db/state-concurrency.test.ts`
+  fails on both servers without the lock).
+  Load test after these changes (all checks PASS on every run): Postgres 12.1-13.6s, step-to-step p95
+  0.24-0.6s, flow p50 6.4-8.0s (the first run after provisioning was a 17s outlier); MariaDB 19.8-21.1s, p95
+  ~4.2s. A/B on MariaDB with the old ids-only claim: 20.7-29.2s, so MariaDB's spread is run-to-run variance
+  (no NOTIFY: hosts join a burst at their next poll), not the claim.
 
 ## Order
 

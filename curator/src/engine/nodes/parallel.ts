@@ -49,7 +49,6 @@ export const parallelNode: NodeHandler<CuratorParallelNode> = {
       });
     }
     // The join node assumes responsibility for notifying our parent.
-    await ctx.prisma.request.update({ where: { id: req.id }, data: { notifyId: null } });
-    await ctx.completeRequest(req.id, 'COMPLETED', true);
+    await ctx.completeRequest(req.id, 'COMPLETED', true, { notifyId: null });
   },
 };

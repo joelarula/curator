@@ -63,15 +63,12 @@ export const loopNode: NodeHandler<CuratorLoopNode> = {
         scheduledAt: runNow ? null : computeNextRunDate(ast.schedule!, new Date(ctx.now()))
       }
     });
-    await ctx.prisma.request.update({
-      where: { id: req.id },
-      data: {
-        status: 'WAITING',
-        lockedBy: null,
-        lockedAt: null,
-        pendingDependencies: 1,
-        context: { ...loopContext, loopIteration: iteration, loopRunning: true, ...(collection ? { loopCollection: collection } : {}) }
-      }
+    await ctx.store.requests.update(req.id, {
+      status: 'WAITING',
+      lockedBy: null,
+      lockedAt: null,
+      pendingDependencies: 1,
+      context: { ...loopContext, loopIteration: iteration, loopRunning: true, ...(collection ? { loopCollection: collection } : {}) }
     });
   },
 };

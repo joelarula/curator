@@ -92,9 +92,6 @@ export const humanInputNode: NodeHandler<any> = {
     if (ast.timeoutSeconds > 0) {
       (updatedContext as any).waitDeadline = new Date(ctx.now() + ast.timeoutSeconds * 1000).toISOString();
     }
-    await ctx.prisma.request.update({
-      where: { id: req.id },
-      data: { status: 'WAITING_FOR_USER', context: updatedContext }
-    });
+    await ctx.store.requests.update(req.id, { status: 'WAITING_FOR_USER', context: updatedContext });
   },
 };

@@ -43,6 +43,8 @@ export interface StoredRequest {
   /** Null in reference mode: the node lives in ScriptVersion, addressed by `context.astPath`. */
   ast: unknown | null;
   context: CuratorExecutionContext | null;
+  /** Result of a control-flow step (history steps keep Responses). */
+  output: string | null;
   priority: number;
   /** Request to wake (decrement) when this one completes. */
   notifyId: number | null;
@@ -74,14 +76,54 @@ export interface NewRequest {
   pendingDependencies?: number;
   /** Default: now. */
   scheduledAt?: Date;
+  /** Created already claimed (run in-process right away). */
+  lockedBy?: string | null;
+  lockedAt?: Date | null;
 }
 
 export type RequestPatch = Partial<
   Pick<
     StoredRequest,
-    'status' | 'context' | 'ast' | 'priority' | 'pendingDependencies' | 'retryCount' | 'eventCursor' | 'scheduledAt' | 'lockedBy' | 'lockedAt'
+    | 'status' | 'context' | 'ast' | 'output' | 'priority' | 'pendingDependencies' | 'retryCount' | 'eventCursor'
+    | 'scheduledAt' | 'lockedBy' | 'lockedAt' | 'notifyId' | 'scriptId' | 'scriptVersion'
   >
 >;
+
+/**
+ * Which requests a read or conditional update applies to. Fields combine with AND; `any` is an OR of filters.
+ * List fields match any of their values.
+ */
+export interface RequestFilter {
+  ids?: readonly number[];
+  conversationId?: number | readonly number[];
+  status?: RequestStatus | readonly RequestStatus[];
+  /** null: notifies nothing. */
+  notifyId?: number | null;
+  /** null: a root request. */
+  parentId?: number | null;
+  /** null: unlocked. */
+  lockedBy?: string | null;
+  lockedBefore?: Date;
+  /** Due later than this (scheduled for the future). */
+  scheduledAfter?: Date;
+  pendingDependencies?: number;
+  priorityBelow?: number;
+  agentId?: readonly string[];
+  scriptId?: number;
+  /** No cursor yet, or one below this. */
+  eventCursorBelow?: number;
+  /** Has at least one Response. */
+  hasResponses?: boolean;
+  /** Has a result: an `output` or a Response. */
+  hasOutput?: true;
+  any?: readonly RequestFilter[];
+}
+
+export interface RequestQuery {
+  /** Default 'id'. 'claim': priority, then oldest. */
+  orderBy?: 'id' | 'id desc' | 'claim' | 'updatedAt' | 'updatedAt desc' | 'scheduledAt';
+  take?: number;
+}
 
 export interface ClaimOptions {
   /** Most requests to claim. */
@@ -146,6 +188,16 @@ export interface RequestRepository {
   dependencyDone(id: number): Promise<StoredRequest | null>;
   /** Returns WAITING requests locked before `lockedBefore` with no pending dependencies to NEW (crashed workers). */
   releaseStale(lockedBefore: Date): Promise<number>;
+  find(filter: RequestFilter, query?: RequestQuery): Promise<StoredRequest[]>;
+  first(filter: RequestFilter, query?: Omit<RequestQuery, 'take'>): Promise<StoredRequest | null>;
+  count(filter: RequestFilter): Promise<number>;
+  /**
+   * Applies `patch` to every request matching `filter` in one statement; returns how many changed. With `ids`
+   * and the expected values in the filter it is a compare-and-swap.
+   */
+  updateWhere(filter: RequestFilter, patch: RequestPatch): Promise<number>;
+  /** Deletes the requests and their Responses; returns how many requests it deleted. */
+  delete(ids: readonly number[]): Promise<number>;
 }
 
 export interface ResponseRepository {
@@ -153,12 +205,21 @@ export interface ResponseRepository {
   /** The most recent response of a request (its result, or why it failed). */
   latest(requestId: number): Promise<StoredResponse | null>;
   listForRequest(requestId: number): Promise<StoredResponse[]>;
+  /** The most recent response of each request that has one, in one read. */
+  latestFor(requestIds: readonly number[]): Promise<Map<number, StoredResponse>>;
 }
 
 export interface EventRepository {
   append(input: NewEvent): Promise<StoredEvent>;
   /** Events of a conversation with id greater than `afterId`, ascending (replay from a cursor). */
-  after(conversationId: number, afterId: number, options?: { eventNames?: readonly string[]; limit?: number }): Promise<StoredEvent[]>;
+  /** With `forTarget`: only broadcast events (no target) and those addressed to it. */
+  after(
+    conversationId: number,
+    afterId: number,
+    options?: { eventNames?: readonly string[]; limit?: number; forTarget?: string | null }
+  ): Promise<StoredEvent[]>;
+  /** The conversation's last event (with `before`: the last created before then). */
+  latest(conversationId: number, options?: { before?: Date }): Promise<StoredEvent | null>;
 }
 
 export interface StorageCapabilities {

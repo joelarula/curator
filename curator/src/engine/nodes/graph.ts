@@ -32,15 +32,12 @@ export const graphNode: NodeHandler<CuratorGraphNode> = {
         }
       });
 
-      await ctx.prisma.request.update({
-        where: { id: req.id },
-        data: {
-          pendingDependencies: 1,
-          context: { ...context, activeNode, stateData, waitingFor: phase, ...extra },
-          status: 'NEW',
-          lockedBy: null,
-          lockedAt: null
-        }
+      await ctx.store.requests.update(req.id, {
+        pendingDependencies: 1,
+        context: { ...context, activeNode, stateData, waitingFor: phase, ...extra },
+        status: 'NEW',
+        lockedBy: null,
+        lockedAt: null
       });
     };
 

@@ -29,9 +29,8 @@ export const reduceNode: NodeHandler<CuratorReduceNode> = {
     if (ast.as) updatedContext[ast.as] = output;
     if (ast.spread !== false) Object.assign(updatedContext, output);
     req.context = updatedContext;
-    await ctx.prisma.request.update({ where: { id: req.id }, data: { context: updatedContext } });
 
     await ctx.saveResponse(req, JSON.stringify(output));
-    await ctx.completeRequest(req.id, 'COMPLETED');
+    await ctx.completeRequest(req.id, 'COMPLETED', false, { context: updatedContext });
   },
 };

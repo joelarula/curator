@@ -71,15 +71,14 @@ test('node handler: Reduce only needs the tools service from its fake context', 
     tools: { reducer: (name: string) => (name === 'sum' ? (a: any) => ({ total: a.x + a.y }) : undefined) },
     isDynamicExpr: () => false,
     evaluateArgs: async (args: any) => args,
-    prisma: { request: { update: async ({ data }: any) => { calls.push(`context:${JSON.stringify(data.context)}`); } } },
     saveResponse: async (_r: any, content: string) => { calls.push(`save:${content}`); },
-    completeRequest: async (id: number, s?: string) => { calls.push(`complete:${id}:${s}`); },
+    // The reducer's context is written with the status
+    completeRequest: async (id: number, s?: string, _skip?: boolean, data?: any) => { calls.push(`complete:${id}:${s}:${JSON.stringify(data?.context)}`); },
   } as unknown as NodeContext;
   await reduceNode.run({ type: 'Curator_Reduce', reducer: 'sum', args: { x: 2, y: 3 }, as: 'out' }, { id: 9, context: {} }, ctx);
   assert.deepEqual(calls, [
-    'context:{"out":{"total":5},"total":5}',
     'save:{"total":5}',
-    'complete:9:COMPLETED',
+    'complete:9:COMPLETED:{"out":{"total":5},"total":5}',
   ]);
   await assert.rejects(reduceNode.run({ type: 'Curator_Reduce', reducer: 'nope' }, { id: 10, context: {} }, ctx), /Reducer nope not found/);
 });

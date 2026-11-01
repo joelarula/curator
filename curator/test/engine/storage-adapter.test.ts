@@ -136,6 +136,54 @@ for (const [name, makeFixture] of FIXTURES) {
     }
   });
 
+  test(`storage (${name}): filtered reads, compare-and-swap updates and deletes`, async () => {
+    const fx = await makeFixture();
+    try {
+      const conv = await fx.conversation('p1');
+      const other = await fx.conversation('p1');
+      const store = fx.store();
+      const base = { userId: fx.userId, projectId: 'p1', conversationId: conv, scheduledAt: NOW };
+      const waiting = await store.requests.create({ ...base, status: 'WAITING_FOR_USER', agentId: null });
+      const later = await store.requests.create({ ...base, scheduledAt: LATER });
+      const target = await store.requests.create({ ...base, status: 'WAITING', pendingDependencies: 2, context: { k: 'v' } });
+      const child = await store.requests.create({ ...base, notifyId: target.id });
+      await store.requests.create({ ...base, conversationId: other });
+
+      assert.deepEqual((await store.requests.find({ conversationId: conv, status: ['WAITING_FOR_USER', 'WAITING'] })).map(r => r.id), [waiting.id, target.id]);
+      assert.equal((await store.requests.first({ status: 'NEW', scheduledAfter: NOW }, { orderBy: 'scheduledAt' }))?.id, later.id);
+      assert.equal(await store.requests.count({ conversationId: [conv, other] }), 5);
+      assert.deepEqual((await store.requests.find({ notifyId: target.id })).map(r => r.id), [child.id]);
+      assert.deepEqual((await store.requests.find({ any: [{ status: 'WAITING_FOR_USER' }, { ids: [child.id] }] })).map(r => r.id), [waiting.id, child.id]);
+      assert.equal((await store.requests.find({ conversationId: conv }, { take: 2 })).length, 2);
+
+      // Compare-and-swap on the dependency count: only the writer that saw the current value wins
+      assert.equal(await store.requests.updateWhere({ ids: [target.id], pendingDependencies: 3 }, { pendingDependencies: 2 }), 0);
+      assert.equal(await store.requests.updateWhere({ ids: [target.id], pendingDependencies: 2 }, { pendingDependencies: 1, output: 'x' }), 1);
+      const updated = await store.requests.get(target.id);
+      assert.equal(updated?.pendingDependencies, 1);
+      assert.equal(updated?.output, 'x');
+      assert.equal(await store.requests.updateWhere({ ids: [target.id], eventCursorBelow: 5 }, { eventCursor: 5 }), 1);
+      assert.equal(await store.requests.updateWhere({ ids: [target.id], eventCursorBelow: 5 }, { eventCursor: 5 }), 0);
+
+      await store.responses.append({ requestId: waiting.id, conversationId: conv, projectId: 'p1', content: 'answer' });
+      assert.deepEqual((await store.requests.find({ hasResponses: true })).map(r => r.id), [waiting.id]);
+      assert.equal(await store.requests.delete([waiting.id, child.id]), 2);
+      assert.equal(await store.requests.get(waiting.id), null);
+      assert.deepEqual(await store.responses.listForRequest(waiting.id), []);
+
+      // A claimed row is a full request: parsed JSON, numbers, the claim's lock
+      await store.requests.updateWhere({ ids: [target.id] }, { status: 'NEW', pendingDependencies: 0, lockedBy: null });
+      const claimed = await store.requests.claim('w1', { limit: 1, conversationIds: [conv] });
+      assert.equal(claimed[0].id, target.id);
+      assert.deepEqual(claimed[0].context, { k: 'v' });
+      assert.equal(claimed[0].eventCursor, 5);
+      assert.equal(claimed[0].lockedBy, 'w1');
+      assert.equal(claimed[0].status, 'WAITING');
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   test(`storage (${name}): responses and events replay in order from a cursor`, async () => {
     const fx = await makeFixture();
     try {
@@ -152,6 +200,8 @@ for (const [name, makeFixture] of FIXTURES) {
       await store.events.append({ conversationId: conv, eventName: 'a', payload: { n: 3 } });
       assert.deepEqual((await store.events.after(conv, first.id)).map(e => e.payload), [{ n: 2 }, { n: 3 }]);
       assert.deepEqual((await store.events.after(conv, 0, { eventNames: ['a'], limit: 1 })).map(e => e.source), [req.id]);
+      assert.deepEqual((await store.events.latest(conv))?.payload, { n: 3 });
+      assert.equal(await store.events.latest(conv, { before: new Date(0) }), null);
     } finally {
       await fx.cleanup();
     }

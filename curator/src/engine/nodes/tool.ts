@@ -35,23 +35,20 @@ export const toolNode: NodeHandler<CuratorToolNode> = {
         logger.debug(`[CuratorRequestProcessor] Request ${req.id} pausing on WAITING_FOR_USER for tool '${toolKey}'.`);
         const ttlMs = ast.approvalTtlMs ?? (tool as any).approvalTtlMs ?? ctx.tools.approvalTtlMs;
         const expiresAt = ttlMs > 0 ? new Date(ctx.now() + ttlMs).toISOString() : undefined;
-        await ctx.prisma.request.update({
-          where: { id: req.id },
-          data: {
-            status: 'WAITING_FOR_USER',
-            lockedBy: null,
-            lockedAt: null,
-            context: {
-              ...req.context,
-              pendingToolCall: {
-                name: toolKey,
-                args: evaluatedArgs,
-                as: ast.as,
-                expiresAt,
-                onExpired: ast.onApprovalExpired ?? 'fail'
-              },
-              reason: accessCheck.reason
-            }
+        await ctx.store.requests.update(req.id, {
+          status: 'WAITING_FOR_USER',
+          lockedBy: null,
+          lockedAt: null,
+          context: {
+            ...req.context,
+            pendingToolCall: {
+              name: toolKey,
+              args: evaluatedArgs,
+              as: ast.as,
+              expiresAt,
+              onExpired: ast.onApprovalExpired ?? 'fail'
+            },
+            reason: accessCheck.reason
           }
         });
         // Audit record only: the poller never treats this Response as the approval (see pendingToolCall guard).

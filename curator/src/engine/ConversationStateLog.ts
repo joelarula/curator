@@ -127,18 +127,24 @@ const dialectOf = (prisma: any): SqlDialect | null => {
  * Reads the conversation's snapshot, locking its row for the rest of the transaction on Postgres/MariaDB
  * (`FOR UPDATE`; SQLite has a single writer). State writers of one conversation so run one after the other: each
  * folds the events of the writers before it, and event ids follow the lock order.
+ * `head` is the log's last state event id, read in the same query (undefined: not known, read the log).
  */
-async function lockedSnapshot(db: any, conversationId: number, dialect: SqlDialect | null): Promise<StateSnapshot> {
+async function lockedSnapshot(db: any, conversationId: number, dialect: SqlDialect | null): Promise<StateSnapshot & { head?: number }> {
   if (!dialect || dialect === 'sqlite' || typeof db.$queryRawUnsafe !== 'function') {
     return readSnapshot((await db.conversation.findUnique({ where: { id: conversationId } }))?.metadata);
   }
-  const rows: any[] = await db.$queryRawUnsafe(...sqlTag(dialect)`SELECT "metadata" FROM "Conversation" WHERE "id" = ${conversationId} FOR UPDATE`);
-  return readSnapshot(rows[0]?.metadata);
+  const rows: any[] = await db.$queryRawUnsafe(
+    ...sqlTag(dialect)`SELECT "metadata", (SELECT MAX("id") FROM "EventLog" WHERE "conversationId" = ${conversationId}
+      AND "eventName" IN (${[STATE_PATCH, STATE_REWIND]})) AS "head" FROM "Conversation" WHERE "id" = ${conversationId} FOR UPDATE`
+  );
+  return { ...readSnapshot(rows[0]?.metadata), head: rows[0]?.head == null ? 0 : Number(rows[0].head) };
 }
 
 /** Brings the `Conversation.metadata` snapshot up to date with the log and returns it (locks the row, see above). */
 async function materializeIn(db: any, conversationId: number, dialect: SqlDialect | null = null): Promise<StateSnapshot> {
-  const snap = await lockedSnapshot(db, conversationId, dialect);
+  const { head, ...snap } = await lockedSnapshot(db, conversationId, dialect);
+  // The snapshot is at the log's head (every append moves both): nothing to fold
+  if (head !== undefined && head <= snap.seq) return snap;
   const events = await stateEventsAfter(db, conversationId, snap.seq);
   if (!events.length) return snap;
   const next = needsFullRefold(events, snap)
