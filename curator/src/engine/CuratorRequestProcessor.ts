@@ -956,15 +956,15 @@ export class CuratorRequestProcessor {
       if ((req.context as any)?.pendingToolCall) continue;
 
       // System records written on the parked Request itself (prompt, approval notice, ...) are not human input.
-      const latest: any = await this.store.responses.latest(req.id);
+      const latest = await this.store.responses.latest(req.id);
       let latestParsed: any = null;
       try { latestParsed = typeof latest?.content === 'string' ? JSON.parse(latest.content) : null; } catch (_) {}
       if (CuratorRequestProcessor.isStructuredRecord(latestParsed) && latestParsed.type !== 'CHOICE_RECEIVED') continue;
 
       // Check targetUserId — if set, only a response from that specific user counts
       const targetUserId = (req.context as any)?.targetUserId;
-      if (targetUserId) {
-        if (!latest || latest.userId !== targetUserId) {
+      if (targetUserId != null) {
+        if (!latest || latest.userId == null || String(latest.userId) !== String(targetUserId)) {
           continue; // Not yet answered by the right player
         }
       }
@@ -973,7 +973,7 @@ export class CuratorRequestProcessor {
       // We lock it briefly so another worker doesn't double-complete it
       await this.store.requests.update(req.id, { status: 'WAITING', lockedBy: this.workerId, lockedAt: new Date() });
 
-      let inputContent = latest?.content;
+      let inputContent: any = latest?.content;
       let parsedContent: any = inputContent;
       try {
         parsedContent = JSON.parse(inputContent);

@@ -376,7 +376,7 @@ export interface CuratorHumanInputNode extends CuratorBaseNode {
    * If set, only responses from this user will be accepted.
    * Useful for multi-player games or multi-user workflows.
    */
-  targetUserId?: number;
+  targetUserId?: string | number;
   /**
    * Context key to store the selected choice/response under in request.context.
    * e.g. as: 'humanAction' sets $context.humanAction

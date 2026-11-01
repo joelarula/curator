@@ -259,6 +259,7 @@ CREATE TABLE "Response" (
     "content" TEXT NOT NULL,
     "aiModelId" INTEGER,
     "projectId" TEXT,
+    "userId" TEXT,
     "existent" BOOLEAN DEFAULT true,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "Response_requestId_fkey" FOREIGN KEY ("requestId") REFERENCES "Request" ("id") ON DELETE CASCADE ON UPDATE CASCADE,

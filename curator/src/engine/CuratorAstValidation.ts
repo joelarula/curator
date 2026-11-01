@@ -134,7 +134,7 @@ const schema: Record<string, any> = {
             { type: 'string' }
           ]
         },
-        targetUserId: { type: 'integer' },
+        targetUserId: { type: ['string', 'integer'] },
         as: { type: 'string' },
         blocking: { type: 'boolean' },
         timeoutSeconds: { type: 'number' }

@@ -232,6 +232,7 @@ export class MemoryStorageAdapter implements IStorageAdapter {
         requestId: input.requestId,
         conversationId: input.conversationId,
         projectId: input.projectId ?? null,
+        userId: input.userId ?? null,
         content: input.content,
         createdAt: new Date(this.clock()),
       };

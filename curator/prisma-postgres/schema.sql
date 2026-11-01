@@ -271,6 +271,7 @@ CREATE TABLE "Response" (
     "content" TEXT NOT NULL,
     "aiModelId" INTEGER,
     "projectId" TEXT,
+    "userId" TEXT,
     "existent" BOOLEAN DEFAULT true,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

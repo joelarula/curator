@@ -658,12 +658,12 @@ export class CuratorCoreBuilder {
   static input(
     prompt: string,
     inputTypeOrChoices: 'text' | 'choices' | 'file' | (string | CuratorChoiceItem)[] | string | TypedPathProxy<any> = 'text',
-    choicesOrOptions?: (string | CuratorChoiceItem)[] | string | TypedPathProxy<any> | { targetUserId?: number; as?: string | TypedPathProxy<any> | any; blocking?: boolean; timeoutSeconds?: number; onTimeout?: CuratorAstNode; name?: string },
-    explicitOptions?: { targetUserId?: number; as?: string | TypedPathProxy<any> | any; blocking?: boolean; timeoutSeconds?: number; onTimeout?: CuratorAstNode; name?: string }
+    choicesOrOptions?: (string | CuratorChoiceItem)[] | string | TypedPathProxy<any> | { targetUserId?: string | number; as?: string | TypedPathProxy<any> | any; blocking?: boolean; timeoutSeconds?: number; onTimeout?: CuratorAstNode; name?: string },
+    explicitOptions?: { targetUserId?: string | number; as?: string | TypedPathProxy<any> | any; blocking?: boolean; timeoutSeconds?: number; onTimeout?: CuratorAstNode; name?: string }
   ): CuratorHumanInputNode {
     let inputType: 'text' | 'choices' | 'file' = 'text';
     let choices: (string | CuratorChoiceItem)[] | string | undefined;
-    let options: { targetUserId?: number; as?: string | TypedPathProxy<any> | any; blocking?: boolean; timeoutSeconds?: number; onTimeout?: CuratorAstNode; name?: string } | undefined;
+    let options: { targetUserId?: string | number; as?: string | TypedPathProxy<any> | any; blocking?: boolean; timeoutSeconds?: number; onTimeout?: CuratorAstNode; name?: string } | undefined;
 
     if (inputTypeOrChoices === 'text' || inputTypeOrChoices === 'choices' || inputTypeOrChoices === 'file') {
       inputType = inputTypeOrChoices;

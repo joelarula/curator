@@ -233,6 +233,7 @@ program
                   requestId: waitingHumanReq.id,
                   conversationId: waitingHumanReq.conversationId,
                   projectId: waitingHumanReq.projectId,
+                  userId: waitingHumanReq.userId,
                   content: JSON.stringify({ output: answer.trim() })
                 }
               });

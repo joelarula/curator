@@ -120,6 +120,7 @@ const toResponse = (r: any): StoredResponse => ({
   requestId: r.requestId,
   conversationId: r.conversationId,
   projectId: r.projectId ?? null,
+  userId: r.userId ?? null,
   content: r.content,
   createdAt: r.createdAt,
 });

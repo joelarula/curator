@@ -355,6 +355,8 @@ model Response {
   aiModel        AIModel?     @relation(fields: [aiModelId], references: [id])
 
   projectId      String?
+  /// User who wrote it (a human answer); null for engine output.
+  userId         String?
   project        Project?     @relation(fields: [projectId], references: [id])
 
   existent       Boolean?     @default(true)

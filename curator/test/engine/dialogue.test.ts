@@ -187,3 +187,28 @@ test('dialogue/coffee: fixtures compile to the expected ASTs', async () => {
     ],
   });
 });
+
+test('dialogue/targetUserId: only an answer written by the targeted user resumes the prompt', async () => {
+  const env = await createEnv('dialogue_target_user');
+  try {
+    const other = await env.prisma.user.create({ data: { name: 'Other', email: 'other@example.com' } });
+    const { result } = await runAst(env, {
+      type: 'Curator_HumanInput', prompt: 'Your move?', inputType: 'text', as: 'move', blocking: true, targetUserId: env.userId,
+    });
+    assert.equal(result.waiting, true);
+    const parked = await env.prisma.request.findFirst({ where: { conversationId: env.conversationId, status: 'WAITING_FOR_USER' } });
+    const answer = (userId: string, output: string) =>
+      env.prisma.response.create({ data: { requestId: parked.id, conversationId: env.conversationId, userId, content: JSON.stringify({ output }) } });
+    const resume = () => (env.processor as any).resumeUserRespondedRequests();
+
+    await answer(other.id, 'not yours');
+    await resume();
+    assert.equal((await env.prisma.request.findUnique({ where: { id: parked.id } })).status, 'WAITING_FOR_USER', 'another user cannot answer');
+
+    await answer(env.userId, 'e4');
+    await resume();
+    assert.notEqual((await env.prisma.request.findUnique({ where: { id: parked.id } })).status, 'WAITING_FOR_USER', 'the targeted user resumes it');
+  } finally {
+    await env.cleanup();
+  }
+});

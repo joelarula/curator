@@ -309,6 +309,7 @@ CREATE TABLE `Response` (
     `content` LONGTEXT NOT NULL,
     `aiModelId` INTEGER NULL,
     `projectId` VARCHAR(191) NULL,
+    `userId` VARCHAR(191) NULL,
     `existent` BOOLEAN NULL DEFAULT true,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 

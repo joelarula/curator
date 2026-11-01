@@ -139,6 +139,8 @@ export interface StoredResponse {
   requestId: number;
   conversationId: number;
   projectId: string | null;
+  /** User who wrote it (a human answer); null for engine output. */
+  userId: string | null;
   content: string;
   createdAt: Date;
 }
@@ -147,6 +149,7 @@ export interface NewResponse {
   requestId: number;
   conversationId: number;
   projectId?: string | null;
+  userId?: string | null;
   content: string;
 }
 

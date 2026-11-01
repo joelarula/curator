@@ -199,7 +199,8 @@ crash):
   other nodes and the server write state too, so the cache needs cross-node invalidation (no NOTIFY on MariaDB).
 - Postgres profile of the load-test flow: 14.6 -> 12.4 operations per request plus one transaction per state
   write. Load test: Postgres 7.9-8.8s (was 12.1-13.6s), step-to-step p95 135-171ms, flow p50 4.8-5.3s;
-  MariaDB 15.1-21.4s. All checks PASS.
+  MariaDB 13.5-43s across 13 runs; an A/B with the lease cache disabled gave the same 13.5-15.7s as enabled
+  (13.6-14.1s) in one quiet window, so the spread is the shared test host, not the code. All checks PASS.
 
 Original sketch:
 
