@@ -18,6 +18,7 @@
     "paths": {
       "@/*": ["./web/src/*"],
       "@wasm/*": ["./wasm/*"],
+      "@prisma/client": ["../../curator/src/generated/prisma-sqlite/index.d.ts"],
       "@curator/host": ["../../packages/host/src/index.ts"],
       "@curator/host/config": ["../../packages/host/src/appConfig.ts"],
       "@curator/host/contracts": ["../../packages/host/src/contracts/index.ts"],

@@ -45,6 +45,8 @@ export * from './db/sqliteProvisioner.js';
 export * from './db/mariadbProvisioner.js';
 export * from './db/postgresProvisioner.js';
 export * from './db/sqlDialect.js';
+export * from './db/schemaSql.js';
+export * from './db/testDatabase.js';
 
 // Built-in Plugins
 export * from './plugins/core/index.js';

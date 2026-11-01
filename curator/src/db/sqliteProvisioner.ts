@@ -1,140 +1,45 @@
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { PrismaClient } from '@prisma/client';
 import { DatabaseSync } from 'node:sqlite';
-import { createHash } from 'node:crypto';
+import { convergeSchema, prismaSchemaDb, type ConvergeResult, type SchemaDb } from './schemaSql.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-function findCuratorRootAndSchema(): { root: string; schemaPath: string } {
+function findCuratorRoot(): string {
   let cur = __dirname;
   while (cur !== path.dirname(cur)) {
-    const candidates = [
-      path.join(cur, 'prisma-sqlite', 'schema.prisma'),
-      path.join(cur, 'curator', 'prisma-sqlite', 'schema.prisma'),
-      path.join(cur, 'server', 'prisma', 'sqlite', 'schema.prisma'),
-      path.join(cur, 'prisma', 'sqlite', 'schema.prisma'),
-    ];
-    for (const cand of candidates) {
-      if (fs.existsSync(cand)) {
-        return { root: path.dirname(path.dirname(cand)), schemaPath: cand };
-      }
+    for (const cand of [path.join(cur, 'prisma-sqlite', 'schema.prisma'), path.join(cur, 'curator', 'prisma-sqlite', 'schema.prisma')]) {
+      if (fs.existsSync(cand)) return path.dirname(path.dirname(cand));
     }
     cur = path.dirname(cur);
   }
-  const fallback = path.resolve(__dirname, '../../../curator/prisma-sqlite/schema.prisma');
-  return { root: path.resolve(__dirname, '../../..'), schemaPath: fallback };
+  return path.resolve(__dirname, '../../..');
 }
 
-const { root: CURATOR_ROOT, schemaPath: SQLITE_SCHEMA_PATH } = findCuratorRootAndSchema();
+const CURATOR_ROOT = findCuratorRoot();
 const DATA_DIR = path.join(CURATOR_ROOT, 'data');
 
 /**
- * Brings an existing database up to the remote-MCP model (McpServer/McpResource/McpPrompt,
- * Tool.origin & friends). DDL mirrors `prisma migrate diff` for prisma-sqlite; every step is idempotent.
+ * Indexes older databases have that the Prisma schema no longer declares (schema convergence only adds):
+ * McpServer names became unique per project, and Tool's mcpServerId index became the (mcpServerId, remoteName) key.
  */
-/** Mirrors the Request / Response `@@index`es of prisma-sqlite for databases created before they existed. */
-const REQUEST_RESPONSE_INDEXES = [
-  'CREATE INDEX IF NOT EXISTS "Request_conversationId_status_idx" ON "Request"("conversationId", "status");',
-  'CREATE INDEX IF NOT EXISTS "Request_conversationId_updatedAt_idx" ON "Request"("conversationId", "updatedAt");',
-  'CREATE INDEX IF NOT EXISTS "Request_parentId_idx" ON "Request"("parentId");',
-  'CREATE INDEX IF NOT EXISTS "Request_notifyId_idx" ON "Request"("notifyId");',
-  'CREATE INDEX IF NOT EXISTS "Response_requestId_idx" ON "Response"("requestId");',
-  'CREATE INDEX IF NOT EXISTS "Response_conversationId_createdAt_idx" ON "Response"("conversationId", "createdAt");',
-];
+const LEGACY_DROPS = ['DROP INDEX IF EXISTS "McpServer_name_key";', 'DROP INDEX IF EXISTS "Tool_mcpServerId_idx";'];
 
-export function migrateMcpTables(db: DatabaseSync): void {
-  const statements = [
-    `CREATE TABLE IF NOT EXISTS "McpServer" (
-      "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-      "name" TEXT NOT NULL,
-      "url" TEXT NOT NULL,
-      "transport" TEXT NOT NULL DEFAULT 'streamable-http',
-      "authService" TEXT,
-      "status" TEXT NOT NULL DEFAULT 'registered',
-      "lastError" TEXT,
-      "serverInfo" JSONB,
-      "instructions" TEXT,
-      "expectations" JSONB,
-      "enabled" BOOLEAN NOT NULL DEFAULT true,
-      "lastSyncedAt" DATETIME,
-      "projectId" TEXT NOT NULL,
-      "createdBy" TEXT,
-      "existent" BOOLEAN DEFAULT true,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL,
-      CONSTRAINT "McpServer_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE
-    );`,
-    // Server names are unique per project, not globally
-    `DROP INDEX IF EXISTS "McpServer_name_key";`,
-    `CREATE UNIQUE INDEX IF NOT EXISTS "McpServer_projectId_name_key" ON "McpServer"("projectId", "name");`,
-    `CREATE INDEX IF NOT EXISTS "McpServer_projectId_existent_idx" ON "McpServer"("projectId", "existent");`,
-    `CREATE TABLE IF NOT EXISTS "McpResource" (
-      "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-      "mcpServerId" INTEGER NOT NULL,
-      "uri" TEXT NOT NULL,
-      "isTemplate" BOOLEAN NOT NULL DEFAULT false,
-      "name" TEXT NOT NULL,
-      "title" TEXT,
-      "description" TEXT,
-      "mimeType" TEXT,
-      "size" INTEGER,
-      "annotations" JSONB,
-      "existent" BOOLEAN DEFAULT true,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL,
-      CONSTRAINT "McpResource_mcpServerId_fkey" FOREIGN KEY ("mcpServerId") REFERENCES "McpServer" ("id") ON DELETE CASCADE ON UPDATE CASCADE
-    );`,
-    `CREATE UNIQUE INDEX IF NOT EXISTS "McpResource_mcpServerId_uri_key" ON "McpResource"("mcpServerId", "uri");`,
-    `CREATE INDEX IF NOT EXISTS "McpResource_mcpServerId_existent_idx" ON "McpResource"("mcpServerId", "existent");`,
-    `CREATE TABLE IF NOT EXISTS "McpPrompt" (
-      "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-      "mcpServerId" INTEGER NOT NULL,
-      "name" TEXT NOT NULL,
-      "title" TEXT,
-      "description" TEXT,
-      "arguments" JSONB,
-      "existent" BOOLEAN DEFAULT true,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL,
-      CONSTRAINT "McpPrompt_mcpServerId_fkey" FOREIGN KEY ("mcpServerId") REFERENCES "McpServer" ("id") ON DELETE CASCADE ON UPDATE CASCADE
-    );`,
-    `CREATE UNIQUE INDEX IF NOT EXISTS "McpPrompt_mcpServerId_name_key" ON "McpPrompt"("mcpServerId", "name");`,
-    `CREATE INDEX IF NOT EXISTS "McpPrompt_mcpServerId_existent_idx" ON "McpPrompt"("mcpServerId", "existent");`,
-  ];
-  for (const sql of statements) {
-    try { db.exec(sql); } catch (_) {}
-  }
+const sqliteFileSchemaDb = (db: DatabaseSync): SchemaDb => ({
+  dialect: 'sqlite',
+  query: async sql => db.prepare(sql).all() as any[],
+  exec: async sql => {
+    db.exec(sql);
+  },
+});
 
-  const serverColumns = new Set(
-    (db.prepare(`PRAGMA table_info("McpServer")`).all() as { name: string }[]).map((c) => c.name)
-  );
-  if (serverColumns.size > 0 && !serverColumns.has('expectations')) {
-    db.exec(`ALTER TABLE "McpServer" ADD COLUMN "expectations" JSONB;`);
-  }
-
-  const toolColumns = new Set(
-    (db.prepare(`PRAGMA table_info("Tool")`).all() as { name: string }[]).map((c) => c.name)
-  );
-  const addToolColumns: [string, string][] = [
-    ['origin', `"origin" TEXT NOT NULL DEFAULT 'local'`],
-    ['mcpServerId', `"mcpServerId" INTEGER REFERENCES "McpServer" ("id") ON DELETE CASCADE ON UPDATE CASCADE`],
-    ['remoteName', `"remoteName" TEXT`],
-    ['projectId', `"projectId" TEXT REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE`],
-    ['inputSchema', `"inputSchema" JSONB`],
-    ['annotations', `"annotations" JSONB`],
-  ];
-  if (toolColumns.size > 0) {
-    for (const [name, definition] of addToolColumns) {
-      if (!toolColumns.has(name)) db.exec(`ALTER TABLE "Tool" ADD COLUMN ${definition};`);
-    }
-    db.exec(`DROP INDEX IF EXISTS "Tool_mcpServerId_idx";`);
-    db.exec(`CREATE INDEX IF NOT EXISTS "Tool_origin_idx" ON "Tool"("origin");`);
-    db.exec(`CREATE INDEX IF NOT EXISTS "Tool_projectId_idx" ON "Tool"("projectId");`);
-    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS "Tool_mcpServerId_remoteName_key" ON "Tool"("mcpServerId", "remoteName");`);
+function reportConvergence(name: string, result: ConvergeResult): void {
+  if (result.createdTables.length) console.log(`[Curator CLI] Schema: created ${result.createdTables.length} table(s) in ${name}`);
+  if (result.addedColumns.length) console.log(`[Curator CLI] Schema: added ${result.addedColumns.join(', ')}`);
+  for (const failure of result.failed) {
+    console.warn(`[Curator CLI] Schema statement failed (needs a manual migration): ${failure.error}\n  ${failure.sql.split('\n')[0]}`);
   }
 }
 
@@ -163,98 +68,20 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
     }
   }
 
-  const isNew = !fs.existsSync(dbPath) || (fs.existsSync(dbPath) && fs.statSync(dbPath).size === 0);
+  const isNew = !fs.existsSync(dbPath) || fs.statSync(dbPath).size === 0;
+  console.log(isNew ? `[Curator CLI] 🗄️ Provisioning new database: ${name}` : `[Curator CLI] 🗄️ Using existing database: ${name}`);
 
-  const hasSchema = !isNew && (() => {
-    let db: DatabaseSync | undefined;
-    try {
-      db = new DatabaseSync(dbPath, { readOnly: true });
-      return Boolean(
-        db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='User'").get() &&
-        db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='EventSubscription'").get()
-      );
-    } catch {
-      // If the file exists with content (> 0 bytes) but was busy/locked during check,
-      // it is already provisioned — do not re-push schema or trigger conflicting push
-      return fs.existsSync(dbPath) && fs.statSync(dbPath).size > 0;
-    } finally {
-      db?.close();
-    }
-  })();
-
-  if (isNew || !hasSchema || forceReset) {
-    console.log(`[Curator CLI] 🗄️ Provisioning new database: ${name}`);
-    console.log(`[Curator CLI] Applying schema...`);
-    const sqliteSchemaPath = SQLITE_SCHEMA_PATH;
-    const pushFlags = forceReset ? '--force-reset --accept-data-loss' : '--accept-data-loss';
-    try {
-      execSync(
-        `npx prisma db push ${pushFlags} --schema="${sqliteSchemaPath}" --url="${dbUrl}"`,
-        {
-          stdio: 'inherit',
-          cwd: CURATOR_ROOT,
-          env: { ...process.env, DATABASE_URL: dbUrl, PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION: 'yes' }
-        }
-      );
-    } catch {
-      // Fallback: If direct push fails (e.g. SMB network share FlushFileBuffers error 1450),
-      // push schema to a local temp database file and copy it into place.
-      console.log(`[Curator CLI] Direct push failed (SMB / I/O restriction), using local staging file...`);
-      const tempPath = path.join(os.tmpdir(), `curator_${name}_${Date.now()}.db`);
-      const tempUrl = `file:${tempPath.replace(/\\/g, '/')}`;
-      execSync(
-        `npx prisma db push ${pushFlags} --schema="${sqliteSchemaPath}" --url="${tempUrl}"`,
-        {
-          stdio: 'inherit',
-          cwd: CURATOR_ROOT,
-          env: { ...process.env, DATABASE_URL: tempUrl, PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION: 'yes' }
-        }
-      );
-      fs.copyFileSync(tempPath, dbPath);
-      try { fs.unlinkSync(tempPath); } catch (_) {}
-    }
-    console.log(`[Curator CLI] ✓ Database ready: ${dbPath}`);
-  } else {
-    console.log(`[Curator CLI] 🗄️ Using existing database: ${name}`);
-    try {
-      const migDb = new DatabaseSync(dbPath);
-      migDb.exec('PRAGMA synchronous = OFF;');
-      try { migDb.exec('ALTER TABLE User ADD COLUMN googleId TEXT;'); } catch (_) {}
-      try { migDb.exec('ALTER TABLE Script ADD COLUMN currentVersion INTEGER DEFAULT 0;'); } catch (_) {}
-      try { migDb.exec('ALTER TABLE Request ADD COLUMN scriptVersion INTEGER;'); } catch (_) {}
-      try {
-        migDb.exec(`CREATE TABLE IF NOT EXISTS ScriptVersion (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          scriptId INTEGER NOT NULL,
-          version INTEGER NOT NULL,
-          ast TEXT,
-          body TEXT,
-          hash TEXT NOT NULL,
-          createdBy TEXT,
-          createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (scriptId) REFERENCES Script(id) ON DELETE CASCADE
-        );`);
-        migDb.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ScriptVersion_scriptId_version_key ON ScriptVersion(scriptId, version);`);
-        migDb.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ScriptVersion_scriptId_hash_key ON ScriptVersion(scriptId, hash);`);
-      } catch (_) {}
-      try { migDb.exec('ALTER TABLE ScriptVersion ADD COLUMN createdBy TEXT;'); } catch (_) {}
-      // Processor lookups by conversation / parent / notify target / request; without these each is a full scan
-      for (const ddl of REQUEST_RESPONSE_INDEXES) {
-        try { migDb.exec(ddl); } catch (_) {}
-      }
-      try {
-        migDb.exec(`CREATE TABLE IF NOT EXISTS "ConversationLease" (
-          "conversationId" INTEGER NOT NULL PRIMARY KEY,
-          "owner" TEXT NOT NULL,
-          "leaseUntil" DATETIME NOT NULL,
-          "updatedAt" DATETIME NOT NULL
-        );`);
-        migDb.exec('CREATE INDEX IF NOT EXISTS "ConversationLease_owner_idx" ON "ConversationLease"("owner");');
-      } catch (_) {}
-      migrateMcpTables(migDb);
-      migDb.close();
-    } catch (_) {}
+  // The schema is prisma-sqlite/schema.sql, generated from schema.prisma: a new file gets all of it, an existing
+  // one what it lacks (tables, columns, indexes)
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec('PRAGMA synchronous = OFF;');
+    for (const drop of LEGACY_DROPS) db.exec(drop);
+    reportConvergence(name, await convergeSchema(sqliteFileSchemaDb(db)));
+  } finally {
+    db.close();
   }
+  if (isNew) console.log(`[Curator CLI] ✓ Database ready: ${dbPath}`);
 
   const prisma = await createSqlitePrismaClient(dbUrl);
 
@@ -329,48 +156,18 @@ async function seedSystemRows(prisma: any): Promise<void> {
   });
 }
 
-let schemaDdl: Promise<string[]> | undefined;
-
-/**
- * The schema's DDL (tables first, then indexes), read from a template database pushed once from
- * prisma-sqlite/schema.prisma and cached in the temp directory under the schema's hash, so it never drifts.
- */
-function sqliteSchemaDdl(): Promise<string[]> {
-  schemaDdl ??= (async () => {
-    const hash = createHash('sha1').update(fs.readFileSync(SQLITE_SCHEMA_PATH)).digest('hex').slice(0, 12);
-    const templatePath = path.join(os.tmpdir(), `curator-schema-${hash}.db`);
-    if (!fs.existsSync(templatePath) || fs.statSync(templatePath).size === 0) {
-      const stagingPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'curator-schema-')), 'template.db');
-      const staging = await provisionSqliteDb('schema_template', true, { databasePath: stagingPath });
-      await staging.$disconnect();
-      // Atomic publish: concurrent processes never read a half-written template
-      fs.copyFileSync(stagingPath, `${templatePath}.${process.pid}`);
-      fs.renameSync(`${templatePath}.${process.pid}`, templatePath);
-      fs.rmSync(path.dirname(stagingPath), { recursive: true, force: true });
-    }
-    const db = new DatabaseSync(templatePath, { readOnly: true });
-    try {
-      const rows = db
-        .prepare("SELECT sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY type = 'index', rowid")
-        .all() as Array<{ sql: string }>;
-      return rows.map(r => r.sql);
-    } finally {
-      db.close();
-    }
-  })();
-  return schemaDdl;
-}
-
 /**
  * A curator database that lives only in this process (the `ephemeral` durability tier): same schema as
- * provisionSqliteDb, created in milliseconds, gone when the client disconnects or the process exits.
+ * provisionSqliteDb (prisma-sqlite/schema.sql), created in milliseconds, gone when the client disconnects or the
+ * process exits.
  *
  * `idBase` starts every autoincrement id at that value, so rows created here never collide with rows copied in
  * from a durable database with their original (lower) ids. Ids are 32-bit, so durable ids must stay below it.
  */
 export async function provisionMemorySqliteDb(options: { idBase?: number } = {}): Promise<any> {
   const prisma = await createSqlitePrismaClient(':memory:');
-  for (const ddl of await sqliteSchemaDdl()) await prisma.$executeRawUnsafe(ddl);
+  const result = await convergeSchema(prismaSchemaDb(prisma));
+  if (result.failed.length) throw new Error(`[sqliteProvisioner] Memory schema failed: ${result.failed[0].error}`);
   if (options.idBase) {
     const tables = (await prisma.$queryRawUnsafe(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND sql LIKE '%AUTOINCREMENT%'"

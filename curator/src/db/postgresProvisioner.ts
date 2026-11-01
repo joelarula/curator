@@ -1,63 +1,51 @@
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { convergeSchema } from './schemaSql.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** Arbitrary constant: the advisory lock nodes take while one of them creates the schema. */
+/** Arbitrary constant: the advisory lock nodes hold while one of them brings the schema up to date. */
 const SCHEMA_LOCK_KEY = 0x63757261; // 'cura'
 
 export interface PostgresProvisionOptions {
   /**
-   * 'auto' (default): when curator's tables are missing, one node creates them with `prisma db push` while the
-   * others wait on an advisory lock. 'never': the schema is managed by deploys (use it behind PgBouncer in
-   * transaction mode, where session advisory locks do not hold, or when the app role has no DDL rights).
+   * 'auto' (default): at startup, one node at a time (advisory lock) applies prisma-postgres/schema.sql, generated
+   * from schema.prisma, additively: missing tables, columns, indexes and foreign keys. 'never': the schema is
+   * managed by deploys (use it behind PgBouncer in transaction mode, where session advisory locks do not hold, or
+   * when the app role has no DDL rights).
    */
   schema?: 'auto' | 'never';
   /** Pool size per process. Default 25 (as for MariaDB). */
   poolMax?: number;
 }
 
-function findCuratorFile(relative: string): string | undefined {
-  let cur = __dirname;
-  while (cur !== path.dirname(cur)) {
-    for (const cand of [path.join(cur, relative), path.join(cur, 'curator', relative)]) {
-      if (fs.existsSync(cand)) return cand;
-    }
-    cur = path.dirname(cur);
-  }
-  return undefined;
-}
-
-async function hasCuratorSchema(client: any, schema: string | undefined): Promise<boolean> {
-  const table = (name: string) => (schema ? `"${schema.replace(/"/g, '""')}"."${name}"` : `"${name}"`);
-  // The newest table too: a database from before it gets it added by the (non-destructive) push
-  const { rows } = await client.query(
-    'SELECT to_regclass($1) IS NOT NULL AS request, to_regclass($2) IS NOT NULL AS subs, to_regclass($3) IS NOT NULL AS leases',
-    [table('Request'), table('EventSubscription'), table('ConversationLease')]
-  );
-  return Boolean(rows[0]?.request && rows[0]?.subs && rows[0]?.leases);
-}
-
-async function ensureCuratorPostgresSchema(pool: any, connectionUrl: string, schema: string | undefined): Promise<void> {
+async function ensureCuratorPostgresSchema(pool: any, schema: string | undefined): Promise<void> {
   const client = await pool.connect();
   try {
-    if (await hasCuratorSchema(client, schema)) return;
     await client.query('SELECT pg_advisory_lock($1)', [SCHEMA_LOCK_KEY]);
     try {
-      // Another node may have created it while this one waited for the lock
-      if (await hasCuratorSchema(client, schema)) return;
-      const schemaPath = findCuratorFile(path.join('prisma-postgres', 'schema.prisma'));
-      if (!schemaPath) throw new Error('[postgresProvisioner] prisma-postgres/schema.prisma not found');
-      console.log('[Curator CLI] 🗄️ Creating curator schema in Postgres...');
-      // No --accept-data-loss: on a shared database a destructive change must fail, not run
-      execSync(`npx prisma db push --schema="${schemaPath}" --url="${connectionUrl}"`, {
-        stdio: 'inherit',
-        cwd: path.dirname(path.dirname(schemaPath)),
+      if (schema) {
+        const quoted = `"${schema.replace(/"/g, '""')}"`;
+        await client.query(`CREATE SCHEMA IF NOT EXISTS ${quoted}`);
+        // The generated SQL uses unqualified names: point this session at the curator schema
+        await client.query(`SET search_path TO ${quoted}`);
+      }
+      const result = await convergeSchema({
+        dialect: 'postgresql',
+        query: async (sql) => (await client.query(sql)).rows,
+        exec: async (sql) => {
+          await client.query(sql);
+        },
       });
+      if (result.createdTables.length) console.log(`[postgresProvisioner] Schema: created ${result.createdTables.length} table(s)`);
+      if (result.addedColumns.length) console.log(`[postgresProvisioner] Schema: added ${result.addedColumns.join(', ')}`);
+      for (const failure of result.failed) {
+        console.warn(`[postgresProvisioner] Schema statement failed (needs a manual migration): ${failure.error}\n  ${failure.sql.split('\n')[0]}`);
+      }
     } finally {
       await client.query('SELECT pg_advisory_unlock($1)', [SCHEMA_LOCK_KEY]);
+      if (schema) await client.query('RESET search_path');
     }
   } finally {
     client.release();
@@ -98,14 +86,16 @@ export async function provisionPostgresDb(
     idleTimeoutMillis: 60000,
   });
 
-  if (options.schema !== 'never') await ensureCuratorPostgresSchema(pool, connectionUrl, schema);
+  if (options.schema !== 'never') await ensureCuratorPostgresSchema(pool, schema);
 
-  const adapter = new PrismaPg(pool, schema ? { schema } : undefined);
+  // disposeExternalPool: $disconnect() ends the pool too (clean shutdown, droppable test databases)
+  const adapter = new PrismaPg(pool, { ...(schema ? { schema } : {}), disposeExternalPool: true });
 
   let PostgresPrismaClient: any;
   const potentialPaths = [
     path.join(__dirname, '../generated/prisma-postgres/index.js'),
     path.join(__dirname, '../../src/generated/prisma-postgres/index.js'),
+    path.join(__dirname, '../../../src/generated/prisma-postgres/index.js'),
     path.join(__dirname, '../../../curator/src/generated/prisma-postgres/index.js'),
     path.join(process.cwd(), 'src/generated/prisma-postgres/index.js'),
     path.join(process.cwd(), 'curator/src/generated/prisma-postgres/index.js'),

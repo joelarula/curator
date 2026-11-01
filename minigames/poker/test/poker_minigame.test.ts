@@ -362,7 +362,7 @@ test('End-to-End Poker Session in SQLite: Lobby init, Blinds, Street deals, Show
   let state = initPokerLobby({ tableId: String(conversation.id), startingChips: 1000 }).gameState;
   assert.equal(state.players.length, 4);
   assert.equal(state.players[0].name, 'You');
-  assert.equal(state.players[1].name, 'Viper (Shark)');
+  assert.equal(state.players[1].name, 'Viplala');
 
   // 2. Start Hand 1 (Button at seat 0, SB at seat 1, BB at seat 2)
   state = startPokerHand(state).gameState;
@@ -749,7 +749,9 @@ test('Modular Workflow Architecture: Validates all decoupled workflows as Curato
   const ambientAst: any = await getPokerScriptAST('ambient_reaction');
   assert.equal(ambientAst.type, 'Curator_Module');
   assert.equal(ambientAst.name, 'ambient_reaction');
-  assert.equal(ambientAst.subscriptions?.length, 2);
+  assert.deepEqual(ambientAst.subscriptions.map((s: any) => s.eventName), [
+    'poker:speech', 'poker:action_taken', 'poker:phase_settle', 'poker:new_round', 'poker:chatter_cue', 'poker:chatter_done',
+  ]);
 
   // Verify all scripts are registered on pokerPlugin
   assert(pokerPlugin.scripts);
@@ -842,8 +844,11 @@ test('Poker Direct Channel: In-process channel executes AST from action A to act
   let eventsReceived: string[] = [];
   channel.on((ev) => eventsReceived.push(ev.type));
 
+  // Processor mode: start() launches the polling loop; the first events follow from its first ticks
   await channel.start?.();
-  assert(eventsReceived.includes('poker:new_round') || eventsReceived.includes('poker:lobby_ready'));
+  const ready = () => eventsReceived.includes('poker:new_round') || eventsReceived.includes('poker:lobby_ready');
+  for (let waited = 0; !ready() && waited < 10_000; waited += 100) await new Promise((r) => setTimeout(r, 100));
+  assert(ready(), `no table or lobby event within 10s (got: ${[...new Set(eventsReceived)].join(', ')})`);
 
   await channel.send('poker:human_action', { type: 'CALL', amount: 20 });
   await channel.close();

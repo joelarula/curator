@@ -256,6 +256,44 @@ export class PrismaStorageAdapter implements IStorageAdapter {
     });
   }
 
+  /**
+   * Takes over expired leases whose owner still has claimed requests in the conversation (a crashed or cut-off
+   * worker) and puts those requests back to NEW, so this worker resumes the conversation after `ttlMs` instead of
+   * waiting for the stale-lock sweep. The lease moves with a conditional update, so one worker wins each
+   * conversation. A request the old owner was executing runs again (at-least-once, as with the stale sweep).
+   * Returns how many requests it released.
+   */
+  public async recoverLapsedLeases(workerId: string, limit = 50): Promise<number> {
+    if (!this.leases) return 0;
+    const now = new Date(this.clock());
+    const expired: Array<{ conversationId: number; owner: string }> = await this.prisma.conversationLease.findMany({
+      where: { owner: { not: workerId }, leaseUntil: { lte: now } },
+      select: { conversationId: true, owner: true },
+      take: limit,
+    });
+    if (!expired.length) return 0;
+    const claimedBy = (owner: string) => ({ status: 'WAITING', lockedBy: owner, pendingDependencies: { lte: 0 } });
+    const stuck: Array<{ conversationId: number; lockedBy: string }> = await this.prisma.request.findMany({
+      where: { OR: expired.map(l => ({ conversationId: l.conversationId, ...claimedBy(l.owner) })) },
+      select: { conversationId: true, lockedBy: true },
+      distinct: ['conversationId'],
+    });
+    let released = 0;
+    for (const { conversationId, lockedBy: owner } of stuck) {
+      const taken = await this.prisma.conversationLease.updateMany({
+        where: { conversationId, owner, leaseUntil: { lte: now } },
+        data: { owner: workerId, leaseUntil: new Date(now.getTime() + this.leases.ttlMs) },
+      });
+      if (!taken.count) continue;
+      const freed = await this.prisma.request.updateMany({
+        where: { conversationId, ...claimedBy(owner) },
+        data: { status: 'NEW', lockedBy: null, lockedAt: null },
+      });
+      released += freed.count;
+    }
+    return released;
+  }
+
   /** Gives up this worker's leases except on `keep` (conversations still in flight). Returns how many it released. */
   public async releaseLeases(workerId: string, keep: readonly number[] = []): Promise<number> {
     if (!this.leases) return 0;

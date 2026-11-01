@@ -345,7 +345,10 @@ export class CuratorRequestProcessor {
     const builtins: MaintenanceSystem[] = [
       { name: 'unlockStaleRequests', run: () => this.unlockStaleRequests() },
       ...(this.leasesOn
-        ? [{ name: 'renewConversationLeases', run: () => this.store.renewLeases(this.workerId, [...this.conversationsInFlight.keys()]) }]
+        ? [
+            { name: 'renewConversationLeases', run: () => this.store.renewLeases(this.workerId, [...this.conversationsInFlight.keys()]) },
+            { name: 'recoverLapsedLeases', run: () => this.recoverLapsedLeases() },
+          ]
         : []),
       { name: 'pollScheduledAgents', run: () => this.pollScheduledAgents() },
       { name: 'expireApprovalWaits', run: () => this.expireApprovalWaits() },
@@ -823,6 +826,17 @@ export class CuratorRequestProcessor {
   public getAvailableConcurrencySlots(): number {
     if (Date.now() < this.backoffUntil) return 0;
     return Math.max(0, this.maxConcurrency - this.activeTasks);
+  }
+
+  /** Resumes conversations whose lease lapsed while their owner held claimed requests (a crashed node). */
+  private async recoverLapsedLeases() {
+    try {
+      const released = await this.store.recoverLapsedLeases(this.workerId);
+      if (released > 0) {
+        logger.warn(`[CuratorRequestProcessor] Took over lapsed conversation leases; released ${released} request(s).`);
+        this.wake();
+      }
+    } catch (_) {}
   }
 
   /**
@@ -2291,15 +2305,7 @@ export class CuratorRequestProcessor {
 
         const targetReq = await this.prisma.request.findUnique({ where: { id: req.notifyId } });
         if (targetReq && !TERMINAL_STATUSES.has(targetReq.status)) {
-          const newPendingDeps = Math.max(0, (targetReq.pendingDependencies || 0) - 1);
-          let updatedData: any = {
-            pendingDependencies: newPendingDeps
-          };
-          if (newPendingDeps === 0 && (targetReq.status === 'WAITING' || targetReq.status === 'NEW')) {
-            updatedData.status = 'NEW';
-            updatedData.lockedBy = null;
-            updatedData.lockedAt = null;
-          }
+          const updatedData: any = {};
 
           // --- CONVERSATION STATE MERGING ---
           const conv = await this.prisma.conversation.findUnique({
@@ -2378,6 +2384,24 @@ export class CuratorRequestProcessor {
             where: { id: req.notifyId },
             data: updatedData
           });
+
+          // The dependency count goes down last, in conditional updates (not read-then-write): the target becomes
+          // claimable only once its context is written, so no later write of this completion can un-claim it while
+          // it runs. Concurrent completions all count, and only the one taking the count from 1 to 0 wakes it.
+          const woken = await this.prisma.request.updateMany({
+            where: { id: req.notifyId, pendingDependencies: 1, status: { in: ['WAITING', 'NEW'] } },
+            data: { pendingDependencies: 0, status: 'NEW', lockedBy: null, lockedAt: null },
+          });
+          const lastDependency =
+            woken.count > 0 ||
+            (await this.prisma.request.updateMany({ where: { id: req.notifyId, pendingDependencies: 1 }, data: { pendingDependencies: 0 } }))
+              .count > 0;
+          if (!lastDependency) {
+            await this.prisma.request.updateMany({
+              where: { id: req.notifyId, pendingDependencies: { gt: 1 } },
+              data: { pendingDependencies: { decrement: 1 } },
+            });
+          }
         }
       } catch (notifyErr: any) {
         if (notifyErr?.code === 'P2028' || notifyErr?.message?.includes('Transaction already closed')) {

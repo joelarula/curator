@@ -1,0 +1,36 @@
+# Throwaway database servers for the external storage/lease/checkpoint tests (test/helpers/externalDb.ts).
+# Data lives in tmpfs: `down` (or a restart) discards everything. The credentials are fixed test values, not secrets.
+#   docker compose -f curator/docker-compose.test.yml up -d --wait
+#   CURATOR_TEST_POSTGRES_URL=postgresql://curator_test:curator_test@<host>:55432/postgres
+#   CURATOR_TEST_MARIADB_URL=mysql://root:curator_test@<host>:53306/mysql
+name: curator-test-db
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: curator_test
+      POSTGRES_PASSWORD: curator_test
+      POSTGRES_DB: postgres
+    ports:
+      - "55432:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U curator_test -d postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  mariadb:
+    image: mariadb:11.4
+    environment:
+      MARIADB_ROOT_PASSWORD: curator_test
+    ports:
+      - "53306:3306"
+    tmpfs:
+      - /var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

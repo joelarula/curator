@@ -58,9 +58,9 @@ Consequences:
   after a cursor), and `withScope` for per-session scoped views. Implementations: `PrismaStorageAdapter` (all
   three databases; Postgres claims with one `UPDATE … SKIP LOCKED … RETURNING`, MariaDB with `SELECT … SKIP
   LOCKED` and `UPDATE` in one transaction, retried on write conflicts) and `MemoryStorageAdapter`.
-  Contract tests: `test/engine/storage-adapter.test.ts` (memory and SQLite; not yet run on MariaDB/Postgres).
-- Remaining: move `CuratorRequestProcessor` onto the port (it still calls Prisma directly), and run the
-  contract tests against MariaDB and Postgres.
+  Contract tests: `test/engine/storage-adapter.test.ts` (memory, SQLite, and Postgres 17 / MariaDB 11.4 via
+  the test containers; passing on all, 2026-11-01).
+- Remaining: move `CuratorRequestProcessor` onto the port (it still calls Prisma directly).
 
 ### Phase 1: Durability tiers (done per host; per script/conversation still open)
 
@@ -89,8 +89,6 @@ SQLite memory database (`provisionMemorySqliteDb`, ~30 ms; schema from a cached 
   conversation is durable, since the resource lives there; MariaDB/Postgres `Permission`/`RolePermission` are not
   mirrored (SQLite has no such tables). In a cluster, Phase 4 leases make one durable worker at a time run a
   moved conversation.
-- Known gap for the MariaDB run: the hand-written DDL in `mariadbProvisioner.ts` has no `EventLog` table (and may
-  lag the Prisma schema elsewhere); it predates this plan.
 - Only an explicit curator URL (`curatorDb.url` / `CURATOR_DATABASE_URL`) selects Postgres; a generic
   `DATABASE_URL` is usually the server's own Postgres and keeps its old meaning (SQLite unless MySQL/MariaDB).
 
@@ -107,7 +105,7 @@ On clusters, this tier also cuts replication traffic (Galera certification, Post
 
 ### Phase 2: Claiming work (claims done; wake-ups open)
 Done: `CuratorRequestProcessor` (polling and `step`) claims through `PrismaStorageAdapter.claimRows`, i.e. the
-statements below. Tested on SQLite only; the Postgres/MariaDB statements wait for the cluster test run. Open:
+statements below. Tested on SQLite, Postgres 17 and MariaDB 11.4 (single server; multi-node run still open). Open:
 `LISTEN/NOTIFY` and adaptive polling (both only pay off with several nodes, so they come with that run).
 
 - Claim in one statement instead of a find followed by a claim update per row:
@@ -138,7 +136,10 @@ Done: model `ConversationLease` (all three schemas; MariaDB DDL; added to existi
 Postgres pushes it when missing). A claim skips conversations another worker holds a live lease on, takes the
 lease on what it claimed, and puts back requests whose lease it lost in a race. The processor renews the leases of
 conversations with requests in flight every tick (`renewConversationLeases`), idle leases lapse after `ttlMs`
-(default 30s, so the owner keeps affinity), and a stopped processor releases its leases. On by default for
+(default 30s, so the owner keeps affinity), and a stopped processor releases its leases. When a node dies, the next
+worker's `recoverLapsedLeases` pass takes over each expired lease whose owner still holds claimed requests and puts
+those back to NEW, so the conversation resumes after `ttlMs` (measured: ~30s) instead of the 5-minute stale-lock sweep;
+the step the dead node was executing runs again (at-least-once). On by default for
 MariaDB/Postgres, off for SQLite; option `conversationLeases`. This also covers the checkpoint tier: a moved
 conversation is run by one durable worker at a time. Open: keeping the owner's conversation state in memory and
 batching its writes (below); both build on the leases.
@@ -157,6 +158,50 @@ and state events.
 ### Phase 6: Shared ephemeral tier (optional)
 For ephemeral data several nodes must read: Postgres `UNLOGGED` tables (lost after a crash or failover),
 or Redis/Valkey for MariaDB and Postgres. With Phase 4 ownership this is often unnecessary.
+
+## Schemas: Prisma is the only source
+
+Every database schema comes from `prisma-<engine>/schema.prisma`. `npm --prefix curator run prisma:sql` writes
+`prisma-<engine>/schema.sql` with `prisma migrate diff --from-empty`; a test fails when a committed file is stale.
+All provisioners (SQLite files and memory databases, MariaDB, Postgres) apply that file through
+`src/db/schemaSql.ts` `convergeSchema`: missing tables, columns, indexes and foreign keys are added, nothing is
+dropped or altered, and anything needing more is reported for a manual migration. No provisioner runs the Prisma CLI
+at runtime any more, and there is no hand-written DDL (this replaced the MariaDB DDL, which lacked nine tables,
+and the SQLite upgrade statements). Two legacy index drops remain in `sqliteProvisioner.ts` for old SQLite files.
+Not covered: `packages/adapter-mariadb` still holds an old copy of the hand-written MariaDB DDL (nothing imports
+it), and `server/` has its own Prisma setup.
+
+## Testing against real servers
+
+`createTestDatabase(serverUrl)` (`src/db/testDatabase.ts`) creates a fresh `curator_test_<random>` database on a
+Postgres or MariaDB server, applies the schema and returns a client; `drop()` drops exactly that database. The
+storage, lease and checkpoint tests also run on every server given in `CURATOR_TEST_POSTGRES_URL` /
+`CURATOR_TEST_MARIADB_URL` (server URLs, e.g. `postgresql://user:pass@host:5432/postgres`), each test process in its
+own throwaway database; unset, those variants are skipped.
+
+Servers for this: `curator/docker-compose.test.yml` (pgvector/pgvector:pg17 on port 55432, mariadb:11.4 on 53306,
+data in tmpfs, fixed test credentials; see the file header for the URLs). Never point these variables at a
+database server that holds real data. Start it with `docker compose -f curator/docker-compose.test.yml up -d --wait`
+(add `--context <name>` for a remote Docker host) and stop it with `down`.
+
+Last run (2026-11-01, containers on 192.168.1.110): storage-adapter, conversation-leases and checkpoint tests 46/46 on
+both engines; a second provision of an existing database adds nothing.
+
+Two-node smoke run: `packages/host/scripts/two-node-smoke.ts` (`SMOKE_SERVER_URL=<server URL> npm --prefix packages/host
+run smoke:two-node -- [exclusive] [kill] [checkpoint]`, after building curator and host; options in the file header).
+Results (2026-11-01; two host processes on one test database, Postgres and MariaDB):
+- Exclusivity: 8 conversations x 4 independent requests on two durable hosts; every request ran once, both nodes
+  worked, no conversation ran on two nodes at once.
+- Takeover: killing the node running a 6-step flow; the other node resumed it 30s later and finished it. Before
+  `recoverLapsedLeases` this took 300s (the stale-lock sweep).
+- Checkpoint: node C runs a flow in memory and moves it to the shared database at its human-input wait; node D's answer
+  resumes it durable. 40 rounds clean on Postgres, 10 on MariaDB.
+- Found and fixed: a completion made its target claimable (`pendingDependencies` 1→0) before writing the target's
+  context with `status: NEW, lockedBy: null`, which un-claimed a target already running, so it ran twice (~1 in 10
+  human-input resumes, any engine). `completeRequest` now writes the context first and releases the target last, in
+  one conditional update.
+- Open: one MariaDB run (of 13) ended with the last two steps of the flow FAILED after a takeover; not reproduced
+  since and the node logs were not captured then.
 
 ## Order
 

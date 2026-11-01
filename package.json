@@ -10,6 +10,7 @@
     "dev:frontend": "pnpm --filter @curator/frontend dev",
     "dev": "concurrently \"pnpm run dev:server\" \"pnpm run dev:frontend\"",
     "build": "pnpm -r run build",
+    "test:core": "pnpm --filter @curator/agent-server --filter @curator/host run build && pnpm --workspace-concurrency=1 --filter @curator/agent-server --filter @curator/host --filter @minigames/poker --filter keeris-kauamangiv-scraper run test",
     "build:static": "pnpm --filter @curator/frontend run build:static",
     "preview:static": "pnpm --filter @curator/frontend run preview:static",
     "poker": "pnpm --filter @minigames/poker run play --",

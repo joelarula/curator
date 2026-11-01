@@ -654,7 +654,7 @@ export function enqueueScrapeRequest(
 
   const ast = buildAgentAst(def);
   const firstStep = ((ast.subAgents?.[0] || (ast as any).steps?.[0]) || {}) as ToolTaskNode;
-  if (refresh && firstStep?.args) {
+  if (refresh && firstStep?.args && typeof firstStep.args === 'object') {
     firstStep.args.refresh = true;
   }
 

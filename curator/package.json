@@ -28,7 +28,8 @@
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
     "prisma:mariadb:generate": "prisma generate --schema=prisma-mariadb/schema.prisma",
-    "prisma:postgres:generate": "prisma generate --schema=prisma-postgres/schema.prisma"
+    "prisma:postgres:generate": "prisma generate --schema=prisma-postgres/schema.prisma",
+    "prisma:sql": "node scripts/generate-schema-sql.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

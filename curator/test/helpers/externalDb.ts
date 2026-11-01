@@ -1,31 +1,31 @@
-import { provisionPostgresDb } from '../../src/db/postgresProvisioner.ts';
-import { provisionMariadbDb } from '../../src/db/mariadbProvisioner.ts';
+import { createTestDatabase, type TestDatabase } from '../../src/db/testDatabase.ts';
 import { CuratorRequestProcessor } from '../../src/engine/CuratorRequestProcessor.ts';
 import { makeFakeEngine, FIXED_NOW, type TestEnv } from './harness.ts';
 
 export interface ExternalDatabase {
   name: string;
+  /** Server URL; its database is only used to create and drop the test database. */
   url: string;
-  provision: (url: string) => Promise<any>;
 }
 
 /**
- * Real database servers for the storage and checkpoint contract tests, from `CURATOR_TEST_POSTGRES_URL` /
- * `CURATOR_TEST_MARIADB_URL` (unset: those variants are skipped). Every env empties the runtime tables, so point
- * these only at throwaway databases.
+ * Real database servers for the storage, lease and checkpoint tests, from `CURATOR_TEST_POSTGRES_URL` /
+ * `CURATOR_TEST_MARIADB_URL` (unset: those variants are skipped). Each test process creates its own database on
+ * the server (`createTestDatabase`, `curator_test_<random>`) and drops it in `closeExternalDatabases`, so no
+ * existing database is ever read or changed.
  */
 export const EXTERNAL_DATABASES: ExternalDatabase[] = [
-  { name: 'postgres', url: process.env.CURATOR_TEST_POSTGRES_URL ?? '', provision: (url: string) => provisionPostgresDb(url) },
-  { name: 'mariadb', url: process.env.CURATOR_TEST_MARIADB_URL ?? '', provision: (url: string) => provisionMariadbDb(url) },
+  { name: 'postgres', url: process.env.CURATOR_TEST_POSTGRES_URL ?? '' },
+  { name: 'mariadb', url: process.env.CURATOR_TEST_MARIADB_URL ?? '' },
 ].filter(db => db.url);
 
-const clients = new Map<string, Promise<any>>();
+const databases = new Map<string, Promise<TestDatabase>>();
 
-/** One client per database and test process (provisioning creates the schema once). */
-const clientFor = (db: ExternalDatabase): Promise<any> => {
-  let client = clients.get(db.name);
-  if (!client) clients.set(db.name, (client = db.provision(db.url)));
-  return client;
+/** One test database per server and test process. */
+const clientFor = async (db: ExternalDatabase): Promise<any> => {
+  let database = databases.get(db.name);
+  if (!database) databases.set(db.name, (database = createTestDatabase(db.url)));
+  return (await database).prisma;
 };
 
 async function emptyRuntimeTables(prisma: any): Promise<void> {
@@ -35,9 +35,10 @@ async function emptyRuntimeTables(prisma: any): Promise<void> {
   await prisma.request.updateMany({ data: { parentId: null } });
   await prisma.request.deleteMany({});
   await prisma.conversation.deleteMany({});
+  await prisma.conversationLease.deleteMany({});
 }
 
-/** The harness `TestEnv` on an external database: fresh runtime tables, a tester with the admin role, fake tools. */
+/** The harness `TestEnv` on this process's test database: emptied runtime tables, a tester with the admin role, fake tools. */
 export async function externalEnv(
   db: ExternalDatabase,
   canned: Record<string, (args: any) => any> = {},
@@ -72,8 +73,8 @@ export async function externalEnv(
   };
 }
 
-/** Closes the pools (call from `test.after`, or the test process stays alive on idle connections). */
+/** Drops this process's test databases (call from `test.after`). */
 export async function closeExternalDatabases(): Promise<void> {
-  for (const client of clients.values()) await (await client.catch(() => null))?.$disconnect?.();
-  clients.clear();
+  for (const database of databases.values()) await (await database.catch(() => null))?.drop();
+  databases.clear();
 }

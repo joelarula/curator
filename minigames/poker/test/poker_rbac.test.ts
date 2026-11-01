@@ -235,7 +235,7 @@ test('Poker RBAC — Declarative Plugin Roles & Whitelist Enforcement', async (t
 
     // Verify Agent roles
     const viperAgent = await host.prisma.agent.findFirst({
-      where: { id: 'viplala  ' },
+      where: { id: 'viplala' },
       include: { roles: { include: { role: true } } },
     });
     assert.ok(viperAgent, '  Viplala agent exists in DB');

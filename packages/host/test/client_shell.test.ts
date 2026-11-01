@@ -85,12 +85,18 @@ test('ClientShell: Non-consuming /state executes without wasting turn', async ()
 
   let stateInspected = false;
   const mockState = { pot: 100, street: 'flop' };
+  const dispatched: string[] = [];
 
   const shell = createClientShell({
     actorName: 'Tester',
     getState: () => {
       stateInspected = true;
       return mockState;
+    },
+    // A choice carrying a tool dispatches it (here without a host channel)
+    onToolCall: async (toolName: string) => {
+      dispatched.push(toolName);
+      return { ok: true };
     },
   });
 
@@ -102,6 +108,7 @@ test('ClientShell: Non-consuming /state executes without wasting turn', async ()
   const result = await shell.promptAction(rl, choices);
   assert.equal(stateInspected, true);
   assert.deepEqual(result, { tool: 'poker_apply_action', type: 'CALL', amount: 20 });
+  assert.deepEqual(dispatched, ['poker_apply_action'], '/state did not consume the turn; the call did');
   rl.close();
 });
 

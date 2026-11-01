@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createEnv } from '../helpers/harness.ts';
+import { createEnv, type TestEnv } from '../helpers/harness.ts';
+import { EXTERNAL_DATABASES, externalEnv, closeExternalDatabases } from '../helpers/externalDb.ts';
 import { MemoryStorageAdapter } from '../../src/storage/MemoryStorageAdapter.ts';
 import { PrismaStorageAdapter } from '../../src/storage/PrismaStorageAdapter.ts';
 import type { IStorageAdapter, StorageScope } from '../../src/storage/IStorageAdapter.ts';
@@ -31,8 +32,8 @@ const memoryFixture = async (): Promise<Fixture> => {
   };
 };
 
-const prismaFixture = async (): Promise<Fixture> => {
-  const env = await createEnv('storage_adapter');
+const prismaFixture = (makeEnv: () => Promise<TestEnv>) => async (): Promise<Fixture> => {
+  const env = await makeEnv();
   for (const id of ['system', 'p1', 'p2']) {
     await env.prisma.project.upsert({ where: { id }, update: {}, create: { id, name: id, userId: env.userId } });
   }
@@ -44,7 +45,15 @@ const prismaFixture = async (): Promise<Fixture> => {
   };
 };
 
-for (const [name, makeFixture] of [['memory', memoryFixture], ['prisma/sqlite', prismaFixture]] as const) {
+// Real servers too when CURATOR_TEST_POSTGRES_URL / CURATOR_TEST_MARIADB_URL are set (a throwaway database each)
+const FIXTURES: Array<[string, () => Promise<Fixture>]> = [
+  ['memory', memoryFixture],
+  ['prisma/sqlite', prismaFixture(() => createEnv('storage_adapter'))],
+  ...EXTERNAL_DATABASES.map((db): [string, () => Promise<Fixture>] => [`prisma/${db.name}`, prismaFixture(() => externalEnv(db))]),
+];
+test.after(closeExternalDatabases);
+
+for (const [name, makeFixture] of FIXTURES) {
   test(`storage (${name}): claims runnable requests by priority, once, and never early or blocked ones`, async () => {
     const fx = await makeFixture();
     try {

@@ -22,8 +22,8 @@ export interface PokerAgentProfile {
 
 export const POKER_AI_PROFILES: Record<string, PokerAgentProfile> = {
   viper: {
-    id: 'viplala  ',
-    name: 'Viplala ',
+    id: 'viplala',
+    name: 'Viplala',
     scriptName: PokerModule.AGENT_TURN,
     schedule: 'manual',
     enabled: true,
