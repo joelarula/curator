@@ -1224,14 +1224,14 @@ export class CuratorRequestProcessor {
     await this.trace?.flush();
   }
 
-  /** Writes buffered trace rows (every tick) and deletes rows past the TTL (hourly). */
+  /** Writes buffered trace rows (every tick) and retires rows past the TTL (hourly: partitions or deletes). */
   private async flushStepTrace() {
     if (!this.trace) return;
     await this.trace.flush();
     if (this.traceTtlMs > 0 && Date.now() - this.lastTracePruneAt >= 60 * 60 * 1000) {
       this.lastTracePruneAt = Date.now();
-      await this.trace.prune(new Date(this.clock() - this.traceTtlMs)).catch((err: any) =>
-        logger.warn(`[CuratorRequestProcessor] Pruning StepTrace failed: ${err?.message || err}`)
+      await this.trace.retire(this.traceTtlMs, new Date(this.clock())).catch((err: any) =>
+        logger.warn(`[CuratorRequestProcessor] Retiring StepTrace rows failed: ${err?.message || err}`)
       );
     }
   }

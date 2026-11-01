@@ -130,14 +130,28 @@ Wake-ups (done):
   (back off when idle, reset on work), with an optional Redis or NATS channel as a wake-up hint only (never
   as the source of truth).
 
-### Phase 3: Retention by partition (batched deletes done; partitioning open)
+### Phase 3: Retention by partition (batched deletes done; StepTrace partitioned; EventLog open)
 Done, for every database: `pruneConversationHistory` deletes Responses and Requests in batches of 500
 (`Retention.deleteInChunks`, one statement each), and `compactConversationLog` commits the compacted event and
 its snapshot first, then deletes the older events in batches. No retention statement touches more than 500 rows.
-Open: partitioning (below), which only exists on Postgres/MariaDB and needs the cluster test run. Note that
-partitioning `Request` needs its primary key to include the partition column, which conflicts with
-`Response.requestId` and `Request.parentId` referencing `Request.id`; `EventLog` (no foreign keys) is the
-straightforward first candidate.
+Done, Postgres/MariaDB (`src/db/partitions.ts`): tables listed in `PARTITIONED_TABLES` (now `StepTrace`) are range
+partitioned by UTC day. Prisma cannot declare partitions, so the DDL is built from that spec and the generated
+schema.sql (never hand-written per table):
+- At startup (`convergePartitions`, after `convergeSchema`, under the schema lock; MariaDB `GET_LOCK`): Postgres
+  recreates an empty table from its generated CREATE TABLE plus `PARTITION BY RANGE` and its generated indexes (so
+  `convergeSchema` stays a no-op); a non-empty table is reported for a manual migration. MariaDB converts in place.
+  Partitions for yesterday through two days ahead, plus a catch-all (Postgres `DEFAULT`, MariaDB `pmax`) so inserts
+  never fail when maintenance lags.
+- At runtime (`maintainPartitions`, hourly from the step trace's flush system, any node, idempotent): creates the
+  coming days' partitions and drops those older than the retention (`stepTrace.ttlMs`, default 7 days). SQLite keeps
+  batched deletes.
+- Limit (Postgres): a day whose rows already sit in the DEFAULT partition cannot get a partition of its own (reported);
+  those rows stay there until they expire and are deleted from it.
+Open: `EventLog`. It also holds each conversation's state snapshot (the compacted `__state` event that
+`Conversation.metadata` points to), which dropping a partition would delete; its primary key would have to become
+`(id, createdAt)` (breaking `findUnique({ id })` callers), and request cursors point at its ids. Partitioning
+`Request` needs its primary key to include the partition column, which conflicts with `Response.requestId` and
+`Request.parentId` referencing `Request.id`.
 
 - Postgres: partition `EventLog`, `Request` and `Response` by time; retire data with `DETACH`/`DROP PARTITION`.
 - MariaDB: range partitioning drops the foreign keys on those tables (integrity moves to the application,
@@ -174,11 +188,11 @@ Done (`src/engine/StepTrace.ts`):
 - Every finished request is recorded in `StepTrace` (status, node type, timing, worker, control-flow output):
   buffered and written with one `createMany` per poll tick, no foreign keys, `(id, createdAt)` primary key on
   Postgres/MariaDB so it can be partitioned by time. Rows past `stepTrace.ttlMs` (default 7 days) are deleted
-  hourly until partitioning replaces that. Processor option `stepTrace` (`false` turns it off); a checkpoint host
+  hourly (by dropping day partitions on Postgres/MariaDB, see Phase 3). Processor option `stepTrace` (`false` turns it off); a checkpoint host
   writes its memory processor's trace to the configured database, an ephemeral host writes none.
 - Effect: control-flow steps no longer add Response rows (the tests' golden databases lost 31 of them), so the
   tables agent history scans hold only history.
-Open: time partitions for `StepTrace` (with `EventLog`, see Phase 3); the audit view (`AuditService.getLogs`) still
+Open: the audit view (`AuditService.getLogs`) still
 lists Responses only, so control-flow steps appear in `StepTrace` instead.
 
 ### Phase 6: Shared ephemeral tier (optional)

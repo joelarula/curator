@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { convergeSchema } from './schemaSql.js';
+import { convergePartitions, reportPartitions } from './partitions.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -21,6 +22,26 @@ async function ensureCuratorMariadbSchema(pool: any): Promise<void> {
   if (result.addedColumns.length) console.log(`[mariadbProvisioner] Schema: added ${result.addedColumns.join(', ')}`);
   for (const failure of result.failed) {
     console.warn(`[mariadbProvisioner] Schema statement failed (needs a manual migration): ${failure.error}\n  ${failure.sql.split('\n')[0]}`);
+  }
+
+  // Partitioning rebuilds a table: one node at a time (GET_LOCK holds on the primary / writer node)
+  const conn = await pool.getConnection();
+  try {
+    await conn.query("SELECT GET_LOCK('curator_partitions', 60)");
+    try {
+      const partitions = await convergePartitions({
+        dialect: 'mysql',
+        query: async (sql) => Array.from(await conn.query(sql)),
+        exec: async (sql) => {
+          await conn.query(sql);
+        },
+      });
+      reportPartitions('mariadbProvisioner', partitions);
+    } finally {
+      await conn.query("SELECT RELEASE_LOCK('curator_partitions')");
+    }
+  } finally {
+    conn.release();
   }
 }
 

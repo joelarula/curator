@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { convergeSchema } from './schemaSql.js';
+import { convergeSchema, type SchemaDb } from './schemaSql.js';
+import { convergePartitions, reportPartitions } from './partitions.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -31,18 +32,20 @@ async function ensureCuratorPostgresSchema(pool: any, schema: string | undefined
         // The generated SQL uses unqualified names: point this session at the curator schema
         await client.query(`SET search_path TO ${quoted}`);
       }
-      const result = await convergeSchema({
+      const db: SchemaDb = {
         dialect: 'postgresql',
         query: async (sql) => (await client.query(sql)).rows,
         exec: async (sql) => {
           await client.query(sql);
         },
-      });
+      };
+      const result = await convergeSchema(db);
       if (result.createdTables.length) console.log(`[postgresProvisioner] Schema: created ${result.createdTables.length} table(s)`);
       if (result.addedColumns.length) console.log(`[postgresProvisioner] Schema: added ${result.addedColumns.join(', ')}`);
       for (const failure of result.failed) {
         console.warn(`[postgresProvisioner] Schema statement failed (needs a manual migration): ${failure.error}\n  ${failure.sql.split('\n')[0]}`);
       }
+      reportPartitions('postgresProvisioner', await convergePartitions(db));
     } finally {
       await client.query('SELECT pg_advisory_unlock($1)', [SCHEMA_LOCK_KEY]);
       if (schema) await client.query('RESET search_path');

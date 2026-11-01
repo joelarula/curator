@@ -1,5 +1,8 @@
 import { logger } from '../utils/logger.js';
 import { deleteInChunks } from './Retention.js';
+import { sqlDialect } from '../db/sqlDialect.js';
+import { prismaSchemaDb } from '../db/schemaSql.js';
+import { PARTITIONED_TABLES, isPartitioned, maintainPartitions } from '../db/partitions.js';
 
 /**
  * Step history (docs/DISTRIBUTED_STORAGE_PLAN.md, Phase 5). Only some step results are conversation history:
@@ -95,9 +98,26 @@ export class StepTraceWriter {
     return this.flushing;
   }
 
-  /** Deletes rows older than `olderThan` in batches (until the table is partitioned and retired by partition). */
+  /** Deletes rows older than `olderThan` in batches (for a table that is not partitioned, e.g. on SQLite). */
   async prune(olderThan: Date): Promise<number> {
     if (!this.enabled) return 0;
     return deleteInChunks(this.prisma.stepTrace, { createdAt: { lt: olderThan } });
+  }
+
+  /**
+   * Retires rows older than `ttlMs`: by dropping day partitions where the table is partitioned (Postgres/MariaDB,
+   * see db/partitions.ts; also creates the coming days' partitions), otherwise with batched deletes.
+   */
+  async retire(ttlMs: number, now: Date): Promise<void> {
+    if (!this.enabled) return;
+    const spec = PARTITIONED_TABLES.find(t => t.table === 'StepTrace')!;
+    const dialect = sqlDialect(this.prisma);
+    const db = prismaSchemaDb(this.prisma, dialect);
+    if (dialect !== 'sqlite' && (await isPartitioned(db, spec))) {
+      const result = await maintainPartitions(db, { retainDays: Math.max(1, Math.ceil(ttlMs / (24 * 60 * 60 * 1000))), now }, [spec]);
+      for (const failure of result.failed) logger.warn(`[StepTrace] Partition statement failed: ${failure.error}`);
+      return;
+    }
+    await this.prune(new Date(now.getTime() - ttlMs));
   }
 }
