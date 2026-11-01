@@ -208,9 +208,19 @@ Results (2026-11-01; two host processes on one test database, Postgres and Maria
 0 → 1 → 2 → 3 → 4 → 5 → 6. Phase 2 (with the single-writer rule on Galera) fixes most of today's contention.
 Phase 4 depends on the storage port and tiers.
 
-## Open decisions
+## Decisions
 
 1. ~~Rebuild or replace `src/storage/IStorageAdapter.ts`~~: rebuilt (Phase 0).
 2. Where the durability tier is declared: host config is done (Phase 1); per script or per conversation still open.
-3. MariaDB partitioning versus keeping foreign keys on `Request`/`Response`.
-4. Whether a Redis/NATS dependency is acceptable for wake-ups and the shared ephemeral tier.
+3. Partitioning: decided (2026-11-01), yes. Data is retired by dropping time partitions, on Postgres and MariaDB.
+   The MariaDB details (partitioned InnoDB tables have no foreign keys, and every unique key must include the
+   partition column) are settled when the first production miniapp needs them.
+4. No Redis/NATS (decided 2026-11-01): wake-ups and coordination use the database platform only (Postgres
+   `LISTEN/NOTIFY`, adaptive polling on MariaDB). Phase 6 is limited to database features (e.g. `UNLOGGED`).
+
+## Conventions
+
+- Soft delete: tables with deletable rows carry `existent Boolean? @default(true)` and include it in their indexes
+  and unique keys (e.g. `@@unique([id, existent])`, `@@index([projectId, existent])`). Deleting sets `existent`
+  to NULL: unique indexes treat NULLs as distinct, so a deleted row never blocks a new live one, and lookups filter
+  on `existent: true`. New tables (and partitioned ones) follow the same pattern.
