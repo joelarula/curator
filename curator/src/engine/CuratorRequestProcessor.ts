@@ -17,6 +17,7 @@ import { STATE_PATCH_KEY, withoutStoredStateCopies } from './RequestContextStora
 import { recordDeadLetter, TERMINAL_STATUSES } from './DeadLetters.js';
 import { clearRequestContexts, completedChildrenWithContext, sweepCompletedContexts } from './Retention.js';
 import { PrismaStorageAdapter } from '../storage/PrismaStorageAdapter.js';
+import { StepTraceWriter, isControlNode, requestOutput, LATEST_RESPONSE } from './StepTrace.js';
 import { sqlDialect, type SqlDialect } from '../db/sqlDialect.js';
 import { AgentRoleService } from '../services/AgentRoleService.js';
 import { ApprovalService } from '../services/ApprovalService.js';
@@ -65,6 +66,12 @@ export interface CuratorRequestProcessorOptions {
    * MariaDB/MySQL and Postgres (shared by several nodes), off for SQLite (one writer); `false` turns them off.
    */
   conversationLeases?: false | { ttlMs?: number };
+  /**
+   * Step trace (docs/DISTRIBUTED_STORAGE_PLAN.md, Phase 5): every finished request is recorded in `StepTrace`,
+   * written in batches each poll tick. `prisma`: the database to write it to (default: this processor's);
+   * `ttlMs`: rows older than this are deleted hourly (default 7 days, 0 keeps them). `false` turns it off.
+   */
+  stepTrace?: false | { prisma?: any; ttlMs?: number };
 }
 
 /** Registries the processor reads; `curatorEngine` by default. Plugin node types, services and systems are optional. */
@@ -184,6 +191,11 @@ export class CuratorRequestProcessor {
   private retention: { readOnlyRequests: 'keep' | 'prune'; readOnlyTtlMs: number; completedContext: 'trim' | 'keep' };
   private lastPruneAt = 0;
   private lastContextSweepAt = 0;
+  private trace?: StepTraceWriter;
+  private traceTtlMs = 0;
+  private lastTracePruneAt = 0;
+  /** Request id -> resolved node type and start time while this worker executes it (req.ast is null in reference mode). */
+  private executing = new Map<number, { nodeType: string; startedAt: Date }>();
   private clock: () => number;
   /** AST node type → handler. */
   private nodes = new NodeRegistry();
@@ -218,6 +230,10 @@ export class CuratorRequestProcessor {
       dialect,
       leases: leases ? { ttlMs: leases.ttlMs ?? 30_000 } : undefined,
     });
+    if (options.stepTrace !== false) {
+      this.trace = new StepTraceWriter(options.stepTrace?.prisma ?? this.prisma);
+      this.traceTtlMs = options.stepTrace?.ttlMs ?? 7 * 24 * 60 * 60 * 1000;
+    }
     this.astStorage = options.astStorage ?? 'reference';
     this.maxCallDepth = options.maxCallDepth ?? 16;
     this.engine = options.engine ?? curatorEngine;
@@ -350,6 +366,7 @@ export class CuratorRequestProcessor {
             { name: 'recoverLapsedLeases', run: () => this.recoverLapsedLeases() },
           ]
         : []),
+      { name: 'flushStepTrace', run: () => this.flushStepTrace() },
       { name: 'pollScheduledAgents', run: () => this.pollScheduledAgents() },
       { name: 'expireApprovalWaits', run: () => this.expireApprovalWaits() },
       { name: 'expireHumanWaits', run: () => this.expireHumanWaits() },
@@ -1129,6 +1146,24 @@ export class CuratorRequestProcessor {
     }
     // A stopped worker hands its conversations over at once instead of letting the leases lapse
     if (this.isStopped && this.leasesOn) await this.store.releaseLeases(this.workerId).catch(() => {});
+    await this.trace?.flush();
+  }
+
+  /** Writes buffered trace rows (every tick) and deletes rows past the TTL (hourly). */
+  private async flushStepTrace() {
+    if (!this.trace) return;
+    await this.trace.flush();
+    if (this.traceTtlMs > 0 && Date.now() - this.lastTracePruneAt >= 60 * 60 * 1000) {
+      this.lastTracePruneAt = Date.now();
+      await this.trace.prune(new Date(this.clock() - this.traceTtlMs)).catch((err: any) =>
+        logger.warn(`[CuratorRequestProcessor] Pruning StepTrace failed: ${err?.message || err}`)
+      );
+    }
+  }
+
+  /** The node type of a request: the resolved one while this worker executes it, else its stored AST's. */
+  private nodeTypeOf(req: any): string | null {
+    return this.executing.get(req.id)?.nodeType ?? this.parseAst(req.ast)?.type ?? null;
   }
 
   /** Runs a request; afterwards the contexts of children that had completed before this run (it consumed them) are trimmed. */
@@ -1261,6 +1296,7 @@ export class CuratorRequestProcessor {
           return;
         }
 
+        this.executing.set(req.id, { nodeType: ast.type, startedAt: new Date(this.clock()) });
         const handler = this.nodes.get(ast.type) ?? this.engine.nodes?.get(ast.type);
         if (!handler) {
           logger.warn(`[CuratorRequestProcessor] Request ${req.id} has unknown AST type: ${(ast as any).type}. Skipping.`);
@@ -1293,6 +1329,8 @@ export class CuratorRequestProcessor {
         logger.error(`[CuratorRequestProcessor] Failed to write error response:`, dbErr);
       }
       await this.completeRequest(request.id, 'FAILED');
+    } finally {
+      this.executing.delete(request.id);
     }
   }
 
@@ -1645,11 +1683,8 @@ export class CuratorRequestProcessor {
       const flight = this.inflight.get(created.id);
       if (flight?.error) throw flight.error;
 
-      const done = await this.prisma.request.findUnique({
-        where: { id: created.id },
-        include: { responses: { orderBy: { createdAt: 'desc' }, take: 1 } }
-      });
-      const content = done?.responses?.[0]?.content ?? null;
+      const done = await this.prisma.request.findUnique({ where: { id: created.id }, include: LATEST_RESPONSE });
+      const content = requestOutput(done);
       let parsed: any = content;
       if (typeof content === 'string') {
         try { parsed = JSON.parse(content); } catch { /* plain text */ }
@@ -2112,8 +2147,13 @@ export class CuratorRequestProcessor {
     return result;
   }
 
+  /** Records a step result: a Response for history steps, `Request.output` for control-flow steps (see StepTrace.ts). */
   private async saveResponse(req: any, content: string) {
     try {
+      if (isControlNode(this.nodeTypeOf(req))) {
+        await this.prisma.request.update({ where: { id: req.id }, data: { output: content } });
+        return;
+      }
       await this.prisma.response.create({
         data: {
           requestId: req.id,
@@ -2149,8 +2189,10 @@ export class CuratorRequestProcessor {
    * poisoned (a Join just counts it as arrived, tolerating failed branches).
    */
   private async handleUnsuccessful(req: any, status: string, skipNotify: boolean) {
-    const last = await this.prisma.response.findFirst({ where: { requestId: req.id }, orderBy: { id: 'desc' } });
-    const reason = last?.content ?? `Request ended ${status} without a recorded reason`;
+    const reason =
+      req.output ??
+      (await this.prisma.response.findFirst({ where: { requestId: req.id }, orderBy: { id: 'desc' } }))?.content ??
+      `Request ended ${status} without a recorded reason`;
     const reqAst = this.parseAst(req.ast);
 
     if (status === 'FAILED' && reqAst?.onError && !skipNotify) {
@@ -2292,6 +2334,18 @@ export class CuratorRequestProcessor {
       throw err;
     }
     this.emit('request_done', { requestId, success: status === 'COMPLETED', status });
+    const nodeType = this.nodeTypeOf(req);
+    this.trace?.record({
+      conversationId: req.conversationId,
+      requestId,
+      projectId: req.projectId ?? null,
+      nodeType,
+      status,
+      output: isControlNode(nodeType) ? req.output ?? null : null,
+      startedAt: this.executing.get(requestId)?.startedAt ?? null,
+      worker: this.workerId,
+      createdAt: new Date(this.clock()),
+    });
 
     if (status !== 'COMPLETED') {
       await this.handleUnsuccessful(req, status, skipNotify);
@@ -2300,8 +2354,8 @@ export class CuratorRequestProcessor {
 
     if (req.notifyId && !skipNotify) {
       try {
-        const responses = await this.prisma.response.findMany({ where: { requestId }, orderBy: { createdAt: 'desc' }, take: 1 });
-        const lastContent = responses[0]?.content;
+        const lastContent =
+          req.output ?? (await this.prisma.response.findMany({ where: { requestId }, orderBy: { createdAt: 'desc' }, take: 1 }))[0]?.content;
 
         const targetReq = await this.prisma.request.findUnique({ where: { id: req.notifyId } });
         if (targetReq && !TERMINAL_STATUSES.has(targetReq.status)) {

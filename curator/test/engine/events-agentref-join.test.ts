@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createEnv, runAst, saveScript, snapshotDb, assertGolden } from '../helpers/harness.ts';
+import { createEnv, runAst, saveScript, snapshotDb, assertGolden, stepResults } from '../helpers/harness.ts';
 
 const tool = (name: string, args: any = {}, as?: string) => ({ type: 'Curator_Tool', toolName: name, args, ...(as ? { as } : {}) });
 const seq = (name: string, subAgents: any[]) => ({ type: 'Curator_Sequential', name, subAgents });
@@ -123,7 +123,7 @@ test('join: concatenates completed branch outputs and continues the parent seque
     assert.equal(result.done, true);
     assert.equal(await status(env, requestId), 'COMPLETED');
     assert.deepEqual(env.calls.map((c) => c.tool).sort(), ['a', 'after', 'b']);
-    const joined = (await env.prisma.response.findMany()).find((r: any) => /^\[Joined Output\]/.test(r.content));
+    const joined = (await stepResults(env.prisma)).find((r) => /^\[Joined Output\]/.test(r.content));
     assert.ok(joined, 'join response written');
     assert.match(joined.content, /A/);
     assert.match(joined.content, /B/);
@@ -142,7 +142,7 @@ test('join: a branch whose tool errors still completes, and its [Tool Error] tex
     const { requestId } = await runAst(env, { type: 'Curator_Parallel', name: 'fan', subAgents: [tool('ok'), tool('bad')] });
     const joinReq = (await env.prisma.request.findMany()).find((r: any) => JSON.stringify(r.ast).includes('Curator_Join'));
     assert.ok(joinReq, 'join request exists');
-    const joined = (await env.prisma.response.findMany({ where: { requestId: joinReq.id } }))[0];
+    const joined = (await stepResults(env.prisma, { requestId: joinReq.id }))[0];
     assert.ok(joined, `join ran (parent status ${await status(env, requestId)})`);
     assert.match(joined.content, /fine/);
     assert.match(joined.content, /\[Tool Error\] nope/);

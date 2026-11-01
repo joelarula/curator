@@ -243,6 +243,7 @@ CREATE TABLE "Request" (
     "projectId" TEXT,
     "ast" JSONB,
     "context" JSONB,
+    "output" TEXT,
     "conversationId" INTEGER NOT NULL,
     "agentId" TEXT,
     "scheduledAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
@@ -449,6 +450,22 @@ CREATE TABLE "AgentRole" (
     "roleId" TEXT NOT NULL,
 
     CONSTRAINT "AgentRole_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "StepTrace" (
+    "id" SERIAL NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "conversationId" INTEGER NOT NULL,
+    "requestId" INTEGER NOT NULL,
+    "projectId" TEXT,
+    "nodeType" TEXT,
+    "status" TEXT NOT NULL,
+    "output" TEXT,
+    "startedAt" TIMESTAMP(3),
+    "worker" TEXT,
+
+    CONSTRAINT "StepTrace_pkey" PRIMARY KEY ("id","createdAt")
 );
 
 -- CreateTable
@@ -691,6 +708,12 @@ CREATE INDEX "AgentRole_roleId_idx" ON "AgentRole"("roleId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "AgentRole_agentId_roleId_key" ON "AgentRole"("agentId", "roleId");
+
+-- CreateIndex
+CREATE INDEX "StepTrace_conversationId_createdAt_idx" ON "StepTrace"("conversationId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "StepTrace_requestId_idx" ON "StepTrace"("requestId");
 
 -- CreateIndex
 CREATE INDEX "_RequestResources_B_index" ON "_RequestResources"("B");

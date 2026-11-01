@@ -247,6 +247,29 @@ export async function runScript(env: TestEnv, scriptId: number, version?: number
 }
 
 /** Order-stable, id/time-free view of the rows a workflow produced. */
+/**
+ * Step results as stored since Phase 5 (src/engine/StepTrace.ts): Responses (history steps) plus `Request.output`
+ * (control-flow steps), as `{ requestId, content }`, Responses first, each in id order.
+ */
+export async function stepResults(
+  prisma: any,
+  where: { requestId?: number; conversationId?: number } = {}
+): Promise<Array<{ requestId: number; content: string }>> {
+  const responses = await prisma.response.findMany({ where, orderBy: { id: 'asc' } });
+  const outputs = await prisma.request.findMany({
+    where: {
+      ...(where.requestId != null ? { id: where.requestId } : {}),
+      ...(where.conversationId != null ? { conversationId: where.conversationId } : {}),
+      output: { not: null },
+    },
+    orderBy: { id: 'asc' },
+  });
+  return [
+    ...responses.map((r: any) => ({ requestId: r.requestId, content: r.content })),
+    ...outputs.map((r: any) => ({ requestId: r.id, content: r.output })),
+  ];
+}
+
 export async function snapshotDb(env: TestEnv) {
   const requests = await env.prisma.request.findMany({ where: { conversationId: env.conversationId }, orderBy: { id: 'asc' } });
   const responses = await env.prisma.response.findMany({ where: { conversationId: env.conversationId }, orderBy: { id: 'asc' } });

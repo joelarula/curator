@@ -1,5 +1,6 @@
 import type { NodeContext, NodeHandler } from './NodeHandler.js';
 import type { CuratorAstNode, CuratorCallNode, CuratorParamSpec } from '../CuratorAst.js';
+import { HAS_OUTPUT, LATEST_RESPONSE, requestOutput } from '../StepTrace.js';
 import { resolveRef, getScriptVersionAst, entryAstPath, expandInlineCalls } from '../ScriptRegistry.js';
 
 /**
@@ -15,13 +16,13 @@ export async function runCall(ast: CuratorCallNode, req: any, ctx: NodeContext, 
   const callContext = (typeof req.context === 'string' ? JSON.parse(req.context) : req.context) || {};
 
   if (callContext.callPending) {
-    // Phase 2: the callee chain finished; the latest Response of a request that notified us is the result.
+    // Phase 2: the callee chain finished; the result of the latest request that notified us is the result.
     const last = await ctx.prisma.request.findFirst({
-      where: { notifyId: req.id, status: 'COMPLETED', responses: { some: {} } },
+      where: { notifyId: req.id, status: 'COMPLETED', ...HAS_OUTPUT },
       orderBy: { id: 'desc' },
-      include: { responses: { orderBy: { createdAt: 'desc' }, take: 1 } }
+      include: LATEST_RESPONSE
     });
-    let result: any = last?.responses?.[0]?.content ?? null;
+    let result: any = requestOutput(last);
     if (typeof result === 'string') {
       try { result = JSON.parse(result); } catch { /* plain text result */ }
     }

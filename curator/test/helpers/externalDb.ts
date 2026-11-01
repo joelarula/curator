@@ -36,6 +36,7 @@ async function emptyRuntimeTables(prisma: any): Promise<void> {
   await prisma.request.deleteMany({});
   await prisma.conversation.deleteMany({});
   await prisma.conversationLease.deleteMany({});
+  await prisma.stepTrace.deleteMany({});
 }
 
 /** The harness `TestEnv` on this process's test database: emptied runtime tables, a tester with the admin role, fake tools. */

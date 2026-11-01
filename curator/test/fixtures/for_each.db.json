@@ -36,6 +36,7 @@
       "existent": true,
       "id": "<req:1>",
       "notifyId": null,
+      "output": null,
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -77,6 +78,7 @@
       "existent": true,
       "id": "<req:2>",
       "notifyId": null,
+      "output": "ForEach finished.",
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -104,6 +106,7 @@
       "existent": true,
       "id": "<req:3>",
       "notifyId": "<req:2>",
+      "output": "{\"status\":\"State updated\",\"state\":{\"items\":[\"a\",\"b\",\"c\"]}}",
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -135,6 +138,7 @@
       "existent": true,
       "id": "<req:4>",
       "notifyId": "<req:2>",
+      "output": null,
       "parentId": "<req:2>",
       "pendingDependencies": 0,
       "priority": 0,
@@ -172,6 +176,7 @@
       "existent": true,
       "id": "<req:5>",
       "notifyId": "<req:2>",
+      "output": null,
       "parentId": "<req:2>",
       "pendingDependencies": 0,
       "priority": 0,
@@ -209,6 +214,7 @@
       "existent": true,
       "id": "<req:6>",
       "notifyId": "<req:2>",
+      "output": null,
       "parentId": "<req:2>",
       "pendingDependencies": 0,
       "priority": 0,
@@ -221,17 +227,9 @@
   "responses": [
     {
       "aiModelId": null,
-      "content": "{\"status\":\"State updated\",\"state\":{\"items\":[\"a\",\"b\",\"c\"]}}",
-      "existent": true,
-      "id": "<res:1>",
-      "projectId": null,
-      "requestId": "<req:3>"
-    },
-    {
-      "aiModelId": null,
       "content": "{\"echoed\":\"a\"}",
       "existent": true,
-      "id": "<res:2>",
+      "id": "<res:1>",
       "projectId": null,
       "requestId": "<req:4>"
     },
@@ -239,7 +237,7 @@
       "aiModelId": null,
       "content": "{\"echoed\":\"b\"}",
       "existent": true,
-      "id": "<res:3>",
+      "id": "<res:2>",
       "projectId": null,
       "requestId": "<req:5>"
     },
@@ -247,17 +245,9 @@
       "aiModelId": null,
       "content": "{\"echoed\":\"c\"}",
       "existent": true,
-      "id": "<res:4>",
+      "id": "<res:3>",
       "projectId": null,
       "requestId": "<req:6>"
-    },
-    {
-      "aiModelId": null,
-      "content": "ForEach finished.",
-      "existent": true,
-      "id": "<res:5>",
-      "projectId": null,
-      "requestId": "<req:2>"
     }
   ]
 }

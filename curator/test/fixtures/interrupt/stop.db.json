@@ -14,6 +14,7 @@
       "existent": true,
       "id": "<req:1>",
       "notifyId": null,
+      "output": null,
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -36,6 +37,7 @@
       "existent": true,
       "id": "<req:2>",
       "notifyId": null,
+      "output": null,
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -63,6 +65,7 @@
       "existent": true,
       "id": "<req:3>",
       "notifyId": null,
+      "output": "{\"status\":\"stop\",\"cancelled\":2}",
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 50,
@@ -87,6 +90,7 @@
       "existent": true,
       "id": "<req:4>",
       "notifyId": null,
+      "output": null,
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 50,
@@ -99,17 +103,9 @@
   "responses": [
     {
       "aiModelId": null,
-      "content": "{\"status\":\"stop\",\"cancelled\":2}",
-      "existent": true,
-      "id": "<res:1>",
-      "projectId": null,
-      "requestId": "<req:3>"
-    },
-    {
-      "aiModelId": null,
       "content": "handled",
       "existent": true,
-      "id": "<res:2>",
+      "id": "<res:1>",
       "projectId": null,
       "requestId": "<req:4>"
     }

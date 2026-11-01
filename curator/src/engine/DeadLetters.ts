@@ -1,9 +1,10 @@
 import { logger } from '../utils/logger.js';
+import { LATEST_RESPONSE, requestOutput } from './StepTrace.js';
 
 /**
  * Dead letters using existing Request + Response models:
- * Every request that ends FAILED / SKIPPED / CANCELLED has an error Response record
- * that serves as its dead-letter log entry.
+ * Every request that ends FAILED / SKIPPED / CANCELLED has an error result (a Response, or `output` for a
+ * control-flow step) that serves as its dead-letter log entry.
  */
 
 export type DeadLetterKind = 'FAILED' | 'SKIPPED' | 'CANCELLED';
@@ -62,18 +63,13 @@ export async function listDeadLetters(prisma: any, filter: { conversationId?: nu
 
   const requests = await prisma.request.findMany({
     where,
-    include: {
-      responses: {
-        orderBy: { createdAt: 'desc' },
-        take: 1,
-      },
-    },
+    include: LATEST_RESPONSE,
     orderBy: { id: 'asc' },
   });
 
   return requests.map((r: any) => {
     const ctx = typeof r.context === 'string' ? JSON.parse(r.context) : (r.context || {});
-    const lastResponse = r.responses?.[0]?.content || '';
+    const lastResponse = requestOutput(r) || '';
     return {
       requestId: r.id,
       conversationId: r.conversationId,

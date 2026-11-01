@@ -25,6 +25,7 @@
       "existent": true,
       "id": "<req:1>",
       "notifyId": null,
+      "output": "Loop finished after 3 iteration(s) (maxIterations).",
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -52,6 +53,7 @@
       "existent": true,
       "id": "<req:2>",
       "notifyId": "<req:1>",
+      "output": null,
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -80,6 +82,7 @@
       "existent": true,
       "id": "<req:3>",
       "notifyId": "<req:1>",
+      "output": null,
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -108,6 +111,7 @@
       "existent": true,
       "id": "<req:4>",
       "notifyId": "<req:1>",
+      "output": null,
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -141,14 +145,6 @@
       "id": "<res:3>",
       "projectId": null,
       "requestId": "<req:4>"
-    },
-    {
-      "aiModelId": null,
-      "content": "Loop finished after 3 iteration(s) (maxIterations).",
-      "existent": true,
-      "id": "<res:4>",
-      "projectId": null,
-      "requestId": "<req:1>"
     }
   ]
 }

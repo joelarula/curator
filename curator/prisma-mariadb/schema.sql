@@ -275,6 +275,7 @@ CREATE TABLE `Request` (
     `projectId` VARCHAR(191) NULL,
     `ast` JSON NULL,
     `context` JSON NULL,
+    `output` LONGTEXT NULL,
     `conversationId` INTEGER NOT NULL,
     `agentId` VARCHAR(191) NULL,
     `scheduledAt` DATETIME(3) NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -518,6 +519,24 @@ CREATE TABLE `AgentRole` (
     INDEX `AgentRole_roleId_idx`(`roleId`),
     UNIQUE INDEX `AgentRole_agentId_roleId_key`(`agentId`, `roleId`),
     PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
+CREATE TABLE `StepTrace` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `conversationId` INTEGER NOT NULL,
+    `requestId` INTEGER NOT NULL,
+    `projectId` VARCHAR(191) NULL,
+    `nodeType` VARCHAR(191) NULL,
+    `status` VARCHAR(191) NOT NULL,
+    `output` LONGTEXT NULL,
+    `startedAt` DATETIME(3) NULL,
+    `worker` VARCHAR(191) NULL,
+
+    INDEX `StepTrace_conversationId_createdAt_idx`(`conversationId`, `createdAt`),
+    INDEX `StepTrace_requestId_idx`(`requestId`),
+    PRIMARY KEY (`id`, `createdAt`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable

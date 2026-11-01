@@ -388,7 +388,7 @@ program
                 requestId: req.id,
                 agent: agentName,
                 status: req.status,
-                responses: req.responses.map((r: any) => r.content),
+                responses: [...(req.output != null ? [req.output] : []), ...req.responses.map((r: any) => r.content)],
               }, null, 2));
               if (req.status !== 'COMPLETED') process.exitCode = 1;
               return;

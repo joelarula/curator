@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createEnv, runAst, runScript, compileFixture, saveScript, snapshotDb, assertGolden } from '../helpers/harness.ts';
+import { createEnv, runAst, runScript, compileFixture, saveScript, snapshotDb, assertGolden, stepResults } from '../helpers/harness.ts';
 
 const tool = (name: string, args: any = {}, as?: string) => ({ type: 'Curator_Tool', toolName: name, args, ...(as ? { as } : {}) });
 
@@ -72,8 +72,8 @@ test('module: call to a missing script fails the caller with a clear error', asy
     const { requestId } = await runAst(env, { type: 'Curator_Call', ref: 'does_not_exist' });
     const root = await env.prisma.request.findUnique({ where: { id: requestId } });
     assert.equal(root.status, 'FAILED');
-    const responses = await env.prisma.response.findMany({ where: { requestId } });
-    assert.match(responses.map((r: any) => r.content).join('\n'), /does_not_exist/);
+    const results = await stepResults(env.prisma, { requestId });
+    assert.match(results.map((r) => r.content).join('\n'), /does_not_exist/);
   } finally {
     await env.cleanup();
   }
@@ -90,8 +90,8 @@ test('module: recursion beyond maxCallDepth fails instead of looping', async () 
     };
     const saved = await saveScript(env, 'loop', mod);
     await runScript(env, saved.scriptId, saved.version);
-    const responses = await env.prisma.response.findMany({ where: { conversationId: env.conversationId } });
-    assert.match(responses.map((r: any) => r.content).join('\n'), /maxCallDepth/);
+    const results = await stepResults(env.prisma, { conversationId: env.conversationId });
+    assert.match(results.map((r) => r.content).join('\n'), /maxCallDepth/);
   } finally {
     await env.cleanup();
   }

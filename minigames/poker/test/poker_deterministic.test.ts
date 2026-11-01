@@ -188,9 +188,9 @@ test('Poker Deterministic Harness: agent_turn executes AI decision tool and acti
 
     // The seat only decides (the table applies): the engine does not run, the action is the result
     assert.deepEqual(env.calls, []);
-    const seatCall = (await env.prisma.request.findMany({ include: { responses: true } }))
-      .find((r: any) => r.ast?.type === 'Curator_Call');
-    assert.deepEqual(JSON.parse(seatCall.responses[0].content), { type: 'CALL', amount: 20 });
+    // A Curator_Call is a control-flow step: its result is the request's output (curator Phase 5)
+    const seatCall = (await env.prisma.request.findMany()).find((r: any) => r.ast?.type === 'Curator_Call');
+    assert.deepEqual(JSON.parse(seatCall.output), { type: 'CALL', amount: 20 });
 
     // The decision's table talk is announced as speech from the seat
     const speech = await env.prisma.eventLog.findFirst({ where: { eventName: 'poker:speech' } });

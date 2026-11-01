@@ -30,6 +30,7 @@
       "existent": true,
       "id": "<req:1>",
       "notifyId": null,
+      "output": null,
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -53,6 +54,7 @@
       "existent": true,
       "id": "<req:2>",
       "notifyId": null,
+      "output": "[Joined Output]\n{\"section\":\"Finance\",\"content\":\"Interest rates are expected to stabilize.\"}\n\n---\n\n{\"section\":\"Tech\",\"content\":\"AI adoption will reach 80% across enterprises.\"}\n\n---\n\n{\"section\":\"Environment\",\"content\":\"Green energy investments will double.\"}",
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -75,6 +77,7 @@
       "existent": true,
       "id": "<req:3>",
       "notifyId": "<req:2>",
+      "output": null,
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -97,6 +100,7 @@
       "existent": true,
       "id": "<req:4>",
       "notifyId": "<req:2>",
+      "output": null,
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -119,6 +123,7 @@
       "existent": true,
       "id": "<req:5>",
       "notifyId": "<req:2>",
+      "output": null,
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -152,14 +157,6 @@
       "id": "<res:3>",
       "projectId": null,
       "requestId": "<req:5>"
-    },
-    {
-      "aiModelId": null,
-      "content": "[Joined Output]\n{\"section\":\"Finance\",\"content\":\"Interest rates are expected to stabilize.\"}\n\n---\n\n{\"section\":\"Tech\",\"content\":\"AI adoption will reach 80% across enterprises.\"}\n\n---\n\n{\"section\":\"Environment\",\"content\":\"Green energy investments will double.\"}",
-      "existent": true,
-      "id": "<res:4>",
-      "projectId": null,
-      "requestId": "<req:2>"
     }
   ]
 }

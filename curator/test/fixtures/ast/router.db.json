@@ -34,6 +34,7 @@
       "existent": true,
       "id": "<req:1>",
       "notifyId": null,
+      "output": "[Route Decided: optionB]",
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -56,6 +57,7 @@
       "existent": true,
       "id": "<req:2>",
       "notifyId": "<req:1>",
+      "output": null,
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -80,6 +82,7 @@
       "existent": true,
       "id": "<req:3>",
       "notifyId": null,
+      "output": null,
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -100,17 +103,9 @@
     },
     {
       "aiModelId": null,
-      "content": "[Route Decided: optionB]",
-      "existent": true,
-      "id": "<res:2>",
-      "projectId": null,
-      "requestId": "<req:1>"
-    },
-    {
-      "aiModelId": null,
       "content": "took B",
       "existent": true,
-      "id": "<res:3>",
+      "id": "<res:2>",
       "projectId": null,
       "requestId": "<req:3>"
     }

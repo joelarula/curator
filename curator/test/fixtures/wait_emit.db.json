@@ -33,6 +33,7 @@
       "existent": true,
       "id": "<req:1>",
       "notifyId": null,
+      "output": null,
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -66,6 +67,7 @@
       "existent": true,
       "id": "<req:2>",
       "notifyId": null,
+      "output": null,
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -94,6 +96,7 @@
       "existent": true,
       "id": "<req:3>",
       "notifyId": "<req:2>",
+      "output": "{\"msg\":\"hi\"}",
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -117,6 +120,7 @@
       "existent": true,
       "id": "<req:4>",
       "notifyId": "<req:3>",
+      "output": "{\"status\":\"State updated\",\"state\":{\"phase\":1}}",
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -143,6 +147,7 @@
       "existent": true,
       "id": "<req:5>",
       "notifyId": null,
+      "output": "{\"type\":\"EVENT_EMITTED\",\"ok\":true,\"event\":{\"eventName\":\"go\",\"spawned\":[],\"woken\":[3]}}",
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -155,33 +160,9 @@
   "responses": [
     {
       "aiModelId": null,
-      "content": "{\"status\":\"State updated\",\"state\":{\"phase\":1}}",
-      "existent": true,
-      "id": "<res:1>",
-      "projectId": null,
-      "requestId": "<req:4>"
-    },
-    {
-      "aiModelId": null,
-      "content": "{\"type\":\"EVENT_EMITTED\",\"ok\":true,\"event\":{\"eventName\":\"go\",\"spawned\":[],\"woken\":[3]}}",
-      "existent": true,
-      "id": "<res:2>",
-      "projectId": null,
-      "requestId": "<req:5>"
-    },
-    {
-      "aiModelId": null,
-      "content": "{\"msg\":\"hi\"}",
-      "existent": true,
-      "id": "<res:3>",
-      "projectId": null,
-      "requestId": "<req:3>"
-    },
-    {
-      "aiModelId": null,
       "content": "{\"echoed\":\"hi\"}",
       "existent": true,
-      "id": "<res:4>",
+      "id": "<res:1>",
       "projectId": null,
       "requestId": "<req:2>"
     }

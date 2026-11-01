@@ -78,9 +78,9 @@ test('graph: onExit runs on the way to __end__ and the graph completes with the 
     });
     assert.equal(result.done, true);
     assert.deepEqual(env.calls.map((c) => c.tool), ['work', 'cleanup']);
-    const root = await env.prisma.request.findUnique({ where: { id: requestId }, include: { responses: true } });
+    const root = await env.prisma.request.findUnique({ where: { id: requestId } });
     assert.equal(root.status, 'COMPLETED');
-    assert.match(String(root.responses.at(-1)?.content), /"done":\s*1/, 'graph output is the state output, not the hook output');
+    assert.match(String(root.output), /"done":\s*1/, 'graph output is the state output, not the hook output');
   } finally {
     await env.cleanup();
   }

@@ -39,6 +39,7 @@
       "existent": true,
       "id": "<req:1>",
       "notifyId": null,
+      "output": null,
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -81,6 +82,7 @@
       "existent": true,
       "id": "<req:2>",
       "notifyId": null,
+      "output": "IfElse completed branch.",
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -104,6 +106,7 @@
       "existent": true,
       "id": "<req:3>",
       "notifyId": "<req:2>",
+      "output": "{\"status\":\"State updated\",\"state\":{\"score\":10}}",
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -134,6 +137,7 @@
       "existent": true,
       "id": "<req:4>",
       "notifyId": "<req:2>",
+      "output": null,
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -146,27 +150,11 @@
   "responses": [
     {
       "aiModelId": null,
-      "content": "{\"status\":\"State updated\",\"state\":{\"score\":10}}",
+      "content": "{\"echoed\":\"high\"}",
       "existent": true,
       "id": "<res:1>",
       "projectId": null,
-      "requestId": "<req:3>"
-    },
-    {
-      "aiModelId": null,
-      "content": "{\"echoed\":\"high\"}",
-      "existent": true,
-      "id": "<res:2>",
-      "projectId": null,
       "requestId": "<req:4>"
-    },
-    {
-      "aiModelId": null,
-      "content": "IfElse completed branch.",
-      "existent": true,
-      "id": "<res:3>",
-      "projectId": null,
-      "requestId": "<req:2>"
     }
   ]
 }

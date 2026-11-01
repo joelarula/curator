@@ -51,7 +51,7 @@ test('replay: a passive table plays full hands through every street to showdown'
 
     // Nothing in the engine failed along the way.
     const failed = await host.prisma.request.findMany({ where: { status: 'FAILED' }, include: { responses: true } });
-    assert.deepEqual(failed.map((r: any) => r.responses.at(-1)?.content), []);
+    assert.deepEqual(failed.map((r: any) => r.output ?? r.responses.at(-1)?.content), []);
 
     // Every completed hand walked deal -> flop -> turn -> river -> showdown -> settle.
     const log = await host.prisma.eventLog.findMany({ orderBy: { id: 'asc' } });

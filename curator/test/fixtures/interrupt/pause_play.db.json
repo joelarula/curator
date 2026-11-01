@@ -16,6 +16,7 @@
       "existent": true,
       "id": "<req:1>",
       "notifyId": null,
+      "output": null,
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -38,6 +39,7 @@
       "existent": true,
       "id": "<req:2>",
       "notifyId": null,
+      "output": "{\"status\":\"pause\",\"paused\":1}",
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 50,
@@ -60,6 +62,7 @@
       "existent": true,
       "id": "<req:3>",
       "notifyId": null,
+      "output": "{\"status\":\"play\",\"resumed\":1}",
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 50,
@@ -72,25 +75,9 @@
   "responses": [
     {
       "aiModelId": null,
-      "content": "{\"status\":\"pause\",\"paused\":1}",
-      "existent": true,
-      "id": "<res:1>",
-      "projectId": null,
-      "requestId": "<req:2>"
-    },
-    {
-      "aiModelId": null,
-      "content": "{\"status\":\"play\",\"resumed\":1}",
-      "existent": true,
-      "id": "<res:2>",
-      "projectId": null,
-      "requestId": "<req:3>"
-    },
-    {
-      "aiModelId": null,
       "content": "low",
       "existent": true,
-      "id": "<res:3>",
+      "id": "<res:1>",
       "projectId": null,
       "requestId": "<req:1>"
     }

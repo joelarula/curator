@@ -150,10 +150,22 @@ batching its writes (below); both build on the leases.
   folding the snapshot plus later events (`ConversationStateLog.foldState`).
 - This removes cross-node write races on a conversation's rows and is portable across all cluster types.
 
-### Phase 5: Trace to telemetry
-Finished-step `Request.context` and `Response` bodies are observability data. Send them to OpenTelemetry
-spans or batched append files with time-based retention. The transactional database keeps only live requests
-and state events.
+### Phase 5: Step history out of the hot tables (done; trace partitioning open)
+Done (`src/engine/StepTrace.ts`):
+- Only history steps (`Curator_Agent`, `Curator_HumanInput`, `Curator_Tool`, `Curator_Script`, and plugin node
+  types) write `Response` rows; agent history and the conversation context read nothing else. Control-flow steps
+  (Sequential, IfElse, ForEach, Join, SetState, EmitEvent, ...) store their result in `Request.output`, read by the
+  request they notify and trimmed with `context` (`Retention.clearRequestContexts`). `requestOutput(row)` reads a
+  step's result either way (Join, Call, dead letters, `runToolRequest`, `completeRequest`).
+- Every finished request is recorded in `StepTrace` (status, node type, timing, worker, control-flow output):
+  buffered and written with one `createMany` per poll tick, no foreign keys, `(id, createdAt)` primary key on
+  Postgres/MariaDB so it can be partitioned by time. Rows past `stepTrace.ttlMs` (default 7 days) are deleted
+  hourly until partitioning replaces that. Processor option `stepTrace` (`false` turns it off); a checkpoint host
+  writes its memory processor's trace to the configured database, an ephemeral host writes none.
+- Effect: control-flow steps no longer add Response rows (the tests' golden databases lost 31 of them), so the
+  tables agent history scans hold only history.
+Open: time partitions for `StepTrace` (with `EventLog`, see Phase 3); the audit view (`AuditService.getLogs`) still
+lists Responses only, so control-flow steps appear in `StepTrace` instead.
 
 ### Phase 6: Shared ephemeral tier (optional)
 For ephemeral data several nodes must read: Postgres `UNLOGGED` tables (lost after a crash or failover),

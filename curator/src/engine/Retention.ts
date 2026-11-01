@@ -5,7 +5,8 @@ import { sqlFor } from '../db/sqlDialect.js';
 /**
  * Storage retention. Request data is short lived: a Request's `context` is working memory, read by the
  * Request itself and, once it completes, by the Request it notifies (call `returns`) on that Request's next
- * run. After that it is never read again, so it is trimmed to NULL. A finished conversation keeps only its
+ * run. After that it is never read again, so it is trimmed to NULL, together with `output` (a control-flow
+ * step's result, read by the same notified Request). A finished conversation keeps only its
  * state snapshot (`Conversation.metadata` plus one compacted state event); its Requests and Responses go.
  */
 
@@ -26,7 +27,7 @@ export async function deleteInChunks(delegate: any, where: Record<string, unknow
   }
 }
 
-/** Sets `context` to NULL. Raw SQL so `updatedAt` (which orders "latest request" lookups) is left as is. */
+/** Sets `context` and `output` to NULL. Raw SQL so `updatedAt` (which orders "latest request" lookups) is left as is. */
 export async function clearRequestContexts(prisma: any, ids: number[]): Promise<number> {
   const sql = sqlFor(prisma);
   let cleared = 0;
@@ -34,24 +35,24 @@ export async function clearRequestContexts(prisma: any, ids: number[]): Promise<
     const chunk = ids.slice(i, i + ID_CHUNK);
     cleared += Number(
       await prisma.$executeRawUnsafe(
-        ...sql`UPDATE "Request" SET "context" = NULL WHERE "context" IS NOT NULL AND "id" IN (${chunk})`
+        ...sql`UPDATE "Request" SET "context" = NULL, "output" = NULL WHERE ("context" IS NOT NULL OR "output" IS NOT NULL) AND "id" IN (${chunk})`
       )
     );
   }
   return cleared;
 }
 
-/** Completed children of `parentId` whose context is still stored (the ones its next run may read). */
+/** Completed children of `parentId` whose context or output is still stored (the ones its next run may read). */
 export async function completedChildrenWithContext(prisma: any, parentId: number): Promise<number[]> {
   const sql = sqlFor(prisma);
   const rows: Array<{ id: unknown }> = await prisma.$queryRawUnsafe(
-    ...sql`SELECT "id" FROM "Request" WHERE "notifyId" = ${parentId} AND "status" = 'COMPLETED' AND "context" IS NOT NULL`
+    ...sql`SELECT "id" FROM "Request" WHERE "notifyId" = ${parentId} AND "status" = 'COMPLETED' AND ("context" IS NOT NULL OR "output" IS NOT NULL)`
   );
   return rows.map(r => Number(r.id));
 }
 
 /**
- * Trims the context of COMPLETED Requests that nothing can read any more: no notify target, or one that is
+ * Trims the context and output of COMPLETED Requests that nothing can read any more: no notify target, or one that is
  * terminal or gone, and last updated before `olderThan` (a grace period for callers reading the final
  * context right after a run). Requests whose target is still live are trimmed by that target's next run.
  */
@@ -65,7 +66,7 @@ export async function sweepCompletedContexts(
   let trimmed = 0;
   for (let batch = 0; batch < (options.maxBatches ?? 10); batch++) {
     const rows: Array<{ id: unknown; notifyId: unknown; updatedAt: unknown }> = await prisma.$queryRawUnsafe(
-      ...sql`SELECT "id", "notifyId", "updatedAt" FROM "Request" WHERE "status" = 'COMPLETED' AND "context" IS NOT NULL AND "id" > ${afterId} ORDER BY "id" LIMIT ${batchSize}`
+      ...sql`SELECT "id", "notifyId", "updatedAt" FROM "Request" WHERE "status" = 'COMPLETED' AND ("context" IS NOT NULL OR "output" IS NOT NULL) AND "id" > ${afterId} ORDER BY "id" LIMIT ${batchSize}`
     );
     if (rows.length === 0) break;
     afterId = Number(rows[rows.length - 1].id);

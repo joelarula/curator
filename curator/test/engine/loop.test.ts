@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createEnv, runAst, snapshotDb, assertGolden, FIXED_NOW } from '../helpers/harness.ts';
+import { createEnv, runAst, snapshotDb, assertGolden, FIXED_NOW, stepResults } from '../helpers/harness.ts';
 import { validateCuratorAst, AST_LIMITS } from '../../src/engine/CuratorAstValidation.js';
 import { isValidSchedule } from '../../src/engine/CuratorRequestProcessor.js';
 
@@ -17,7 +17,7 @@ test('loop: runs the body up to maxIterations with a 1-based $context.iteration'
     assert.equal(result.done, true);
     assert.equal(await status(env, requestId), 'COMPLETED');
     assert.deepEqual(env.calls.map((c) => c.args.n), [1, 2, 3]);
-    const finished = (await env.prisma.response.findMany({ where: { requestId } })).map((r: any) => r.content);
+    const finished = (await stepResults(env.prisma, { requestId })).map((r) => r.content);
     assert.deepEqual(finished, ['Loop finished after 3 iteration(s) (maxIterations).']);
     assertGolden('loop/max_iterations.db.json', await snapshotDb(env));
   } finally {
@@ -31,7 +31,7 @@ test('loop: `until` stops after the iteration that satisfies it', async () => {
     const { requestId } = await runAst(env, loop({ maxIterations: 10, until: '$context.iteration >= 2' }));
     assert.equal(await status(env, requestId), 'COMPLETED');
     assert.deepEqual(env.calls.map((c) => c.args.n), [1, 2]);
-    const [res] = await env.prisma.response.findMany({ where: { requestId } });
+    const [res] = await stepResults(env.prisma, { requestId });
     assert.match(res.content, /after 2 iteration\(s\) \(until\)/);
   } finally {
     await env.cleanup();
@@ -49,7 +49,7 @@ test('loop: `over` iterates a collection binding the item and index; empty colle
     ] });
     assert.equal(await status(env, requestId), 'COMPLETED');
     assert.deepEqual(env.calls.map((c) => c.args.n), ['a', 'b', 'c']);
-    const finished = (await env.prisma.response.findMany()).map((r: any) => r.content).filter((c: string) => c.startsWith('Loop finished'));
+    const finished = (await stepResults(env.prisma)).map((r) => r.content).filter((c: string) => c.startsWith('Loop finished'));
     assert.deepEqual(finished.sort(), ['Loop finished after 0 iteration(s) (over).', 'Loop finished after 3 iteration(s) (over).']);
   } finally {
     await env.cleanup();

@@ -143,7 +143,9 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
       }
     },
   };
-  const processor = new (CuratorRequestProcessor as any)(prisma, processorOptions);
+  // Step trace goes to the configured database: never kept in a memory database, nothing at all when 'ephemeral'
+  const stepTrace = durability === 'ephemeral' ? false : durablePrisma ? { prisma: durablePrisma } : undefined;
+  const processor = new (CuratorRequestProcessor as any)(prisma, { ...processorOptions, stepTrace });
   const durableProcessor = durablePrisma ? new (CuratorRequestProcessor as any)(durablePrisma, processorOptions) : undefined;
   const announceMoves = (moved: Array<{ conversationId: number }>) => {
     for (const m of moved) events.broadcast('conversation_checkpointed', { conversationId: m.conversationId });

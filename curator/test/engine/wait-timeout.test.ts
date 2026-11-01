@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createEnv, runAst, compileFixture } from '../helpers/harness.ts';
+import { createEnv, runAst, compileFixture, stepResults } from '../helpers/harness.ts';
 
 const canned = { got: () => 'ok', gave_up: () => 'ok', after: () => 'ok' };
 const T0 = Date.UTC(2100, 0, 1);
@@ -26,8 +26,8 @@ test('wait_event timeout: silence past the deadline completes the wait and the f
     const r = await env.processor.stepUntil({ conversationId: env.conversationId });
     assert.equal(r.done, true);
     assert.deepEqual(tools(env), ['gave_up', 'after']);
-    const timeouts = (await env.prisma.response.findMany({ where: { conversationId: env.conversationId } }))
-      .filter((x: any) => String(x.content).includes('WAIT_TIMEOUT'));
+    const timeouts = (await stepResults(env.prisma, { conversationId: env.conversationId }))
+      .filter((x) => String(x.content).includes('WAIT_TIMEOUT'));
     assert.equal(timeouts.length, 1);
     assert.equal((await env.prisma.request.findUnique({ where: { id: requestId } })).status, 'COMPLETED');
   } finally {
@@ -51,8 +51,8 @@ test('wait_event timeout: an event before the deadline wins and nothing times ou
 
     now += 60_000;
     await env.processor.step({ conversationId: env.conversationId, take: 10 });
-    const timeouts = (await env.prisma.response.findMany({ where: { conversationId: env.conversationId } }))
-      .filter((x: any) => String(x.content).includes('WAIT_TIMEOUT'));
+    const timeouts = (await stepResults(env.prisma, { conversationId: env.conversationId }))
+      .filter((x) => String(x.content).includes('WAIT_TIMEOUT'));
     assert.equal(timeouts.length, 0);
     assert.deepEqual(tools(env), ['got', 'after']);
   } finally {

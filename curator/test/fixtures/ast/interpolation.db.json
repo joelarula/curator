@@ -61,6 +61,7 @@
       "existent": true,
       "id": "<req:1>",
       "notifyId": null,
+      "output": null,
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -114,6 +115,7 @@
       "existent": true,
       "id": "<req:2>",
       "notifyId": null,
+      "output": null,
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -138,6 +140,7 @@
       "existent": true,
       "id": "<req:3>",
       "notifyId": "<req:2>",
+      "output": null,
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -162,6 +165,7 @@
       "existent": true,
       "id": "<req:4>",
       "notifyId": "<req:3>",
+      "output": "{\"status\":\"State updated\",\"state\":{\"userTarget\":\"Master Curator\",\"limit\":42}}",
       "parentId": null,
       "pendingDependencies": 0,
       "priority": 0,
@@ -174,17 +178,9 @@
   "responses": [
     {
       "aiModelId": null,
-      "content": "{\"status\":\"State updated\",\"state\":{\"userTarget\":\"Master Curator\",\"limit\":42}}",
-      "existent": true,
-      "id": "<res:1>",
-      "projectId": null,
-      "requestId": "<req:4>"
-    },
-    {
-      "aiModelId": null,
       "content": "{\"name\":\"Testing Entity\"}",
       "existent": true,
-      "id": "<res:2>",
+      "id": "<res:1>",
       "projectId": null,
       "requestId": "<req:3>"
     },
@@ -192,7 +188,7 @@
       "aiModelId": null,
       "content": "{\"greeting\":\"hello\",\"limitUsed\":42}",
       "existent": true,
-      "id": "<res:3>",
+      "id": "<res:2>",
       "projectId": null,
       "requestId": "<req:2>"
     }

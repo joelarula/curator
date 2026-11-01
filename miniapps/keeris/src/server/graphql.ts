@@ -130,10 +130,6 @@ const requestsOf = (runtime: any) => ({
   },
 });
 
-const responsesOf = (runtime: any) => ({
-  count: (args?: any) => sumCounts(runtime, (db) => db.response.count(args)),
-});
-
 export function resolvers(db: any, { curatorRuntime, user }: { curatorRuntime?: any; user?: any } = {}) {
   try {
     if (typeof db.function === 'function') {
@@ -598,7 +594,7 @@ export function resolvers(db: any, { curatorRuntime, user }: { curatorRuntime?: 
           agentsTotal = await definitionsOf(runtime).agent.count();
           agentsActive = await definitionsOf(runtime).agent.count({ where: { enabled: true } });
           requestsTotal = await requestsOf(runtime).count();
-          requestsCompleted = await responsesOf(runtime).count();
+          requestsCompleted = await requestsOf(runtime).count({ where: { status: 'COMPLETED' } });
           requestsPending = Math.max(0, requestsTotal - requestsCompleted);
         } catch (e) {
           console.warn('[GraphQL] Could not count agents/requests via Prisma:', e);
@@ -794,12 +790,16 @@ export function resolvers(db: any, { curatorRuntime, user }: { curatorRuntime?: 
         createdAt: r.createdAt ? (typeof r.createdAt === 'string' ? r.createdAt : r.createdAt.toISOString()) : null,
         updatedAt: r.updatedAt ? (typeof r.updatedAt === 'string' ? r.updatedAt : r.updatedAt.toISOString()) : null,
         agentName: r.script?.name ?? 'unknown',
-        responses: (r.responses || []).map((res: any) => ({
-          id: res.id,
-          requestId: res.requestId,
-          content: res.content,
-          createdAt: res.createdAt ? (typeof res.createdAt === 'string' ? res.createdAt : res.createdAt.toISOString()) : null,
-        })),
+        responses: [
+          ...(r.responses || []).map((res: any) => ({
+            id: res.id,
+            requestId: res.requestId,
+            content: res.content,
+            createdAt: res.createdAt ? (typeof res.createdAt === 'string' ? res.createdAt : res.createdAt.toISOString()) : null,
+          })),
+          // A control-flow step's result is stored on the request itself (curator Phase 5), not as a Response
+          ...(r.output != null ? [{ id: `output:${r.id}`, requestId: r.id, content: r.output, createdAt: null }] : []),
+        ],
       }));
     },
     triggerCuratorAgent: async ({ name, agentName, refresh = false }: { name?: string; agentName?: string; refresh?: boolean }) => {
