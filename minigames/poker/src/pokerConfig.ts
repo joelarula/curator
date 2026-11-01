@@ -42,6 +42,12 @@ export interface PokerConfig {
   agents?: Record<string, PokerAgentConfig>;
   /** Default models, for seats and chatter that do not name their own. */
   models?: { seat?: string; chatter?: string };
+  /** Developer aids. `monologues`: print each AI seat's private reasoning in the terminal. */
+  debug?: Partial<PokerDebugSettings>;
+}
+
+export interface PokerDebugSettings {
+  monologues: boolean;
 }
 
 /** What workflows see as `$config.poker`: everything resolved. */
@@ -50,6 +56,7 @@ export interface PokerEngineConfig {
   rules: PokerRulesSettings;
   talk: PokerTalkConfig;
   models: { seat: string; chatter: string };
+  debug: PokerDebugSettings;
 }
 
 export const DEFAULT_SEAT_MODEL = 'gemini-2.5-flash';
@@ -66,6 +73,11 @@ export const pokerConfig: TypedPathProxy<PokerEngineConfig> = defineConfig<Poker
  */
 export const tableSettings: TypedPathProxy<PokerEngineConfig> = createContextProxy<PokerEngineConfig>(
   `({ ...${JSON.stringify({ table: DEFAULT_TABLE_SETTINGS, rules: DEFAULT_RULES_SETTINGS })}, ...($state.tableSettings || $config.poker || {}) })`,
+);
+
+/** `debug.monologues` from the live `$config.poker` (not the boot copy), false where no poker config is set. */
+export const showMonologues: TypedPathProxy<boolean> = createContextProxy<boolean>(
+  '((($config.poker || {}).debug || {}).monologues === true)',
 );
 
 /** A setting read through `tableSettings` with a default that applies only when it is missing (`??`, so 0 counts). */
@@ -97,5 +109,6 @@ export function resolvePokerConfig(...configs: Array<PokerConfig | undefined>): 
     rules: Object.assign({}, DEFAULT_RULES_SETTINGS, ...configs.map((c) => c?.rules || {})),
     talk: resolvePokerTalkConfig(...configs),
     models: { seat, chatter: models.chatter || DEFAULT_CHATTER_MODEL },
+    debug: Object.assign({ monologues: false }, ...configs.map((c) => c?.debug || {})),
   };
 }

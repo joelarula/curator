@@ -15,9 +15,9 @@ import {
 } from '../curator.ts';
 import { PokerEvent, PokerHistoryMode, PokerModule, PokerSpeechAct, PokerSpeechOrigin } from '../models/index.ts';
 import { ctx, actor, gameState, state, ifElse, setState } from '../models/pokerContext.ts';
-import { Speech } from '../models/pokerEvents.ts';
+import { Monologue, Speech } from '../models/pokerEvents.ts';
 import { getRulesDescription } from '../engine/pokerRules.ts';
-import { DEFAULT_CHATTER_MODEL, DEFAULT_SEAT_MODEL, pokerConfig } from '../pokerConfig.ts';
+import { DEFAULT_CHATTER_MODEL, DEFAULT_SEAT_MODEL, pokerConfig, showMonologues } from '../pokerConfig.ts';
 
 /** The seat whose turn it is (Pillar 1: dynamic proxy indexing via `.at()`). */
 const activePlayer = gameState.players.at(gameState.activePlayerIdx);
@@ -172,6 +172,10 @@ export const aiDecision = defineSubroutine('ai_decision', {
         from: actor.name,
         mode: PokerHistoryMode.LINE,
       }),
+    ]),
+    // Debug aid: the reasoning reaches the terminal only; seats never remember this event
+    ifElse(showMonologues.and(ctx.decision.innerMonologue.nonEmpty()), [
+      Monologue.emit({ speakerId: actor.id, speakerName: actor.name, text: ctx.decision.innerMonologue }),
     ]),
   ],
   returns: ctx.decision.action,

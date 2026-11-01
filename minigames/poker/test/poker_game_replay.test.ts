@@ -67,10 +67,45 @@ test('replay: a passive table plays full hands through every street to showdown'
     assert.ok(actions >= SEATS * HANDS, `at least ${SEATS * HANDS} actions, got ${actions}`);
     assert.ok(llm.requests.length > 0, 'AI seats deliberated through the LLM');
 
+    // Seats see the public table only: no deck or hole-card dump; reasoning is not broadcast by default.
+    const prompts = llm.requests.map((r: any) => JSON.stringify(r.messages ?? r));
+    assert.ok(prompts.every((p: string) => !p.includes('holeCards') && !p.includes('"deck"')), 'no raw game state in prompts');
+    assert.ok(!events.includes(PokerEvent.MONOLOGUE), 'monologues stay private unless debug.monologues');
+
     // Chips are conserved between hands (the next hand's blinds are already posted into the pot).
     const gs = s.gameState;
     const chips = gs.players.reduce((sum: number, p: any) => sum + p.chips, 0) + (gs.pot ?? 0);
     assert.equal(chips, SEATS * STARTING_CHIPS);
+  } finally {
+    await session.close();
+    await host.stop();
+  }
+});
+
+test('replay: debug.monologues broadcasts AI reasoning without it entering any prompt', { timeout: 300_000 }, async () => {
+  const { createPokerHost } = await import('../src/host.ts');
+  const { createPokerGameSession } = await import('../src/session/pokerSession.ts');
+  const llm = passiveLlm();
+  const host: any = await createPokerHost({
+    databasePath: path.join(os.tmpdir(), `curator_test_monologue_${Date.now()}.db`),
+    forceReset: true,
+    quiet: true,
+    llmProvider: llm.provider,
+    config: { debug: { monologues: true } },
+  });
+  const session = await createPokerGameSession(host, { tableId: 1, forceReset: true, maxSeats: SEATS, startingChips: STARTING_CHIPS });
+
+  try {
+    let s: any = await session.step(session.tableId, 400);
+    for (let turns = 0; turns < 10 && s.waitingForHuman && (s.gameState?.handNumber ?? 0) <= 1; turns++) {
+      await session.send('poker:human_action', humanPick(s.humanTurn?.choices), session.tableId);
+      s = await session.step(session.tableId, 400);
+    }
+    const log = await host.prisma.busEvent.findMany({ where: { eventName: PokerEvent.MONOLOGUE } });
+    assert.ok(log.length > 0, 'AI seats broadcast their reasoning');
+    const payload = typeof log[0].payload === 'string' ? JSON.parse(log[0].payload) : log[0].payload;
+    assert.equal(payload.text, 'Passive line.');
+    assert.ok(llm.requests.every((r: any) => !JSON.stringify(r.messages ?? r).includes('Passive line.')), 'never replayed to a seat');
   } finally {
     await session.close();
     await host.stop();

@@ -112,6 +112,8 @@ export const PokerEvent = {
 
   // Ambient & Table Talk
   SPEECH: 'poker:speech',
+  /** Debug only (`debug.monologues`): a seat's private reasoning; never part of any seat's history. */
+  MONOLOGUE: 'poker:monologue',
   SPEECH_RESPONSE: 'poker:speech_response',
   AMBIENT_SPOKEN: 'poker:ambient_spoken',
   AMBIENT_EVALUATED: 'poker:ambient_evaluated',

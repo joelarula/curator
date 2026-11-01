@@ -78,6 +78,11 @@ export function renderPokerEvent(
       break;
     }
 
+    case PokerEvent.MONOLOGUE:
+      // Debug only: dim italics so it reads as thought, not table talk
+      console.log(`\x1b[90m\x1b[3m[THINKS] ${payload?.speakerName || 'Seat'}: ${payload?.text}\x1b[0m`);
+      break;
+
     case PokerEvent.SPEECH:
     case PokerEvent.SPEECH_RESPONSE: {
       const spk = payload?.speakerName || payload?.speaker || 'Player';

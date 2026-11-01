@@ -109,6 +109,7 @@ program
   .option('--name <player>', 'Your player name')
   .option('--log-level <level>', 'Set log level (error, warn, info, debug, silent)')
   .option('--debug', 'Enable debug log level')
+  .option('--monologues', 'Direct mode: print each AI seat\'s private reasoning (debug.monologues)', false)
   .option('-q, --quiet', 'Quiet mode (suppress verbose logs)', false)
   .action(async (opts) => {
     const effectiveLogLevel = opts.debug ? 'debug' : (opts.quiet ? 'error' : (opts.logLevel || program.opts().logLevel || process.env.LOG_LEVEL));
@@ -141,6 +142,7 @@ program
         logLevel: effectiveLogLevel,
         debug: Boolean(opts.debug),
         quiet: Boolean(opts.quiet),
+        showMonologues: Boolean(opts.monologues),
       });
     } else {
       if (!opts.quiet) {

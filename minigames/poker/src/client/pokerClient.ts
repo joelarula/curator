@@ -39,6 +39,8 @@ export interface PokerClientOptions extends PokerSessionOptions {
   serverUrl?: string;
   playerName?: string;
   tableId?: string | number;
+  /** Direct mode: print each AI seat's private reasoning (sets `debug.monologues`). */
+  showMonologues?: boolean;
 }
 
 export type PokerGameChannel = CuratorChannel & {
@@ -96,6 +98,7 @@ export async function createDirectSessionChannel(
       forceReset: options.forceReset,
       quiet: options.quiet,
       logLevel: effectiveLogLevel,
+      ...(options.showMonologues ? { config: { debug: { monologues: true } } } : {}),
     });
     session = await createPokerGameSession(host, options);
     if (options.tableId !== undefined) {

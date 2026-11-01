@@ -42,6 +42,9 @@ export const SessionExited = defineEvent<{ reason: string }>(PokerEvent.SESSION_
  * A line said at the table; `depth`, `origin`, `threadId`, `replyToId` and `cueId` are set by turn decisions and chatter.
  * `from` and `mode` are how seats remember it (`PokerHistoryMode`): table talk as `[from]: text`, whispers not at all.
  */
+/** A seat's private reasoning, emitted only with `debug.monologues` on; not in `SEAT_HISTORY_EVENTS`. */
+export const Monologue = defineEvent<{ speakerId: string; speakerName: string; text: string }>(PokerEvent.MONOLOGUE);
+
 export const Speech = defineEvent<TableTalkSpeech & { speakerName: string; text: string; speechAct: SpeechAct } & HistoryLine>(PokerEvent.SPEECH);
 /** The table-talk gate picked a seat to say something; only its `speak_chatter` system answers it. */
 export const ChatterCue = defineEvent<TableTalkCue>(PokerEvent.CHATTER_CUE);
