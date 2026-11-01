@@ -28,7 +28,7 @@ const DEFINITION_MODELS = [
 ];
 
 /** Runtime tables whose durable ids must stay below `idBase`. */
-const RUNTIME_MODELS = ['request', 'response', 'eventLog', 'eventSubscription', 'conversation', 'script', 'scriptVersion'];
+const RUNTIME_MODELS = ['request', 'response', 'eventLog', 'busEvent', 'eventSubscription', 'conversation', 'script', 'scriptVersion'];
 
 /** Statuses a conversation can wait in indefinitely (a WAITING request with no lock waits on its children). */
 const PARKED = new Set(['WAITING_FOR_USER', 'WAITING_FOR_EVENT', 'PAUSED']);
@@ -284,6 +284,7 @@ export async function demoteConversation(memory: any, durable: any, conversation
     orderBy: { id: 'asc' },
   });
   const events = await memory.eventLog.findMany({ where: { conversationId }, orderBy: { id: 'asc' } });
+  const busEvents = memory.busEvent ? await memory.busEvent.findMany({ where: { conversationId }, orderBy: { id: 'asc' } }) : [];
   const subscriptions = await memory.eventSubscription.findMany({ where: { conversationId }, orderBy: { id: 'asc' } });
   if (ownIds.size) {
     const links = (await memory.$queryRawUnsafe(
@@ -299,6 +300,7 @@ export async function demoteConversation(memory: any, durable: any, conversation
   const requestFields = modelFields(durable, 'request');
   const responseFields = modelFields(durable, 'response');
   const eventFields = modelFields(durable, 'eventLog');
+  const busEventFields = modelFields(durable, 'busEvent');
   const subscriptionFields = modelFields(durable, 'eventSubscription');
   const scriptFields = modelFields(durable, 'script');
   const versionFields = modelFields(durable, 'scriptVersion');
@@ -306,6 +308,7 @@ export async function demoteConversation(memory: any, durable: any, conversation
 
   const requestIds = new Map<number, number>();
   const eventIds = new Map<number, number>();
+  const busEventIds = new Map<number, number>();
   const subscriptionIds = new Map<number, number>();
   const scriptIds = new Map<number, number>();
   const agentIds = new Map<string, string>();
@@ -392,9 +395,16 @@ export async function demoteConversation(memory: any, durable: any, conversation
         });
         eventIds.set(e.id, row.id);
       }
+      for (const e of busEvents) {
+        const row = await tx.busEvent.create({
+          data: { ...scalarData(e, busEventFields, ['id']), source: mapRequest(e.source) },
+          select: { id: true },
+        });
+        busEventIds.set(e.id, row.id);
+      }
       for (const r of requests) {
         if (r.eventCursor == null) continue;
-        const eventCursor = r.eventCursor < idBase ? r.eventCursor : eventIds.get(r.eventCursor) ?? null;
+        const eventCursor = r.eventCursor < idBase ? r.eventCursor : busEventIds.get(r.eventCursor) ?? null;
         await tx.request.update({ where: { id: requestIds.get(r.id) }, data: { eventCursor } });
       }
       for (const s of subscriptions) {
@@ -431,6 +441,7 @@ export async function demoteConversation(memory: any, durable: any, conversation
   await memory.response.deleteMany({ where: { id: { in: responses.map((r: any) => r.id) } } });
   await memory.eventSubscription.deleteMany({ where: { id: { in: subscriptions.map((s: any) => s.id) } } });
   await memory.eventLog.deleteMany({ where: { id: { in: events.map((e: any) => e.id) } } });
+  if (busEvents.length) await memory.busEvent.deleteMany({ where: { id: { in: busEvents.map((e: any) => e.id) } } });
   await memory.request.updateMany({ where: { id: { in: [...ownIds] } }, data: { parentId: null } });
   await memory.request.deleteMany({ where: { id: { in: [...ownIds] } } });
   if ((await memory.request.count({ where: { conversationId } })) === 0) {

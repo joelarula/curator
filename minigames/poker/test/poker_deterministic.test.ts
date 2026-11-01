@@ -193,7 +193,7 @@ test('Poker Deterministic Harness: agent_turn executes AI decision tool and acti
     assert.deepEqual(JSON.parse(seatCall.output), { type: 'CALL', amount: 20 });
 
     // The decision's table talk is announced as speech from the seat
-    const speech = await env.prisma.eventLog.findFirst({ where: { eventName: 'poker:speech' } });
+    const speech = await env.prisma.busEvent.findFirst({ where: { eventName: 'poker:speech' } });
     const payload = typeof speech?.payload === 'string' ? JSON.parse(speech.payload) : speech?.payload;
     assert.equal(payload?.speakerName, 'SharkAI');
     assert.equal(payload?.text, 'I call your bet.');
@@ -223,7 +223,7 @@ test('Poker Deterministic Harness: rules systems validate and apply an intent; a
       },
     });
     const intent = (action: any) => runAst(env, { type: 'Curator_EmitEvent', eventName: 'poker:action_intent', payload: { seatId: 'p1', action } });
-    const resolutions = async () => (await env.prisma.eventLog.findMany({ where: { eventName: 'poker:action_resolved' }, orderBy: { id: 'asc' } }))
+    const resolutions = async () => (await env.prisma.busEvent.findMany({ where: { eventName: 'poker:action_resolved' }, orderBy: { id: 'asc' } }))
       .map((e: any) => (typeof e.payload === 'string' ? JSON.parse(e.payload) : e.payload));
 
     // An illegal intent is rejected back to the seat and nothing is applied
@@ -235,7 +235,7 @@ test('Poker Deterministic Harness: rules systems validate and apply an intent; a
     await intent({ type: 'CALL', amount: 20 });
     assert.deepEqual(tableCommands(env, 'act').map((c: any) => c.args.command.action), [{ type: 'CALL', amount: 20 }]);
     assert.equal((await resolutions()).at(-1)?.accepted, true);
-    const names = (await env.prisma.eventLog.findMany({ orderBy: { id: 'asc' } })).map((e: any) => e.eventName);
+    const names = (await env.prisma.busEvent.findMany({ orderBy: { id: 'asc' } })).map((e: any) => e.eventName);
     assert.ok(names.includes('poker:action_taken'));
     assert.ok(!names.includes('poker:chatter_cue'), 'a plain call is not worth table talk');
 
@@ -290,7 +290,7 @@ test('Poker Deterministic Harness: $config.poker reaches the table-talk gate and
 
     const reducerConfigs = env.calls.filter((c: any) => c.reducer === 'poker_table_talk').map((c: any) => c.args.config);
     assert.ok(reducerConfigs.length > 0 && reducerConfigs.every((c: any) => c?.maxDepth === 1), 'the gate gets $config.poker.talk');
-    const lines = (await env.prisma.eventLog.findMany({ where: { eventName: 'poker:speech' }, orderBy: { id: 'asc' } }))
+    const lines = (await env.prisma.busEvent.findMany({ where: { eventName: 'poker:speech' }, orderBy: { id: 'asc' } }))
       .map((e: any) => (typeof e.payload === 'string' ? JSON.parse(e.payload) : e.payload))
       .filter((p: any) => p.origin === 'chatter');
     assert.deepEqual(lines.map((p: any) => p.depth), [1], 'maxDepth 1: one answer, no comeback');
@@ -361,7 +361,7 @@ test('Poker Deterministic Harness: table talk with an always-talking LLM ends af
       payload: { speakerId: 'hero', speakerName: 'You', text: 'MadDog, you are bluffing', speechAct: 'TABLE_TALK' },
     });
 
-    const payloads = async (name: string) => (await env.prisma.eventLog.findMany({ where: { eventName: name }, orderBy: { id: 'asc' } }))
+    const payloads = async (name: string) => (await env.prisma.busEvent.findMany({ where: { eventName: name }, orderBy: { id: 'asc' } }))
       .map((e: any) => (typeof e.payload === 'string' ? JSON.parse(e.payload) : e.payload));
     const lines = (await payloads('poker:speech')).filter((p: any) => p.origin === 'chatter');
     assert.equal(lines[0]?.speakerId, 'maddog', 'the addressed seat answers first');
@@ -398,7 +398,7 @@ test('Poker Deterministic Harness: applying an action emits everything the table
     await runAst(env, { type: 'Curator_EmitEvent', eventName: 'poker:action_validated', payload: { seatId: 'p1', action: { type: 'CALL' } } });
 
     assert.deepEqual(tableCommands(env).map((c: any) => c.args.command), [{ type: 'act', action: { type: 'CALL' } }]);
-    const logged = (await env.prisma.eventLog.findMany({ orderBy: { id: 'asc' } }))
+    const logged = (await env.prisma.busEvent.findMany({ orderBy: { id: 'asc' } }))
       .map((e: any) => ({ name: e.eventName, payload: typeof e.payload === 'string' ? JSON.parse(e.payload) : e.payload }))
       .filter((e: any) => e.name.startsWith('poker:') && e.name !== 'poker:action_validated');
 

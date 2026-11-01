@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
+import { CONTROL_NODE_TYPES } from '../engine/StepTrace.js';
 
 /**
  * AuditService — audit trail stored as Request/Response rows (no separate AuditLog table).
@@ -7,6 +8,8 @@ import type { PrismaClient } from '@prisma/client';
  *   (structured JSON records such as TOOL_BLOCKED, APPROVAL_REQUIRED, EVENT_EMITTED, or tool output).
  * - Core model changes (Agent, Script, Role, Tool approval, ...): `recordModelChange` writes a COMPLETED
  *   Request (origin GRAPHQL/API/...) whose Response is a MODEL_CHANGED record.
+ * - Control-flow steps (Sequential, Join, IfElse, ...) write no Response: they are listed from StepTrace
+ *   (action 'STEP', node type and output in metadata), where the database has that table.
  * - Approval grants/revocations are also kept on ToolApproval rows; script content history on ScriptVersion.
  */
 export interface AuditEntry {
@@ -85,7 +88,7 @@ export class AuditService {
     }
 
     /**
-     * Returns audit entries derived from Responses, newest first.
+     * Returns audit entries derived from Responses and, for control-flow steps, StepTrace rows, newest first.
      * `entityType: 'REQUEST'` + `entityId` filters by request id.
      */
     static async getLogs(
@@ -105,7 +108,7 @@ export class AuditService {
             take: options.limit || 50,
         });
 
-        return responses.map((r: any) => {
+        const fromResponses: AuditEntry[] = responses.map((r: any) => {
             const record = parseRecord(r.content);
             const req = r.request || {};
             if (record?.type === 'MODEL_CHANGED' && record.change) {
@@ -137,5 +140,44 @@ export class AuditService {
                 timestamp: new Date(r.createdAt).toISOString(),
             };
         });
+        const fromTrace = await AuditService.controlSteps(prisma, requestWhere, options.limit || 50);
+        if (!fromTrace.length) return fromResponses;
+        return [...fromResponses, ...fromTrace]
+            .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+            .slice(0, options.limit || 50);
+    }
+
+    /** Control-flow steps from StepTrace (history steps are already listed through their Responses). */
+    private static async controlSteps(prisma: any, requestWhere: any, limit: number): Promise<AuditEntry[]> {
+        if (!prisma?.stepTrace?.findMany) return [];
+        const where: any = { nodeType: { in: [...CONTROL_NODE_TYPES] } };
+        let agentId: string | null = null;
+        if (requestWhere.id != null) {
+            where.requestId = requestWhere.id;
+        } else if (requestWhere.agentId) {
+            // StepTrace has no agent column: the agent's latest requests
+            agentId = requestWhere.agentId;
+            const requests = await prisma.request.findMany({ where: { agentId }, select: { id: true }, orderBy: { id: 'desc' }, take: limit });
+            if (!requests.length) return [];
+            where.requestId = { in: requests.map((r: any) => r.id) };
+        }
+        const rows = await prisma.stepTrace.findMany({ where, orderBy: { createdAt: 'desc' }, take: limit });
+        return rows.map((t: any) => ({
+            id: `trace:${t.id}`,
+            entityType: agentId ? 'AGENT' : 'REQUEST',
+            entityId: String(agentId ?? t.requestId),
+            action: 'STEP',
+            userId: null,
+            agentId,
+            requestId: t.requestId,
+            status: t.status,
+            metadata: {
+                nodeType: t.nodeType,
+                ...(t.output != null ? { output: t.output } : {}),
+                ...(t.worker ? { worker: t.worker } : {}),
+                ...(t.startedAt ? { durationMs: new Date(t.createdAt).getTime() - new Date(t.startedAt).getTime() } : {}),
+            },
+            timestamp: new Date(t.createdAt).toISOString(),
+        }));
     }
 }

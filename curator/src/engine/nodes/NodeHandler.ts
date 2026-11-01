@@ -47,7 +47,7 @@ export interface NodeEventServices {
   dispatch(eventName: string, payload: any, req: any, targetAgentId?: string, opts?: DispatchEventOptions): Promise<CuratorEventEmitResult>;
   /** Stamps conversation / session origin fields onto an object payload (in place). */
   addOrigin(payload: any, req: any): void;
-  /** EventLog id the flow of `reqId` has consumed up to (`replay` with no cursor yet starts from 0). */
+  /** BusEvent id the flow of `reqId` has consumed up to (`replay` with no cursor yet starts from 0). */
   resolveCursor(reqId: number, conversationId: number, replay?: boolean): Promise<number>;
   /** Raises the cursor of `reqId` and every request it notifies, stopping before a Join. */
   advanceCursor(reqId: number, seq: number): Promise<void>;

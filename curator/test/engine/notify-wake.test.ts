@@ -56,3 +56,18 @@ test('notify: a target with several dependencies wakes once, when the last one f
     await env.cleanup();
   }
 });
+
+test('notify: dependencies finishing at the same time all count, and the target wakes once', async () => {
+  const env = await createEnv('notify_concurrent_dependencies', canned);
+  try {
+    // Parallel branches finishing together (load test: a Join was left at 1 when the count was read then decremented)
+    const target = await env.prisma.request.create({
+      data: { userId: env.userId, conversationId: env.conversationId, status: 'WAITING', pendingDependencies: 5, ast: { type: 'Curator_Join', name: 'join' } },
+    });
+    await Promise.all(Array.from({ length: 5 }, () => (env.processor as any).dependencyDone(target.id)));
+    const state = await env.prisma.request.findUnique({ where: { id: target.id } });
+    assert.deepEqual([state.status, state.pendingDependencies, state.lockedBy], ['NEW', 0, null]);
+  } finally {
+    await env.cleanup();
+  }
+});

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { convergeSchema } from './schemaSql.js';
 import { convergePartitions, reportPartitions } from './partitions.js';
+import { migrateBusEvents, reportBusEvents } from './busEvents.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -29,14 +30,15 @@ async function ensureCuratorMariadbSchema(pool: any): Promise<void> {
   try {
     await conn.query("SELECT GET_LOCK('curator_partitions', 60)");
     try {
-      const partitions = await convergePartitions({
-        dialect: 'mysql',
-        query: async (sql) => Array.from(await conn.query(sql)),
-        exec: async (sql) => {
+      const db = {
+        dialect: 'mysql' as const,
+        query: async (sql: string) => Array.from(await conn.query(sql)),
+        exec: async (sql: string) => {
           await conn.query(sql);
         },
-      });
-      reportPartitions('mariadbProvisioner', partitions);
+      };
+      reportPartitions('mariadbProvisioner', await convergePartitions(db));
+      reportBusEvents('mariadbProvisioner', await migrateBusEvents(db));
     } finally {
       await conn.query("SELECT RELEASE_LOCK('curator_partitions')");
     }

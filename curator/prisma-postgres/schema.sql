@@ -343,6 +343,19 @@ CREATE TABLE "EventLog" (
 );
 
 -- CreateTable
+CREATE TABLE "BusEvent" (
+    "id" SERIAL NOT NULL,
+    "conversationId" INTEGER NOT NULL,
+    "eventName" TEXT NOT NULL,
+    "payload" JSONB,
+    "target" TEXT,
+    "source" INTEGER,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "BusEvent_pkey" PRIMARY KEY ("id","createdAt")
+);
+
+-- CreateTable
 CREATE TABLE "ConversationLease" (
     "conversationId" INTEGER NOT NULL,
     "owner" TEXT NOT NULL,
@@ -651,6 +664,12 @@ CREATE UNIQUE INDEX "EventSubscription_scriptId_entry_eventName_conversationId_k
 
 -- CreateIndex
 CREATE INDEX "EventLog_conversationId_eventName_id_idx" ON "EventLog"("conversationId", "eventName", "id");
+
+-- CreateIndex
+CREATE INDEX "BusEvent_conversationId_eventName_id_idx" ON "BusEvent"("conversationId", "eventName", "id");
+
+-- CreateIndex
+CREATE INDEX "BusEvent_createdAt_idx" ON "BusEvent"("createdAt");
 
 -- CreateIndex
 CREATE INDEX "ConversationLease_owner_idx" ON "ConversationLease"("owner");

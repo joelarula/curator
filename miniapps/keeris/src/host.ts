@@ -182,6 +182,22 @@ export async function createKeerisHost(options: CreateKeerisHostOptions = {}): P
     },
   });
 
+  // A domain database this host opened closes with it (one passed in belongs to the caller)
+  if (!options.domainDb) {
+    const stopHost = host.stop.bind(host);
+    let closed = false;
+    host.stop = async () => {
+      try {
+        await stopHost();
+      } finally {
+        if (!closed) {
+          closed = true;
+          await domainDb.close();
+        }
+      }
+    };
+  }
+
   if (options.autoSeed) {
     await host.seed();
   }

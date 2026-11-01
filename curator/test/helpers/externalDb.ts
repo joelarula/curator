@@ -31,6 +31,7 @@ const clientFor = async (db: ExternalDatabase): Promise<any> => {
 async function emptyRuntimeTables(prisma: any): Promise<void> {
   await prisma.response.deleteMany({});
   await prisma.eventLog.deleteMany({});
+  await prisma.busEvent.deleteMany({});
   await prisma.eventSubscription.deleteMany({ where: { conversationId: { not: null } } });
   await prisma.request.updateMany({ data: { parentId: null } });
   await prisma.request.deleteMany({});

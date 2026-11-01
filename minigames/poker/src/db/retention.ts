@@ -40,11 +40,12 @@ export async function prunePokerHistory(
     const finishedAt = Date.parse(state.closedAt ?? '') || new Date(conv.updatedAt).getTime();
     if (!(finishedAt < cutoff)) continue;
 
-    const [requestCount, eventCount] = await Promise.all([
+    const [requestCount, eventCount, busEventCount] = await Promise.all([
       prisma.request.count({ where: { conversationId: conv.id } }),
       prisma.eventLog?.count ? prisma.eventLog.count({ where: { conversationId: conv.id } }) : 0,
+      prisma.busEvent?.count ? prisma.busEvent.count({ where: { conversationId: conv.id } }) : 0,
     ]);
-    if (requestCount === 0 && eventCount <= 1) continue; // already pruned
+    if (requestCount === 0 && eventCount <= 1 && busEventCount === 0) continue; // already pruned
 
     const pruned = await pruneConversationHistory(prisma, conv.id);
     result.conversations++;

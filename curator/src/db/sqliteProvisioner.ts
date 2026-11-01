@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { PrismaClient } from '@prisma/client';
 import { DatabaseSync } from 'node:sqlite';
 import { convergeSchema, prismaSchemaDb, type ConvergeResult, type SchemaDb } from './schemaSql.js';
+import { migrateBusEvents, reportBusEvents } from './busEvents.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -78,6 +79,7 @@ export async function provisionSqliteDb(name: string, forceReset: boolean = fals
     db.exec('PRAGMA synchronous = OFF;');
     for (const drop of LEGACY_DROPS) db.exec(drop);
     reportConvergence(name, await convergeSchema(sqliteFileSchemaDb(db)));
+    reportBusEvents('Curator CLI', await migrateBusEvents(sqliteFileSchemaDb(db)));
   } finally {
     db.close();
   }

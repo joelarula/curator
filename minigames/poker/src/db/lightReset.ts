@@ -8,11 +8,12 @@ const __dirname = path.dirname(__filename);
 const DEFAULT_POKER_DB = path.resolve(__dirname, '../../data/poker.db');
 
 /**
- * History outside Request/Response/Conversation: the event log, conversation-scoped subscriptions, and the
+ * History outside Request/Response/Conversation: the event logs (state and dispatched events), conversation-scoped subscriptions, and the
  * projected `poker:table:*` resources (with their triples), which would otherwise list deleted tables.
  */
 const HISTORY_SQL = [
   'DELETE FROM EventLog;',
+  'DELETE FROM BusEvent;',
   'DELETE FROM EventSubscription WHERE conversationId IS NOT NULL;',
   "DELETE FROM Relation WHERE subjectId IN (SELECT id FROM Resource WHERE uri LIKE 'poker:table:%') OR objectId IN (SELECT id FROM Resource WHERE uri LIKE 'poker:table:%');",
   "DELETE FROM Resource WHERE uri LIKE 'poker:table:%';",

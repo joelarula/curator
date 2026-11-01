@@ -16,6 +16,8 @@ import { sqlDialect, sqlTag, sqlPart, SQL_EMPTY, type SqlDialect, type SqlTag } 
 import { DbNull } from '@prisma/client-runtime-utils';
 
 const CLAIM_ORDER = [{ priority: 'desc' }, { createdAt: 'asc' }, { id: 'asc' }] as const;
+/** Default for `newFlowMaxWaitMs`: how long a new flow's first request yields to running flows' follow-ups. */
+export const NEW_FLOW_MAX_WAIT_MS = 10_000;
 /** Prisma's code for a write conflict or deadlock (Galera certification failures surface as deadlocks). */
 const WRITE_CONFLICT = 'P2034';
 const CLAIM_ATTEMPTS = 3;
@@ -103,21 +105,23 @@ export class PrismaStorageAdapter implements IStorageAdapter {
   private readonly sql: SqlTag;
   private readonly clock: () => number;
   private readonly leases?: { ttlMs: number };
+  private readonly newFlowMaxWaitMs: number;
 
   constructor(
     private readonly prisma: any,
-    options: { scope?: StorageScope; clock?: () => number; dialect?: SqlDialect; leases?: { ttlMs: number } } = {}
+    options: { scope?: StorageScope; clock?: () => number; dialect?: SqlDialect; leases?: { ttlMs: number }; newFlowMaxWaitMs?: number } = {}
   ) {
     this.dialect = options.dialect ?? sqlDialect(prisma);
     this.sql = sqlTag(this.dialect);
     this.scope = options.scope;
     this.clock = options.clock ?? Date.now;
     this.leases = options.leases;
+    this.newFlowMaxWaitMs = options.newFlowMaxWaitMs ?? NEW_FLOW_MAX_WAIT_MS;
     this.capabilities = { durable: true, shared: this.dialect !== 'sqlite' };
   }
 
   public withScope(scope: StorageScope): PrismaStorageAdapter {
-    return new PrismaStorageAdapter(this.prisma, { scope, clock: this.clock, dialect: this.dialect, leases: this.leases });
+    return new PrismaStorageAdapter(this.prisma, { scope, clock: this.clock, dialect: this.dialect, leases: this.leases, newFlowMaxWaitMs: this.newFlowMaxWaitMs });
   }
 
   public async close(): Promise<void> {}
@@ -136,8 +140,21 @@ export class PrismaStorageAdapter implements IStorageAdapter {
     return conv != null;
   }
 
+  /**
+   * Claim order: `priority` first. At equal priority, follow-ups of flows under way go before the first request of
+   * a new flow, so a burst of new flows does not hold up the flows already running. A follow-up is a request of a
+   * conversation this worker holds the lease of (with leases), or one another request created and points to
+   * (`notifyId` / `parentId`; a flow's last step points to neither, hence the lease test). A new flow that has
+   * waited `newFlowMaxWaitMs` ranks as a follow-up, so endless loops cannot starve it; then oldest first.
+   * `newFlowMaxWaitMs: 0` is plain oldest-first. (SQLite, without leases: the notifyId / parentId test only.)
+   */
+  private followUpFirst(row: { notifyId?: number | null; parentId?: number | null; createdAt: Date }, cutoff: Date): number {
+    return row.notifyId != null || row.parentId != null || new Date(row.createdAt) < cutoff ? 0 : 1;
+  }
+
   private async claimIds(workerId: string, limit: number, now: Date, conversationIds?: readonly number[]): Promise<number[]> {
     const lockedAt = new Date(this.clock());
+    const cutoff = new Date(lockedAt.getTime() - this.newFlowMaxWaitMs);
     if (this.dialect === 'sqlite') {
       const leasedElsewhere = this.leases
         ? (
@@ -156,11 +173,15 @@ export class PrismaStorageAdapter implements IStorageAdapter {
           ...(leasedElsewhere.length ? { NOT: { conversationId: { in: leasedElsewhere } } } : {}),
         }),
         orderBy: CLAIM_ORDER,
-        take: limit,
-        select: { id: true },
+        // A wider window, ordered follow-ups first below (single writer: no row locks to keep short)
+        take: this.newFlowMaxWaitMs > 0 ? Math.max(limit * 10, 100) : limit,
+        select: { id: true, priority: true, notifyId: true, parentId: true, createdAt: true },
       });
+      if (this.newFlowMaxWaitMs > 0) {
+        candidates.sort((a: any, b: any) => b.priority - a.priority || this.followUpFirst(a, cutoff) - this.followUpFirst(b, cutoff));
+      }
       const claimed: number[] = [];
-      for (const { id } of candidates) {
+      for (const { id } of candidates.slice(0, limit)) {
         const updated = await this.prisma.request.updateMany({
           where: { id, status: 'NEW' },
           data: { status: 'WAITING', lockedBy: workerId, lockedAt },
@@ -176,7 +197,15 @@ export class PrismaStorageAdapter implements IStorageAdapter {
       ${conversationIds ? sqlPart`AND "conversationId" IN (${[...conversationIds]})` : SQL_EMPTY}
       ${this.scope ? sqlPart`AND ("projectId" IN (${scopeProjectIds(this.scope)}) OR "projectId" IS NULL)` : SQL_EMPTY}
       ${this.leases ? sqlPart`AND "conversationId" NOT IN (SELECT "conversationId" FROM "ConversationLease" WHERE "owner" <> ${workerId} AND "leaseUntil" > ${lockedAt})` : SQL_EMPTY}
-      ORDER BY "priority" DESC, "createdAt" ASC, "id" ASC
+      ORDER BY "priority" DESC,
+        ${
+          this.newFlowMaxWaitMs > 0
+            ? sqlPart`CASE WHEN "notifyId" IS NOT NULL OR "parentId" IS NOT NULL OR "createdAt" < ${cutoff}
+                ${this.leases ? sqlPart`OR "conversationId" IN (SELECT "conversationId" FROM "ConversationLease" WHERE "owner" = ${workerId} AND "leaseUntil" > ${lockedAt})` : SQL_EMPTY}
+                THEN 0 ELSE 1 END,`
+            : SQL_EMPTY
+        }
+        "createdAt" ASC, "id" ASC
       LIMIT ${limit}
       FOR UPDATE SKIP LOCKED`;
 
@@ -340,8 +369,12 @@ export class PrismaStorageAdapter implements IStorageAdapter {
       }),
 
     releaseStale: async lockedBefore => {
+      // Read first, then update by id: a status-filtered update locks every WAITING row it scans (MariaDB deadlocks)
+      const where = this.scoped({ status: 'WAITING', lockedBy: { not: null }, lockedAt: { lte: lockedBefore }, pendingDependencies: 0 });
+      const ids = (await this.prisma.request.findMany({ where, select: { id: true }, take: 500 })).map((r: any) => r.id);
+      if (!ids.length) return 0;
       const released = await this.prisma.request.updateMany({
-        where: this.scoped({ status: 'WAITING', lockedBy: { not: null }, lockedAt: { lte: lockedBefore }, pendingDependencies: 0 }),
+        where: { AND: [{ id: { in: ids } }, where] },
         data: { status: 'NEW', lockedBy: null, lockedAt: null },
       });
       return released.count;
@@ -370,12 +403,12 @@ export class PrismaStorageAdapter implements IStorageAdapter {
       if (!(await this.conversationVisible(input.conversationId))) {
         throw new Error(`[storage] Conversation ${input.conversationId} is outside the active scope`);
       }
-      return toEvent(await this.prisma.eventLog.create({ data: input }));
+      return toEvent(await this.prisma.busEvent.create({ data: input }));
     },
 
     after: async (conversationId, afterId, { eventNames, limit } = {}) => {
       if (!(await this.conversationVisible(conversationId))) return [];
-      const rows = await this.prisma.eventLog.findMany({
+      const rows = await this.prisma.busEvent.findMany({
         where: { conversationId, id: { gt: afterId }, ...(eventNames ? { eventName: { in: [...eventNames] } } : {}) },
         orderBy: { id: 'asc' },
         ...(limit != null ? { take: limit } : {}),

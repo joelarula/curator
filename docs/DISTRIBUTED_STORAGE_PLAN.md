@@ -130,7 +130,7 @@ Wake-ups (done):
   (back off when idle, reset on work), with an optional Redis or NATS channel as a wake-up hint only (never
   as the source of truth).
 
-### Phase 3: Retention by partition (batched deletes done; StepTrace partitioned; EventLog open)
+### Phase 3: Retention by partition (done: batched deletes; StepTrace and BusEvent partitioned)
 Done, for every database: `pruneConversationHistory` deletes Responses and Requests in batches of 500
 (`Retention.deleteInChunks`, one statement each), and `compactConversationLog` commits the compacted event and
 its snapshot first, then deletes the older events in batches. No retention statement touches more than 500 rows.
@@ -147,9 +147,16 @@ schema.sql (never hand-written per table):
   batched deletes.
 - Limit (Postgres): a day whose rows already sit in the DEFAULT partition cannot get a partition of its own (reported);
   those rows stay there until they expire and are deleted from it.
-Open: `EventLog`. It also holds each conversation's state snapshot (the compacted `__state` event that
-`Conversation.metadata` points to), which dropping a partition would delete; its primary key would have to become
-`(id, createdAt)` (breaking `findUnique({ id })` callers), and request cursors point at its ids. Partitioning
+`EventLog` / `BusEvent` (done 2026-11-01): `EventLog` holds only the `__state.*` events (`Conversation.metadata` is
+folded from them) and keeps its retention (compaction when a conversation finishes). Every dispatched event goes
+to `BusEvent` (wait_event's mailbox: `Request.eventCursor` holds its ids; agents' `history_events`; the storage
+port's events; `agent:message`), partitioned by day (`(id, createdAt)` primary key) and retired after
+`busEvents.ttlMs` (processor option, default 30 days) by the `retireBusEvents` maintenance system, which drops day
+partitions (SQLite: batched deletes; `retireByAge` in `Retention.ts` serves StepTrace too). Agent history older than
+the TTL leaves the LLM context unless it was folded into a saved summary. A finished conversation's bus events go
+with `pruneConversationHistory`. Upgrade (`src/db/busEvents.ts`, run by the provisioners): while `BusEvent` has
+never issued an id and `EventLog` has rows, the non-state events move over with their ids and `BusEvent` ids start
+above every `EventLog` id, so existing cursors stay valid. Checkpoint moves a conversation's bus events too. Partitioning
 `Request` needs its primary key to include the partition column, which conflicts with `Response.requestId` and
 `Request.parentId` referencing `Request.id`.
 
@@ -178,7 +185,7 @@ batching its writes (below); both build on the leases.
   folding the snapshot plus later events (`ConversationStateLog.foldState`).
 - This removes cross-node write races on a conversation's rows and is portable across all cluster types.
 
-### Phase 5: Step history out of the hot tables (done; trace partitioning open)
+### Phase 5: Step history out of the hot tables (done)
 Done (`src/engine/StepTrace.ts`):
 - Only history steps (`Curator_Agent`, `Curator_HumanInput`, `Curator_Tool`, `Curator_Script`, and plugin node
   types) write `Response` rows; agent history and the conversation context read nothing else. Control-flow steps
@@ -192,8 +199,8 @@ Done (`src/engine/StepTrace.ts`):
   writes its memory processor's trace to the configured database, an ephemeral host writes none.
 - Effect: control-flow steps no longer add Response rows (the tests' golden databases lost 31 of them), so the
   tables agent history scans hold only history.
-Open: the audit view (`AuditService.getLogs`) still
-lists Responses only, so control-flow steps appear in `StepTrace` instead.
+The audit view (`AuditService.getLogs`) lists control-flow steps from `StepTrace` (action `STEP`) next to the
+Response-based entries, where the database has the table.
 
 ### Phase 6: Shared ephemeral tier (optional)
 For ephemeral data several nodes must read: Postgres `UNLOGGED` tables (lost after a crash or failover),
@@ -208,8 +215,13 @@ All provisioners (SQLite files and memory databases, MariaDB, Postgres) apply th
 dropped or altered, and anything needing more is reported for a manual migration. No provisioner runs the Prisma CLI
 at runtime any more, and there is no hand-written DDL (this replaced the MariaDB DDL, which lacked nine tables,
 and the SQLite upgrade statements). Two legacy index drops remain in `sqliteProvisioner.ts` for old SQLite files.
-Not covered: `packages/adapter-mariadb` still holds an old copy of the hand-written MariaDB DDL (nothing imports
-it), and `server/` has its own Prisma setup.
+`packages/adapter-mariadb` (an unused old copy of the hand-written MariaDB DDL) was removed 2026-11-01.
+Not covered: `server/` has its own Prisma schema
+(`server/prisma/schema/*.prisma`, applied with `prisma db push`; its migrations folder is stale), on which
+`server/src/mcp-server.ts` runs a `CuratorRequestProcessor`. Synced 2026-11-01 by hand with the curator Postgres
+schema: `Request.notifyId/pendingDependencies/priority/eventCursor/output`, the full `RequestStatus` enum, and
+`EventLog`, `ConversationLease`, `StepTrace`; a flow with a parallel step ran through it on a pushed test database.
+Keep them in sync when the engine tables change (the server's SQLite schema is a reduced variant and is not).
 
 ## Testing against real servers
 
@@ -221,8 +233,8 @@ own throwaway database; unset, those variants are skipped.
 
 Servers for this: `curator/docker-compose.test.yml` (pgvector/pgvector:pg17 on port 55432, mariadb:11.4 on 53306,
 data in tmpfs, fixed test credentials; see the file header for the URLs). Never point these variables at a
-database server that holds real data. Start it with `docker compose -f curator/docker-compose.test.yml up -d --wait`
-(add `--context <name>` for a remote Docker host) and stop it with `down`.
+database server that holds real data. Run it on the remote Docker host, not the local engine:
+`docker --context remote-110 compose -f curator/docker-compose.test.yml up -d --wait`, stop it with `down`.
 
 Last run (2026-11-01, containers on 192.168.1.110): storage-adapter, conversation-leases and checkpoint tests 46/46 on
 both engines; a second provision of an existing database adds nothing.
@@ -240,8 +252,41 @@ Results (2026-11-01; two host processes on one test database, Postgres and Maria
   context with `status: NEW, lockedBy: null`, which un-claimed a target already running, so it ran twice (~1 in 10
   human-input resumes, any engine). `completeRequest` now writes the context first and releases the target last, in
   one conditional update.
-- Open: one MariaDB run (of 13) ended with the last two steps of the flow FAILED after a takeover; not reproduced
-  since and the node logs were not captured then.
+- One MariaDB run (of 13) ended with the last two steps of the flow FAILED after a takeover; not reproduced. Most
+  likely the stale-sweep deadlock the load test found (a deadlocked status update fails the request), fixed since.
+
+Load test: `packages/host/scripts/load-test.ts` (`SMOKE_SERVER_URL=<server URL> node packages/host/scripts/load-test.ts`;
+`LOAD_NODES`, `LOAD_CONVERSATIONS`, `LOAD_STEPS`, `LOAD_STEP_MS`, `LOAD_TIMELINE=1` in the file header). It queues N
+flows `Sequential[s0, Parallel[p0, p1], s1..s4]` of 20ms tool steps at once on several host processes and checks that
+every step ran once, no conversation ran on two nodes at once, every request completed and is in `StepTrace`.
+Results (2026-11-01, 3 hosts on the LAN test containers, 100 flows = 700 tool steps / 1000 requests, default
+concurrency 3 per host):
+- Postgres: 12-20s, 35-59 tool steps/s; step-to-step delay p50 ~100ms once flows are under way; 16 connections at
+  peak. Concurrency 10 per host: same throughput (59/s), step delay p50 ~320ms, 37 connections: the database round
+  trips per request bound it, not the slots.
+- MariaDB: ~30s, 22 tool steps/s, step delay p50 ~150ms. Without NOTIFY, a host that backed off while idle joins a
+  burst only at its next poll (up to `idlePolling.maxIntervalMs`), so the work spread unevenly (one host took 49 of
+  700 steps).
+- Claim order (fixed): oldest-first made the first transitions of a burst wait 4-10s, because the 100 new flows'
+  first requests went before the follow-ups of flows already running. Claims now go `priority`, then follow-ups
+  first (conversation leased by the claiming worker, or `notifyId` / `parentId` set), with new flows capped at
+  `newFlowMaxWaitMs` (default 10s, processor option or `CURATOR_NEW_FLOW_MAX_WAIT_MS`; 0 = oldest-first) so endless
+  loops cannot starve them. A/B on Postgres, 100 flows: step-to-step p95 7-8s -> 0.3-0.4s, flow duration p50
+  9.2-9.5s -> 7.1-7.3s, wall time 13.8-14.2s -> 12.8-13.8s. Order execution with `priority` (requests and AST
+  nodes; children inherit it).
+- Found and fixed:
+  - Parallel branches finishing together lost a dependency count. `completeRequest` checked for 1 and then
+    decremented only above 1, so with a count of 2 both checks failed, one decrement made it 1 and the other
+    matched nothing. The Join waited forever, in 3 of 5 runs. It is now a compare-and-swap on the count, retried
+    (`dependencyDone`; `poisonDownstream` likewise).
+  - Every wake-up poll ran all maintenance systems (~28ms of ~36ms per poll, one claim per poll under load). A poll
+    woken by finished work now runs them only once an interval has passed; timer polls always do.
+  - `idle()` did not wait for a poll in flight, which then queried a closed pool after `host.stop()`.
+  - `pg_notify` through `$queryRaw` failed to read its `void` result (the notification was sent; now `$executeRaw`).
+  - MariaDB deadlocks (2 of 3 runs, a request FAILED): the stale-lock sweep, run by every node each tick, was one
+    `UPDATE … WHERE status = 'WAITING' …` that locked every WAITING row it scanned through the status index, while
+    a completion held a row and waited for its index entry. The sweeps (`unlockStaleRequests`, `releaseStale`) now
+    read first and update by id. 0 deadlocks in the next runs; MariaDB 100 flows in 17-18s (was ~30s).
 
 ## Order
 

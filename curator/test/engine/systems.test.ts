@@ -35,7 +35,7 @@ test('systems: state-entered triggers and in-state run conditions start handlers
     const recorded = env.calls.filter((c) => c.tool === 'record').map((c) => c.args.what).sort();
     assert.deepEqual(recorded, [20, 'entered BET']);
 
-    const transitions = (await env.prisma.eventLog.findMany({ where: { eventName: 'state:phase' }, orderBy: { id: 'asc' } }))
+    const transitions = (await env.prisma.busEvent.findMany({ where: { eventName: 'state:phase' }, orderBy: { id: 'asc' } }))
       .map((e: any) => (typeof e.payload === 'string' ? JSON.parse(e.payload) : e.payload));
     assert.deepEqual(transitions, [{ from: null, to: 'DEAL' }, { from: 'DEAL', to: 'BET' }, { from: 'BET', to: '__end__' }]);
   } finally {

@@ -36,6 +36,40 @@ test('priority: higher-priority requests run first', async () => {
   }
 });
 
+test('claim order: follow-ups of running flows before new flows, until a new flow has waited newFlowMaxWaitMs', async () => {
+  const cases: Array<[string, number, Record<string, any>, string[]]> = [
+    ['a new flow yields to follow-ups', 1_000, {}, ['after', 'low']],
+    ['a new flow past the wait cap goes first (oldest)', 60_000, {}, ['low', 'after']],
+    ['newFlowMaxWaitMs 0: oldest first', 1_000, { newFlowMaxWaitMs: 0 }, ['low', 'after']],
+  ];
+  for (const [name, waitedMs, options, expected] of cases) {
+    const env = await createEnv('claim_order', canned, { maxConcurrency: 1, ...options });
+    try {
+      // A new flow's first request queued `waitedMs` ago, then a follow-up step of a flow already running
+      await enqueue(env, tool('low'), 0, { createdAt: new Date(FIXED_NOW - waitedMs) });
+      const parent = await enqueue(env, tool('handler'), 0, { status: 'COMPLETED', createdAt: new Date(FIXED_NOW - 120_000) });
+      await enqueue(env, tool('after'), 0, { parentId: parent.id, createdAt: new Date(FIXED_NOW) });
+      await env.processor.stepUntil({ conversationId: env.conversationId });
+      assert.deepEqual(env.calls.map((c) => c.tool), expected, name);
+    } finally {
+      await env.cleanup();
+    }
+  }
+});
+
+test('claim order: priority still goes first', async () => {
+  const env = await createEnv('claim_order_priority', canned, { maxConcurrency: 1 });
+  try {
+    const parent = await enqueue(env, tool('handler'), 0, { status: 'COMPLETED', createdAt: new Date(FIXED_NOW - 120_000) });
+    await enqueue(env, tool('after'), 0, { parentId: parent.id, createdAt: new Date(FIXED_NOW) });
+    await enqueue(env, tool('low'), 5, { createdAt: new Date(FIXED_NOW - 1_000) });
+    await env.processor.stepUntil({ conversationId: env.conversationId });
+    assert.deepEqual(env.calls.map((c) => c.tool), ['low', 'after']);
+  } finally {
+    await env.cleanup();
+  }
+});
+
 // ---- Interrupt: stop ----
 
 test('interrupt stop: cancels lower-priority NEW requests and runs the handler', async () => {

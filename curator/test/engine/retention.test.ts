@@ -85,16 +85,18 @@ test('retention: completedContext keep leaves every context in place', async () 
   }
 });
 
-test('retention: pruning a finished conversation removes its requests and responses', async () => {
+test('retention: pruning a finished conversation removes its requests, responses and dispatched events', async () => {
   const env = await createEnv('retention_prune', canned, trim);
   try {
     const { result } = await runScript(env, (await saveScript(env, 'doubler', callModule())).scriptId);
     assert.equal(result.done, true);
     const { conversationId } = await env.prisma.request.findFirstOrThrow();
+    await env.prisma.busEvent.createMany({ data: [{ conversationId, eventName: 'a' }, { conversationId, eventName: 'b' }] });
 
     const pruned = await pruneConversationHistory(env.prisma, conversationId);
     assert.ok(pruned.requests > 0);
     assert.equal(await env.prisma.request.count({ where: { conversationId } }), 0);
+    assert.equal(await env.prisma.busEvent.count({ where: { conversationId } }), 0);
     assert.equal(await env.prisma.response.count({ where: { conversationId } }), 0);
   } finally {
     await env.cleanup();

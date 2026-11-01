@@ -34,7 +34,8 @@
   "scripts": {
     "build": "tsc",
     "test": "node --test \"test/*.test.ts\"",
-    "smoke:two-node": "node scripts/two-node-smoke.ts"
+    "smoke:two-node": "node scripts/two-node-smoke.ts",
+    "load-test": "node scripts/load-test.ts"
   },
   "dependencies": {
     "@curator/agent-server": "file:../../curator",

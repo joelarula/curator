@@ -1,8 +1,9 @@
 # Throwaway database servers for the external storage/lease/checkpoint tests (test/helpers/externalDb.ts).
 # Data lives in tmpfs: `down` (or a restart) discards everything. The credentials are fixed test values, not secrets.
-#   docker compose -f curator/docker-compose.test.yml up -d --wait
-#   CURATOR_TEST_POSTGRES_URL=postgresql://curator_test:curator_test@<host>:55432/postgres
-#   CURATOR_TEST_MARIADB_URL=mysql://root:curator_test@<host>:53306/mysql
+# Run it on the remote Docker host, not the local engine (the `default` context is local):
+#   docker --context remote-110 compose -f curator/docker-compose.test.yml up -d --wait
+#   CURATOR_TEST_POSTGRES_URL=postgresql://curator_test:curator_test@192.168.1.110:55432/postgres
+#   CURATOR_TEST_MARIADB_URL=mysql://root:curator_test@192.168.1.110:53306/mysql
 name: curator-test-db
 services:
   postgres:

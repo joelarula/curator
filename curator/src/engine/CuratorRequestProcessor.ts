@@ -15,7 +15,7 @@ import { LlmFactory } from './llm/LlmFactory.js';
 import { appendStatePatch, STATE_SEQ_KEY } from './ConversationStateLog.js';
 import { STATE_PATCH_KEY, withoutStoredStateCopies } from './RequestContextStorage.js';
 import { recordDeadLetter, TERMINAL_STATUSES } from './DeadLetters.js';
-import { clearRequestContexts, completedChildrenWithContext, sweepCompletedContexts } from './Retention.js';
+import { clearRequestContexts, completedChildrenWithContext, sweepCompletedContexts, retireByAge } from './Retention.js';
 import { PrismaStorageAdapter } from '../storage/PrismaStorageAdapter.js';
 import { StepTraceWriter, isControlNode, requestOutput, LATEST_RESPONSE } from './StepTrace.js';
 import { PostgresWakeChannel } from './WakeChannel.js';
@@ -74,6 +74,11 @@ export interface CuratorRequestProcessorOptions {
    */
   stepTrace?: false | { prisma?: any; ttlMs?: number };
   /**
+   * Dispatched events (`BusEvent`: wait_event's mailbox, agents' `history_events`) older than `ttlMs` are retired
+   * hourly, by dropping day partitions on Postgres/MariaDB (default 30 days; 0 keeps them).
+   */
+  busEvents?: { ttlMs?: number };
+  /**
    * Cross-node wake-ups on Postgres (LISTEN/NOTIFY, see WakeChannel.ts): `announce()` notifies the other workers,
    * and with `url` (a direct session connection, not PgBouncer in transaction mode) this worker listens and polls
    * when another one announces work. On by default on Postgres (sending only without `url`); `false` turns it off.
@@ -85,6 +90,11 @@ export interface CuratorRequestProcessorOptions {
    * and `wake()` reset it. `false`: a fixed interval.
    */
   idlePolling?: false | { maxIntervalMs?: number };
+  /**
+   * Claim order at equal `priority`: follow-up requests of flows under way go before a new flow's first request,
+   * until that one has waited this long (then oldest first). Default 10s; 0: plain oldest-first.
+   */
+  newFlowMaxWaitMs?: number;
 }
 
 /** Registries the processor reads; `curatorEngine` by default. Plugin node types, services and systems are optional. */
@@ -181,6 +191,8 @@ export class CuratorRequestProcessor {
   private timer: NodeJS.Timeout | null = null;
   public isAdHoc: boolean = false;
   private isPolling = false;
+  /** Settles when the current poll is done (idle() waits for it: a poll can outlive stop()). */
+  private pollDone: Promise<void> = Promise.resolve();
   private wakePending = false;
   private activeTasks = 0;
   private runningTasks = new Set<Promise<void>>();
@@ -211,7 +223,11 @@ export class CuratorRequestProcessor {
   private pollIntervalMs = 3000;
   private idleStreak = 0;
   private traceTtlMs = 0;
+  private busEventTtlMs = 30 * 24 * 60 * 60 * 1000;
+  private lastBusEventRetireAt = 0;
   private lastTracePruneAt = 0;
+  /** When the maintenance systems last ran: polls woken by finished work skip them until an interval has passed. */
+  private lastMaintenanceAt = 0;
   /** Request id -> resolved node type and start time while this worker executes it (req.ast is null in reference mode). */
   private executing = new Map<number, { nodeType: string; startedAt: Date }>();
   private clock: () => number;
@@ -247,6 +263,7 @@ export class CuratorRequestProcessor {
       clock: this.clock,
       dialect,
       leases: leases ? { ttlMs: leases.ttlMs ?? 30_000 } : undefined,
+      newFlowMaxWaitMs: options.newFlowMaxWaitMs ?? (process.env.CURATOR_NEW_FLOW_MAX_WAIT_MS ? parseInt(process.env.CURATOR_NEW_FLOW_MAX_WAIT_MS, 10) : undefined),
     });
     if (options.stepTrace !== false) {
       this.trace = new StepTraceWriter(options.stepTrace?.prisma ?? this.prisma);
@@ -256,6 +273,7 @@ export class CuratorRequestProcessor {
       this.wakeChannel = new PostgresWakeChannel(this.prisma, this.workerId, () => this.wake(), options.wakeChannel?.url);
     }
     this.idlePolling = options.idlePolling !== false;
+    if (options.busEvents?.ttlMs != null) this.busEventTtlMs = options.busEvents.ttlMs;
     this.idleMaxIntervalMs = (options.idlePolling || undefined)?.maxIntervalMs ?? 10_000;
     this.astStorage = options.astStorage ?? 'reference';
     this.maxCallDepth = options.maxCallDepth ?? 16;
@@ -390,6 +408,7 @@ export class CuratorRequestProcessor {
           ]
         : []),
       { name: 'flushStepTrace', run: () => this.flushStepTrace() },
+      { name: 'retireBusEvents', run: () => this.retireBusEvents() },
       { name: 'pollScheduledAgents', run: () => this.pollScheduledAgents() },
       { name: 'expireApprovalWaits', run: () => this.expireApprovalWaits() },
       { name: 'expireHumanWaits', run: () => this.expireHumanWaits() },
@@ -924,13 +943,13 @@ export class CuratorRequestProcessor {
   private async unlockStaleRequests() {
     try {
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+      const staleWhere = { status: 'WAITING', lockedBy: { not: null }, lockedAt: { lte: fiveMinutesAgo }, pendingDependencies: 0 };
+      // Find first (a plain read), then update those rows by id: an update filtered on status alone locks every
+      // WAITING row it scans on MariaDB and deadlocked with completions updating those rows
+      const ids = (await this.prisma.request.findMany({ where: staleWhere, select: { id: true }, take: 500 })).map((r: any) => r.id);
+      if (!ids.length) return;
       const stale = await this.prisma.request.updateMany({
-        where: {
-          status: 'WAITING',
-          lockedBy: { not: null },
-          lockedAt: { lte: fiveMinutesAgo },
-          pendingDependencies: 0
-        },
+        where: { id: { in: ids }, ...staleWhere },
         data: {
           status: 'NEW',
           lockedBy: null,
@@ -1000,18 +1019,25 @@ export class CuratorRequestProcessor {
     }
   }
 
-  private async pollRequests() {
+  /** `wake`: a poll for work just submitted in this process, which runs maintenance at most once per interval. */
+  private async pollRequests(trigger: 'timer' | 'wake' = 'timer') {
     if (this.isStopped || !this.timer) return;
     if (this.isPolling) return;
     this.isPolling = true;
+    let pollFinished!: () => void;
+    this.pollDone = new Promise(resolve => (pollFinished = resolve));
     let claimed = 0;
     try {
       if (Date.now() < this.backoffUntil) {
         return;
       }
 
-      // Maintenance systems, in order (see initMaintenance / registerMaintenanceSystem).
-      for (const system of this.scheduledMaintenance()) await system.run(this.maintenanceContext);
+      // Maintenance systems, in order (see initMaintenance / registerMaintenanceSystem). Under load most polls are
+      // wake-ups after a finished request: those claim at once instead of running every system again.
+      if (trigger === 'timer' || Date.now() - this.lastMaintenanceAt >= this.pollIntervalMs) {
+        this.lastMaintenanceAt = Date.now();
+        for (const system of this.scheduledMaintenance()) await system.run(this.maintenanceContext);
+      }
 
       // 2. Check available concurrency capacity before taking new tasks
       const availableSlots = this.getAvailableConcurrencySlots();
@@ -1040,11 +1066,12 @@ export class CuratorRequestProcessor {
         logger.error('[CuratorRequestProcessor] Error polling requests:', error);
       }
     } finally {
-      this.schedulePoll(await this.nextPollDelay(claimed));
+      if (!this.isStopped) this.schedulePoll(await this.nextPollDelay(claimed));
       this.isPolling = false;
+      pollFinished();
       if (this.wakePending) {
         this.wakePending = false;
-        setImmediate(() => this.pollRequests());
+        setImmediate(() => this.pollRequests('wake'));
       }
     }
   }
@@ -1060,7 +1087,7 @@ export class CuratorRequestProcessor {
       this.wakePending = true;
       return;
     }
-    setImmediate(() => this.pollRequests());
+    setImmediate(() => this.pollRequests('wake'));
   }
 
   /**
@@ -1216,6 +1243,7 @@ export class CuratorRequestProcessor {
 
   /** Resolves once no polled task is running; call after stop() so nothing is torn down mid-request. */
   public async idle(): Promise<void> {
+    await this.pollDone;
     while (this.runningTasks.size > 0) {
       await Promise.allSettled([...this.runningTasks]);
     }
@@ -1233,6 +1261,19 @@ export class CuratorRequestProcessor {
       await this.trace.retire(this.traceTtlMs, new Date(this.clock())).catch((err: any) =>
         logger.warn(`[CuratorRequestProcessor] Retiring StepTrace rows failed: ${err?.message || err}`)
       );
+    }
+  }
+
+  /** Retires dispatched events past their TTL (hourly: drops day partitions, or deletes on SQLite). */
+  private async retireBusEvents() {
+    if (!(this.busEventTtlMs > 0) || !this.prisma.busEvent || Date.now() - this.lastBusEventRetireAt < 60 * 60 * 1000) return;
+    this.lastBusEventRetireAt = Date.now();
+    try {
+      for (const failure of await retireByAge(this.prisma, 'BusEvent', this.busEventTtlMs, new Date(this.clock()))) {
+        logger.warn(`[CuratorRequestProcessor] BusEvent partition statement failed: ${failure}`);
+      }
+    } catch (err: any) {
+      logger.warn(`[CuratorRequestProcessor] Retiring BusEvent rows failed: ${err?.message || err}`);
     }
   }
 
@@ -1573,10 +1614,10 @@ export class CuratorRequestProcessor {
     return { eventName, spawned, woken };
   }
 
-  /** Appends to the conversation's event log; returns its sequence id (null if the DB has no EventLog). */
+  /** Appends to the conversation's bus events; returns its sequence id (null if the DB has no BusEvent table). */
   private async logEvent(conversationId: number, eventName: string, payload: any, target: string | null = null, source: number | null = null): Promise<number | null> {
-    if (!this.prisma.eventLog || conversationId == null) return null;
-    const row = await this.prisma.eventLog.create({
+    if (!this.prisma.busEvent || conversationId == null) return null;
+    const row = await this.prisma.busEvent.create({
       data: { conversationId, eventName, payload: payload === undefined ? null : payload, target, source },
     });
     return row.id;
@@ -1596,8 +1637,8 @@ export class CuratorRequestProcessor {
   }
 
   private async latestEventSeq(conversationId: number): Promise<number> {
-    if (!this.prisma.eventLog) return 0;
-    const last = await this.prisma.eventLog.findFirst({ where: { conversationId }, orderBy: { id: 'desc' } });
+    if (!this.prisma.busEvent) return 0;
+    const last = await this.prisma.busEvent.findFirst({ where: { conversationId }, orderBy: { id: 'desc' } });
     return last?.id ?? 0;
   }
 
@@ -1636,7 +1677,7 @@ export class CuratorRequestProcessor {
     }
     if (replay) return 0;
     if (!anchor) return this.latestEventSeq(conversationId);
-    const before = await this.prisma.eventLog.findFirst({
+    const before = await this.prisma.busEvent.findFirst({
       where: { conversationId, createdAt: { lt: anchor } },
       orderBy: { id: 'desc' },
     });
@@ -2339,8 +2380,17 @@ export class CuratorRequestProcessor {
    * when other branches are successful or still running.
    */
   private async poisonDownstream(req: any, status: string) {
+    // Fan-in counts are written conditionally on the count read here; a concurrent completion changed it: read again
+    for (let attempt = 1; attempt <= 50; attempt++) {
+      if (await this.poisonDownstreamOnce(req, status)) return;
+    }
+    logger.error(`[CuratorRequestProcessor] poisonDownstream: could not count failed req ${req.id} at req ${req.notifyId}`);
+  }
+
+  /** One attempt of poisonDownstream: false when the target's dependency count changed since it was read. */
+  private async poisonDownstreamOnce(req: any, status: string): Promise<boolean> {
     const target = await this.prisma.request.findUnique({ where: { id: req.notifyId } });
-    if (!target || TERMINAL_STATUSES.has(target.status)) return;
+    if (!target || TERMINAL_STATUSES.has(target.status)) return true;
 
     const targetAst = this.parseAst(target.ast);
     const siblings = await this.prisma.request.findMany({ where: { notifyId: target.id } });
@@ -2349,6 +2399,8 @@ export class CuratorRequestProcessor {
     if (isFanIn) {
       const pending = Math.max(0, (target.pendingDependencies || 0) - 1);
       const data: any = { pendingDependencies: pending };
+      const counted = async () =>
+        (await this.prisma.request.updateMany({ where: { id: target.id, pendingDependencies: target.pendingDependencies }, data })).count > 0;
 
       const otherBranches = siblings.filter((s: any) => s.id !== req.id);
       const hasLiveBranches = otherBranches.some((s: any) => !TERMINAL_STATUSES.has(s.status));
@@ -2362,36 +2414,46 @@ export class CuratorRequestProcessor {
             data.lockedBy = null;
             data.lockedAt = null;
           }
-          await this.prisma.request.update({
-            where: { id: target.id },
-            data,
-          });
-          return;
+          return counted();
         } else if (!hasLiveBranches) {
           // All branches finished and NONE were successful: poison the target
-          await this.prisma.request.update({
-            where: { id: target.id },
-            data,
-          });
+          if (!(await counted())) return false;
           this.emit('request_poisoned', { requestId: target.id, source: req.id, status });
           await this.saveResponse(target, `ERROR: all upstream parallel branches failed`);
           await this.completeRequest(target.id, 'FAILED');
-          return;
+          return true;
         }
       }
 
       // Other branches are still running or pending > 0: do not poison target yet
-      await this.prisma.request.update({
-        where: { id: target.id },
-        data,
-      });
-      return;
+      return counted();
     }
 
     // Direct 1-to-1 sequential dependency: upstream death poisons target
     this.emit('request_poisoned', { requestId: target.id, source: req.id, status });
     await this.saveResponse(target, `ERROR: upstream request ${req.id} ${status}`);
     await this.completeRequest(target.id, 'FAILED');
+    return true;
+  }
+
+  /**
+   * Counts one finished dependency of a waiting request, as a compare-and-swap on the count (retried when a
+   * concurrent completion changed it), so concurrent completions all count. Only the one taking the count from 1
+   * to 0 wakes the target: no other write of a completion can un-claim it once a worker runs it.
+   */
+  private async dependencyDone(targetId: number): Promise<void> {
+    for (let attempt = 1; attempt <= 50; attempt++) {
+      const target = await this.prisma.request.findUnique({ where: { id: targetId }, select: { pendingDependencies: true, status: true } });
+      const pending = target?.pendingDependencies ?? 0;
+      if (pending <= 0) return;
+      const wake = pending === 1 && (target.status === 'WAITING' || target.status === 'NEW');
+      const counted = await this.prisma.request.updateMany({
+        where: { id: targetId, pendingDependencies: pending, ...(wake ? { status: { in: ['WAITING', 'NEW'] } } : {}) },
+        data: wake ? { pendingDependencies: 0, status: 'NEW', lockedBy: null, lockedAt: null } : { pendingDependencies: pending - 1 },
+      });
+      if (counted.count > 0) return;
+    }
+    logger.error(`[CuratorRequestProcessor] dependencyDone: could not count a finished dependency of req ${targetId}`);
   }
 
   private async completeRequest(requestId: number, status: string = 'COMPLETED', skipNotify: boolean = false) {
@@ -2514,23 +2576,8 @@ export class CuratorRequestProcessor {
             data: updatedData
           });
 
-          // The dependency count goes down last, in conditional updates (not read-then-write): the target becomes
-          // claimable only once its context is written, so no later write of this completion can un-claim it while
-          // it runs. Concurrent completions all count, and only the one taking the count from 1 to 0 wakes it.
-          const woken = await this.prisma.request.updateMany({
-            where: { id: req.notifyId, pendingDependencies: 1, status: { in: ['WAITING', 'NEW'] } },
-            data: { pendingDependencies: 0, status: 'NEW', lockedBy: null, lockedAt: null },
-          });
-          const lastDependency =
-            woken.count > 0 ||
-            (await this.prisma.request.updateMany({ where: { id: req.notifyId, pendingDependencies: 1 }, data: { pendingDependencies: 0 } }))
-              .count > 0;
-          if (!lastDependency) {
-            await this.prisma.request.updateMany({
-              where: { id: req.notifyId, pendingDependencies: { gt: 1 } },
-              data: { pendingDependencies: { decrement: 1 } },
-            });
-          }
+          // The dependency count goes down last: the target becomes claimable only once its context is written
+          await this.dependencyDone(req.notifyId);
         }
       } catch (notifyErr: any) {
         if (notifyErr?.code === 'P2028' || notifyErr?.message?.includes('Transaction already closed')) {

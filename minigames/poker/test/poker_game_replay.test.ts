@@ -54,7 +54,7 @@ test('replay: a passive table plays full hands through every street to showdown'
     assert.deepEqual(failed.map((r: any) => r.output ?? r.responses.at(-1)?.content), []);
 
     // Every completed hand walked deal -> flop -> turn -> river -> showdown -> settle.
-    const log = await host.prisma.eventLog.findMany({ orderBy: { id: 'asc' } });
+    const log = await host.prisma.busEvent.findMany({ orderBy: { id: 'asc' } });
     const events = log.map((e: any) => e.eventName);
     const phases = log
       .filter((e: any) => [PokerEvent.NEW_ROUND, PokerEvent.PHASE_DEAL, PokerEvent.PHASE_STREET, PokerEvent.PHASE_SETTLE].includes(e.eventName))
@@ -87,7 +87,7 @@ test('replay: pause and resume re-prompt the same seat; exit closes the table', 
     llmProvider: passiveLlm().provider,
   });
   const session = await createPokerGameSession(host, { tableId: 1, forceReset: true, maxSeats: SEATS, startingChips: STARTING_CHIPS });
-  const eventNames = async () => (await host.prisma.eventLog.findMany({ orderBy: { id: 'asc' } })).map((e: any) => e.eventName);
+  const eventNames = async () => (await host.prisma.busEvent.findMany({ orderBy: { id: 'asc' } })).map((e: any) => e.eventName);
 
   try {
     let s: any = await session.step(session.tableId, 400);
@@ -111,7 +111,7 @@ test('replay: pause and resume re-prompt the same seat; exit closes the table', 
     const names = await eventNames();
     const table = (await rebuildStateSnapshot(host.prisma, Number(session.tableId))).state;
     // The table left through EXITED and finished; the close-on-exit rule closed it
-    const transitions = (await host.prisma.eventLog.findMany({ where: { eventName: 'state:tablePhase' }, orderBy: { id: 'asc' } }))
+    const transitions = (await host.prisma.busEvent.findMany({ where: { eventName: 'state:tablePhase' }, orderBy: { id: 'asc' } }))
       .map((e: any) => (typeof e.payload === 'string' ? JSON.parse(e.payload) : e.payload).to);
     assert.deepEqual(transitions.slice(-2), [PokerTablePhase.EXITED, '__end__']);
     assert.equal(table.tablePhase, '__end__');

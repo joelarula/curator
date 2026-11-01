@@ -393,6 +393,21 @@ CREATE TABLE `EventLog` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
+CREATE TABLE `BusEvent` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `conversationId` INTEGER NOT NULL,
+    `eventName` VARCHAR(191) NOT NULL,
+    `payload` JSON NULL,
+    `target` VARCHAR(191) NULL,
+    `source` INTEGER NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
+    INDEX `BusEvent_conversationId_eventName_id_idx`(`conversationId`, `eventName`, `id`),
+    INDEX `BusEvent_createdAt_idx`(`createdAt`),
+    PRIMARY KEY (`id`, `createdAt`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
 CREATE TABLE `ConversationLease` (
     `conversationId` INTEGER NOT NULL,
     `owner` VARCHAR(191) NOT NULL,

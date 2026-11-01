@@ -1,6 +1,8 @@
 import { compactConversationLog } from './ConversationStateLog.js';
 import { TERMINAL_STATUSES } from './DeadLetters.js';
-import { sqlFor } from '../db/sqlDialect.js';
+import { sqlFor, sqlDialect } from '../db/sqlDialect.js';
+import { prismaSchemaDb } from '../db/schemaSql.js';
+import { PARTITIONED_TABLES, isPartitioned, maintainPartitions } from '../db/partitions.js';
 
 /**
  * Storage retention. Request data is short lived: a Request's `context` is working memory, read by the
@@ -25,6 +27,25 @@ export async function deleteInChunks(delegate: any, where: Record<string, unknow
     deleted += (await delegate.deleteMany({ where: { id: { in: ids } } })).count;
     if (ids.length < chunk) return deleted;
   }
+}
+
+/**
+ * Retires rows of a time-partitioned table (db/partitions.ts `PARTITIONED_TABLES`, e.g. StepTrace, BusEvent) older
+ * than `ttlMs`: by dropping day partitions where the table is partitioned (Postgres/MariaDB; also creates the coming
+ * days' partitions), otherwise with batched deletes. Returns the partition statements that failed.
+ */
+export async function retireByAge(prisma: any, table: string, ttlMs: number, now: Date): Promise<string[]> {
+  const spec = PARTITIONED_TABLES.find(t => t.table === table);
+  const delegate = prisma?.[table.charAt(0).toLowerCase() + table.slice(1)];
+  if (!spec || !delegate) return [];
+  const dialect = sqlDialect(prisma);
+  const db = prismaSchemaDb(prisma, dialect);
+  if (dialect !== 'sqlite' && (await isPartitioned(db, spec))) {
+    const result = await maintainPartitions(db, { retainDays: Math.max(1, Math.ceil(ttlMs / (24 * 60 * 60 * 1000))), now }, [spec]);
+    return result.failed.map(f => f.error);
+  }
+  await deleteInChunks(delegate, { [spec.column]: { lt: new Date(now.getTime() - ttlMs) } });
+  return [];
 }
 
 /** Sets `context` and `output` to NULL. Raw SQL so `updatedAt` (which orders "latest request" lookups) is left as is. */
@@ -91,8 +112,8 @@ export interface PruneConversationResult {
 }
 
 /**
- * Deletes a finished conversation's Requests, Responses and subscriptions and compacts its EventLog to one
- * state event. The Conversation row keeps its final state. Callers decide what "finished" means; never call
+ * Deletes a finished conversation's Requests, Responses, subscriptions and bus events and compacts its EventLog to
+ * one state event. The Conversation row keeps its final state. Callers decide what "finished" means; never call
  * this for a conversation with live Requests.
  */
 export async function pruneConversationHistory(prisma: any, conversationId: number): Promise<PruneConversationResult> {
@@ -114,6 +135,7 @@ export async function pruneConversationHistory(prisma: any, conversationId: numb
     .catch(() => {});
   const requests = await deleteInChunks(prisma.request, { conversationId });
   await prisma.eventSubscription?.deleteMany?.({ where: { conversationId } });
-  const events = await compactConversationLog(prisma, conversationId);
+  const busEvents = prisma.busEvent ? await deleteInChunks(prisma.busEvent, { conversationId }) : 0;
+  const events = (await compactConversationLog(prisma, conversationId)) + busEvents;
   return { requests, responses, events };
 }

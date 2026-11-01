@@ -24,7 +24,7 @@ test('durability ephemeral: the host runs on a memory database and never creates
   try {
     const conv = await host.prisma.conversation.create({ data: { userId: host.user.id, projectId: host.project.id } });
     await host.emitEvent('note', { text: 'hi' }, { conversationId: conv.id });
-    assert.ok((await host.prisma.eventLog.count({ where: { conversationId: conv.id } })) > 0);
+    assert.ok((await host.prisma.busEvent.count({ where: { conversationId: conv.id } })) > 0);
     assert.equal(host.durablePrisma, undefined);
     assert.equal(fs.existsSync(dbPath), false);
   } finally {

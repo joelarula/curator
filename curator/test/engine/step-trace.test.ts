@@ -4,6 +4,7 @@ import { createEnv, runAst, type TestEnv } from '../helpers/harness.ts';
 import { EXTERNAL_DATABASES, externalEnv, closeExternalDatabases } from '../helpers/externalDb.ts';
 import { clearRequestContexts } from '../../src/engine/Retention.ts';
 import { StepTraceWriter } from '../../src/engine/StepTrace.ts';
+import { AuditService } from '../../src/services/AuditService.ts';
 
 const canned = { echo: (a: any) => ({ echoed: a.text }) };
 const flow = {
@@ -79,6 +80,27 @@ test('step trace: off with stepTrace false; results still split', async () => {
     await env.processor.idle();
     assert.equal(await env.prisma.stepTrace.count(), 0);
     assert.ok(await env.prisma.request.findFirst({ where: { output: { not: null } } }));
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('step trace: the audit view lists control-flow steps from StepTrace and history steps from Responses', async () => {
+  const env = await createEnv('trace_audit', canned);
+  try {
+    await runAst(env, flow);
+    await env.processor.idle();
+    const logs = await AuditService.getLogs(env.prisma);
+    const setState = logs.find(l => l.action === 'STEP' && l.metadata?.nodeType === 'Curator_SetState');
+    assert.ok(setState, 'the SetState step is listed');
+    assert.match(setState!.metadata!.output, /State updated/);
+    assert.equal(setState!.status, 'COMPLETED');
+    assert.ok(logs.some(l => l.action === 'TOOL_RESULT'), 'the tool step is listed through its Response');
+    assert.ok(!logs.some(l => l.action === 'STEP' && l.metadata?.nodeType === 'Curator_Tool'), 'history steps are not listed twice');
+    assert.deepEqual(logs.map(l => l.timestamp), [...logs.map(l => l.timestamp)].sort().reverse(), 'newest first');
+
+    const one = await AuditService.getLogs(env.prisma, { entityType: 'REQUEST', entityId: String(setState!.requestId) });
+    assert.deepEqual(one.map(l => l.action), ['STEP']);
   } finally {
     await env.cleanup();
   }

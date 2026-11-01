@@ -48,7 +48,7 @@ export class PostgresWakeChannel {
     setImmediate(async () => {
       this.sendPending = false;
       try {
-        await this.prisma.$queryRawUnsafe('SELECT pg_notify($1, $2)', WAKE_CHANNEL, this.self);
+        await this.prisma.$executeRawUnsafe('SELECT pg_notify($1, $2)', WAKE_CHANNEL, this.self);
       } catch (err: any) {
         logger.debug(`[WakeChannel] notify failed: ${err?.message || err}`);
       }

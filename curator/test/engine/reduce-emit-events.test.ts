@@ -10,7 +10,7 @@ const counter = {
 };
 
 const eventsNamed = async (env: any, name: string) =>
-  (await env.prisma.eventLog.findMany({ where: { eventName: name }, orderBy: { id: 'asc' } }))
+  (await env.prisma.busEvent.findMany({ where: { eventName: name }, orderBy: { id: 'asc' } }))
     .map((e: any) => (typeof e.payload === 'string' ? JSON.parse(e.payload) : e.payload));
 
 test('reduce: runs the registered pure function and spreads its output into state', async () => {
@@ -82,7 +82,7 @@ test('emitEvents: emits a run-time list in order, with payloads taken as data', 
     assert.equal(counted[0].by, 4);
     assert.equal(counted[0].conversationId, env.conversationId, 'payloads are stamped with their conversation');
 
-    const names = (await env.prisma.eventLog.findMany({ orderBy: { id: 'asc' } }))
+    const names = (await env.prisma.busEvent.findMany({ orderBy: { id: 'asc' } }))
       .map((e: any) => e.eventName).filter((n: string) => ['counted', 'first', 'second'].includes(n));
     assert.deepEqual(names, ['counted', 'first', 'second']);
     assert.equal((await eventsNamed(env, 'first'))[0].text, '$state.counter', 'a payload string is not evaluated');

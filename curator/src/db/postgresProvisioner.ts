@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { convergeSchema, type SchemaDb } from './schemaSql.js';
 import { convergePartitions, reportPartitions } from './partitions.js';
+import { migrateBusEvents, reportBusEvents } from './busEvents.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -46,6 +47,7 @@ async function ensureCuratorPostgresSchema(pool: any, schema: string | undefined
         console.warn(`[postgresProvisioner] Schema statement failed (needs a manual migration): ${failure.error}\n  ${failure.sql.split('\n')[0]}`);
       }
       reportPartitions('postgresProvisioner', await convergePartitions(db));
+      reportBusEvents('postgresProvisioner', await migrateBusEvents(db));
     } finally {
       await client.query('SELECT pg_advisory_unlock($1)', [SCHEMA_LOCK_KEY]);
       if (schema) await client.query('RESET search_path');

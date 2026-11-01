@@ -103,12 +103,12 @@ export class ConversationManager {
       timestamp: envelope.timestamp,
     });
 
-    if (this.prisma.eventLog?.create) {
+    if (this.prisma.busEvent?.create) {
       const target = Array.isArray(envelope.recipients) && envelope.recipients.length === 1
         ? envelope.recipients[0].agentId
         : undefined;
       try {
-        await this.prisma.eventLog.create({
+        await this.prisma.busEvent.create({
           data: {
             conversationId: conversation.id,
             eventName: 'agent:message',

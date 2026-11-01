@@ -7,7 +7,7 @@
  * (a snapshot plus the id of the last state event folded in, `__stateSeq`), so it can always be rebuilt,
  * replayed to any earlier point, or rewound without losing history.
  *
- * Two reserved event kinds live in the same EventLog (and share its sequence with the bus events):
+ * Two reserved event kinds make up the EventLog (dispatched bus events are in BusEvent, with their own ids):
  *  - `__state.patch`  { scope?, set }  merge `set` into shared state, or into the private bucket `scope`
  *  - `__state.rewind` { to }           state becomes whatever it was right after event `to` (compensating event)
  */
@@ -230,7 +230,7 @@ export async function rebuildStateSnapshot(prisma: any, conversationId: number):
 const COMPACT_CHUNK = 500;
 
 /**
- * Retention for a finished conversation: replaces its whole EventLog (bus and state events) with one
+ * Retention for a finished conversation: replaces its whole EventLog (its state events) with one
  * `__state.patch` holding the current state, so the log still rebuilds the same snapshot. History before it
  * (replay, rewind targets) is gone. Returns how many log rows were removed.
  *

@@ -10,12 +10,12 @@ export const waitEventNode: NodeHandler<any> = {
     const extra = Array.isArray(ast.eventNames) ? await Promise.all(ast.eventNames.map(resolve)) : [];
     const allEvents: string[] = Array.from(new Set([eventName, ...extra.map(String)].filter(Boolean)));
     const timeoutSeconds = Number(await resolve(ast.timeoutSeconds)) || 0;
-    if (ctx.prisma.eventLog && !req.context?.__humanInputReceived__) {
+    if (ctx.prisma.busEvent && !req.context?.__humanInputReceived__) {
       const cursor = await ctx.events.resolveCursor(req.id, req.conversationId, !!ast.replay);
       const identity = ctx.events.identityOf(req);
       const myFlow = await ctx.events.flowChain(req.id);
       // The emitting flow never hears its own events, but events other flows logged meanwhile are kept.
-      const candidates = await ctx.prisma.eventLog.findMany({
+      const candidates = await ctx.prisma.busEvent.findMany({
         where: {
           conversationId: req.conversationId,
           eventName: allEvents.length === 1 ? allEvents[0] : { in: allEvents },

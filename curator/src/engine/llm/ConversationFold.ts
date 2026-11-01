@@ -155,8 +155,8 @@ export async function loadConversationRows(
     orderBy: { id: 'asc' },
     include: { request: true },
   });
-  const events: StoredEventRow[] = prisma.eventLog
-    ? await prisma.eventLog.findMany({
+  const events: StoredEventRow[] = prisma.busEvent
+    ? await prisma.busEvent.findMany({
         where: { conversationId, id: { gt: after.event }, ...(eventNames ? { eventName: { in: eventNames } } : {}) },
         orderBy: { id: 'asc' },
       })

@@ -100,7 +100,7 @@ export class ConversationContextBuilder {
   }
 }
 
-/** A conversation row as stored: a Response (with its Request) or a bus event from the EventLog. */
+/** A conversation row as stored: a Response (with its Request) or a bus event (BusEvent). */
 export interface StoredResponseRow {
   id: number;
   content: string;
@@ -165,8 +165,8 @@ export async function loadConversationEntries(
     orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     include: { request: true },
   });
-  const events: StoredEventRow[] = prisma.eventLog
-    ? await prisma.eventLog.findMany({
+  const events: StoredEventRow[] = prisma.busEvent
+    ? await prisma.busEvent.findMany({
         where: { conversationId, ...(opts.eventNames ? { eventName: { in: opts.eventNames } } : {}) },
         orderBy: { id: 'asc' },
       })

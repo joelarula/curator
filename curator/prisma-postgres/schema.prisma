@@ -457,7 +457,8 @@ model EventSubscription {
   @@index([eventName, isActive])
 }
 
-/// Append-only per-conversation log of every dispatched event (the mailbox behind lossless wait_event).
+/// Per-conversation state log: the `__state.*` events that `Conversation.metadata` is folded from (compacted when a
+/// conversation finishes). Dispatched events are in BusEvent.
 model EventLog {
   id             Int      @id @default(autoincrement())
   conversationId Int
@@ -468,6 +469,23 @@ model EventLog {
   createdAt      DateTime @default(now())
 
   @@index([conversationId, eventName, id])
+}
+
+/// Every dispatched event of a conversation (the mailbox behind lossless wait_event; `Request.eventCursor` points
+/// at its ids; agents' `history_events` read it). Retired by age (default 30 days): day partitions on
+/// Postgres/MariaDB, so no foreign keys and the time column in the primary key.
+model BusEvent {
+  id             Int      @default(autoincrement())
+  conversationId Int
+  eventName      String
+  payload        Json?
+  target         String?
+  source         Int?
+  createdAt      DateTime @default(now())
+
+  @@id([id, createdAt])
+  @@index([conversationId, eventName, id])
+  @@index([createdAt])
 }
 
 /// Which worker runs a conversation now (docs/DISTRIBUTED_STORAGE_PLAN.md, Phase 4). Held while that worker has

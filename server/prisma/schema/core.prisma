@@ -8,9 +8,13 @@
 enum RequestStatus {
   NEW
   WAITING
-  PAUSED
+  WAITING_FOR_USER
+  WAITING_FOR_EVENT
   COMPLETED
   FAILED
+  CANCELLED
+  PAUSED
+  SKIPPED
 }
 
 model Project {
@@ -294,6 +298,8 @@ model Request {
 
   ast       Json? // Formal Execution AST
   context   Json?
+  /// Output of a finished control-flow step (history steps write Responses instead), read by the step it notifies.
+  output    String?
 
 
   resources Resource[] @relation("RequestResources")
@@ -305,6 +311,13 @@ model Request {
   scheduledAt    DateTime     @default(now())
 
   executionScheduled DateTime? @default(now())
+
+  // Execution (CuratorRequestProcessor): claim order, the request to notify when done, dependencies still running
+  priority            Int  @default(0)
+  notifyId            Int?
+  pendingDependencies Int  @default(0)
+  /// Highest EventLog.id this flow has consumed or emitted; wait_event replays later events so none are lost.
+  eventCursor         Int?
 
   lockedBy       String?
   lockedAt       DateTime?
@@ -326,6 +339,7 @@ model Request {
   @@index([conversationId, status])
   @@index([conversationId, updatedAt])
   @@index([parentId])
+  @@index([notifyId])
 }
 
 
@@ -487,4 +501,68 @@ model DslSchema {
   @@unique([projectId, name])
   @@index([existent])
   @@index([projectId])
+}
+
+// Engine tables, in sync with curator/prisma-postgres/schema.prisma
+
+/// Per-conversation state log: the `__state.*` events that `Conversation.metadata` is folded from (compacted when a
+/// conversation finishes). Dispatched events are in BusEvent.
+model EventLog {
+  id             Int      @id @default(autoincrement())
+  conversationId Int
+  eventName      String
+  payload        Json?
+  target         String?
+  source         Int?
+  createdAt      DateTime @default(now())
+
+  @@index([conversationId, eventName, id])
+}
+
+/// Every dispatched event of a conversation (the mailbox behind lossless wait_event; `Request.eventCursor` points
+/// at its ids; agents' `history_events` read it). Retired by age (default 30 days): day partitions on
+/// Postgres/MariaDB, so no foreign keys and the time column in the primary key.
+model BusEvent {
+  id             Int      @default(autoincrement())
+  conversationId Int
+  eventName      String
+  payload        Json?
+  target         String?
+  source         Int?
+  createdAt      DateTime @default(now())
+
+  @@id([id, createdAt])
+  @@index([conversationId, eventName, id])
+  @@index([createdAt])
+}
+
+/// Which worker runs a conversation now (docs/DISTRIBUTED_STORAGE_PLAN.md, Phase 4). Held while that worker has
+/// requests of the conversation in flight, renewed every poll tick, free for any worker once `leaseUntil` passes.
+model ConversationLease {
+  conversationId Int      @id
+  owner          String
+  leaseUntil     DateTime
+  updatedAt      DateTime @updatedAt
+
+  @@index([owner])
+}
+
+/// Finished-step trace (docs/DISTRIBUTED_STORAGE_PLAN.md, Phase 5): one row per finished Request, written in
+/// batches. Observability only, never read by the engine. No foreign keys and the time column in the primary key,
+/// so it can be partitioned by time and retired by dropping partitions.
+model StepTrace {
+  id             Int       @default(autoincrement())
+  createdAt      DateTime  @default(now())
+  conversationId Int
+  requestId      Int
+  projectId      String?
+  nodeType       String?
+  status         String
+  output         String?
+  startedAt      DateTime?
+  worker         String?
+
+  @@id([id, createdAt])
+  @@index([conversationId, createdAt])
+  @@index([requestId])
 }

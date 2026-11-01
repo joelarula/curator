@@ -19,7 +19,10 @@ export interface PartitionSpec {
   column: string;
 }
 
-export const PARTITIONED_TABLES: readonly PartitionSpec[] = [{ table: 'StepTrace', column: 'createdAt' }];
+export const PARTITIONED_TABLES: readonly PartitionSpec[] = [
+  { table: 'StepTrace', column: 'createdAt' },
+  { table: 'BusEvent', column: 'createdAt' },
+];
 
 export interface PartitionOptions {
   /** Days kept: partitions whose day ended more than this many days ago are dropped. */
