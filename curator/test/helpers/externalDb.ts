@@ -39,6 +39,12 @@ async function emptyRuntimeTables(prisma: any): Promise<void> {
   await prisma.stepTrace.deleteMany({});
 }
 
+/** Connection URL of this process's test database on `db` (e.g. for a LISTEN connection). */
+export async function externalDatabaseUrl(db: ExternalDatabase): Promise<string> {
+  await clientFor(db);
+  return (await databases.get(db.name)!).url;
+}
+
 /** The harness `TestEnv` on this process's test database: emptied runtime tables, a tester with the admin role, fake tools. */
 export async function externalEnv(
   db: ExternalDatabase,

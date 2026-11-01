@@ -18,6 +18,7 @@ import { recordDeadLetter, TERMINAL_STATUSES } from './DeadLetters.js';
 import { clearRequestContexts, completedChildrenWithContext, sweepCompletedContexts } from './Retention.js';
 import { PrismaStorageAdapter } from '../storage/PrismaStorageAdapter.js';
 import { StepTraceWriter, isControlNode, requestOutput, LATEST_RESPONSE } from './StepTrace.js';
+import { PostgresWakeChannel } from './WakeChannel.js';
 import { sqlDialect, type SqlDialect } from '../db/sqlDialect.js';
 import { AgentRoleService } from '../services/AgentRoleService.js';
 import { ApprovalService } from '../services/ApprovalService.js';
@@ -72,6 +73,18 @@ export interface CuratorRequestProcessorOptions {
    * `ttlMs`: rows older than this are deleted hourly (default 7 days, 0 keeps them). `false` turns it off.
    */
   stepTrace?: false | { prisma?: any; ttlMs?: number };
+  /**
+   * Cross-node wake-ups on Postgres (LISTEN/NOTIFY, see WakeChannel.ts): `announce()` notifies the other workers,
+   * and with `url` (a direct session connection, not PgBouncer in transaction mode) this worker listens and polls
+   * when another one announces work. On by default on Postgres (sending only without `url`); `false` turns it off.
+   */
+  wakeChannel?: false | { url?: string };
+  /**
+   * Adaptive polling: each idle tick (nothing claimed, nothing running) doubles the poll interval up to
+   * `maxIntervalMs` (default 10s, never below the start interval), but never past the next scheduled request; work
+   * and `wake()` reset it. `false`: a fixed interval.
+   */
+  idlePolling?: false | { maxIntervalMs?: number };
 }
 
 /** Registries the processor reads; `curatorEngine` by default. Plugin node types, services and systems are optional. */
@@ -192,6 +205,11 @@ export class CuratorRequestProcessor {
   private lastPruneAt = 0;
   private lastContextSweepAt = 0;
   private trace?: StepTraceWriter;
+  private wakeChannel?: PostgresWakeChannel;
+  private idlePolling: boolean;
+  private idleMaxIntervalMs: number;
+  private pollIntervalMs = 3000;
+  private idleStreak = 0;
   private traceTtlMs = 0;
   private lastTracePruneAt = 0;
   /** Request id -> resolved node type and start time while this worker executes it (req.ast is null in reference mode). */
@@ -234,6 +252,11 @@ export class CuratorRequestProcessor {
       this.trace = new StepTraceWriter(options.stepTrace?.prisma ?? this.prisma);
       this.traceTtlMs = options.stepTrace?.ttlMs ?? 7 * 24 * 60 * 60 * 1000;
     }
+    if (dialect === 'postgresql' && options.wakeChannel !== false) {
+      this.wakeChannel = new PostgresWakeChannel(this.prisma, this.workerId, () => this.wake(), options.wakeChannel?.url);
+    }
+    this.idlePolling = options.idlePolling !== false;
+    this.idleMaxIntervalMs = (options.idlePolling || undefined)?.maxIntervalMs ?? 10_000;
     this.astStorage = options.astStorage ?? 'reference';
     this.maxCallDepth = options.maxCallDepth ?? 16;
     this.engine = options.engine ?? curatorEngine;
@@ -532,11 +555,49 @@ export class CuratorRequestProcessor {
     await this.syncToolsToDb();
     await this.syncAgentsToDb();
     logger.debug(`[CuratorRequestProcessor] Starting worker ${this.workerId} with ${intervalMs}ms interval...`);
-    this.timer = setInterval(() => this.pollRequests(), intervalMs);
-    if ((this.timer as any)?.unref) {
-      (this.timer as any).unref();
-    }
+    this.pollIntervalMs = intervalMs;
+    this.idleStreak = 0;
+    this.wakeChannel?.start();
+    this.schedulePoll(intervalMs);
     this.pollRequests();
+  }
+
+  /** The one pending poll timer: replaces any earlier one. */
+  private schedulePoll(delayMs: number) {
+    if (this.isStopped) return;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.pollRequests(), delayMs);
+    this.timer.unref?.();
+  }
+
+  /**
+   * Delay until the next poll: the start interval while there is work; when idle it doubles per tick up to the
+   * idle maximum, but never past the next scheduled request.
+   */
+  private async nextPollDelay(claimed: number): Promise<number> {
+    const base = this.pollIntervalMs;
+    if (!this.idlePolling || claimed > 0 || this.activeTasks > 0) {
+      this.idleStreak = 0;
+      return base;
+    }
+    this.idleStreak = Math.min(this.idleStreak + 1, 16);
+    const backoff = Math.min(base * 2 ** this.idleStreak, Math.max(base, this.idleMaxIntervalMs));
+    if (backoff <= base) return base;
+    try {
+      const next = await this.prisma.request.findFirst({
+        where: {
+          status: 'NEW',
+          scheduledAt: { gt: new Date(this.clock()) },
+          ...(this.conversationScope ? { conversationId: { in: [...this.conversationScope] } } : {}),
+        },
+        orderBy: { scheduledAt: 'asc' },
+        select: { scheduledAt: true },
+      });
+      if (next?.scheduledAt) return Math.min(backoff, Math.max(base, new Date(next.scheduledAt).getTime() - this.clock()));
+    } catch (_) {
+      return base;
+    }
+    return backoff;
   }
 
   private async syncToolsToDb() {
@@ -787,8 +848,9 @@ export class CuratorRequestProcessor {
 
   public stop() {
     this.isStopped = true;
+    void this.wakeChannel?.close();
     if (this.timer) {
-      clearInterval(this.timer);
+      clearTimeout(this.timer);
       this.timer = null;
       logger.debug(`[CuratorRequestProcessor] Worker ${this.workerId} stopped.`);
     }
@@ -942,6 +1004,7 @@ export class CuratorRequestProcessor {
     if (this.isStopped || !this.timer) return;
     if (this.isPolling) return;
     this.isPolling = true;
+    let claimed = 0;
     try {
       if (Date.now() < this.backoffUntil) {
         return;
@@ -962,6 +1025,7 @@ export class CuratorRequestProcessor {
         now: new Date(this.clock()),
         conversationIds: this.conversationScope ? [...this.conversationScope] : undefined,
       });
+      claimed = lockedRequests.length;
       if (lockedRequests.length === 0) return;
 
       // 4. Dispatch tasks asynchronously within safe concurrency limits
@@ -976,6 +1040,7 @@ export class CuratorRequestProcessor {
         logger.error('[CuratorRequestProcessor] Error polling requests:', error);
       }
     } finally {
+      this.schedulePoll(await this.nextPollDelay(claimed));
       this.isPolling = false;
       if (this.wakePending) {
         this.wakePending = false;
@@ -989,12 +1054,22 @@ export class CuratorRequestProcessor {
    * submitted in this process. The interval stays the fallback for scheduled and cross-process work.
    */
   public wake(): void {
+    this.idleStreak = 0;
     if (this.isStopped || !this.timer) return;
     if (this.isPolling) {
       this.wakePending = true;
       return;
     }
     setImmediate(() => this.pollRequests());
+  }
+
+  /**
+   * `wake()` plus a hint to the other workers on the database (Postgres NOTIFY): call after work arrived from
+   * outside its conversation's owner (an event, an API trigger, a resume), which may hold that conversation's lease.
+   */
+  public announce(): void {
+    this.wake();
+    this.wakeChannel?.notify();
   }
 
   /**
@@ -1701,8 +1776,8 @@ export class CuratorRequestProcessor {
       };
     } finally {
       this.inflight.delete(created.id);
-      // Tools such as approvals can resume parked requests
-      this.wake();
+      // Tools such as approvals can resume parked requests, possibly of a conversation another worker owns
+      this.announce();
     }
   }
 
@@ -1735,8 +1810,8 @@ export class CuratorRequestProcessor {
       await this.failRequest(req, `Emit '${input.eventName}': ${err.message}`);
       throw err;
     } finally {
-      // Waits and subscriptions the event matched are runnable now
-      this.wake();
+      // Waits and subscriptions the event matched are runnable now, possibly on the worker owning their conversation
+      this.announce();
     }
   }
 

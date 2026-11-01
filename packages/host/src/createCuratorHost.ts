@@ -145,8 +145,11 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
   };
   // Step trace goes to the configured database: never kept in a memory database, nothing at all when 'ephemeral'
   const stepTrace = durability === 'ephemeral' ? false : durablePrisma ? { prisma: durablePrisma } : undefined;
-  const processor = new (CuratorRequestProcessor as any)(prisma, { ...processorOptions, stepTrace });
-  const durableProcessor = durablePrisma ? new (CuratorRequestProcessor as any)(durablePrisma, processorOptions) : undefined;
+  // Cross-node wake-ups (Postgres only; processors on other databases ignore it): LISTEN on the configured URL
+  const postgresUrl = explicitDbUrl && /^postgres(ql)?:\/\//.test(explicitDbUrl) ? explicitDbUrl : undefined;
+  const wakeChannel = postgresUrl ? { url: postgresUrl } : undefined;
+  const processor = new (CuratorRequestProcessor as any)(prisma, { ...processorOptions, stepTrace, wakeChannel });
+  const durableProcessor = durablePrisma ? new (CuratorRequestProcessor as any)(durablePrisma, { ...processorOptions, wakeChannel }) : undefined;
   const announceMoves = (moved: Array<{ conversationId: number }>) => {
     for (const m of moved) events.broadcast('conversation_checkpointed', { conversationId: m.conversationId });
     events.broadcast('database_change', { tables: ['requests', 'responses'] });
@@ -400,7 +403,7 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
       });
 
       events.broadcast('request_start', { requestId: request.id, agent: agentName });
-      processorForDb(db).wake();
+      processorForDb(db).announce();
       return request;
     },
 
@@ -421,7 +424,7 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
         data: { status: 'NEW', lockedBy: null, lockedAt: null },
       });
       events.broadcast('request_resumed', { requestId: id });
-      processorForDb(db).wake();
+      processorForDb(db).announce();
       return updated;
     },
 

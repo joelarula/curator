@@ -26,11 +26,12 @@ curatorEngine.registerPlugin({
 } as any);
 
 const quiet = () => {};
+const intervalMs = Number(process.env.SMOKE_INTERVAL_MS ?? 100);
 const host = await createCuratorHost({
   name: 'smoke',
   curatorDb: { url: process.env.SMOKE_DB_URL },
   durability: (process.env.SMOKE_DURABILITY as any) ?? 'durable',
-  intervalMs: 100,
+  intervalMs,
   logLevel: 'warn',
   logger: { log: quiet, info: quiet, warn: (...a: any[]) => console.error(...a), error: (...a: any[]) => console.error(...a) },
   registerPlugins: () => curatorEngine,
@@ -38,7 +39,7 @@ const host = await createCuratorHost({
 host.events.onEvent((e: any) => {
   if (e.type === 'conversation_checkpointed') emit({ ev: 'checkpointed', conv: e.payload.conversationId });
 });
-await host.start(100);
+await host.start(intervalMs);
 emit({ ev: 'ready', userId: host.user.id, projectId: host.project.id });
 
 readline.createInterface({ input: process.stdin }).on('line', async line => {

@@ -103,10 +103,24 @@ A durability setting per script or conversation:
 Ephemeral work is lost on crash by definition, so it only suits work that can restart from the beginning.
 On clusters, this tier also cuts replication traffic (Galera certification, Postgres WAL shipping).
 
-### Phase 2: Claiming work (claims done; wake-ups open)
+### Phase 2: Claiming work (done)
 Done: `CuratorRequestProcessor` (polling and `step`) claims through `PrismaStorageAdapter.claimRows`, i.e. the
-statements below. Tested on SQLite, Postgres 17 and MariaDB 11.4 (single server; multi-node run still open). Open:
-`LISTEN/NOTIFY` and adaptive polling (both only pay off with several nodes, so they come with that run).
+statements below. Tested on SQLite, Postgres 17 and MariaDB 11.4, and with two nodes.
+
+Wake-ups (done):
+- `wake()` stays local (after every task, a poll on this node). `announce()` also tells the other workers: it is
+  called where work arrives from outside its conversation's owner, i.e. `emitEventRequest`, `runToolRequest`
+  (approvals) and the host's `triggerAgent` / `resumeRequest`. With leases, a conversation's own follow-up work runs
+  on its owner, so nothing else needs announcing.
+- Postgres: `announce()` sends `pg_notify('curator_wake', workerId)` through the processor's client; a processor with
+  `wakeChannel.url` (the host passes its curator URL) LISTENs on its own session connection
+  (`src/engine/WakeChannel.ts`, reconnects with backoff, polls once after connecting) and polls on every
+  notification from another worker. Not through PgBouncer in transaction mode (the LISTEN URL must be direct).
+- Adaptive polling (all databases): each idle tick doubles the interval up to `idlePolling.maxIntervalMs` (default
+  10s), never past the next scheduled request; work, `wake()` and notifications reset it.
+- Measured (two hosts, 3s interval, answer given on the node that does not own the conversation): Postgres resumes the
+  flow in 130-170ms; MariaDB, polling only, in ~6s (the owner's idle backoff). On MariaDB a shorter interval or a
+  lower `maxIntervalMs` trades database load for that latency.
 
 - Claim in one statement instead of a find followed by a claim update per row:
   - Postgres: `UPDATE "Request" SET … WHERE id IN (SELECT id … FOR UPDATE SKIP LOCKED LIMIT n) RETURNING *`.
@@ -200,7 +214,7 @@ Last run (2026-11-01, containers on 192.168.1.110): storage-adapter, conversatio
 both engines; a second provision of an existing database adds nothing.
 
 Two-node smoke run: `packages/host/scripts/two-node-smoke.ts` (`SMOKE_SERVER_URL=<server URL> npm --prefix packages/host
-run smoke:two-node -- [exclusive] [kill] [checkpoint]`, after building curator and host; options in the file header).
+run smoke:two-node -- [exclusive] [wake] [kill] [checkpoint]`, after building curator and host; options in the file header).
 Results (2026-11-01; two host processes on one test database, Postgres and MariaDB):
 - Exclusivity: 8 conversations x 4 independent requests on two durable hosts; every request ran once, both nodes
   worked, no conversation ran on two nodes at once.

@@ -3,10 +3,11 @@
 // and that a checkpoint host's conversation moves to the shared database and is resumed from another node.
 //
 //   npm --prefix curator run build && npm --prefix packages/host run build
-//   SMOKE_SERVER_URL=postgresql://curator_test:curator_test@<host>:55432/postgres node packages/host/scripts/two-node-smoke.ts [exclusive] [kill] [checkpoint]
+//   SMOKE_SERVER_URL=postgresql://curator_test:curator_test@<host>:55432/postgres node packages/host/scripts/two-node-smoke.ts [exclusive] [wake] [kill] [checkpoint]
 //
 // SMOKE_SERVER_URL is a server URL (the test containers of curator/docker-compose.test.yml); the run creates its own
-// curator_test_* database there and drops it at the end. SMOKE_ROUNDS repeats the checkpoint phase. SMOKE_AUDIT=1
+// curator_test_* database there and drops it at the end. SMOKE_ROUNDS repeats the checkpoint phase. SMOKE_INTERVAL_MS
+// sets the nodes' poll interval (default 100; e.g. 3000 shows the LISTEN/NOTIFY wake-ups on Postgres). SMOKE_AUDIT=1
 // (Postgres only) logs every Request status change with node and statement when a step runs twice.
 import { spawn, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
@@ -14,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { createTestDatabase } from '@curator/agent-server';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const phases = process.argv.slice(2).length ? process.argv.slice(2) : ['exclusive', 'kill', 'checkpoint'];
+const phases = process.argv.slice(2).length ? process.argv.slice(2) : ['exclusive', 'wake', 'kill', 'checkpoint'];
 const events: any[] = [];
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 const log = (...a: any[]) => console.log(`[${new Date().toISOString().slice(11, 23)}]`, ...a);
@@ -109,7 +110,7 @@ try {
     await prisma.$executeRawUnsafe(`CREATE TRIGGER req_audit_t AFTER INSERT OR UPDATE ON "Request" FOR EACH ROW EXECUTE FUNCTION req_audit_fn()`);
   }
 
-  if (phases.includes('exclusive') || phases.includes('kill')) {
+  if (phases.includes('exclusive') || phases.includes('wake') || phases.includes('kill')) {
     // Started one after the other: each host's startup seeds rows the next one reuses
     const a = startNode('A', db.url);
     const ready = await waitFor('A ready', () => find(e => e.node === 'A' && e.ev === 'ready'), 120_000);
@@ -140,6 +141,30 @@ try {
         for (const x of spans) for (const y of spans) if (x.node < y.node && x.from < y.to && y.from < x.to) overlaps++;
       }
       check('no conversation ran on two nodes at once', overlaps === 0, `${overlaps} overlapping spans`);
+    }
+
+    if (phases.includes('wake')) {
+      // The node that parked a conversation keeps its lease (idle leases last 30s), so an answer given on the other
+      // node can only run on the owner: it must be told (Postgres NOTIFY) or find it at its next poll
+      log('--- wake: answer a parked conversation on the node that does not own it');
+      const nodes: Record<string, SmokeNode> = { A: a, B: b };
+      const rounds = Number(process.env.SMOKE_ROUNDS ?? 1);
+      for (let round = 1; round <= rounds; round++) {
+        const conv = await conversation();
+        await queue(conv, {
+          type: 'Curator_Sequential',
+          name: 'ask',
+          subAgents: [step(conv, 'before', 50), { type: 'Curator_HumanInput', prompt: 'Pick', inputType: 'choices', choices: ['a', 'b'], as: 'selection' }, step(conv, 'after', 50)],
+        });
+        const before = await waitFor('before step', () => find(e => e.ev === 'start' && e.conv === conv && e.step === 'before'), 60_000);
+        for (let i = 0; i < 200 && (await prisma.request.count({ where: { conversationId: conv, status: 'WAITING_FOR_USER' } })) === 0; i++) await sleep(50);
+        const owner = before.node;
+        const other = owner === 'A' ? 'B' : 'A';
+        nodes[other].send({ cmd: 'emit', id: `wake${round}`, conv, event: 'curator:choice', payload: 'b' });
+        const emitted = await waitFor('answer', () => find(e => e.id === `wake${round}` && (e.ev === 'emitted' || e.ev === 'error')));
+        const after = await waitFor('after step', () => find(e => e.ev === 'start' && e.conv === conv && e.step === 'after'), 60_000).catch(() => null);
+        check('the answer resumed the flow', Boolean(after), after ? `${after.t - emitted.t}ms after the answer on ${other}, ran on ${after.node} (owner ${owner})` : 'not within 60s');
+      }
     }
 
     if (phases.includes('kill')) {
@@ -198,6 +223,7 @@ try {
       check('D accepted the answer', emitted.ev === 'emitted' && emitted.woken?.length > 0, emitted.ev === 'error' ? emitted.message : `woke ${emitted.woken}`);
       const after = await waitFor('after step', () => find(e => e.ev === 'end' && e.conv === conv && e.step === 'after'), 30_000).catch(() => null);
       const afterRuns = events.filter(e => e.ev === 'start' && e.conv === conv && e.step === 'after');
+      if (afterRuns[0]) log(`answer to resumed step: ${afterRuns[0].t - emitted.t}ms (on ${afterRuns[0].node})`);
       check('the rest ran once, durable', Boolean(after) && afterRuns.length === 1, afterRuns.map(e => e.node).join(',') || 'never');
       if (afterRuns.length > 1) await printAudit(conv);
     }
