@@ -297,6 +297,8 @@ export interface PokerWorkflowState {
   gameState?: PokerGameState;
   /** The seat that has to decide next and its legal choices; null when nobody has to (written by the reducer). */
   turn?: PokerTurn | null;
+  /** The table as every seat may see it, no hole cards or deck (written by the reducer). */
+  tableView?: string;
   /** The events the last reducer step reported; the flow that ran it emits them as they are. */
   events?: PokerTableEvent[];
   /** The run's table settings, handed to the isolated boot subroutine. */

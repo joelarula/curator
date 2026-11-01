@@ -65,12 +65,27 @@ export interface CreateBlueprintClientShellOptions {
 export function createBlueprintClientShell(
   opts: CreateBlueprintClientShellOptions = {}
 ): ClientShell {
+  // With an assistant, `say <text>` is a chat turn like free text (command verbs reach the agent);
+  // blueprint_speech stays callable by its own name.
+  const onChat = opts.onChat;
+  const sayCommand: ReplCommand[] = onChat
+    ? [{
+        name: 'say',
+        usage: '<text>',
+        description: 'Send text to the assistant as your message (e.g. say help)',
+        execute: (rawArgs) => (rawArgs.trim() ? onChat(rawArgs.trim()) : console.log('Usage: say <text>')),
+      }]
+    : [];
+  const tools = onChat
+    ? [asShellTool(calculateMetricTool, ['calc', 'calculate']), asShellTool(blueprintSpeechTool)]
+    : BLUEPRINT_WHITELISTED_TOOLS;
+
   return createClientShell({
     actorName: opts.actorName || 'User',
     channel: opts.channel,
     defaultToolName: 'blueprint_speech',
-    commands: [...BLUEPRINT_COMMANDS, ...(opts.extraCommands ?? [])],
-    tools: BLUEPRINT_WHITELISTED_TOOLS,
+    commands: [...BLUEPRINT_COMMANDS, ...sayCommand, ...(opts.extraCommands ?? [])],
+    tools,
     getState: opts.getState,
     auth: opts.auth,
     remoteTools: opts.remoteTools,
@@ -88,7 +103,7 @@ export function createBlueprintClientShell(
     },
     onToolCall: async (toolName: string, args: Record<string, any>, ctx?: ShellContext) => {
       // 1. Whitelist validation: the shell's tools plus the registered remote tools (the host still checks roles)
-      const allowed = ctx?.tools || BLUEPRINT_WHITELISTED_TOOLS;
+      const allowed = ctx?.tools || tools;
       const matched = allowed.find(
         (t) => (typeof t === 'string' ? t : t.name) === toolName
       );

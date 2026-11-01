@@ -269,6 +269,8 @@ export async function runPokerClientUi(
       // Awaiting human player action (non-blocking by default)
       if (type === PokerEvent.AWAITING_HUMAN_ACTION) {
         const rawChoices = normalizeChoices(payload?.choices);
+        // The event carries only gameState; the turn's choices follow as curator:choices
+        if (rawChoices.length === 0) return;
         shell.setChoices(rawChoices, {
           blocking: Boolean(payload?.blocking),
           as: payload?.as || PokerClientConstant.ACTION_CONTEXT_KEY,

@@ -556,6 +556,26 @@ CREATE TABLE `StepTrace` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
+CREATE TABLE `LlmCall` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `conversationId` INTEGER NOT NULL,
+    `requestId` INTEGER NOT NULL,
+    `projectId` VARCHAR(191) NULL,
+    `turn` VARCHAR(191) NOT NULL,
+    `provider` VARCHAR(191) NULL,
+    `model` VARCHAR(191) NULL,
+    `request` JSON NOT NULL,
+    `response` JSON NULL,
+    `error` TEXT NULL,
+    `ms` INTEGER NULL,
+
+    INDEX `LlmCall_conversationId_createdAt_idx`(`conversationId`, `createdAt`),
+    INDEX `LlmCall_requestId_idx`(`requestId`),
+    PRIMARY KEY (`id`, `createdAt`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
 CREATE TABLE `_RequestResources` (
     `A` INTEGER NOT NULL,
     `B` INTEGER NOT NULL,

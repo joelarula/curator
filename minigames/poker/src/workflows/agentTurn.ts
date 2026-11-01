@@ -81,6 +81,7 @@ export const POKER_AGENT_PROTOCOL = [
   "Analyze your hole cards, board texture, pot odds, cost to call, and opponent styles.",
   "- You are encouraged to add a short in-character sentence or banter in 'speech' along with your action; stay silent when your persona would.",
   "- Include your private strategic reasoning in 'innerMonologue'.",
+  "- Never reveal or hint at your own hole cards in 'speech'; they stay in 'innerMonologue'.",
 ].join('\n');
 
 /**
@@ -107,7 +108,10 @@ export const SEAT_HISTORY_EVENTS = [PokerEvent.ACTION_TAKEN, PokerEvent.SPEECH, 
 export const seatPersona = (): string =>
   `You are ${actor.name.optional()}, an autonomous Texas Hold'em poker agent. ${actor.instruction.optional()}`;
 
-/** What the seat (`$params.actor`) sees: its cards and stack, the board, the pot and the whole table. */
+/**
+ * What the seat (`$params.actor`) sees: its cards and stack, the board, the pot and the public table view
+ * (never the raw game state, which holds every seat's hole cards and the deck).
+ */
 export const seatView = (): string[] => [
   `- Your Hole Cards: ${actor.holeCards.optional()}`,
   `- Community Board: ${gameState.board.optional()}`,
@@ -116,7 +120,7 @@ export const seatView = (): string[] => [
   `- Cost to Call: [chips] ${gameState.currentBet.subTemplate(actor.streetBet)} | Min Raise: [chips] ${gameState.minRaise.optional()}`,
   // The rules reject any action type not listed here (e.g. CALL when only ALL_IN covers the bet)
   `- Your Legal Choices (answer with one of these action types): ${state.turn.choices.optional()}`,
-  `- Table: ${gameState.optional()}`,
+  `- Table:\n${state.tableView.optional()}`,
 ];
 
 /**

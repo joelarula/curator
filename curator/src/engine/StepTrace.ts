@@ -60,21 +60,26 @@ export interface StepTraceRecord {
 const MAX_BUFFER = 500;
 
 /**
- * Buffers trace rows and writes them with one `createMany` per flush (each poll tick, and when the buffer is full).
- * Trace is observability: rows still buffered when a process dies are lost, and a failed write is logged and dropped.
+ * Buffers rows of an append-only, time-partitioned table (db/partitions.ts) and writes them with one `createMany`
+ * per flush (each poll tick, and when the buffer is full). Observability only: rows still buffered when a process
+ * dies are lost, and a failed write is logged and dropped.
  */
-export class StepTraceWriter {
-  private buffer: StepTraceRecord[] = [];
+export class BatchTraceWriter<T> {
+  private buffer: T[] = [];
   private flushing: Promise<void> = Promise.resolve();
+  private readonly model: string;
 
-  constructor(private readonly prisma: any) {}
-
-  /** False for clients without the StepTrace model (test doubles). */
-  get enabled(): boolean {
-    return Boolean(this.prisma?.stepTrace);
+  /** `table`: the Prisma model name (e.g. 'StepTrace'), also its PARTITIONED_TABLES entry. */
+  constructor(protected readonly prisma: any, private readonly table: string) {
+    this.model = table.charAt(0).toLowerCase() + table.slice(1);
   }
 
-  record(row: StepTraceRecord): void {
+  /** False for clients without the model (test doubles). */
+  get enabled(): boolean {
+    return Boolean(this.prisma?.[this.model]);
+  }
+
+  record(row: T): void {
     if (!this.enabled) return;
     this.buffer.push(row);
     if (this.buffer.length >= MAX_BUFFER) void this.flush();
@@ -87,9 +92,9 @@ export class StepTraceWriter {
       const rows = this.buffer;
       this.buffer = [];
       try {
-        await this.prisma.stepTrace.createMany({ data: rows });
+        await this.prisma[this.model].createMany({ data: rows });
       } catch (err: any) {
-        logger.warn(`[StepTrace] Dropped ${rows.length} trace row(s): ${err?.message || err}`);
+        logger.warn(`[${this.table}] Dropped ${rows.length} trace row(s): ${err?.message || err}`);
       }
     });
     return this.flushing;
@@ -98,7 +103,7 @@ export class StepTraceWriter {
   /** Deletes rows older than `olderThan` in batches (for a table that is not partitioned, e.g. on SQLite). */
   async prune(olderThan: Date): Promise<number> {
     if (!this.enabled) return 0;
-    return deleteInChunks(this.prisma.stepTrace, { createdAt: { lt: olderThan } });
+    return deleteInChunks(this.prisma[this.model], { createdAt: { lt: olderThan } });
   }
 
   /**
@@ -107,6 +112,13 @@ export class StepTraceWriter {
    */
   async retire(ttlMs: number, now: Date): Promise<void> {
     if (!this.enabled) return;
-    for (const failure of await retireByAge(this.prisma, 'StepTrace', ttlMs, now)) logger.warn(`[StepTrace] Partition statement failed: ${failure}`);
+    for (const failure of await retireByAge(this.prisma, this.table, ttlMs, now)) logger.warn(`[${this.table}] Partition statement failed: ${failure}`);
+  }
+}
+
+/** Every finished request, as `StepTrace` rows. */
+export class StepTraceWriter extends BatchTraceWriter<StepTraceRecord> {
+  constructor(prisma: any) {
+    super(prisma, 'StepTrace');
   }
 }

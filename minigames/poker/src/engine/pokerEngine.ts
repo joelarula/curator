@@ -254,8 +254,6 @@ export function startPokerHand(rawState: PokerGameState): { gameState: PokerGame
   const handNumber = (rawState.handNumber || 0) + 1;
   const numPlayers = rawState.players.length;
 
-  const buttonIdx = (rawState.buttonIdx || 0) % numPlayers;
-
   const getNextSeated = (fromIdx: number): number => {
     for (let offset = 1; offset <= numPlayers; offset++) {
       const next = (fromIdx + offset) % numPlayers;
@@ -266,6 +264,10 @@ export function startPokerHand(rawState: PokerGameState): { gameState: PokerGame
     return fromIdx;
   };
 
+  // The button never rests on a busted seat
+  const startBtn = (rawState.buttonIdx || 0) % numPlayers;
+  const buttonIdx = rawState.players[startBtn]?.chips > 0 ? startBtn : getNextSeated(startBtn);
+
   const sbIdx = getNextSeated(buttonIdx);
   const bbIdx = getNextSeated(sbIdx);
   const utgIdx = getNextSeated(bbIdx);
@@ -274,7 +276,8 @@ export function startPokerHand(rawState: PokerGameState): { gameState: PokerGame
     ...p,
     streetBet: 0,
     totalHandBet: 0,
-    holeCards: [deck.pop()!, deck.pop()!],
+    // Busted seats sit the hand out: no cards dealt
+    holeCards: p.chips > 0 ? [deck.pop()!, deck.pop()!] : [],
     folded: p.chips <= 0,
     allIn: false,
     hasActedThisStreet: false,

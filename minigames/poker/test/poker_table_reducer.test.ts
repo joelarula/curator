@@ -34,6 +34,28 @@ test('boot seats the table without starting a hand', () => {
   assert.deepEqual(s.events, []);
 });
 
+test('tableView shows stacks and positions but no hole cards or deck', () => {
+  const s = start(headsUp([1000, 1000, 1000]));
+  const view = s.tableView;
+  for (const p of s.gameState.players) {
+    assert.match(view, new RegExp(`- ${p.name}`));
+    assert.ok(p.holeCards.length > 0);
+  }
+  const hidden = [...s.gameState.players.flatMap((p) => p.holeCards), ...s.gameState.deck];
+  for (const c of hidden) assert.ok(!view.includes(`${c.rank}${c.suit}`), `${c.rank}${c.suit} leaked`);
+  assert.match(view, /Pot: \d+ \| To match: \d+/);
+});
+
+test('a busted seat is dealt no cards and never holds the button', () => {
+  const booted = headsUp([1000, 0, 1000]);
+  const s = start({ ...booted, gameState: { ...booted.gameState, buttonIdx: 1 } });
+  const busted = s.gameState.players[1];
+  assert.deepEqual(busted.holeCards, []);
+  assert.equal(busted.folded, true);
+  assert.notEqual(s.gameState.buttonIdx, 1);
+  assert.match(s.tableView, /- P1: 0 chips, bet 0, out/);
+});
+
 test('join and leave seat and unseat players', () => {
   let s = headsUp([1000]);
   s = reduceTable(s.gameState, { type: PokerTableCommand.JOIN, player: { id: 'late', name: 'Late', chips: 500 } });

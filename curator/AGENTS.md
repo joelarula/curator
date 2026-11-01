@@ -9,3 +9,4 @@
 - CLI/REPL/API: `host.runTool` / `host.emitEvent` only. Scripts stored as immutable `ScriptVersion` (ref by `scriptId`+`scriptVersion`).
 - `src/cli.ts`: only `commander` at top level; `await import(...)` heavy deps inside `.action`. Run TS via `node src/cli.ts`, no tsx loader.
 - Rebuild after type/contract changes: `npm --prefix curator run build`.
+- Debugging prompts: what an agent actually sent to the LLM is in the LLM trace (`CURATOR_LLM_TRACE=<dir>` files, `CURATOR_LLM_TRACE_DB=1` -> `LlmCall` table), not in `Response` rows; see `docs/LLM_DEBUGGING.md`.

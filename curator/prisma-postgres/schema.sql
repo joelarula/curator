@@ -483,6 +483,24 @@ CREATE TABLE "StepTrace" (
 );
 
 -- CreateTable
+CREATE TABLE "LlmCall" (
+    "id" SERIAL NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "conversationId" INTEGER NOT NULL,
+    "requestId" INTEGER NOT NULL,
+    "projectId" TEXT,
+    "turn" TEXT NOT NULL,
+    "provider" TEXT,
+    "model" TEXT,
+    "request" JSONB NOT NULL,
+    "response" JSONB,
+    "error" TEXT,
+    "ms" INTEGER,
+
+    CONSTRAINT "LlmCall_pkey" PRIMARY KEY ("id","createdAt")
+);
+
+-- CreateTable
 CREATE TABLE "_RequestResources" (
     "A" INTEGER NOT NULL,
     "B" INTEGER NOT NULL,
@@ -734,6 +752,12 @@ CREATE INDEX "StepTrace_conversationId_createdAt_idx" ON "StepTrace"("conversati
 
 -- CreateIndex
 CREATE INDEX "StepTrace_requestId_idx" ON "StepTrace"("requestId");
+
+-- CreateIndex
+CREATE INDEX "LlmCall_conversationId_createdAt_idx" ON "LlmCall"("conversationId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "LlmCall_requestId_idx" ON "LlmCall"("requestId");
 
 -- CreateIndex
 CREATE INDEX "_RequestResources_B_index" ON "_RequestResources"("B");

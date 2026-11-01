@@ -25,24 +25,15 @@ async function main() {
     console.log(`🔄 [STATUS CHANGE] Request #${event.payload.requestId} -> ${event.payload.status}`);
   });
 
-  // 3. Seed and trigger workflows
+  // 3. Seed and run a tool
   console.log('\nSeeding database...');
   await host.seed();
 
-  console.log('\nTriggering "metric_calculator" agent...');
-  const req = await host.triggerAgent('metric_calculator');
+  console.log('\nRunning "calculate_metric" tool...');
+  const { requestId, status } = await host.runTool('calculate_metric', { baseValue: 50, multiplier: 3 });
+  console.log(`Request #${requestId} -> ${status}`);
 
-  // 4. Wait for workflow execution
-  console.log('Awaiting completion...');
-  for (let i = 0; i < 15; i++) {
-    const current = await host.prisma.request.findUnique({ where: { id: req.id } });
-    if (current?.status === 'COMPLETED' || current?.status === 'ERROR') {
-      break;
-    }
-    await new Promise((r) => setTimeout(r, 500));
-  }
-
-  // 5. Inspect rolling event logs
+  // 4. Inspect rolling event logs
   console.log('\n--- Recent Rolling Event Logs (Buffer: 200) ---');
   const recentLogs = host.events.getRecentLogs(5);
   for (const log of recentLogs) {

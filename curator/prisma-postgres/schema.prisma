@@ -650,3 +650,26 @@ model StepTrace {
   @@index([conversationId, createdAt])
   @@index([requestId])
 }
+
+/// What was actually sent to an LLM: one row per call, the request as sent and its response (debug trace, off unless
+/// enabled, see src/engine/llm/LlmTrace.ts). Append-only, written in batches and retired by age: day partitions on
+/// Postgres/MariaDB, so no foreign keys and the time column in the primary key.
+model LlmCall {
+  id             Int      @default(autoincrement())
+  createdAt      DateTime @default(now())
+  conversationId Int
+  requestId      Int
+  projectId      String?
+  /// Agentic loop iteration, or 'summary' (history compaction).
+  turn           String
+  provider       String?
+  model          String?
+  request        Json
+  response       Json?
+  error          String?
+  ms             Int?
+
+  @@id([id, createdAt])
+  @@index([conversationId, createdAt])
+  @@index([requestId])
+}

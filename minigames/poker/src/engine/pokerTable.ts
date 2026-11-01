@@ -8,6 +8,7 @@
  */
 import type { PlayerAction, PokerGameState, Street } from '../types.ts';
 import { PokerEvent, PokerHistoryMode, PokerStreet } from '../models/pokerContracts.ts';
+import { formatCards } from '../deck/cardDeck.ts';
 import {
   initPokerLobby,
   joinPokerLobby,
@@ -68,6 +69,8 @@ export type PokerTableEvent =
 export interface PokerTableStep {
   gameState: PokerGameState;
   turn: PokerTurn | null;
+  /** The table as every seat may see it (`publicTableView`); prompts use it instead of `gameState`. */
+  tableView: string;
   events: PokerTableEvent[];
 }
 
@@ -133,8 +136,27 @@ function turnOf(s: PokerGameState): PokerTurn | null {
   };
 }
 
+/**
+ * What every seat may know of the table, one line per seat: positions, stacks, street bets and status.
+ * Hole cards and the deck stay out; a seat's own cards reach its prompt separately.
+ */
+export function publicTableView(s: PokerGameState): string {
+  const board = s.board?.length ? formatCards(s.board) : '--';
+  const lines = [
+    `Hand #${s.handNumber} ${s.currentStreet} | Board: ${board} | Pot: ${s.pot} | To match: ${s.currentBet} | Min raise: ${s.minRaise}`,
+  ];
+  s.players.forEach((p, i) => {
+    const pos = [i === s.buttonIdx && 'D', i === s.sbIdx && 'SB', i === s.bbIdx && 'BB'].filter(Boolean).join('/');
+    const status = p.chips <= 0 && !p.holeCards?.length ? 'out' : p.folded ? 'folded' : p.allIn ? 'all-in' : i === s.activePlayerIdx && !s.handOver ? 'to act' : '';
+    lines.push(
+      `- ${p.name}${pos ? ` [${pos}]` : ''}: ${p.chips} chips, bet ${p.streetBet}${status ? `, ${status}` : ''}`
+    );
+  });
+  return lines.join('\n');
+}
+
 function step(gameState: PokerGameState, events: PokerTableEvent[]): PokerTableStep {
-  return { gameState, turn: turnOf(gameState), events };
+  return { gameState, turn: turnOf(gameState), tableView: publicTableView(gameState), events };
 }
 
 /** Applies one table command and advances the table to its next decision point. */

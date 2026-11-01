@@ -18,7 +18,8 @@ import { recordDeadLetter, TERMINAL_STATUSES } from './DeadLetters.js';
 import { clearRequestContexts, completedChildrenWithContext, sweepCompletedContexts, retireByAge } from './Retention.js';
 import { PrismaStorageAdapter } from '../storage/PrismaStorageAdapter.js';
 import type { RequestFilter, RequestPatch, RequestStatus } from '../storage/IStorageAdapter.js';
-import { StepTraceWriter, isControlNode } from './StepTrace.js';
+import { BatchTraceWriter, StepTraceWriter, isControlNode } from './StepTrace.js';
+import type { LlmCallRecord } from './llm/LlmTrace.js';
 import { PostgresWakeChannel } from './WakeChannel.js';
 import { sqlDialect, type SqlDialect } from '../db/sqlDialect.js';
 import { AgentRoleService } from '../services/AgentRoleService.js';
@@ -77,6 +78,13 @@ export interface CuratorRequestProcessorOptions {
    * `ttlMs`: rows older than this are deleted hourly (default 7 days, 0 keeps them). `false` turns it off.
    */
   stepTrace?: false | { prisma?: any; ttlMs?: number };
+  /**
+   * LLM call trace (debugging): every request sent to an LLM, with its response, is recorded in `LlmCall`, written
+   * in batches each poll tick (see llm/LlmTrace.ts). Off by default (on with `CURATOR_LLM_TRACE_DB=1`). `prisma`: the
+   * database to write it to (default: this processor's); `ttlMs`: rows older than this are retired hourly (default
+   * 7 days, 0 keeps them).
+   */
+  llmCalls?: boolean | { prisma?: any; ttlMs?: number };
   /**
    * Dispatched events (`BusEvent`: wait_event's mailbox, agents' `history_events`) older than `ttlMs` are retired
    * hourly, by dropping day partitions on Postgres/MariaDB (default 30 days; 0 keeps them).
@@ -227,6 +235,9 @@ export class CuratorRequestProcessor {
   private lastPruneAt = 0;
   private lastContextSweepAt = 0;
   private trace?: StepTraceWriter;
+  private llmCalls?: BatchTraceWriter<LlmCallRecord>;
+  private llmCallTtlMs = 0;
+  private lastLlmCallRetireAt = 0;
   private wakeChannel?: PostgresWakeChannel;
   private idlePolling: boolean;
   private idleMaxIntervalMs: number;
@@ -281,6 +292,12 @@ export class CuratorRequestProcessor {
     if (options.stepTrace !== false) {
       this.trace = new StepTraceWriter(options.stepTrace?.prisma ?? this.prisma);
       this.traceTtlMs = options.stepTrace?.ttlMs ?? 7 * 24 * 60 * 60 * 1000;
+    }
+    const llmCalls = options.llmCalls ?? /^(1|true)$/i.test(process.env.CURATOR_LLM_TRACE_DB ?? '');
+    if (llmCalls) {
+      const opts = typeof llmCalls === 'object' ? llmCalls : {};
+      this.llmCalls = new BatchTraceWriter<LlmCallRecord>(opts.prisma ?? this.prisma, 'LlmCall');
+      this.llmCallTtlMs = opts.ttlMs ?? 7 * 24 * 60 * 60 * 1000;
     }
     if (dialect === 'postgresql' && options.wakeChannel !== false) {
       this.wakeChannel = new PostgresWakeChannel(this.prisma, this.workerId, () => this.wake(), options.wakeChannel?.url);
@@ -365,7 +382,10 @@ export class CuratorRequestProcessor {
       },
       calls: { maxDepth: this.maxCallDepth, astStorage: this.astStorage },
       history: { compactor: (name) => (this.engine.historyCompactors ?? defaultHistoryCompactors).get(name) },
-      llm: { provider: (name, baseUrl) => LlmFactory.getProvider(name, baseUrl) },
+      llm: {
+        provider: (name, baseUrl) => LlmFactory.getProvider(name, baseUrl),
+        recordCall: this.llmCalls?.enabled ? (row) => this.llmCalls!.record(row) : undefined,
+      },
       store: this.store,
       prisma: this.prisma,
       now: () => this.clock(),
@@ -423,6 +443,7 @@ export class CuratorRequestProcessor {
           ]
         : []),
       { name: 'flushStepTrace', run: () => this.flushStepTrace() },
+      { name: 'flushLlmCalls', run: () => this.flushLlmCalls() },
       { name: 'retireBusEvents', run: () => this.retireBusEvents() },
       { name: 'pollScheduledAgents', run: () => this.pollScheduledAgents() },
       { name: 'expireApprovalWaits', run: () => this.expireApprovalWaits() },
@@ -1215,6 +1236,7 @@ export class CuratorRequestProcessor {
     // A stopped worker hands its conversations over at once instead of letting the leases lapse
     if (this.isStopped && this.leasesOn) await this.store.releaseLeases(this.workerId).catch(() => {});
     await this.trace?.flush();
+    await this.llmCalls?.flush();
   }
 
   /** Writes buffered trace rows (every tick) and retires rows past the TTL (hourly: partitions or deletes). */
@@ -1225,6 +1247,18 @@ export class CuratorRequestProcessor {
       this.lastTracePruneAt = Date.now();
       await this.trace.retire(this.traceTtlMs, new Date(this.clock())).catch((err: any) =>
         logger.warn(`[CuratorRequestProcessor] Retiring StepTrace rows failed: ${err?.message || err}`)
+      );
+    }
+  }
+
+  /** Writes buffered LLM call rows (every tick) and retires rows past the TTL (hourly). */
+  private async flushLlmCalls() {
+    if (!this.llmCalls) return;
+    await this.llmCalls.flush();
+    if (this.llmCallTtlMs > 0 && Date.now() - this.lastLlmCallRetireAt >= 60 * 60 * 1000) {
+      this.lastLlmCallRetireAt = Date.now();
+      await this.llmCalls.retire(this.llmCallTtlMs, new Date(this.clock())).catch((err: any) =>
+        logger.warn(`[CuratorRequestProcessor] Retiring LlmCall rows failed: ${err?.message || err}`)
       );
     }
   }

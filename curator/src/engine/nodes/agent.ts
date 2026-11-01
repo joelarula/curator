@@ -5,6 +5,7 @@ import type { CuratorAgentNode, CuratorInlineTool } from '../CuratorAst.js';
 import type { CuratorStructuredResponse } from '../CuratorContracts.js';
 import type { LlmMessage, LlmToolDefinition, LlmRequest } from '../llm/ILlmProvider.js';
 import { buildContext } from '../llm/ConversationFold.js';
+import { traceLlmCall } from '../llm/LlmTrace.js';
 import { toCamelCase } from '../builder/CuratorCoreBuilder.js';
 import { SecretService } from '../../services/SecretService.js';
 import {
@@ -60,6 +61,7 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
     };
     const provider = ctx.llm.provider(await resolveSetting(ast.provider), ast.baseUrl);
     const model = await resolveSetting(ast.model);
+    const traceKey = { conversationId: req.conversationId, requestId: req.id, projectId: req.projectId, provider: provider.providerName };
 
     // `tools` is either a fixed list or an expression (e.g. "$state.options") re-evaluated on every agent turn,
     // so the set of choices offered to the model can change with the conversation state.
@@ -134,9 +136,11 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
         ? await ctx.evaluateExpression(ast.history_compaction, req)
         : ast.history_compaction;
       const compacted = compaction
-        ? await compactHistory(compaction as HistoryCompactionSpec, turns, `${ast.agentName ?? req.agentId ?? 'agent'}|${profile}`, req, ctx, (text) =>
-            provider.generateContent({ model, systemPrompt: DEFAULT_SUMMARY_INSTRUCTION, messages: [{ role: 'user', content: text }], baseUrl: ast.baseUrl })
-              .then((r) => r.text || ''))
+        ? await compactHistory(compaction as HistoryCompactionSpec, turns, `${ast.agentName ?? req.agentId ?? 'agent'}|${profile}`, req, ctx, (text) => {
+            const summaryReq: LlmRequest = { model, systemPrompt: DEFAULT_SUMMARY_INSTRUCTION, messages: [{ role: 'user', content: text }], baseUrl: ast.baseUrl };
+            return traceLlmCall({ ...traceKey, turn: 'summary' }, summaryReq, () => provider.generateContent(summaryReq), ctx.llm.recordCall)
+              .then((r) => r.text || '');
+          })
         : turns.flatMap((t) => t.messages);
       // Parked until the summarizer agent answers; this node runs again with its summary.
       if (!compacted) return;
@@ -174,7 +178,7 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
         baseUrl: ast.baseUrl
       };
 
-      const response = await provider.generateContent(llmReq);
+      const response = await traceLlmCall({ ...traceKey, turn: iterations }, llmReq, () => provider.generateContent(llmReq), ctx.llm.recordCall);
 
       // If model returned no tool calls, it's a final answer
       if (!response.toolCalls || response.toolCalls.length === 0) {

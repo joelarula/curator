@@ -26,6 +26,8 @@ export function createAssistant(
   let conversationId = options.conversationId;
   /** History profile sent with each turn ('full' | 'answers'); undefined = the agent's default. */
   let historyProfile: string | undefined;
+  /** Prompt prefix naming the person typing: `name <email>`. */
+  const user = [host.user?.name, host.user?.email && `<${host.user.email}>`].filter(Boolean).join(' ') || host.user?.id || 'user';
 
   async function waitForReply(requestId: number, shown: () => AssistantReply['shown']): Promise<AssistantReply> {
     const deadline = Date.now() + timeoutMs;
@@ -70,7 +72,7 @@ export function createAssistant(
         if (event.type === 'agent:tool_result') displayed.push(event.payload);
       });
       try {
-        const context = historyProfile ? { message, history: historyProfile } : { message };
+        const context = historyProfile ? { message, user, history: historyProfile } : { message, user };
         const request = await host.triggerAgent(ASSISTANT_AGENT, context, { conversationId });
         const shown = () => displayed.filter((d) => d.requestId === request.id).map(({ tool, display }) => ({ tool, display }));
         return await waitForReply(request.id, shown);

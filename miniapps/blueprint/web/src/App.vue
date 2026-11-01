@@ -112,7 +112,7 @@
           <div style="display: flex; flex-direction: column; height: 350px; justify-content: space-between;">
             <div style="overflow-y: auto; flex: 1; padding: 0.5rem; background: rgba(0,0,0,0.3); border-radius: 0.5rem; margin-bottom: 1rem;">
               <div v-if="chatMessages.length === 0" style="color: var(--text-muted); font-size: 0.85rem; text-align: center; padding: 2rem;">
-                Trigger <code>dialog_playground</code> or type a message to start interactive turn loop.
+                Type a message to send it to the <code>web_assistant</code> agent.
               </div>
               <div
                 v-for="(msg, idx) in chatMessages"
@@ -446,7 +446,7 @@ async function sendChatMessage() {
   chatInput.value = '';
 
   try {
-    const res = await blueprintCuratorAdapter.triggerAgent('dialog_playground', { userInput: userText });
+    const res = await blueprintCuratorAdapter.triggerAgent('web_assistant', { message: userText, user: 'web user' });
     chatMessages.value.push({ sender: 'agent', text: `Agent acknowledged: "${userText}" (Task #${res.requestId})` });
   } catch (err: any) {
     chatMessages.value.push({ sender: 'system', text: `Error: ${err.message}` });
@@ -572,7 +572,7 @@ const presetQueries: Record<string, string> = {
   }
 }`,
   trigger_agent: `mutation TriggerAgent {
-  triggerAgent(name: "dialog_playground", context: "{\\"userInput\\": \\"Hello from GraphQL\\"}") {
+  triggerAgent(name: "web_assistant", context: "{\\"message\\": \\"Hello from GraphQL\\", \\"user\\": \\"graphql\\"}") {
     success
     requestId
     status

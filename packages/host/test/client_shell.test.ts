@@ -126,6 +126,19 @@ test('ClientShell: Free text input routes to miniapp speech tool', async () => {
   assert.equal(spokenText, 'Nice hand, Bob! Good bluff.');
 });
 
+test('ClientShell: A bare number with no pending choices is not sent as speech', async () => {
+  let spokenText: string | undefined;
+  const shell = createClientShell({
+    actorName: 'Alice',
+    onSpeech: async (text) => {
+      spokenText = text;
+    },
+  });
+
+  await shell.handleLine('1');
+  assert.equal(spokenText, undefined);
+});
+
 test('ClientShell: Asynchronous non-blocking turn choice execution via numeric or command input', async () => {
   let executedAction: any = null;
   const shell = createClientShell({

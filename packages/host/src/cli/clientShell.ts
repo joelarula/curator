@@ -909,7 +909,13 @@ export class ClientShell<TState = any, TAction = ToolAction> {
           }
         }
 
-        // D. Free text input (unmatched conversational speech) -> spawned as userSpeech parallel branch emitting user:speech
+        // D. A bare number with nothing pending is a stale selection (e.g. a repeated "1"), not speech
+        if (this.activeChoices.length === 0 && /^\d+$/.test(trimmed)) {
+          console.log('\x1b[90mNo pending choices; selection ignored.\x1b[0m');
+          return;
+        }
+
+        // E. Free text input (unmatched conversational speech) -> spawned as userSpeech parallel branch emitting user:speech
         await this.spawnSpeechBranch(trimmed);
       } else if (
         err instanceof CommanderError &&

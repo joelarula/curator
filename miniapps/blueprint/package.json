@@ -21,7 +21,6 @@
     "start": "node dist/server/index.js",
     "pretest": "npm run build:server",
     "test": "node --test test/*.test.ts",
-    "chat": "tsx examples/cli_client.ts",
     "cli:agent": "tsx src/cli.ts agent",
     "cli:chat": "tsx src/cli.ts chat",
     "example:tool": "tsx examples/direct_tool_call.ts"

@@ -31,7 +31,7 @@ export function renderCompactStatus(gameState?: PokerGameState, viewerId?: strin
     || gameState.players[0];
   if (!hero) return '';
   const heroCards = Array.isArray(hero.holeCards) ? hero.holeCards.map((c) => formatCard(c)).join(' ') : '[ -- ]';
-  const heroBest = board.length >= 3 && Array.isArray(hero.holeCards) ? evaluateBestHand(hero.holeCards, board).description : '';
+  const heroBest = board.length >= 3 && hero.holeCards?.length ? evaluateBestHand(hero.holeCards, board).description : '';
 
   const activeOpponents = gameState.players
     .filter((p) => p.id !== hero.id && !p.folded)
@@ -89,12 +89,15 @@ export function renderTable(gameState?: PokerGameState, showAllCards = false, vi
     if (isDealer) badge += `${yellow}[D]${reset} `;
     if (isSB) badge += `${cyan}[SB]${reset} `;
     if (isBB) badge += `${magenta}[BB]${reset} `;
-    if (p.folded) badge += `\x1b[90m[FOLDED]${reset} `;
+    // A busted seat sits the hand out with no cards
+    const isOut = p.chips <= 0 && !p.holeCards?.length;
+    if (isOut) badge += `\x1b[90m[OUT]${reset} `;
+    else if (p.folded) badge += `\x1b[90m[FOLDED]${reset} `;
     if (p.allIn) badge += `${bold}\x1b[31m[ALL-IN]${reset} `;
     if (isTurn) badge += `${green}▶ ACTIVE TURN ◀${reset} `;
 
-    let cardsStr = '[ ?  ? ]';
-    if (p.id === hero?.id || p.isHuman || showAllCards || gameState.handOver) {
+    let cardsStr = isOut ? '[ -- ]  ' : '[ ?  ? ]';
+    if (!isOut && (p.id === hero?.id || p.isHuman || showAllCards || gameState.handOver)) {
       cardsStr = p.holeCards.map((c) => formatCard(c)).join(' ');
     }
 

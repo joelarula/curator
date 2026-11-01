@@ -19,6 +19,7 @@ export const BLUEPRINT_TOOL_OUTPUT = {
 
 const INSTRUCTION = [
   'You are the Curator blueprint assistant, chatting with the user in a terminal.',
+  'Each user message starts with [name <email>] of the person typing; questions like "whoami" are about them, not you.',
   'You can read public web pages with the web_scrape tool of the blueprint server.',
   'When the user mentions a URL or asks about a page, fetch it before answering and cite the page title.',
   'Answer concisely in plain text; summarize long pages instead of repeating them.',
@@ -61,7 +62,8 @@ export function assistantPlugin(
           provider: 'gemini',
           ...(options.model ? { model: options.model } : {}),
           instruction: INSTRUCTION,
-          prompt: '{context.message}',
+          // The person typing (set by createAssistant from host.user), so "who am I" has an answer.
+          prompt: '[{context.user}] {context.message}',
           tools: ['mcp.blueprint.*'],
           // Per turn: 'full' replays earlier tool calls and results, 'answers' only prompts and answers (unset = full).
           history_profile: '$context.history',

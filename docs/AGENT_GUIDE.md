@@ -261,6 +261,7 @@ Agent rules:
 - Do not hardcode model paths where env variables already exist.
 - Keep sampling and endpoint assumptions explicit.
 - Verify endpoint compatibility before wiring UI assumptions.
+- To see the exact request an agent sent to a model (system prompt, messages, tools, response), use the LLM trace: `docs/LLM_DEBUGGING.md`.
 
 ## 8. Multi-module change policy
 
