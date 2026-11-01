@@ -95,6 +95,12 @@ export interface CuratorRequestProcessorOptions {
    * until that one has waited this long (then oldest first). Default 10s; 0: plain oldest-first.
    */
   newFlowMaxWaitMs?: number;
+  /**
+   * How long definitions read for every request are reused: agent lookups (and whether all agents are disabled)
+   * and tool access decisions (roles). A change to an agent or a role applies within this time. Default 5s; 0 reads
+   * them for every request.
+   */
+  definitionCacheMs?: number;
 }
 
 /** Registries the processor reads; `curatorEngine` by default. Plugin node types, services and systems are optional. */
@@ -224,12 +230,15 @@ export class CuratorRequestProcessor {
   private idleStreak = 0;
   private traceTtlMs = 0;
   private busEventTtlMs = 30 * 24 * 60 * 60 * 1000;
+  private definitionCacheMs = 5_000;
+  private definitions = new Map<string, { at: number; value: Promise<any> }>();
   private lastBusEventRetireAt = 0;
   private lastTracePruneAt = 0;
   /** When the maintenance systems last ran: polls woken by finished work skip them until an interval has passed. */
   private lastMaintenanceAt = 0;
   /** Request id -> resolved node type and start time while this worker executes it (req.ast is null in reference mode). */
-  private executing = new Map<number, { nodeType: string; startedAt: Date }>();
+  /** Requests this worker is executing: node type, start, and the content of the Response it last saved for one. */
+  private executing = new Map<number, { nodeType: string; startedAt: Date; lastResponse?: string }>();
   private clock: () => number;
   /** AST node type → handler. */
   private nodes = new NodeRegistry();
@@ -274,6 +283,7 @@ export class CuratorRequestProcessor {
     }
     this.idlePolling = options.idlePolling !== false;
     if (options.busEvents?.ttlMs != null) this.busEventTtlMs = options.busEvents.ttlMs;
+    if (options.definitionCacheMs != null) this.definitionCacheMs = options.definitionCacheMs;
     this.idleMaxIntervalMs = (options.idlePolling || undefined)?.maxIntervalMs ?? 10_000;
     this.astStorage = options.astStorage ?? 'reference';
     this.maxCallDepth = options.maxCallDepth ?? 16;
@@ -356,7 +366,7 @@ export class CuratorRequestProcessor {
       now: () => this.clock(),
       emit: (type, payload) => this.emit(type, payload),
       saveResponse: (req, content) => this.saveResponse(req, content),
-      completeRequest: (id, status, skipNotify) => this.completeRequest(id, status, skipNotify),
+      completeRequest: (id, status, skipNotify, data) => this.completeRequest(id, status, skipNotify, data),
       failRequest: (req, reason) => this.failRequest(req, reason),
       spawnChildAndParkParent: (req, childData, patch, status) => this.spawnChildAndParkParent(req, childData, patch, status),
       createRequest: (args) => this.createValidatedRequest(args),
@@ -1306,20 +1316,40 @@ export class CuratorRequestProcessor {
     }
   }
 
+  /** Forgets cached definitions (agents, tool access): call after changing agents or roles in this process. */
+  public invalidateDefinitions(): void {
+    this.definitions.clear();
+  }
+
+  /** A definition read (see `definitionCacheMs`), shared by every request for that long; failures are not kept. */
+  private definition<T>(key: string, load: () => Promise<T>): Promise<T> {
+    if (!(this.definitionCacheMs > 0)) return load();
+    const now = Date.now();
+    const hit = this.definitions.get(key);
+    if (hit && now - hit.at < this.definitionCacheMs) return hit.value;
+    if (this.definitions.size >= 2_000) {
+      for (const [k, v] of this.definitions) if (now - v.at >= this.definitionCacheMs) this.definitions.delete(k);
+      if (this.definitions.size >= 2_000) this.definitions.clear();
+    }
+    const value = load();
+    this.definitions.set(key, { at: now, value });
+    value.catch(() => this.definitions.delete(key));
+    return value;
+  }
+
   private async executeRequest(request: any) {
     logger.debug(`[CuratorRequestProcessor] Processing request ${request.id}`);
     this.emit('request_start', { requestId: request.id });
     try {
-      const req = await this.prisma.request.findUnique({
-        where: { id: request.id },
-        include: { user: true }
-      });
+      // A claimed row was read just after its claim; a bare `{ id }` is loaded
+      const req = 'status' in request && 'ast' in request ? request : await this.prisma.request.findUnique({ where: { id: request.id } });
       if (!req) throw new Error(`Request ${request.id} not found`);
 
       let agent: any = null;
       try {
-        const totalAgents = await this.prisma.agent.count();
-        const enabledCount = await this.prisma.agent.count({ where: { enabled: true } });
+        const [totalAgents, enabledCount] = await this.definition('agents:counts', () =>
+          Promise.all([this.prisma.agent.count(), this.prisma.agent.count({ where: { enabled: true } })])
+        );
         if (totalAgents > 0 && enabledCount === 0) {
           logger.debug(`[CuratorRequestProcessor] Cancelling request ${req.id}: all agents are disabled.`);
           await this.saveResponse(req, 'ERROR: cancelled, all agents are disabled');
@@ -1327,35 +1357,36 @@ export class CuratorRequestProcessor {
           return;
         }
 
+        const agentNamed = (idOrName: string) =>
+          this.definition(`agent:${idOrName}`, () => this.prisma.agent.findFirst({ where: { OR: [{ id: idOrName }, { name: idOrName }] } }));
         if (req.agentId) {
-          agent = await this.prisma.agent.findFirst({
-            where: { OR: [{ id: req.agentId }, { name: req.agentId }] }
-          });
+          agent = await agentNamed(req.agentId);
         }
         if (!agent && req.scriptId) {
-          agent = await this.prisma.agent.findFirst({ where: { scriptId: req.scriptId } });
+          agent = await this.definition(`agent:script:${req.scriptId}`, () => this.prisma.agent.findFirst({ where: { scriptId: req.scriptId } }));
         }
         if (!agent && req.conversationId) {
-          const relatedAgentReq = await this.prisma.request.findFirst({
-            where: { conversationId: req.conversationId, agentId: { not: null } },
-            select: { agentId: true }
-          });
-          if (relatedAgentReq?.agentId) {
-            agent = await this.prisma.agent.findFirst({
-              where: { OR: [{ id: relatedAgentReq.agentId }, { name: relatedAgentReq.agentId }] }
-            });
-          }
+          const relatedAgentId = await this.definition(`agent:conversation:${req.conversationId}`, async () =>
+            (await this.prisma.request.findFirst({
+              where: { conversationId: req.conversationId, agentId: { not: null } },
+              select: { agentId: true }
+            }))?.agentId ?? null
+          );
+          if (relatedAgentId) agent = await agentNamed(relatedAgentId);
         }
 
         if (!agent && req.ast?.name) {
-          agent = await this.prisma.agent.findFirst({
-            where: {
-              OR: [
-                { name: req.ast.name },
-                { name: { contains: req.ast.name.replace(/^(seq|pipeline)_scrape_/, '') } }
-              ]
-            }
-          });
+          const astName: string = req.ast.name;
+          agent = await this.definition(`agent:ast:${astName}`, () =>
+            this.prisma.agent.findFirst({
+              where: {
+                OR: [
+                  { name: astName },
+                  { name: { contains: astName.replace(/^(seq|pipeline)_scrape_/, '') } }
+                ]
+              }
+            })
+          );
         }
 
         if (agent && agent.enabled === false) {
@@ -1935,15 +1966,14 @@ export class CuratorRequestProcessor {
     const effectiveUserId = req.userId || req.context?.userId;
     const effectiveProjectId = req.projectId || req.context?.projectId;
     try {
-      return await AgentRoleService.validateActorToolAccess(
-        this.prisma,
-        {
-          agentId: effectiveAgentId ? String(effectiveAgentId) : undefined,
-          userId: effectiveUserId ? String(effectiveUserId) : undefined,
-          projectId: effectiveProjectId ? String(effectiveProjectId) : undefined,
-        },
-        toolName,
-        { name: toolName, requiredRole: (tool as any).requiredRole, accessLevel, requiresHumanApproval: requiresConfirmation }
+      const actor = {
+        agentId: effectiveAgentId ? String(effectiveAgentId) : undefined,
+        userId: effectiveUserId ? String(effectiveUserId) : undefined,
+        projectId: effectiveProjectId ? String(effectiveProjectId) : undefined,
+      };
+      const policy = { name: toolName, requiredRole: (tool as any).requiredRole, accessLevel, requiresHumanApproval: requiresConfirmation };
+      return await this.definition(`access:${JSON.stringify([actor, policy])}`, () =>
+        AgentRoleService.validateActorToolAccess(this.prisma, actor, toolName, policy)
       );
     } catch (roleErr) {
       logger.warn('[CuratorRequestProcessor] AgentRoleService check failed:', roleErr);
@@ -2278,6 +2308,8 @@ export class CuratorRequestProcessor {
           content,
         }
       });
+      const running = this.executing.get(req.id);
+      if (running) running.lastResponse = content;
     } catch (err: any) {
       // P2028: transaction already closed (common when an error rolled back the TX).
       // Log at warn level and continue — the error is already recorded elsewhere.
@@ -2440,28 +2472,42 @@ export class CuratorRequestProcessor {
    * Counts one finished dependency of a waiting request, as a compare-and-swap on the count (retried when a
    * concurrent completion changed it), so concurrent completions all count. Only the one taking the count from 1
    * to 0 wakes the target: no other write of a completion can un-claim it once a worker runs it.
+   * `known` is the target as the caller just read it: the first attempt uses it instead of reading, and writes
+   * `known.data` in the same statement (the target never becomes claimable before that data is written). If that
+   * attempt loses, the data is written on its own and the count retried.
    */
-  private async dependencyDone(targetId: number): Promise<void> {
+  private async dependencyDone(
+    targetId: number,
+    known?: { pendingDependencies?: number | null; status: string; data?: Record<string, any> }
+  ): Promise<void> {
     for (let attempt = 1; attempt <= 50; attempt++) {
-      const target = await this.prisma.request.findUnique({ where: { id: targetId }, select: { pendingDependencies: true, status: true } });
+      const target = attempt === 1 && known
+        ? known
+        : await this.prisma.request.findUnique({ where: { id: targetId }, select: { pendingDependencies: true, status: true } });
       const pending = target?.pendingDependencies ?? 0;
-      if (pending <= 0) return;
-      const wake = pending === 1 && (target.status === 'WAITING' || target.status === 'NEW');
+      const data = attempt === 1 ? known?.data : undefined;
+      if (pending <= 0) {
+        if (data) await this.prisma.request.update({ where: { id: targetId }, data });
+        return;
+      }
+      const wake = pending === 1 && (target!.status === 'WAITING' || target!.status === 'NEW');
       const counted = await this.prisma.request.updateMany({
         where: { id: targetId, pendingDependencies: pending, ...(wake ? { status: { in: ['WAITING', 'NEW'] } } : {}) },
-        data: wake ? { pendingDependencies: 0, status: 'NEW', lockedBy: null, lockedAt: null } : { pendingDependencies: pending - 1 },
+        data: { ...data, ...(wake ? { pendingDependencies: 0, status: 'NEW', lockedBy: null, lockedAt: null } : { pendingDependencies: pending - 1 }) },
       });
       if (counted.count > 0) return;
+      if (data) await this.prisma.request.update({ where: { id: targetId }, data });
     }
     logger.error(`[CuratorRequestProcessor] dependencyDone: could not count a finished dependency of req ${targetId}`);
   }
 
-  private async completeRequest(requestId: number, status: string = 'COMPLETED', skipNotify: boolean = false) {
+  /** Sets the final status (with `data`, e.g. `{ context }`, in the same update) and notifies the waiting request. */
+  private async completeRequest(requestId: number, status: string = 'COMPLETED', skipNotify: boolean = false, data?: Record<string, any>) {
     let req: any;
     try {
       req = await this.prisma.request.update({
         where: { id: requestId },
-        data: { status, lockedBy: null, lockedAt: null }
+        data: { ...data, status, lockedBy: null, lockedAt: null }
       });
     } catch (err: any) {
       if (err?.code === 'P2028' || err?.message?.includes('Transaction already closed')) {
@@ -2491,19 +2537,17 @@ export class CuratorRequestProcessor {
 
     if (req.notifyId && !skipNotify) {
       try {
+        // The Response this worker just saved (engine Responses are written only by saveResponse), else the latest stored
         const lastContent =
-          req.output ?? (await this.prisma.response.findMany({ where: { requestId }, orderBy: { createdAt: 'desc' }, take: 1 }))[0]?.content;
+          req.output ??
+          this.executing.get(requestId)?.lastResponse ??
+          (await this.prisma.response.findMany({ where: { requestId }, orderBy: { createdAt: 'desc' }, take: 1 }))[0]?.content;
 
         const targetReq = await this.prisma.request.findUnique({ where: { id: req.notifyId } });
         if (targetReq && !TERMINAL_STATUSES.has(targetReq.status)) {
           const updatedData: any = {};
 
           // --- CONVERSATION STATE MERGING ---
-          const conv = await this.prisma.conversation.findUnique({
-            where: { id: targetReq.conversationId }
-          });
-
-          let currentConvState = this.getConversationState(conv);
           let newUpdates: any = {};
 
           const agentKey = req.ast?.type === 'Curator_Agent' ? agentOutputKey(req.ast) : undefined;
@@ -2534,12 +2578,16 @@ export class CuratorRequestProcessor {
           const sourceScope = this.parseContext(req.context).__scope;
           const targetIsJoin = this.parseAst(targetReq.ast)?.type === 'Curator_Join';
           const shouldPersistInState = req.ast?.type !== 'Curator_Agent' && !req.ast?.ephemeral;
-          if (shouldPersistInState && Object.keys(newUpdates).length > 0) {
-            await this.writeState(targetReq.conversationId, sourceScope, newUpdates);
-          }
-          const afterConv = await this.prisma.conversation.findUnique({ where: { id: targetReq.conversationId } });
+          // The state the write produced; read only when nothing was written
+          const written =
+            shouldPersistInState && Object.keys(newUpdates).length > 0
+              ? await this.writeState(targetReq.conversationId, sourceScope, newUpdates)
+              : null;
+          const stateNow = written
+            ? written.state
+            : this.getConversationState(await this.prisma.conversation.findUnique({ where: { id: targetReq.conversationId } }));
           // A private flow's output stays in its scope; its Join sees only shared state.
-          const mergedState = this.stateView(this.getConversationState(afterConv), targetIsJoin ? null : sourceScope);
+          const mergedState = this.stateView(stateNow, targetIsJoin ? null : sourceScope);
 
           // Carry forward named tool output keys from source request context
           // (e.g. `discovery`, `episode`) so downstream nodes can reference them.
@@ -2571,13 +2619,8 @@ export class CuratorRequestProcessor {
           targetContext.state = mergedState;
           updatedData.context = targetContext;
 
-          await this.prisma.request.update({
-            where: { id: req.notifyId },
-            data: updatedData
-          });
-
-          // The dependency count goes down last: the target becomes claimable only once its context is written
-          await this.dependencyDone(req.notifyId);
+          // Context and dependency count in one write: the target becomes claimable only with its context written
+          await this.dependencyDone(req.notifyId, { ...targetReq, data: updatedData });
         }
       } catch (notifyErr: any) {
         if (notifyErr?.code === 'P2028' || notifyErr?.message?.includes('Transaction already closed')) {

@@ -135,7 +135,8 @@ export interface NodeContext extends ServiceAccess {
   now(): number;
   emit(type: string, payload: any): void;
   saveResponse(req: any, content: string): Promise<void>;
-  completeRequest(requestId: number, status?: string, skipNotify?: boolean): Promise<void>;
+  /** Sets the final status; `data` (e.g. `{ context }`) is written in the same update. */
+  completeRequest(requestId: number, status?: string, skipNotify?: boolean, data?: Record<string, any>): Promise<void>;
   /** Logs `reason`, records it as an ERROR Response and completes the Request as FAILED. */
   failRequest(req: any, reason: string): Promise<void>;
   /** Creates a validated child Request that notifies `req`, and parks `req` until it completes. */

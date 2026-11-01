@@ -124,6 +124,7 @@ test('project: ProjectRole limits which roles are valid inside that project', as
     assert.equal(ran.length, 0);
 
     await env.prisma.projectRole.create({ data: { projectId: 'p1', roleId: 'operator' } });
+    env.processor.invalidateDefinitions(); // access decisions are cached for definitionCacheMs
     const after = await submit(env, await guarded(), { userId: u.id, projectId: 'p1' });
     assert.equal(after.status, 'COMPLETED');
     assert.equal(ran.length, 1);

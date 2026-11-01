@@ -116,8 +116,8 @@ export const toolNode: NodeHandler<CuratorToolNode> = {
     result = SecretService.mask(result, hydratedSecrets);
 
     // Store tool output in req.context under a short name derived from the tool name.
-    // This is best-effort: if the DB update fails (e.g. P2028), we still proceed with
-    // saveResponse + completeRequest using the in-memory context.
+    // completeRequest writes it together with the status (one update).
+    let contextUpdate: Record<string, any> | undefined;
     if (rawOutput !== undefined) {
       const sanitizedOutput = typeof rawOutput === 'string'
         ? SecretService.mask(rawOutput, hydratedSecrets)
@@ -137,16 +137,8 @@ export const toolNode: NodeHandler<CuratorToolNode> = {
         Object.assign(updatedContext, sanitizedOutput);
       }
       req.context = updatedContext;
-      try {
-        await ctx.prisma.request.update({
-          where: { id: req.id },
-          data: { context: updatedContext }
-        });
-      } catch (ctxErr: any) {
-        // Non-fatal: context update failed. In-memory context is still correct for
-        // completeRequest → notifyId propagation within this same processing cycle.
-        logger.warn(`[CuratorRequestProcessor] Context update skipped for req ${req.id}: ${ctxErr.message}`);
-      }
+      // A copy: the ONETIME consumption below changes only the in-memory context
+      contextUpdate = { ...updatedContext };
     }
 
     // Consume ONETIME approval if used
@@ -159,6 +151,6 @@ export const toolNode: NodeHandler<CuratorToolNode> = {
 
     // The Response below is the audit record of this tool execution.
     await ctx.saveResponse(req, result);
-    await ctx.completeRequest(req.id, 'COMPLETED');
+    await ctx.completeRequest(req.id, 'COMPLETED', false, contextUpdate && { context: contextUpdate });
   },
 };

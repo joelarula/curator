@@ -12,6 +12,8 @@
  *  - `__state.rewind` { to }           state becomes whatever it was right after event `to` (compensating event)
  */
 
+import { sqlDialect, sqlTag, type SqlDialect } from '../db/sqlDialect.js';
+
 export const STATE_PATCH = '__state.patch';
 export const STATE_REWIND = '__state.rewind';
 export const STATE_EVENT_PREFIX = '__state.';
@@ -112,10 +114,31 @@ const stateEventsAfter = (db: any, conversationId: number, after: number, upTo?:
     orderBy: { id: 'asc' },
   });
 
-/** Brings the `Conversation.metadata` snapshot up to date with the log and returns it. */
-async function materializeIn(db: any, conversationId: number): Promise<StateSnapshot> {
-  const conv = await db.conversation.findUnique({ where: { id: conversationId } });
-  const snap = readSnapshot(conv?.metadata);
+/** The dialect of a client, or null for clients that are not Prisma (test doubles): those take no row locks. */
+const dialectOf = (prisma: any): SqlDialect | null => {
+  try {
+    return sqlDialect(prisma);
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Reads the conversation's snapshot, locking its row for the rest of the transaction on Postgres/MariaDB
+ * (`FOR UPDATE`; SQLite has a single writer). State writers of one conversation so run one after the other: each
+ * folds the events of the writers before it, and event ids follow the lock order.
+ */
+async function lockedSnapshot(db: any, conversationId: number, dialect: SqlDialect | null): Promise<StateSnapshot> {
+  if (!dialect || dialect === 'sqlite' || typeof db.$queryRawUnsafe !== 'function') {
+    return readSnapshot((await db.conversation.findUnique({ where: { id: conversationId } }))?.metadata);
+  }
+  const rows: any[] = await db.$queryRawUnsafe(...sqlTag(dialect)`SELECT "metadata" FROM "Conversation" WHERE "id" = ${conversationId} FOR UPDATE`);
+  return readSnapshot(rows[0]?.metadata);
+}
+
+/** Brings the `Conversation.metadata` snapshot up to date with the log and returns it (locks the row, see above). */
+async function materializeIn(db: any, conversationId: number, dialect: SqlDialect | null = null): Promise<StateSnapshot> {
+  const snap = await lockedSnapshot(db, conversationId, dialect);
   const events = await stateEventsAfter(db, conversationId, snap.seq);
   if (!events.length) return snap;
   const next = needsFullRefold(events, snap)
@@ -170,6 +193,7 @@ async function appendStateEvent(
   payload: any,
 ): Promise<{ seq: number; state: ConversationStateData }> {
   const projectors = projectorsByClient.get(prisma);
+  const dialect = dialectOf(prisma);
   return atomically(prisma, async (db) => {
     if (!db.eventLog?.create) {
       const conv = await db.conversation.findUnique({ where: { id: conversationId } });
@@ -181,13 +205,21 @@ async function appendStateEvent(
       });
       return { seq: next.seq, state: next.state };
     }
-    const previous = projectors?.size ? (await materializeIn(db, conversationId)).state : {};
-    const row = await db.eventLog.create({ data: { conversationId, eventName, payload } });
-    const { state } = await materializeIn(db, conversationId);
+    // Lock first, then append: the event gets its id after every earlier writer's (see lockedSnapshot)
+    const before = await materializeIn(db, conversationId, dialect);
+    const event = { id: 0, eventName, payload };
+    event.id = (await db.eventLog.create({ data: { conversationId, eventName, payload } })).id;
+    const { state } = needsFullRefold([event], before)
+      ? foldState(await stateEventsAfter(db, conversationId, 0))
+      : foldState([event], { from: before });
+    await db.conversation.update({
+      where: { id: conversationId },
+      data: { metadata: { ...state, [STATE_SEQ_KEY]: event.id } },
+    });
     for (const project of projectors ?? []) {
-      await project({ db, conversationId, event: { id: row.id, eventName, payload }, previous, state });
+      await project({ db, conversationId, event, previous: before.state, state });
     }
-    return { seq: row.id, state };
+    return { seq: event.id, state };
   });
 }
 
@@ -216,7 +248,9 @@ export async function stateAt(prisma: any, conversationId: number, upTo?: number
 
 /** Rebuilds the snapshot purely from the log (repair / verification). */
 export async function rebuildStateSnapshot(prisma: any, conversationId: number): Promise<StateSnapshot> {
+  const dialect = dialectOf(prisma);
   return atomically(prisma, async (db) => {
+    await lockedSnapshot(db, conversationId, dialect);
     const next = foldState(await stateEventsAfter(db, conversationId, 0));
     await db.conversation.update({
       where: { id: conversationId },
@@ -239,8 +273,9 @@ const COMPACT_CHUNK = 500;
  */
 export async function compactConversationLog(prisma: any, conversationId: number): Promise<number> {
   if (!prisma.eventLog?.deleteMany) return 0;
+  const dialect = dialectOf(prisma);
   const compactedId = await atomically(prisma, async (db) => {
-    const snap = await materializeIn(db, conversationId);
+    const snap = await materializeIn(db, conversationId, dialect);
     const row = await db.eventLog.create({ data: { conversationId, eventName: STATE_PATCH, payload: { set: snap.state } } });
     await db.conversation.update({
       where: { id: conversationId },
