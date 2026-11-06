@@ -1,8 +1,22 @@
 /**
+ * Universal Channel Interface aligned with Curator Core channel contract.
+ */
+export interface CuratorChannelLike {
+  send(type: string, payload?: any): Promise<void | any>;
+  on(handler: (event: any) => void): () => void;
+  close?(): Promise<void>;
+}
+
+/**
  * Universal Adapter Interface for the Curator Dev Console.
  * Decouples the console UI from the specific runtime environment (WASM, Express, etc.).
  */
 export interface CuratorConsoleAdapter {
+  // Channel & Message Contract (same as CLI Client / Curator Core)
+  channel?: CuratorChannelLike;
+  send?: (type: string, payload?: any) => Promise<void | any>;
+  on?: (handler: (event: any) => void) => () => void;
+
   // Engine & RequestProcessor Control
   togglePause?: () => Promise<boolean>;
   getProcessorState?: () => Promise<boolean>;
@@ -17,6 +31,7 @@ export interface CuratorConsoleAdapter {
   getDatabaseHealth?: () => Promise<CuratorDatabaseHealth>;
 
   requestGraphql: (query: string, variables?: any) => Promise<any>;
+  emitEvent?: (type: string, payload: any) => Promise<any>;
   triggerAgent?: (agentId: string, options?: any) => Promise<any>;
   toggleAgent?: (agentId: string, isActive: boolean) => Promise<any>;
   deleteAgent?: (agentId: string) => Promise<any>;

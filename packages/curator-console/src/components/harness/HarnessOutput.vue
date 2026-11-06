@@ -1,0 +1,351 @@
+<template>
+  <v-col cols="12" md="6" class="d-flex flex-column">
+    <v-card variant="outlined" rounded="lg" class="fill-height d-flex flex-column pa-0 border bg-surface" style="min-height: 280px;">
+      <!-- Output Subheader -->
+      <div class="d-flex align-center justify-space-between px-3 py-2 border-b bg-surface-variant">
+        <div class="d-flex align-center ga-2">
+          <span class="text-caption font-weight-bold text-high-emphasis">OUTPUT / RESPONSE</span>
+          <v-chip
+            v-if="status"
+            size="x-small"
+            :color="status === 'COMPLETED' ? 'success' : status === 'RUNNING' ? 'primary' : 'error'"
+            variant="flat"
+            class="font-weight-bold"
+          >
+            {{ status }}
+          </v-chip>
+          <v-chip v-if="duration !== null" size="x-small" variant="outlined">
+            ⏱ {{ duration }}ms
+          </v-chip>
+          <v-chip v-if="reqId" size="x-small" variant="text" class="text-caption">
+            #{{ reqId }}
+          </v-chip>
+        </div>
+
+        <v-btn-toggle
+          v-model="tab"
+          mandatory
+          density="compact"
+          variant="text"
+          color="primary"
+        >
+          <v-btn value="formatted" size="x-small">Formatted</v-btn>
+          <v-btn value="json" size="x-small">JSON / AST</v-btn>
+          <v-btn value="history" size="x-small">Turns ({{ historyList.length }})</v-btn>
+        </v-btn-toggle>
+      </div>
+
+      <!-- Output Body -->
+      <div class="pa-3 flex-grow-1 overflow-y-auto">
+        <!-- Loading State (Real-Time WebSocket Stream) -->
+        <div v-if="isExecuting" class="d-flex flex-column align-center justify-center py-8 text-center">
+          <v-progress-circular indeterminate color="primary" size="36" class="mb-3" />
+          <div class="text-subtitle-2 text-high-emphasis font-weight-medium">
+            Executing OpPrompt Turn...
+          </div>
+          <div v-if="stepMsg" class="text-caption text-primary mt-1 font-monospace">
+            {{ stepMsg }}
+          </div>
+          <div class="text-caption text-medium-emphasis mt-1">
+            Streaming via Curator Host Channel (/api/events)
+          </div>
+        </div>
+
+        <!-- Error Banner -->
+        <v-alert
+          v-else-if="execError"
+          type="error"
+          variant="tonal"
+          density="compact"
+          class="mb-3"
+          closable
+        >
+          <strong>Execution Error:</strong> {{ execError }}
+        </v-alert>
+
+        <!-- 1. Formatted View -->
+        <template v-else-if="tab === 'formatted'">
+          <div v-if="!outputText && historyList.length === 0" class="text-center py-8">
+            <div class="text-h4 mb-2 opacity-30">⚡</div>
+            <div class="text-body-2 text-medium-emphasis">OpPrompt response will stream here upon execution.</div>
+            <div class="text-caption text-disabled mt-1">Select an agent or tool on the left and click "Run OpPrompt".</div>
+          </div>
+
+          <div v-else class="formatted-output-view">
+            <!-- Latest Execution Target Info & Choice Chip -->
+            <div v-if="target" class="d-flex align-center justify-space-between mb-2 pb-2 border-b">
+              <div class="d-flex align-center ga-2 flex-wrap">
+                <span class="text-caption text-medium-emphasis">
+                  Target: <strong>{{ target }}</strong> ({{ mode }})
+                </span>
+                <v-chip
+                  v-if="choice"
+                  size="x-small"
+                  color="primary"
+                  variant="flat"
+                  class="font-weight-bold font-monospace"
+                >
+                  Choice: {{ formatChoiceDisplay(choice) }}
+                </v-chip>
+              </div>
+              <v-btn
+                size="x-small"
+                variant="text"
+                icon="mdi-content-copy"
+                title="Copy Output"
+                @click="copyToClipboard(outputText || '')"
+              />
+            </div>
+
+            <!-- Text / Markdown Output Container -->
+            <div class="mb-3">
+              <pre class="font-monospace text-caption pa-3 rounded bg-surface-variant text-primary overflow-auto text-wrap">{{ outputText || 'Turn completed with no text output.' }}</pre>
+            </div>
+
+            <!-- Sub-Responses if available -->
+            <div v-if="responsesList.length > 1" class="mt-2">
+              <div class="text-caption font-weight-bold text-medium-emphasis mb-1">Additional Responses:</div>
+              <v-card
+                v-for="(resp, i) in responsesList.slice(1)"
+                :key="i"
+                variant="outlined"
+                density="compact"
+                class="pa-2 mb-2 text-caption"
+              >
+                {{ resp.content }}
+              </v-card>
+            </div>
+
+            <!-- DYNAMIC AST WORKFLOW CHOICES AFTER RESULTS PANE -->
+            <HarnessChoices
+              v-if="choicesList.length > 0"
+              :choices="choicesList"
+              :prompt="choicePromptText || 'Workflow Action Required'"
+              :waiting-request-id="waitingReqId"
+              :display-mode="choiceDisplayMode"
+              :selected-radio="selectedRadio"
+              :selected-checkboxes="selectedChecks"
+              :selected-chip="selectedChip"
+              variant="tonal"
+              color="primary"
+              :show-footer-submit="true"
+              :loading="isExecuting"
+              class="mt-3"
+              @update:selected-radio="setRadio"
+              @update:selected-checkboxes="setChecks"
+              @update:selected-chip="setChip"
+              @update:display-mode="setDisplayMode"
+              @submit="submitChoiceAction"
+              @focus-prompt="focusPromptAction"
+            />
+          </div>
+        </template>
+
+        <!-- 2. JSON / AST View -->
+        <template v-else-if="tab === 'json'">
+          <div v-if="!rawPayload" class="text-center py-8">
+            <div class="text-caption text-medium-emphasis">No raw AST or JSON response payload to inspect yet.</div>
+          </div>
+          <pre v-else class="font-monospace text-caption pa-3 rounded bg-surface-variant text-cyan-accent-2 overflow-auto">{{ JSON.stringify(rawPayload, null, 2) }}</pre>
+        </template>
+
+        <!-- 3. Turn History View -->
+        <template v-else-if="tab === 'history'">
+          <div v-if="historyList.length === 0" class="text-center py-6 text-caption text-medium-emphasis">
+            No turn history recorded in this session.
+          </div>
+          <div v-else class="d-flex flex-column ga-2">
+            <v-card
+              v-for="(turn, idx) in historyList"
+              :key="turn.id || idx"
+              variant="outlined"
+              density="compact"
+              hover
+              class="pa-2 cursor-pointer transition-swing border rounded-lg"
+              @click="loadTurnAction(turn)"
+            >
+              <div class="d-flex align-center justify-space-between text-caption mb-1">
+                <div class="d-flex align-center ga-2">
+                  <span class="font-weight-bold text-primary">{{ turn.target }}</span>
+                  <v-chip v-if="turn.choice" size="x-small" color="primary" variant="tonal" class="font-monospace">
+                    {{ formatChoiceDisplay(turn.choice) }}
+                  </v-chip>
+                </div>
+                <span class="text-medium-emphasis">{{ new Date(turn.timestamp).toLocaleTimeString() }}</span>
+              </div>
+              <div class="text-caption text-truncate font-italic opacity-80 mb-1">
+                "{{ turn.prompt }}"
+              </div>
+              <div class="text-caption text-truncate text-medium-emphasis">
+                {{ turn.output }}
+              </div>
+            </v-card>
+          </div>
+        </template>
+      </div>
+    </v-card>
+  </v-col>
+</template>
+
+<script setup lang="ts">
+import { computed } from 'vue';
+import { useHarnessContext } from '../../context';
+import HarnessChoices, { type ChoiceItem } from './HarnessChoices.vue';
+
+export interface TurnHistoryEntry {
+  id: string;
+  target: string;
+  mode: string;
+  choice?: any;
+  prompt: string;
+  output: string;
+  timestamp: number;
+}
+
+interface Props {
+  executing?: boolean;
+  liveStepMessage?: string | null;
+  lastExecStatus?: string | null;
+  lastExecDuration?: number | null;
+  lastExecRequestId?: string | null;
+  lastExecTarget?: string | null;
+  lastExecMode?: string | null;
+  lastExecChoice?: any | null;
+  lastExecOutput?: string | null;
+  lastExecResponses?: any[];
+  lastExecRaw?: any | null;
+  lastExecError?: string | null;
+  outputTab?: 'formatted' | 'json' | 'history';
+  turnHistory?: TurnHistoryEntry[];
+  availableChoices?: ChoiceItem[];
+  workflowChoicePrompt?: string;
+  workflowWaitingRequestId?: string | null;
+  choicesDisplayMode?: 'radio' | 'checkbox' | 'chips';
+  selectedRadioChoice?: string | null;
+  selectedCheckboxes?: string[];
+  selectedChipChoice?: string | null;
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  executing: undefined,
+  liveStepMessage: undefined,
+  lastExecStatus: undefined,
+  lastExecDuration: undefined,
+  lastExecRequestId: undefined,
+  lastExecTarget: undefined,
+  lastExecMode: undefined,
+  lastExecChoice: undefined,
+  lastExecOutput: undefined,
+  lastExecResponses: undefined,
+  lastExecRaw: undefined,
+  lastExecError: undefined,
+  outputTab: undefined,
+  turnHistory: undefined,
+  availableChoices: undefined,
+  workflowChoicePrompt: '',
+  workflowWaitingRequestId: undefined,
+  choicesDisplayMode: undefined,
+  selectedRadioChoice: undefined,
+  selectedCheckboxes: undefined,
+  selectedChipChoice: undefined,
+});
+
+const emit = defineEmits<{
+  (e: 'update:outputTab', tab: 'formatted' | 'json' | 'history'): void;
+  (e: 'update:selectedRadioChoice', val: string | null): void;
+  (e: 'update:selectedCheckboxes', val: string[]): void;
+  (e: 'update:selectedChipChoice', val: string | null): void;
+  (e: 'update:choicesDisplayMode', mode: 'radio' | 'checkbox' | 'chips'): void;
+  (e: 'loadTurn', turn: any): void;
+  (e: 'submitChoice'): void;
+  (e: 'focusPrompt'): void;
+}>();
+
+const harness = useHarnessContext();
+
+// Execution & Output State
+const isExecuting = computed(() => props.executing ?? harness?.executing.value ?? false);
+const stepMsg = computed(() => props.liveStepMessage ?? harness?.liveStepMessage.value ?? null);
+const status = computed(() => props.lastExecStatus ?? harness?.lastExecStatus.value ?? null);
+const duration = computed(() => props.lastExecDuration ?? harness?.lastExecDuration.value ?? null);
+const reqId = computed(() => props.lastExecRequestId ?? harness?.lastExecRequestId.value ?? null);
+const target = computed(() => props.lastExecTarget ?? harness?.lastExecTarget.value ?? null);
+const mode = computed(() => props.lastExecMode ?? harness?.lastExecMode.value ?? null);
+const choice = computed(() => props.lastExecChoice ?? harness?.lastExecChoice.value ?? null);
+const outputText = computed(() => props.lastExecOutput ?? harness?.lastExecOutput.value ?? null);
+const responsesList = computed(() => props.lastExecResponses ?? harness?.lastExecResponses.value ?? []);
+const rawPayload = computed(() => props.lastExecRaw ?? harness?.lastExecRaw.value ?? null);
+const execError = computed(() => props.lastExecError ?? harness?.lastExecError.value ?? null);
+
+const tab = computed({
+  get: () => props.outputTab ?? harness?.outputTab.value ?? 'formatted',
+  set: (val) => {
+    if (harness) harness.outputTab.value = val;
+    emit('update:outputTab', val);
+  },
+});
+
+const historyList = computed(() => props.turnHistory ?? harness?.turnHistory.value ?? []);
+
+// Choices State
+const choicesList = computed(() => props.availableChoices ?? harness?.availableChoices.value ?? []);
+const choicePromptText = computed(() => props.workflowChoicePrompt ?? harness?.workflowChoicePrompt.value ?? '');
+const waitingReqId = computed(() => props.workflowWaitingRequestId ?? harness?.workflowWaitingRequestId.value ?? null);
+const choiceDisplayMode = computed(() => props.choicesDisplayMode ?? harness?.choicesDisplayMode.value ?? 'radio');
+const selectedRadio = computed(() => props.selectedRadioChoice ?? harness?.selectedRadioChoice.value ?? null);
+const selectedChecks = computed(() => props.selectedCheckboxes ?? harness?.selectedCheckboxes.value ?? []);
+const selectedChip = computed(() => props.selectedChipChoice ?? harness?.selectedChipChoice.value ?? null);
+
+function setRadio(val: string | null) {
+  if (harness) harness.selectedRadioChoice.value = val;
+  emit('update:selectedRadioChoice', val);
+}
+
+function setChecks(val: string[]) {
+  if (harness) harness.selectedCheckboxes.value = val;
+  emit('update:selectedCheckboxes', val);
+}
+
+function setChip(val: string | null) {
+  if (harness) harness.selectedChipChoice.value = val;
+  emit('update:selectedChipChoice', val);
+}
+
+function setDisplayMode(mode: 'radio' | 'checkbox' | 'chips') {
+  if (harness) harness.choicesDisplayMode.value = mode;
+  emit('update:choicesDisplayMode', mode);
+}
+
+function submitChoiceAction() {
+  if (harness?.submitChoice) harness.submitChoice();
+  else if (harness?.executeOpPrompt) harness.executeOpPrompt();
+  emit('submitChoice');
+}
+
+function focusPromptAction() {
+  if (harness?.focusPrompt) harness.focusPrompt();
+  emit('focusPrompt');
+}
+
+function loadTurnAction(turn: TurnHistoryEntry) {
+  if (harness?.loadTurn) harness.loadTurn(turn);
+  emit('loadTurn', turn);
+}
+
+function formatChoiceDisplay(c: any): string {
+  if (!c) return '';
+  if (Array.isArray(c)) return c.join(', ');
+  if (typeof c === 'object') return c.label || c.value || JSON.stringify(c);
+  return String(c).toUpperCase();
+}
+
+function copyToClipboard(text: string) {
+  navigator.clipboard?.writeText(text);
+}
+</script>
+
+<style scoped>
+.cursor-pointer {
+  cursor: pointer;
+}
+</style>

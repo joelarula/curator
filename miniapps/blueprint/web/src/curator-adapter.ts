@@ -9,6 +9,34 @@ export class BlueprintCuratorAdapter implements CuratorConsoleAdapter {
     this.initWebSocket();
   }
 
+  get channel(): CuratorConsoleAdapter {
+    return this;
+  }
+
+  /**
+   * Channel send: sends an event or message over the WebSocket channel
+   * aligned with Curator Core channel contract.
+   */
+  async send(type: string, payload?: any): Promise<void> {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(JSON.stringify({ type, payload }));
+      } catch (_) {}
+    } else {
+      await this.emitEvent(type, payload);
+    }
+  }
+
+  /**
+   * Channel on: registers a message event listener for outbound runtime events
+   * aligned with Curator Core channel contract.
+   */
+  on(handler: (event: any) => void): () => void {
+    return this.onProgress((type, payload) => {
+      handler({ type, payload });
+    });
+  }
+
   private initWebSocket() {
     if (typeof window === 'undefined') return;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -19,8 +47,15 @@ export class BlueprintCuratorAdapter implements CuratorConsoleAdapter {
       this.ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          this.progressListeners.forEach((cb) => cb(data.type || 'event', data.payload || data));
-          if (data.type?.includes('db:') || data.type?.includes('request:') || data.type?.includes('agent:')) {
+          const type = String(data.type || 'event');
+          const payload = data.payload || data;
+          this.progressListeners.forEach((cb) => cb(type, payload));
+          if (
+            type.includes('db') ||
+            type.includes('request') ||
+            type.includes('agent') ||
+            type.includes('change')
+          ) {
             this.dbChangeListeners.forEach((cb) =>
               cb({ tables: ['requests', 'responses', 'agents'], timestamp: Date.now() })
             );
@@ -47,6 +82,21 @@ export class BlueprintCuratorAdapter implements CuratorConsoleAdapter {
       throw new Error(json.errors[0].message);
     }
     return json.data;
+  }
+
+  async emitEvent(type: string, payload: any): Promise<any> {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(JSON.stringify({ type, payload }));
+      } catch (_) {}
+    }
+    try {
+      await this.requestGraphql(
+        `mutation Broadcast($type: String!, $payload: JSON) { broadcastEvent(type: $type, payload: $payload) }`,
+        { type, payload }
+      );
+    } catch (_) {}
+    return true;
   }
 
   async togglePause(): Promise<boolean> {

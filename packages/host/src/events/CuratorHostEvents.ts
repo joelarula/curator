@@ -199,6 +199,8 @@ export class CuratorHostEvents extends EventEmitter {
             if (table !== undefined && table !== null) {
               (ws as any).tableFilter = String(table);
             }
+          } else if (msg.type) {
+            this.broadcast(msg.type, msg.payload !== undefined ? msg.payload : msg);
           }
         } catch (_) {}
       });
