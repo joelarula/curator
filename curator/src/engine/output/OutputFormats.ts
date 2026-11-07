@@ -61,6 +61,48 @@ const mapStrings = (v: unknown, fn: (s: string) => string): unknown =>
 const MD_IMAGE = /!\[(?:\\.|[^\]\\\n])*\]\((?:\\.|[^()\\\s]|\([^()\s]*\))*(?:\s+"(?:\\.|[^"\\])*")?\)/g;
 const MD_LINK = /\[((?:\\.|[^\]\\\n])*)\]\((?:\\.|[^()\\\s]|\([^()\s]*\))*(?:\s+"(?:\\.|[^"\\])*")?\)/g;
 
+/** Escapes untrusted text for safe HTML interpolation (prevents XSS). */
+export function escapeHtml(unsafe: string): string {
+  if (!unsafe || typeof unsafe !== 'string') return '';
+  return unsafe
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/\//g, '&#x2F;');
+}
+
+/** Strips executable HTML/XSS vectors (<script>, <iframe>, javascript: URIs, inline on*= handlers). */
+export function stripUnsafeHtml(input: string): string {
+  if (!input || typeof input !== 'string') return '';
+  return input
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+    .replace(/\bon\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/javascript\s*:/gi, 'blocked-javascript:');
+}
+
+/** Escapes untrusted text as a single POSIX shell token (single-quoted). */
+export function escapeShellArg(arg: string): string {
+  const str = String(arg ?? '').replace(/\x00/g, '');
+  return `'${str.replace(/'/g, `'\\''`)}'`;
+}
+
+/** Escapes a SQL string literal (doubles single quotes and strips null bytes). */
+export function escapeSqlLiteral(val: string): string {
+  const str = String(val ?? '').replace(/\x00/g, '');
+  return `'${str.replace(/'/g, "''")}'`;
+}
+
+/** Validates and quotes a SQL identifier ([A-Za-z_][A-Za-z0-9_]*). */
+export function escapeSqlIdentifier(identifier: string): string {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(identifier)) {
+    throw new Error(`Unsafe SQL identifier rejected: '${identifier}'`);
+  }
+  return `"${identifier}"`;
+}
+
 /** Built-in formatters; plugins may add more or replace these by name. */
 export const BUILTIN_FORMATTERS: Record<string, CuratorFormatter> = {
   /** JSON text (strings stay as they are); `json:2` indents. */
@@ -90,6 +132,14 @@ export const BUILTIN_FORMATTERS: Record<string, CuratorFormatter> = {
   'strip-links': (v) => mapStrings(v, (s) => s.replace(MD_IMAGE, '').replace(MD_LINK, '$1')),
   /** `{path}` placeholders filled from the value: `template:{title} ({length} chars)`. */
   template: (v, arg) => String(arg ?? '').replace(/\{([^{}]+)\}/g, (_, p: string) => asText(getPath(v, p.trim()))),
+  /** Escapes HTML entities (`& < > " ' /`) in a string or an object's string fields. */
+  'escape-html': (v) => mapStrings(v, escapeHtml),
+  /** Strips active XSS vectors (`<script>`, `<iframe>`, `on*=`, `javascript:`) in a string or object's string fields. */
+  'strip-unsafe-html': (v) => mapStrings(v, stripUnsafeHtml),
+  /** Escapes a string or an object's string fields as POSIX shell single-quoted arguments. */
+  'escape-shell': (v) => mapStrings(v, escapeShellArg),
+  /** Escapes a string or an object's string fields as SQL literals. */
+  'escape-sql': (v) => mapStrings(v, escapeSqlLiteral),
 };
 
 /**

@@ -41,6 +41,7 @@ export * from './services/AuditService.js';
 export * from './services/ProjectScopeService.js';
 export * from './services/DefaultProjectService.js';
 export * from './services/SecretService.js';
+export * from './services/GuardrailService.js';
 export * from './db/sqliteProvisioner.js';
 export * from './db/mariadbProvisioner.js';
 export * from './db/postgresProvisioner.js';

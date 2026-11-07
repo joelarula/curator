@@ -6,6 +6,7 @@ import type { StateProjector } from './ConversationStateLog.js';
 import type { NodeHandler, ServiceBinding, MaintenanceSystem } from './nodes/NodeHandler.js';
 import type { CuratorFormatter, ToolOutputRules } from './output/OutputFormats.js';
 import type { CuratorHistoryCompactor } from './history/HistoryCompaction.js';
+import type { CuratorPluginGuardrails } from '../services/GuardrailService.js';
 
 export type JsonRecord = Record<string, unknown>;
 
@@ -131,6 +132,8 @@ export interface CuratorPluginDefinition {
   toolOutput?: ToolOutputRules;
   /** History compaction strategies agents pick with `history_compaction`; replaces a same-named one. */
   historyCompactors?: Record<string, CuratorHistoryCompactor>;
+  /** Pluggable ingress signatures, redaction rules, tool/endpoint policies, and guardrail providers. */
+  guardrails?: CuratorPluginGuardrails;
   /**
    * Default configuration, keyed by namespace (e.g. `{ poker: { talk: {...} } }`). Workflows read it as
    * `$config.<namespace>...`; values the host sets with `engine.setConfig` win over these defaults.
@@ -171,6 +174,7 @@ export type CuratorRequestOrigin = 'AST' | 'REPL' | 'CLI' | 'API' | 'MCP' | 'GRA
 export type CuratorResponseRecordType =
   | 'TOOL_RESULT'
   | 'TOOL_BLOCKED'
+  | 'GUARDRAIL_BLOCKED'
   | 'APPROVAL_REQUIRED'
   | 'APPROVAL_EXPIRED'
   | 'EVENT_EMITTED'
@@ -214,6 +218,7 @@ export interface CuratorStructuredResponse {
   ok?: boolean;
   tool?: string;
   reason?: string;
+  atlasTag?: string;
   roles?: string[];
   approvalScope?: string | null;
   event?: CuratorEventEmitResult;

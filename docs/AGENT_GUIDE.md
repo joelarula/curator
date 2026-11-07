@@ -158,6 +158,28 @@ MiniApps (`miniapps/*`) and MiniGames (`minigames/*`) must be developed as modul
 - **Index-Based Public Barrels**: Domain modules must provide curated public barrel files (`index.ts`). Internal files (e.g. `pokerContracts.ts`, `pokerEvents.ts`, `pokerContext.ts`) should be consumed through `models/index.ts` rather than fragmented deep relative paths.
 - **Lightweight Configuration Subpaths**: When CLI boot or configuration loading only requires environment variables or app settings, import exclusively from `@curator/host/config` to avoid loading Express, WebSockets, or heavy server dependencies.
 
+### 4.8 Runtime Guardrails, Application Boundaries & Least-Privilege IAM
+
+Curator Core (`@curator/agent-server`) enforces defense-in-depth across ingress, tool execution, egress, infrastructure, and secret management via `GuardrailService` (`curator/src/services/GuardrailService.ts`) and `SecretService` (`curator/src/services/SecretService.ts`).
+
+#### 1. Deterministic Ingress Filters & Prompt Injection Gate
+- **Schema Validation & Input Truncation**: `Curator_Agent` nodes validate `input_schema` via Ajv and pass all interpolated prompts through `GuardrailService.inspectPromptIngress` prior to model invocation, stripping control-character/bidirectional-override smuggling and truncating inputs exceeding `CURATOR_MAX_PROMPT_CHARS` (default `100,000`).
+- **Deterministic Regex & Delimiter Spoofing Filters**: Prompts containing model control delimiters (`<|im_start|>`, `[INST]`, `<<SYS>>`) or direct instruction-override patterns are blocked before reaching the LLM and tagged with MITRE ATLAS `AML.T0051`.
+- **Gateway Guardrail Providers**: External evaluation suites (Llama Guard, NeMo Guardrails, Promptfoo) integrate via `GuardrailService.registerProvider(provider)` or `CURATOR_GUARDRAIL_URL`.
+
+#### 2. Secure Agentic & MCP Tool Calling
+- **No Raw Text Execution for Agents**: Tools granting raw shell/eval/SQL execution (`eval`, `exec`, `shell`, `bash`, `powershell`, `cmd`, `raw_sql`, etc.) are automatically stripped from agent tool-calling and MCP plugins (`GuardrailService.isRawExecutionTool`, tagged `AML.T0040`).
+- **Strict JSON Schema Parameter Validation**: All agentic tool invocations and MCP tool calls validate arguments against `tool.parameters` via `GuardrailService.validateToolParameters` (Ajv) before invoking `runAsync` or MCP `callTool`.
+- **Sandboxed Execution**: Inline VM tools and script nodes execute with `codeGeneration: { strings: false, wasm: false }`, strict execution timeouts (`5000ms`), and network access disabled by default (`CURATOR_ALLOW_INLINE_TOOL_NETWORK` off).
+
+#### 3. Egress & Output Sanitization
+- **Automatic PII/PCI-DSS & Secret Redaction**: All model responses and tool outputs pass through `GuardrailService.sanitizeModelOutput`, combining `SecretService.mask` (hydrated secrets, GitHub/OpenAI/Bearer tokens) with `GuardrailService.redactPiiAndPci` (Luhn-validated PCI-DSS payment card numbers `[REDACTED:PCI_PAN]`, SSNs `[REDACTED:PII_SSN]`, PEM private keys, AWS/GCP keys, JWTs, and configurable email/phone redaction).
+- **Untrusted Output Escaping**: All model output must be treated as untrusted user input. Use `GuardrailService.escapeHtml` / `stripUnsafeHtml` before HTML rendering, `GuardrailService.escapeShellArg` before shell boundaries, and parameterized queries (`sqlFor` / Prisma) or `GuardrailService.escapeSqlLiteral` / `escapeSqlIdentifier` before database boundaries.
+
+#### 4. Infrastructure Hardening & Scoped Short-Lived Secrets
+- **Isolated Model & Vector Endpoints**: LLM providers (`OpenAiCompatibleLlmProvider`, `AnthropicLlmProvider`) validate `baseUrl` via `GuardrailService.validateEndpointUrl`, blocking SSRF to cloud metadata services (`169.254.169.254`, `metadata.google.internal`) and enforcing `CURATOR_ALLOWED_LLM_HOSTS`. Containerized inference engines (`llamacpp`, `curator-rust`) run as unprivileged non-root users (`10001:10001`) with `read_only: true`, `cap_drop: [ALL]`, `no-new-privileges:true`, and internal-only Docker bridge networks.
+- **Scoped, Short-Lived Secrets**: Static API keys are never hardcoded in repositories (`SecretService` derives master keys from `CURATOR_SECRET_KEY` or per-process CSPRNG). Agent sessions use TTL-bound, agent/conversation/project-scoped tokens via `SecretService.registerEphemeralSecret` and pluggable dynamic secret providers (`SecretService.registerVaultProvider` for HashiCorp Vault / IAM / Workload Identity Federation).
+
 
 ## 5. Module-by-module run and validation commands
 

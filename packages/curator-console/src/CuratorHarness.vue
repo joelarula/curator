@@ -1,6 +1,6 @@
 <template>
   <div class="d-flex flex-column min-vh-100 bg-background text-high-emphasis w-100">
-    <!-- Masthead / Header Bar -->
+    <!-- Top & Right Masthead / Header Bar -->
     <v-card
       v-if="!hideHeader"
       elevation="1"
@@ -28,12 +28,40 @@
               </v-chip>
             </div>
             <div class="text-caption text-medium-emphasis">
-              {{ subtitle || 'Standard Operator Prompt & Execution Testbench over GraphQL' }}
+              {{ subtitle || 'Top-Down Stack & 2-Column Worktable over GraphQL & AST' }}
             </div>
           </div>
         </div>
 
+        <!-- Top-Right Toolbar & Menus -->
         <div class="d-flex align-center ga-2 flex-wrap">
+          <v-btn
+            size="small"
+            variant="tonal"
+            color="primary"
+            prepend-icon="mdi-view-grid-outline"
+            @click="showResourcesSurface()"
+          >
+            App Resources
+          </v-btn>
+
+          <v-btn-toggle
+            v-model="layoutMode"
+            mandatory
+            density="compact"
+            color="primary"
+            variant="outlined"
+          >
+            <v-btn value="stack" size="small" title="Top-Down Stack: Feedback above Prompt">
+              <v-icon size="16" class="me-1">mdi-view-sequential-outline</v-icon>
+              Stack
+            </v-btn>
+            <v-btn value="workbench" size="small" title="2-Column Split: Prompt+Feedback | Scene Worktable">
+              <v-icon size="16" class="me-1">mdi-view-split-vertical</v-icon>
+              Worktable
+            </v-btn>
+          </v-btn-toggle>
+
           <!-- Engine Pause / Resume -->
           <v-btn
             size="small"
@@ -66,12 +94,12 @@
 
     <div class="pa-4 flex-grow-1">
       <!-- =================================================================== -->
-      <!-- TOP DECK: Standard Harness OpPrompt & Live Output (Zero-Prop Shell)  -->
+      <!-- PRIMARY DECK: Top-Down Stack OR Two-Column Prompt & Worktable       -->
       <!-- =================================================================== -->
       <HarnessDeck />
 
       <!-- =================================================================== -->
-      <!-- BOTTOM DECK: Vuetify over GraphQL Workspaces Tabs                   -->
+      <!-- LOWER DIAGNOSTICS & WORKSPACE TABS                                  -->
       <!-- =================================================================== -->
       <v-card elevation="1" rounded="lg" class="border" color="surface">
         <v-tabs
@@ -80,6 +108,9 @@
           density="compact"
           class="border-b"
         >
+          <v-tab value="resources" prepend-icon="mdi-folder-multiple-image">
+            Resources ({{ uiSurface?.total ?? uiSurface?.items?.length ?? 0 }})
+          </v-tab>
           <v-tab value="agents" prepend-icon="mdi-robot">
             Agents ({{ agents.length }})
           </v-tab>
@@ -105,6 +136,17 @@
 
         <v-card-text class="pa-4">
           <v-window v-model="activeWorkspaceTab">
+            <v-window-item value="resources">
+              <HarnessResourceDetail
+                v-if="activeResourceDetail"
+                :item="activeResourceDetail"
+              />
+              <HarnessResourceCollection
+                v-else
+                :surface="uiSurface"
+              />
+            </v-window-item>
+
             <v-window-item value="agents">
               <AgentsTab
                 :agents="agents"
@@ -161,15 +203,24 @@
     </div>
 
     <!-- =================================================================== -->
-    <!-- PROGRAM COMMANDS CONTEXT MENU                                       -->
+    <!-- CONTEXTUAL MENUS (Program Commands & Resource-Scoped Menu)          -->
     <!-- =================================================================== -->
     <HarnessContextMenu />
+    <HarnessResourceContextMenu />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import type { CuratorConsoleAdapter, DatabaseHealth } from './types';
+import type {
+  CuratorConsoleAdapter,
+  DatabaseHealth,
+  HarnessLayoutMode,
+  HarnessResourceViewMode,
+  HarnessResourceItem,
+  HarnessUiSurface,
+  HarnessUploadedFile,
+} from './types';
 import { provideHarnessContext } from './context';
 import {
   GET_AGENTS_QUERY,
@@ -185,6 +236,9 @@ import {
 
 import HarnessDeck from './components/harness/HarnessDeck.vue';
 import HarnessContextMenu from './components/harness/HarnessContextMenu.vue';
+import HarnessResourceContextMenu from './components/harness/HarnessResourceContextMenu.vue';
+import HarnessResourceCollection from './components/harness/HarnessResourceCollection.vue';
+import HarnessResourceDetail from './components/harness/HarnessResourceDetail.vue';
 import type { ChoiceItem } from './components/harness/HarnessChoices.vue';
 import type { TurnHistoryEntry } from './components/harness/HarnessOutput.vue';
 
@@ -202,6 +256,8 @@ interface Props {
   subtitle?: string;
   hideHeader?: boolean;
   standalone?: boolean;
+  defaultLayout?: HarnessLayoutMode;
+  customComponents?: Record<string, any>;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -209,6 +265,8 @@ const props = withDefaults(defineProps<Props>(), {
   subtitle: '',
   hideHeader: false,
   standalone: false,
+  defaultLayout: 'stack',
+  customComponents: () => ({}),
 });
 
 // Engine & Health State
@@ -216,6 +274,22 @@ const isPaused = ref(false);
 const refreshing = ref(false);
 const togglingPause = ref(false);
 const dbHealth = ref<DatabaseHealth | null>(null);
+
+// Layout & Generative UI Surface State
+const layoutMode = ref<HarnessLayoutMode>(props.defaultLayout || 'stack');
+const uiSurface = ref<HarnessUiSurface | null>(null);
+const worktableSurface = ref<HarnessUiSurface | null>(null);
+const resourceViewMode = ref<HarnessResourceViewMode>('grid');
+const resourceSearchQuery = ref('');
+const resourceCategoryFilter = ref('');
+const resourceAuthorFilter = ref('');
+const resourcePublishedFilter = ref<'all' | 'published' | 'draft'>('all');
+const selectedResourceKeys = ref<string[]>([]);
+const activeResourceDetail = ref<HarnessResourceItem | null>(null);
+
+// File Upload State
+const pendingUploadFiles = ref<HarnessUploadedFile[]>([]);
+const uploadingFiles = ref(false);
 
 // Workspace Tabs State
 const activeWorkspaceTab = ref('agents');
@@ -231,7 +305,7 @@ const selectedTool = ref('');
 const selectedWorkflowPreset = ref('pingpong');
 
 const promptInput = ref('');
-const toolArgsInput = ref('{\n  "baseValue": 42,\n  "multiplier": 3\n}');
+const toolArgsInput = ref('{\n  "search": ""\n}');
 const workflowInput = ref(`# Natural CoffeeScript Verbs AST Workflow
 while_loop "$context.turn <= 5",
   seq [
@@ -246,7 +320,7 @@ const conversationContextId = ref('conv_blueprint');
 const promptHistory = ref<string[]>([]);
 const promptHistoryIndex = ref<number>(-1);
 
-// Choices State (Dictated Dynamically by AST Workflow - NO hardcoded presets)
+// Choices State
 const choicesDisplayMode = ref<'radio' | 'checkbox' | 'chips'>('radio');
 const selectedRadioChoice = ref<string | null>(null);
 const selectedCheckboxes = ref<string[]>([]);
@@ -263,6 +337,12 @@ const contextMenuVisible = ref(false);
 const contextMenuX = ref(0);
 const contextMenuY = ref(0);
 
+// Resource Contextual Menu State (Close by Resource)
+const resourceContextMenuVisible = ref(false);
+const resourceContextMenuX = ref(0);
+const resourceContextMenuY = ref(0);
+const resourceContextMenuTarget = ref<HarnessResourceItem | null>(null);
+
 // Execution State
 const executing = ref(false);
 const liveStepMessage = ref<string | null>(null);
@@ -276,7 +356,7 @@ const lastExecOutput = ref<string | null>(null);
 const lastExecResponses = ref<Array<{ content: string }>>([]);
 const lastExecRaw = ref<any | null>(null);
 const lastExecError = ref<string | null>(null);
-const outputTab = ref<'formatted' | 'json' | 'history'>('formatted');
+const outputTab = ref<'surface' | 'formatted' | 'json' | 'history'>('formatted');
 
 const turnHistory = ref<TurnHistoryEntry[]>([]);
 
@@ -297,8 +377,8 @@ while_loop "$context.turn <= 5",
   ]`,
   seq: `# Sequential Tool Pipeline
 seq [
-  tool "calculate_metric", baseValue: 25, multiplier: 4
-  emit_event "metric:computed", value: 100
+  tool "gallery_show_resources"
+  emit_event "gallery:loaded"
 ]`,
   state: `# Stateful Counter Loop
 while_loop "$context.count < 3",
@@ -318,7 +398,6 @@ watch(selectedTool, (toolName) => {
   onToolSelected(toolName);
 });
 
-// Computed Choice State
 const activeChoiceValue = computed(() => {
   if (choicesDisplayMode.value === 'radio') return selectedRadioChoice.value;
   if (choicesDisplayMode.value === 'checkbox') return selectedCheckboxes.value;
@@ -399,6 +478,45 @@ function updateChoicesFromPayload(payload: any, eventType?: string) {
 }
 
 // -----------------------------------------------------------------------------
+// Extract or Hydrate UI Surface from Tool / Agent Payloads
+// -----------------------------------------------------------------------------
+function applySurfaceIfPresent(payload: any): boolean {
+  if (!payload || typeof payload !== 'object') return false;
+  const candidate = payload.uiSurface || payload.surface || (payload.component && payload.items ? payload : null);
+  if (candidate && typeof candidate === 'object') {
+    uiSurface.value = candidate;
+    worktableSurface.value = candidate;
+    if (candidate.viewMode) {
+      resourceViewMode.value = candidate.viewMode;
+    }
+    outputTab.value = 'surface';
+    return true;
+  }
+  const itemsArray = payload.items || payload.galleryItems || payload.resources;
+  if (Array.isArray(itemsArray)) {
+    const built: HarnessUiSurface = {
+      component: 'resource-collection',
+      title: payload.title || 'App Resources',
+      viewMode: resourceViewMode.value,
+      items: itemsArray.map((it: any) => ({
+        ...it,
+        id: it.id ?? it.key,
+        key: it.key ?? String(it.id),
+        title: it.title || it.name || it.key,
+      })),
+      total: payload.total ?? itemsArray.length,
+      categories: payload.categories,
+      authors: payload.authors,
+    };
+    uiSurface.value = built;
+    worktableSurface.value = built;
+    outputTab.value = 'surface';
+    return true;
+  }
+  return false;
+}
+
+// -----------------------------------------------------------------------------
 // GraphQL Client Helper
 // -----------------------------------------------------------------------------
 async function executeGraphql(query: string, variables?: any): Promise<any> {
@@ -414,6 +532,275 @@ async function executeGraphql(query: string, variables?: any): Promise<any> {
   const json = await res.json();
   if (json.errors?.length) throw new Error(json.errors[0].message);
   return json.data;
+}
+
+// -----------------------------------------------------------------------------
+// Resource Surface & Contextual Actions
+// -----------------------------------------------------------------------------
+async function showResourcesSurface(filters: Record<string, any> = {}) {
+  activeResourceDetail.value = null;
+  try {
+    if (props.adapter?.listResources) {
+      const surface = await props.adapter.listResources(filters);
+      uiSurface.value = surface;
+      worktableSurface.value = surface;
+      outputTab.value = 'surface';
+      return;
+    }
+
+    // Prefer gallery_show_resources or gallery_search_items tool if available
+    const resourceTool =
+      tools.value.find((t: any) => t.name === 'gallery_show_resources') ||
+      tools.value.find((t: any) => t.name === 'gallery_search_items') ||
+      tools.value.find((t: any) => t.name === 'search_knowledge');
+
+    if (resourceTool) {
+      const res = await executeGraphql(EXECUTE_TOOL_MUTATION, {
+        name: resourceTool.name,
+        args: { limit: 200, ...filters },
+      });
+      if (res?.executeTool?.result) {
+        applySurfaceIfPresent(res.executeTool.result);
+        lastExecStatus.value = 'COMPLETED';
+        lastExecTarget.value = resourceTool.name;
+        lastExecRaw.value = res.executeTool.result;
+        return;
+      }
+    }
+
+    // Fallback to GraphQL galleryItems query if server exposes it
+    const gqlData = await executeGraphql(
+      `query GetResources($search: String, $categoryKey: String, $authorKey: String) {
+        galleryItems(search: $search, categoryKey: $categoryKey, authorKey: $authorKey, publishedOnly: false, limit: 250) {
+          id key name title: name link photo photoUrl thumbnailUrl published authorKey authorName description categoryKeys
+          categories { key name link }
+        }
+        galleryCategories(includeUnpublished: true) { key name nameEn link published paintingCount }
+        galleryAuthors { key name link paintingCount }
+      }`,
+      {
+        search: filters.search || undefined,
+        categoryKey: filters.categoryKey || undefined,
+        authorKey: filters.authorKey || undefined,
+      }
+    );
+
+    if (gqlData?.galleryItems) {
+      applySurfaceIfPresent({
+        title: 'Gallery Resources',
+        items: gqlData.galleryItems,
+        total: gqlData.galleryItems.length,
+        categories: gqlData.galleryCategories || [],
+        authors: gqlData.galleryAuthors || [],
+      });
+    }
+  } catch (err: any) {
+    console.warn('[Harness] showResourcesSurface fallback notice:', err?.message);
+  }
+}
+
+async function openResourceDetail(item: HarnessResourceItem) {
+  activeResourceDetail.value = item;
+  outputTab.value = 'surface';
+}
+
+function openResourceContextMenu(e: MouseEvent, item: HarnessResourceItem) {
+  resourceContextMenuTarget.value = item;
+  const target = (e.currentTarget || e.target) as HTMLElement;
+  if (e.clientX && e.clientY && e.button === 2) {
+    resourceContextMenuX.value = e.clientX;
+    resourceContextMenuY.value = e.clientY;
+  } else if (target && typeof target.getBoundingClientRect === 'function') {
+    const rect = target.getBoundingClientRect();
+    resourceContextMenuX.value = rect.left;
+    resourceContextMenuY.value = rect.bottom + 4;
+  } else {
+    resourceContextMenuX.value = e.clientX || 120;
+    resourceContextMenuY.value = e.clientY || 120;
+  }
+  resourceContextMenuVisible.value = true;
+}
+
+async function handleResourceAction(action: string, item: HarnessResourceItem, payload?: any) {
+  if (action === 'inspect' || action === 'edit') {
+    await openResourceDetail(item);
+    return;
+  }
+
+  if (action === 'reference-prompt') {
+    execMode.value = 'agent';
+    const refTag = `@resource:${item.key}`;
+    promptInput.value = promptInput.value ? `${promptInput.value} ${refTag}` : `${refTag} `;
+    return;
+  }
+
+  if (action === 'toggle-publish') {
+    const nextPub = !item.published;
+    await executeGraphql(EXECUTE_TOOL_MUTATION, {
+      name: 'gallery_upsert_item',
+      args: {
+        key: item.key,
+        name: item.title || item.name || item.key,
+        published: nextPub,
+      },
+    });
+    item.published = nextPub;
+    await showResourcesSurface({
+      search: resourceSearchQuery.value || undefined,
+      categoryKey: resourceCategoryFilter.value || undefined,
+      authorKey: resourceAuthorFilter.value || undefined,
+    });
+    return;
+  }
+
+  if (action === 'save-metadata' && payload) {
+    await executeGraphql(EXECUTE_TOOL_MUTATION, {
+      name: 'gallery_upsert_item',
+      args: payload,
+    });
+    await showResourcesSurface({
+      search: resourceSearchQuery.value || undefined,
+      categoryKey: resourceCategoryFilter.value || undefined,
+      authorKey: resourceAuthorFilter.value || undefined,
+    });
+    activeResourceDetail.value = null;
+    return;
+  }
+
+  if (action === 'attach-file' && payload) {
+    await executeGraphql(EXECUTE_TOOL_MUTATION, {
+      name: 'gallery_upsert_item',
+      args: {
+        key: item.key,
+        name: item.title || item.name || item.key,
+        photo: payload.filename,
+        photoUrl: payload.url,
+      },
+    });
+    await showResourcesSurface();
+    return;
+  }
+
+  if (action === 'regenerate-thumbnail') {
+    await executeGraphql(EXECUTE_TOOL_MUTATION, {
+      name: 'gallery_regenerate_thumbnail',
+      args: { key: item.key },
+    });
+    await showResourcesSurface();
+    return;
+  }
+
+  if (action === 'delete') {
+    await executeGraphql(EXECUTE_TOOL_MUTATION, {
+      name: 'gallery_delete_item',
+      args: { key: item.key },
+    });
+    if (activeResourceDetail.value?.key === item.key) {
+      activeResourceDetail.value = null;
+    }
+    await showResourcesSurface();
+  }
+}
+
+async function handleBulkResourceAction(action: string, keys: string[], payload?: any) {
+  if (!keys.length) return;
+  await executeGraphql(EXECUTE_TOOL_MUTATION, {
+    name: 'gallery_bulk_update',
+    args: {
+      keys,
+      action,
+      ...(payload || {}),
+    },
+  });
+  await showResourcesSurface({
+    search: resourceSearchQuery.value || undefined,
+    categoryKey: resourceCategoryFilter.value || undefined,
+    authorKey: resourceAuthorFilter.value || undefined,
+  });
+}
+
+// -----------------------------------------------------------------------------
+// File Upload Helper (Browser FileList -> Base64 -> VM Storage)
+// -----------------------------------------------------------------------------
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const base64 = result.includes(',') ? result.split(',')[1] : result;
+      resolve(base64);
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadFilesToStorage(
+  fileList: FileList | File[],
+  bucket = 'photos'
+): Promise<HarnessUploadedFile[]> {
+  const filesArray = Array.from(fileList);
+  if (filesArray.length === 0) return [];
+
+  uploadingFiles.value = true;
+  try {
+    const payloadFiles = await Promise.all(
+      filesArray.map(async (f) => ({
+        filename: f.name,
+        data: await readFileAsBase64(f),
+        mimeType: f.type || undefined,
+        bucket,
+      }))
+    );
+
+    let uploaded: HarnessUploadedFile[] = [];
+    if (props.adapter?.uploadFiles) {
+      const res = await props.adapter.uploadFiles(payloadFiles);
+      uploaded = res.files || [];
+    } else {
+      const res = await fetch('/api/curator/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bucket, files: payloadFiles }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || 'Upload failed');
+      }
+      uploaded = json.files || [];
+    }
+
+    pendingUploadFiles.value.push(...uploaded);
+
+    // If tool mode is active, inject uploaded files into toolArgsInput JSON
+    if (execMode.value === 'tool') {
+      try {
+        const currentArgs = JSON.parse(toolArgsInput.value || '{}');
+        currentArgs.files = uploaded;
+        if (uploaded[0]) {
+          currentArgs.photo = uploaded[0].filename;
+          currentArgs.photoUrl = uploaded[0].url;
+        }
+        toolArgsInput.value = JSON.stringify(currentArgs, null, 2);
+      } catch {}
+    }
+
+    // Refresh resource surface if open
+    if (uiSurface.value) {
+      await showResourcesSurface();
+    }
+
+    return uploaded;
+  } catch (err: any) {
+    lastExecError.value = err?.message || 'File upload failed';
+    return [];
+  } finally {
+    uploadingFiles.value = false;
+  }
+}
+
+function removePendingUploadFile(index: number) {
+  pendingUploadFiles.value.splice(index, 1);
 }
 
 // -----------------------------------------------------------------------------
@@ -448,7 +835,6 @@ async function fetchRequests() {
     const data = await executeGraphql(GET_CURATOR_REQUESTS_QUERY, { limit: 20 });
     requests.value = data.curatorRequests || [];
 
-    // Reactive check: If any request in the database is currently WAITING_FOR_USER
     const waitingReq = requests.value.find((r: any) => r.status === 'WAITING_FOR_USER');
     if (waitingReq) {
       const ctx = typeof waitingReq.context === 'string' ? JSON.parse(waitingReq.context) : waitingReq.context;
@@ -513,27 +899,55 @@ async function executeOpPrompt() {
       if (!prompt && !hasChoice) {
         throw new Error('Please select an action choice or enter a prompt instruction.');
       }
+
+      // Check for natural-language resource surface command: e.g. "show app resources", "/resources"
+      const normPrompt = prompt.toLowerCase();
+      if (
+        normPrompt === '/resources' ||
+        normPrompt.includes('show app resources') ||
+        normPrompt.includes('show resources') ||
+        normPrompt.includes('show gallery') ||
+        normPrompt.includes('grid view') ||
+        normPrompt.includes('list view')
+      ) {
+        if (normPrompt.includes('list view')) resourceViewMode.value = 'list';
+        else if (normPrompt.includes('grid view')) resourceViewMode.value = 'grid';
+
+        await showResourcesSurface();
+        lastExecStatus.value = 'COMPLETED';
+        lastExecTarget.value = 'gallery_show_resources';
+        lastExecOutput.value = `Rendered interactive Resource ${resourceViewMode.value.toUpperCase()} view in Feedback Pane (${uiSurface.value?.total ?? 0} items).`;
+        lastExecDuration.value = Date.now() - startTime;
+        turnHistory.value.unshift({
+          id: String(Date.now()),
+          target: 'gallery_show_resources',
+          mode: 'agent',
+          prompt,
+          output: lastExecOutput.value,
+          timestamp: Date.now(),
+        });
+        return;
+      }
+
       lastExecTarget.value = selectedAgent.value;
 
-      // Track history
       if (prompt && !promptHistory.value.includes(prompt)) {
         promptHistory.value.push(prompt);
       }
       promptHistoryIndex.value = promptHistory.value.length;
 
-      // Combine choice and prompt text: e.g. [Action: RAISE] I'll see that bet
       let combinedPromptText = prompt;
       if (hasChoice) {
         const choiceLabel = formatChoiceDisplay(chosen);
         combinedPromptText = prompt ? `[Action: ${choiceLabel}] ${prompt}` : `[Action: ${choiceLabel}]`;
       }
 
-      // Rich context payload merging choice and prompt speech
       const contextPayload: Record<string, any> = {
         message: combinedPromptText,
         speech: prompt || combinedPromptText,
         user: userContextName.value || 'User',
         conversationId: conversationContextId.value || 'conv_default',
+        ...(pendingUploadFiles.value.length > 0 ? { attachments: pendingUploadFiles.value } : {}),
       };
 
       if (hasChoice) {
@@ -544,12 +958,10 @@ async function executeOpPrompt() {
 
       lastExecChoice.value = hasChoice ? chosen : null;
 
-      // Follow Curator Core Channel & Messages contract: send messages through channel
       if (props.adapter?.send) {
         await props.adapter.send('user:speech', contextPayload);
       }
 
-      // If fulfilling an active waiting AST workflow request, dispatch choice event to channel
       if (workflowWaitingRequestId.value && hasChoice) {
         const choicePayload = {
           choice: chosen,
@@ -592,8 +1004,6 @@ async function executeOpPrompt() {
       if (!triggerRes.success) throw new Error(triggerRes.error || 'Agent trigger failed');
 
       lastExecRequestId.value = triggerRes.requestId;
-
-      // Reactive completion via channel and messages stream (matching CLI client)
       liveStepMessage.value = 'Streaming turn messages over channel...';
 
       let channelOutput: string | null = null;
@@ -606,14 +1016,12 @@ async function executeOpPrompt() {
         const onEvent = (type: string, payload: any) => {
           const evtReqId = String(payload?.requestId ?? payload?.id ?? '');
 
-          // Live step updates
           if (!evtReqId || evtReqId === triggerRes.requestId) {
             if (type.includes('step') || type.includes('tool') || type.includes('log')) {
               liveStepMessage.value = payload?.message || payload?.tool || `Event: ${type}`;
             }
           }
 
-          // Inbound message output stream on channel (matching CLI client)
           if (
             type === 'curator:message' ||
             type === 'curator:response' ||
@@ -622,12 +1030,13 @@ async function executeOpPrompt() {
           ) {
             channelOutput = payload?.text || payload?.content || payload?.message || (typeof payload === 'string' ? payload : JSON.stringify(payload));
             channelRaw = payload;
+            applySurfaceIfPresent(payload);
           } else if (type === 'curator:tool_call_result') {
             channelOutput = typeof payload?.result === 'object' ? JSON.stringify(payload.result, null, 2) : String(payload?.result ?? JSON.stringify(payload));
             channelRaw = payload;
+            applySurfaceIfPresent(payload?.result);
           }
 
-          // Request completion via WebSocket channel
           if (
             (type === 'request_done' || type === 'request_failed' || type === 'request_poisoned') &&
             (!evtReqId || evtReqId === triggerRes.requestId)
@@ -651,7 +1060,6 @@ async function executeOpPrompt() {
           unsub = props.adapter.on((e) => onEvent(e.type, e.payload));
         }
 
-        // 30s safety timeout in case WebSocket disconnected
         timer = setTimeout(() => {
           cleanup();
           resolve();
@@ -670,7 +1078,6 @@ async function executeOpPrompt() {
       lastExecTarget.value = selectedTool.value;
       const parsedArgs = JSON.parse(toolArgsInput.value || '{}');
 
-      // Send tool_call message through channel (matching CLI client)
       if (props.adapter?.send) {
         await props.adapter.send('curator:tool_call', {
           tool: selectedTool.value,
@@ -689,6 +1096,9 @@ async function executeOpPrompt() {
       lastExecStatus.value = 'COMPLETED';
       lastExecRaw.value = toolRes.result;
       lastExecOutput.value = JSON.stringify(toolRes.result, null, 2);
+      if (!applySurfaceIfPresent(toolRes.result)) {
+        outputTab.value = 'formatted';
+      }
     } else if (execMode.value === 'workflow') {
       lastExecTarget.value = 'CoffeeScript Workflow';
       const result = await executeGraphql(COMPILE_COFFEESCRIPT_MUTATION, {
@@ -701,6 +1111,7 @@ async function executeOpPrompt() {
       lastExecStatus.value = 'COMPLETED';
       lastExecRaw.value = compRes.ast;
       lastExecOutput.value = `Workflow AST Compiled Successfully:\n${JSON.stringify(compRes.ast, null, 2)}`;
+      outputTab.value = 'formatted';
     }
 
     lastExecDuration.value = Date.now() - startTime;
@@ -710,7 +1121,6 @@ async function executeOpPrompt() {
       ? `${chosenSnapshot ? `[${formatChoiceDisplay(chosenSnapshot)}] ` : ''}${promptInput.value}`
       : (chosenSnapshot ? `[${formatChoiceDisplay(chosenSnapshot)}]` : `${execMode.value}: ${lastExecTarget.value}`);
 
-    // Record in Turn History
     turnHistory.value.unshift({
       id: String(Date.now()),
       target: lastExecTarget.value || 'target',
@@ -754,11 +1164,11 @@ function onToolSelected(toolName: string) {
   if (tool?.parameters?.properties) {
     const template: Record<string, any> = {};
     for (const [k, v] of Object.entries<any>(tool.parameters.properties)) {
-      template[k] = v.default !== undefined ? v.default : v.type === 'number' ? 0 : 'sample';
+      template[k] = v.default !== undefined ? v.default : v.type === 'number' ? 0 : '';
     }
     toolArgsInput.value = JSON.stringify(template, null, 2);
   } else {
-    toolArgsInput.value = '{\n  "input": "sample"\n}';
+    toolArgsInput.value = '{}';
   }
 }
 
@@ -828,10 +1238,9 @@ function selectChoiceFromMenu(val: string) {
 }
 
 function insertToolCommand(tool: any) {
-  execMode.value = 'agent';
-  promptInput.value = promptInput.value
-    ? `${promptInput.value}\n[Tool: ${tool.name}]`
-    : `Execute tool ${tool.name}`;
+  execMode.value = 'tool';
+  selectedTool.value = tool.name;
+  onToolSelected(tool.name);
   contextMenuVisible.value = false;
 }
 
@@ -843,7 +1252,11 @@ function switchAgentFromMenu(agentName: string) {
 
 async function executeCommand(cmd: string) {
   contextMenuVisible.value = false;
-  if (cmd === '/status') {
+  if (cmd === '/resources') {
+    await showResourcesSurface();
+  } else if (cmd === '/layout') {
+    layoutMode.value = layoutMode.value === 'stack' ? 'workbench' : 'stack';
+  } else if (cmd === '/status') {
     activeWorkspaceTab.value = 'db';
     fetchDbHealth();
   } else if (cmd === '/pause') {
@@ -880,13 +1293,29 @@ async function handleTogglePause() {
 }
 
 // -----------------------------------------------------------------------------
-// Provide Harness Context to all Child Components (Zero-Prop Injection)
+// Provide Harness Context to all Child Components
 // -----------------------------------------------------------------------------
 provideHarnessContext({
   agents,
   tools,
   workflowPresetItems,
   isPaused,
+  layoutMode,
+  uiSurface,
+  worktableSurface,
+  resourceViewMode,
+  resourceSearchQuery,
+  resourceCategoryFilter,
+  resourceAuthorFilter,
+  resourcePublishedFilter,
+  selectedResourceKeys,
+  activeResourceDetail,
+  customComponents: {
+    ...(props.adapter?.customComponents || {}),
+    ...(props.customComponents || {}),
+  },
+  pendingUploadFiles,
+  uploadingFiles,
   execMode,
   selectedAgent,
   selectedTool,
@@ -923,6 +1352,10 @@ provideHarnessContext({
   contextMenuVisible,
   contextMenuX,
   contextMenuY,
+  resourceContextMenuVisible,
+  resourceContextMenuX,
+  resourceContextMenuY,
+  resourceContextMenuTarget,
   executeOpPrompt,
   submitChoice: executeOpPrompt,
   clearChoices: clearChoiceSelection,
@@ -935,6 +1368,13 @@ provideHarnessContext({
   insertToolCommand,
   executeCommand,
   focusPrompt: focusPromptInput,
+  showResourcesSurface,
+  openResourceDetail,
+  openResourceContextMenu,
+  handleResourceAction,
+  handleBulkResourceAction,
+  uploadFilesToStorage,
+  removePendingUploadFile,
 });
 
 // -----------------------------------------------------------------------------
@@ -943,18 +1383,22 @@ provideHarnessContext({
 let unsubscribeProgress: (() => void) | null = null;
 let unsubscribeDbChange: (() => void) | null = null;
 
-onMounted(() => {
-  loadAllData();
+onMounted(async () => {
+  await loadAllData();
+  // Automatically hydrate initial resource surface if available
+  showResourcesSurface().catch(() => {});
 
   if (props.adapter?.onProgress) {
     unsubscribeProgress = props.adapter.onProgress((type, payload) => {
       eventLogs.value.unshift({ type, payload, timestamp: Date.now() });
       if (eventLogs.value.length > 100) eventLogs.value.pop();
 
-      // Automatically capture active choices emitted by Host / Workflows over WebSocket!
       const incoming = payload?.choices || payload?.activeChoices;
       if (Array.isArray(incoming) && incoming.length > 0) {
         updateChoicesFromPayload(payload, type);
+      }
+      if (type === 'gallery:item_updated' || type === 'gallery:migrated') {
+        showResourcesSurface().catch(() => {});
       }
     });
   }

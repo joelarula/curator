@@ -1,7 +1,7 @@
 <template>
-  <v-col cols="12" md="6" class="d-flex flex-column">
-    <!-- Target Selection Row -->
-    <div class="d-flex align-center ga-2 mb-3">
+  <div class="d-flex flex-column w-100">
+    <!-- Target Selection & Quick Prompt Commands Row -->
+    <div class="d-flex align-center ga-2 mb-2 flex-wrap">
       <!-- Agent Mode Target -->
       <v-select
         v-if="currentMode === 'agent'"
@@ -14,6 +14,7 @@
         variant="outlined"
         hide-details
         class="flex-grow-1"
+        style="min-width: 200px;"
       />
 
       <!-- Tool Mode Target -->
@@ -28,6 +29,7 @@
         variant="outlined"
         hide-details
         class="flex-grow-1"
+        style="min-width: 200px;"
       />
 
       <!-- Workflow Mode Target -->
@@ -40,6 +42,27 @@
         variant="outlined"
         hide-details
         class="flex-grow-1"
+        style="min-width: 200px;"
+      />
+
+      <!-- File Upload Trigger -->
+      <v-btn
+        size="small"
+        variant="tonal"
+        color="secondary"
+        prepend-icon="mdi-paperclip"
+        :loading="uploading"
+        title="Upload files to VM Storage and attach to prompt/tool"
+        @click="triggerFilePicker"
+      >
+        Upload File
+      </v-btn>
+      <input
+        ref="fileInputRef"
+        type="file"
+        multiple
+        style="display: none"
+        @change="onFilesPicked"
       />
 
       <!-- History Navigation Buttons -->
@@ -61,6 +84,23 @@
       />
     </div>
 
+    <!-- Attached / Uploaded Files Bar -->
+    <div v-if="uploadedFiles.length > 0" class="d-flex align-center flex-wrap ga-1 mb-2 px-2 py-1 rounded bg-surface-variant border">
+      <span class="text-caption font-weight-bold text-medium-emphasis me-1">Attached VM Files:</span>
+      <v-chip
+        v-for="(file, idx) in uploadedFiles"
+        :key="file.url || idx"
+        size="x-small"
+        color="primary"
+        variant="tonal"
+        closable
+        prepend-icon="mdi-file-image-outline"
+        @click:close="removeUploadedFile(idx)"
+      >
+        {{ file.filename }} ({{ Math.round((file.size || 0) / 1024) }}KB)
+      </v-chip>
+    </div>
+
     <!-- Dynamic AST Workflow Choices Bar (Above Prompt) -->
     <HarnessChoices
       v-if="currentMode === 'agent' && choicesList.length > 0"
@@ -70,7 +110,7 @@
       :selected-radio="selectedRadio"
       :selected-checkboxes="selectedChecks"
       :selected-chip="selectedChip"
-      class="mb-3"
+      class="mb-2"
       @update:selected-radio="setRadio"
       @update:selected-checkboxes="setChecks"
       @update:selected-chip="setChip"
@@ -78,18 +118,20 @@
       @clear="clearChoicesAction"
     />
 
-    <!-- Main OpPrompt Input Area with Right-Click Context Menu -->
+    <!-- Main OpPrompt Input Area with Right-Click Context Menu & File Drop -->
     <div
       class="position-relative flex-grow-1"
       @contextmenu.prevent="handleContextMenu($event)"
+      @dragover.prevent
+      @drop.prevent="onFilesDropped"
     >
       <!-- Agent Mode Prompt -->
       <v-textarea
         v-if="currentMode === 'agent'"
         v-model="agentPrompt"
-        label="Instruction / Prompt for Agent (Right-click for Program Commands)"
-        placeholder="Ask a question, request a tool operation, or provide dialogue alongside choice..."
-        rows="7"
+        label="Instruction / Prompt (e.g. 'show app resources' or right-click for Program Commands)"
+        placeholder="Type 'show app resources' to open the Grid | List view above, ask a question, or drop image files..."
+        rows="4"
         variant="outlined"
         auto-grow
         class="code-input"
@@ -102,8 +144,8 @@
         v-else-if="currentMode === 'tool'"
         v-model="toolArgs"
         label="Tool Arguments (JSON)"
-        placeholder="{\n  &quot;baseValue&quot;: 42\n}"
-        rows="7"
+        placeholder="{\n  &quot;search&quot;: &quot;&quot;\n}"
+        rows="5"
         variant="outlined"
         class="code-input"
         hide-details
@@ -115,8 +157,8 @@
         v-else
         v-model="workflowCode"
         label="CoffeeScript AST Code"
-        placeholder="# Enter declarative workflow verbs&#10;while_loop &quot;$context.turn <= 3&quot;,&#10;  seq [&#10;    emit_event &quot;game:ping&quot;&#10;  ]"
-        rows="7"
+        placeholder="# Enter declarative workflow verbs&#10;seq [&#10;  tool &quot;gallery_show_resources&quot;&#10;]"
+        rows="5"
         variant="outlined"
         class="code-input"
         hide-details
@@ -124,31 +166,9 @@
       />
     </div>
 
-    <!-- Context Extras (for Agent mode) -->
-    <div v-if="currentMode === 'agent'" class="d-flex align-center ga-2 mt-2">
-      <v-text-field
-        v-model="actorName"
-        density="compact"
-        variant="outlined"
-        label="Actor / User ID"
-        placeholder="User"
-        hide-details
-        class="flex-grow-1"
-      />
-      <v-text-field
-        v-model="convId"
-        density="compact"
-        variant="outlined"
-        label="Conversation External ID"
-        placeholder="conv_blueprint"
-        hide-details
-        class="flex-grow-1"
-      />
-    </div>
-
-    <!-- Action Bar -->
-    <div class="d-flex align-center justify-space-between mt-3 flex-wrap ga-2">
-      <div class="d-flex align-center ga-2">
+    <!-- Context Extras & Action Bar -->
+    <div class="d-flex align-center justify-space-between mt-2 flex-wrap ga-2">
+      <div class="d-flex align-center ga-2 flex-wrap">
         <v-btn
           color="primary"
           variant="flat"
@@ -161,6 +181,16 @@
         </v-btn>
 
         <v-btn
+          variant="tonal"
+          size="small"
+          color="primary"
+          prepend-icon="mdi-view-grid-outline"
+          @click="promptShowResources"
+        >
+          Show App Resources
+        </v-btn>
+
+        <v-btn
           variant="text"
           size="small"
           color="medium-emphasis"
@@ -170,15 +200,26 @@
         </v-btn>
       </div>
 
-      <div class="text-caption text-medium-emphasis">
-        <kbd class="px-2 py-1 rounded bg-surface-variant text-caption font-monospace border">Ctrl + Enter</kbd> to execute
+      <div class="d-flex align-center ga-2">
+        <v-text-field
+          v-if="currentMode === 'agent'"
+          v-model="actorName"
+          density="compact"
+          variant="outlined"
+          label="Actor"
+          hide-details
+          style="width: 110px;"
+        />
+        <div class="text-caption text-medium-emphasis d-none d-sm-block">
+          <kbd class="px-2 py-1 rounded bg-surface-variant text-caption font-monospace border">Ctrl + Enter</kbd>
+        </div>
       </div>
     </div>
-  </v-col>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { ref, computed } from 'vue';
 import { useHarnessContext } from '../../context';
 import HarnessChoices, { type ChoiceItem } from './HarnessChoices.vue';
 
@@ -252,8 +293,11 @@ const emit = defineEmits<{
 }>();
 
 const harness = useHarnessContext();
+const fileInputRef = ref<HTMLInputElement | null>(null);
 
-// Two-way bindings with context and props fallback
+const uploadedFiles = computed(() => harness?.pendingUploadFiles.value ?? []);
+const uploading = computed(() => harness?.uploadingFiles.value ?? false);
+
 const currentMode = computed({
   get: () => props.execMode ?? harness?.execMode.value ?? 'agent',
   set: (val) => {
@@ -315,14 +359,6 @@ const actorName = computed({
   set: (val) => {
     if (harness) harness.userContextName.value = val;
     emit('update:userContextName', val);
-  },
-});
-
-const convId = computed({
-  get: () => props.conversationContextId ?? harness?.conversationContextId.value ?? 'conv_blueprint',
-  set: (val) => {
-    if (harness) harness.conversationContextId.value = val;
-    emit('update:conversationContextId', val);
   },
 });
 
@@ -395,6 +431,12 @@ function runExecution() {
   emit('execute');
 }
 
+function promptShowResources() {
+  if (!harness) return;
+  harness.promptInput.value = 'show app resources';
+  harness.showResourcesSurface();
+}
+
 function clearPromptAction() {
   if (harness?.clearPrompt) harness.clearPrompt();
   emit('clear');
@@ -403,6 +445,26 @@ function clearPromptAction() {
 function handleContextMenu(e: MouseEvent) {
   if (harness?.openContextMenu) harness.openContextMenu(e);
   emit('openContextMenu', e);
+}
+
+function triggerFilePicker() {
+  fileInputRef.value?.click();
+}
+
+async function onFilesPicked(e: Event) {
+  const input = e.target as HTMLInputElement;
+  if (!input.files?.length || !harness) return;
+  await harness.uploadFilesToStorage(input.files, 'photos');
+  input.value = '';
+}
+
+async function onFilesDropped(e: DragEvent) {
+  if (!e.dataTransfer?.files?.length || !harness) return;
+  await harness.uploadFilesToStorage(e.dataTransfer.files, 'photos');
+}
+
+function removeUploadedFile(idx: number) {
+  harness?.removePendingUploadFile(idx);
 }
 </script>
 

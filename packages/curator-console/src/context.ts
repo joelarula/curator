@@ -1,6 +1,13 @@
 import { inject, provide, type InjectionKey, type Ref, type ComputedRef } from 'vue';
 import type { ChoiceItem } from './components/harness/HarnessChoices.vue';
 import type { TurnHistoryEntry } from './components/harness/HarnessOutput.vue';
+import type {
+  HarnessLayoutMode,
+  HarnessResourceViewMode,
+  HarnessResourceItem,
+  HarnessUiSurface,
+  HarnessUploadedFile,
+} from './types';
 
 export interface CuratorHarnessContext {
   // Catalogs & Engine
@@ -8,6 +15,23 @@ export interface CuratorHarnessContext {
   tools: Ref<any[]>;
   workflowPresetItems: { title: string; value: string }[];
   isPaused: Ref<boolean>;
+
+  // Layout & UI Surface State
+  layoutMode: Ref<HarnessLayoutMode>;
+  uiSurface: Ref<HarnessUiSurface | null>;
+  worktableSurface: Ref<HarnessUiSurface | null>;
+  resourceViewMode: Ref<HarnessResourceViewMode>;
+  resourceSearchQuery: Ref<string>;
+  resourceCategoryFilter: Ref<string>;
+  resourceAuthorFilter: Ref<string>;
+  resourcePublishedFilter: Ref<'all' | 'published' | 'draft'>;
+  selectedResourceKeys: Ref<string[]>;
+  activeResourceDetail: Ref<HarnessResourceItem | null>;
+  customComponents: Record<string, any>;
+
+  // File Upload State
+  pendingUploadFiles: Ref<HarnessUploadedFile[]>;
+  uploadingFiles: Ref<boolean>;
 
   // OpPrompt State
   execMode: Ref<'agent' | 'tool' | 'workflow'>;
@@ -45,13 +69,19 @@ export interface CuratorHarnessContext {
   lastExecResponses: Ref<Array<{ content: string }>>;
   lastExecRaw: Ref<any | null>;
   lastExecError: Ref<string | null>;
-  outputTab: Ref<'formatted' | 'json' | 'history'>;
+  outputTab: Ref<'surface' | 'formatted' | 'json' | 'history'>;
   turnHistory: Ref<TurnHistoryEntry[]>;
 
   // Program Commands & Context Menu State
   contextMenuVisible: Ref<boolean>;
   contextMenuX: Ref<number>;
   contextMenuY: Ref<number>;
+
+  // Resource Contextual Menu State (Close by Resource)
+  resourceContextMenuVisible: Ref<boolean>;
+  resourceContextMenuX: Ref<number>;
+  resourceContextMenuY: Ref<number>;
+  resourceContextMenuTarget: Ref<HarnessResourceItem | null>;
 
   // Actions
   executeOpPrompt: () => Promise<void>;
@@ -66,6 +96,15 @@ export interface CuratorHarnessContext {
   insertToolCommand: (tool: any) => void;
   executeCommand: (cmd: string) => Promise<void>;
   focusPrompt: () => void;
+
+  // Resource & Upload Actions
+  showResourcesSurface: (filters?: Record<string, any>) => Promise<void>;
+  openResourceDetail: (item: HarnessResourceItem) => Promise<void>;
+  openResourceContextMenu: (e: MouseEvent, item: HarnessResourceItem) => void;
+  handleResourceAction: (action: string, item: HarnessResourceItem, payload?: any) => Promise<void>;
+  handleBulkResourceAction: (action: string, keys: string[], payload?: any) => Promise<void>;
+  uploadFilesToStorage: (files: FileList | File[], bucket?: string) => Promise<HarnessUploadedFile[]>;
+  removePendingUploadFile: (index: number) => void;
 }
 
 export const HARNESS_CONTEXT_KEY: InjectionKey<CuratorHarnessContext> = Symbol('CuratorHarnessContext');
@@ -77,4 +116,3 @@ export function provideHarnessContext(ctx: CuratorHarnessContext): void {
 export function useHarnessContext(): CuratorHarnessContext | null {
   return inject(HARNESS_CONTEXT_KEY, null);
 }
-

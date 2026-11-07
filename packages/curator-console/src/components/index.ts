@@ -1,6 +1,10 @@
 export { default as HarnessDeck } from './harness/HarnessDeck.vue';
 export { default as HarnessChoices } from './harness/HarnessChoices.vue';
 export { default as HarnessContextMenu } from './harness/HarnessContextMenu.vue';
+export { default as HarnessResourceContextMenu } from './harness/HarnessResourceContextMenu.vue';
+export { default as HarnessResourceCollection } from './harness/HarnessResourceCollection.vue';
+export { default as HarnessResourceDetail } from './harness/HarnessResourceDetail.vue';
+export { default as HarnessWorktable } from './harness/HarnessWorktable.vue';
 export { default as HarnessOpPrompt } from './harness/HarnessOpPrompt.vue';
 export { default as HarnessOutput } from './harness/HarnessOutput.vue';
 

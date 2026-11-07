@@ -23,14 +23,16 @@ export const scriptNode: NodeHandler<CuratorScriptNode> = {
       context: req.context || {},
       ...coffeeAstVerbs,
     };
-    const context = vm.createContext(sandbox);
+    const context = vm.createContext(sandbox, {
+      codeGeneration: { strings: false, wasm: false },
+    });
     try {
       let codeToExecute = ast.code;
       if (ast.language === 'coffeescript') {
         const coffee = (await import('coffeescript')).default;
         codeToExecute = coffee.compile(ast.code, { bare: true, header: false });
       }
-      const output = vm.runInContext(codeToExecute, context);
+      const output = vm.runInContext(codeToExecute, context, { timeout: 5000 });
       
       if (isCuratorAstNode(output)) {
         logger.debug(`[CuratorRequestProcessor] Script generated a valid AST node of type ${output.type}. Spawning as child...`);

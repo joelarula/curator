@@ -22,8 +22,12 @@ RUN apt-get update && apt-get install -y \
 
 COPY --from=builder /build/target/release/curator /usr/local/bin/curator
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN chmod +x /entrypoint.sh && \
+    groupadd -g 10001 curator && \
+    useradd -u 10001 -g curator -s /usr/sbin/nologin -m curator && \
+    mkdir -p /models && chown -R 10001:10001 /models
 
+USER 10001:10001
 VOLUME /models
 EXPOSE 8080
 

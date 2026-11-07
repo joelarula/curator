@@ -50,7 +50,7 @@
               🛠️ Execute / Insert Tool
             </v-list-subheader>
             <v-list-item
-              v-for="t in toolItems.slice(0, 5)"
+              v-for="t in toolItems.slice(0, 6)"
               :key="t.name"
               prepend-icon="mdi-wrench"
               rounded="md"
@@ -83,8 +83,18 @@
 
           <!-- 4. REPL & Harness Verbs -->
           <v-list-subheader class="text-uppercase text-caption font-weight-bold text-medium-emphasis px-2">
-            💻 REPL Verbs &amp; Actions
+            💻 REPL Verbs &amp; UI Surfaces
           </v-list-subheader>
+          <v-list-item
+            title="/resources - Show App Resources (Grid | List)"
+            prepend-icon="mdi-view-grid-outline"
+            @click="runCmd('/resources')"
+          />
+          <v-list-item
+            title="/layout - Toggle Stack / 2-Column Worktable"
+            prepend-icon="mdi-view-split-vertical"
+            @click="runCmd('/layout')"
+          />
           <v-list-item
             title="/status - Inspect Engine & DB"
             prepend-icon="mdi-information-outline"

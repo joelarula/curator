@@ -7,6 +7,60 @@ export interface CuratorChannelLike {
   close?(): Promise<void>;
 }
 
+export type HarnessLayoutMode = 'stack' | 'workbench';
+export type HarnessResourceViewMode = 'grid' | 'list';
+
+export interface HarnessUploadedFile {
+  filename: string;
+  url: string;
+  diskPath?: string;
+  mimeType: string;
+  size: number;
+  bucket?: string;
+  projectId?: string;
+  attachmentId?: string;
+  attachmentUri?: string;
+}
+
+export interface HarnessResourceItem {
+  id: string | number;
+  key: string;
+  uri?: string;
+  title: string;
+  name?: string;
+  subtitle?: string;
+  description?: string;
+  slug?: string;
+  link?: string;
+  photo?: string;
+  photoUrl?: string;
+  thumbnailUrl?: string;
+  published?: boolean;
+  authorKey?: string;
+  authorName?: string;
+  categories?: Array<{ key: string; name: string; link?: string }>;
+  categoryKeys?: string[];
+  mimeType?: string;
+  size?: number;
+  metadata?: Record<string, any>;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface HarnessUiSurface {
+  component: 'resource-collection' | 'resource-detail' | string;
+  title?: string;
+  subtitle?: string;
+  viewMode?: HarnessResourceViewMode;
+  items?: HarnessResourceItem[];
+  item?: HarnessResourceItem | null;
+  total?: number;
+  categories?: Array<{ key: string; name: string; nameEn?: string; link?: string; paintingCount?: number }>;
+  authors?: Array<{ key: string; name: string; link?: string; paintingCount?: number }>;
+  filters?: Record<string, any>;
+  props?: Record<string, any>;
+}
+
 /**
  * Universal Adapter Interface for the Curator Dev Console.
  * Decouples the console UI from the specific runtime environment (WASM, Express, etc.).
@@ -29,6 +83,20 @@ export interface CuratorConsoleAdapter {
   resetDatabase?: () => Promise<boolean>;
   getStorageInfo?: () => Promise<{ usage: number; quota: number; storageEngine?: string; isOpfs?: boolean }>;
   getDatabaseHealth?: () => Promise<CuratorDatabaseHealth>;
+
+  // File Upload & Resource Surface Hooks
+  uploadFiles?: (
+    files: Array<{
+      filename: string;
+      data: string;
+      mimeType?: string;
+      bucket?: string;
+      projectId?: string;
+      resourceId?: number;
+    }>
+  ) => Promise<{ files: HarnessUploadedFile[] }>;
+  listResources?: (filters?: Record<string, any>) => Promise<HarnessUiSurface>;
+  customComponents?: Record<string, any>;
 
   requestGraphql: (query: string, variables?: any) => Promise<any>;
   emitEvent?: (type: string, payload: any) => Promise<any>;
@@ -55,6 +123,8 @@ export interface CuratorDatabaseHealth {
   agentsTotal?: number;
   agentsActive?: number;
 }
+
+export type DatabaseHealth = CuratorDatabaseHealth;
 
 export interface CuratorLogEntry {
   type: 'info' | 'ok' | 'error' | 'warn' | 'tx' | 'rx';
@@ -114,4 +184,3 @@ export interface RequestTreeNode {
   depth: number;
   children: RequestTreeNode[];
 }
-

@@ -7,8 +7,101 @@ export interface SecretContext {
   projectId?: string | number | null;
   userId?: string | number | null;
   agentId?: string | number | null;
+  conversationId?: string | number | null;
   prisma?: PrismaClient | any;
 }
+
+export interface EphemeralSecretEntry {
+  value: string;
+  expiresAt: number;
+  projectId?: string | number | null;
+  agentId?: string | number | null;
+  conversationId?: string | number | null;
+}
+
+export interface ISecretVaultProvider {
+  readonly name: string;
+  resolveDynamicSecret(name: string, context?: SecretContext): Promise<{ value: string; ttlMs?: number } | null>;
+}
+
+/**
+ * Pluggable egress redaction rule (tokens, PII, PCI-DSS, or domain-specific patterns).
+ */
+export interface RedactionRule {
+  pattern: RegExp;
+  replacement: string | ((match: string, ...groups: any[]) => string);
+  /** Optional predicate or toggle; when false, the rule is skipped. */
+  enabled?: boolean | (() => boolean);
+}
+
+/** Luhn check for 13-19 digit payment card numbers (PCI-DSS PAN). */
+export function passesLuhnCheck(digitsOnly: string): boolean {
+  if (digitsOnly.length < 13 || digitsOnly.length > 19) return false;
+  if (/^(\d)\1+$/.test(digitsOnly)) return false;
+  let sum = 0;
+  let shouldDouble = false;
+  for (let i = digitsOnly.length - 1; i >= 0; i--) {
+    let digit = digitsOnly.charCodeAt(i) - 48;
+    if (digit < 0 || digit > 9) return false;
+    if (shouldDouble) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+    sum += digit;
+    shouldDouble = !shouldDouble;
+  }
+  return sum % 10 === 0;
+}
+
+/** Built-in egress redaction rules; plugins/hosts can add, override, or disable rules by name. */
+export const BUILTIN_REDACTION_RULES: Record<string, RedactionRule> = {
+  GITHUB_TOKEN: {
+    pattern: /gh[pousr]_[A-Za-z0-9_]{36,}/g,
+    replacement: '[REDACTED:GITHUB_TOKEN]',
+  },
+  API_KEY: {
+    pattern: /sk-[a-zA-Z0-9_\-]{20,}/g,
+    replacement: '[REDACTED:API_KEY]',
+  },
+  BEARER_TOKEN: {
+    pattern: /(Authorization:\s*Bearer\s+)[A-Za-z0-9_\-\.]{16,}/gi,
+    replacement: '$1[REDACTED:BEARER_TOKEN]',
+  },
+  PRIVATE_KEY: {
+    pattern: /-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/g,
+    replacement: '[REDACTED:PRIVATE_KEY]',
+  },
+  AWS_KEY: {
+    pattern: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g,
+    replacement: '[REDACTED:AWS_KEY]',
+  },
+  GCP_KEY: {
+    pattern: /\bAIza[0-9A-Za-z\-_]{35}\b/g,
+    replacement: '[REDACTED:GCP_KEY]',
+  },
+  JWT: {
+    pattern: /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
+    replacement: '[REDACTED:JWT]',
+  },
+  PCI_PAN: {
+    pattern: /\b(?:\d[ -]*?){13,19}\b/g,
+    replacement: (match: string) => (passesLuhnCheck(match.replace(/\D/g, '')) ? '[REDACTED:PCI_PAN]' : match),
+  },
+  PII_SSN: {
+    pattern: /\b(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b/g,
+    replacement: '[REDACTED:PII_SSN]',
+  },
+  PII_EMAIL: {
+    pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
+    replacement: '[REDACTED:PII_EMAIL]',
+    enabled: () => process.env.CURATOR_REDACT_PII_EMAILS === '1',
+  },
+  PII_PHONE: {
+    pattern: /(?:\+\d{1,3}[\s.-]?)?\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}\b/g,
+    replacement: '[REDACTED:PII_PHONE]',
+    enabled: () => process.env.CURATOR_REDACT_PII_PHONES === '1',
+  },
+};
 
 export interface EncryptedPayload {
   ciphertext: string;
@@ -23,6 +116,28 @@ export interface HydrateResult<T> {
 
 export class SecretService {
   private static inMemorySecrets = new Map<string, string>();
+  private static ephemeralSecrets = new Map<string, EphemeralSecretEntry[]>();
+  private static vaultProviders: ISecretVaultProvider[] = [];
+  private static redactionRules = new Map<string, RedactionRule>(Object.entries(BUILTIN_REDACTION_RULES));
+  private static processEphemeralKey: Buffer | null = null;
+
+  /** Registers or overrides an egress redaction rule by name. */
+  static registerRedactionRule(name: string, rule: RedactionRule): () => void {
+    this.redactionRules.set(name, rule);
+    return () => {
+      this.redactionRules.delete(name);
+    };
+  }
+
+  /** Removes a redaction rule by name. */
+  static unregisterRedactionRule(name: string): boolean {
+    return this.redactionRules.delete(name);
+  }
+
+  /** Resets redaction rules to BUILTIN_REDACTION_RULES. */
+  static resetRedactionRules(): void {
+    this.redactionRules = new Map<string, RedactionRule>(Object.entries(BUILTIN_REDACTION_RULES));
+  }
 
   /**
    * Universal string replacement helper for ES2020 compatibility.
@@ -32,11 +147,21 @@ export class SecretService {
   }
 
   /**
-   * Derives a 32-byte key for AES-256-GCM from environment or fallback.
+   * Derives a 32-byte key for AES-256-GCM from environment or generates a per-process CSPRNG key
+   * (never falls back to a static hardcoded secret in code).
    */
   private static getMasterKey(): Buffer {
-    const rawKey = process.env.CURATOR_SECRET_KEY || process.env.JWT_SECRET || 'curator-master-secret-key-32bytes-fallback';
-    return crypto.createHash('sha256').update(rawKey).digest();
+    const rawKey = process.env.CURATOR_SECRET_KEY || process.env.JWT_SECRET;
+    if (rawKey) {
+      return crypto.createHash('sha256').update(rawKey).digest();
+    }
+    if (process.env.CURATOR_REQUIRE_MASTER_KEY === '1') {
+      throw new Error('[SecretService] CURATOR_SECRET_KEY is required when CURATOR_REQUIRE_MASTER_KEY=1.');
+    }
+    if (!this.processEphemeralKey) {
+      this.processEphemeralKey = crypto.randomBytes(32);
+    }
+    return this.processEphemeralKey;
   }
 
   /**
@@ -84,20 +209,106 @@ export class SecretService {
   }
 
   /**
-   * Clears in-memory secrets (useful between test runs).
+   * Registers a scoped, short-lived secret bound to a TTL and optional agent/conversation/project scope.
+   * Expired entries are automatically evicted upon lookup.
+   */
+  static registerEphemeralSecret(
+    name: string,
+    value: string,
+    options: {
+      ttlMs?: number;
+      projectId?: string | number | null;
+      agentId?: string | number | null;
+      conversationId?: string | number | null;
+    } = {}
+  ): void {
+    const ttlMs = options.ttlMs ?? 15 * 60 * 1000; // Default 15 minutes
+    const entry: EphemeralSecretEntry = {
+      value,
+      expiresAt: Date.now() + ttlMs,
+      projectId: options.projectId,
+      agentId: options.agentId,
+      conversationId: options.conversationId,
+    };
+    const list = this.ephemeralSecrets.get(name) ?? [];
+    list.unshift(entry);
+    this.ephemeralSecrets.set(name, list);
+  }
+
+  /**
+   * Registers an external dynamic secret vault provider (e.g. HashiCorp Vault, IAM STS, Workload Identity Federation).
+   */
+  static registerVaultProvider(provider: ISecretVaultProvider): void {
+    this.vaultProviders = this.vaultProviders.filter((p) => p.name !== provider.name);
+    this.vaultProviders.push(provider);
+  }
+
+  /**
+   * Clears in-memory secrets, ephemeral session secrets, and vault providers (useful between test runs).
    */
   static clearMemorySecrets(): void {
     this.inMemorySecrets.clear();
+    this.ephemeralSecrets.clear();
+    this.vaultProviders = [];
   }
 
   /**
    * Resolves a secret name into its raw plaintext value using:
+   * 0. Scoped, short-lived ephemeral session tokens & external dynamic vault providers
    * 1. In-memory project registry
    * 2. Database projectSecret / secret table (if present in Prisma)
    * 3. Environment variables (process.env[NAME] or process.env[SECRET_NAME])
    */
   static async resolveSecret(name: string, context?: SecretContext): Promise<string | null> {
     if (!name) return null;
+
+    // 0a. Check scoped short-lived ephemeral secrets first
+    const ephList = this.ephemeralSecrets.get(name);
+    if (ephList && ephList.length > 0) {
+      const now = Date.now();
+      const active = ephList.filter((e) => e.expiresAt > now);
+      if (active.length === 0) {
+        this.ephemeralSecrets.delete(name);
+      } else {
+        this.ephemeralSecrets.set(name, active);
+        for (const entry of active) {
+          if (entry.projectId != null && context?.projectId != null && String(entry.projectId) !== String(context.projectId)) {
+            continue;
+          }
+          if (entry.agentId != null && context?.agentId != null && String(entry.agentId) !== String(context.agentId)) {
+            continue;
+          }
+          if (entry.conversationId != null && context?.conversationId != null && String(entry.conversationId) !== String(context.conversationId)) {
+            continue;
+          }
+          // If an entry is scoped to an agent/conversation/project, require the caller context to provide that scope
+          if (entry.agentId != null && context?.agentId == null) continue;
+          if (entry.conversationId != null && context?.conversationId == null) continue;
+          if (entry.projectId != null && context?.projectId == null) continue;
+          return entry.value;
+        }
+      }
+    }
+
+    // 0b. Query registered dynamic secret providers (Vault / IAM / Workload Identity)
+    for (const provider of this.vaultProviders) {
+      try {
+        const res = await provider.resolveDynamicSecret(name, context);
+        if (res && res.value) {
+          if (res.ttlMs && res.ttlMs > 0) {
+            this.registerEphemeralSecret(name, res.value, {
+              ttlMs: res.ttlMs,
+              projectId: context?.projectId,
+              agentId: context?.agentId,
+              conversationId: context?.conversationId,
+            });
+          }
+          return res.value;
+        }
+      } catch (err) {
+        logger.warn(`[SecretService] Vault provider '${provider.name}' failed resolving '${name}':`, err);
+      }
+    }
 
     // 1. Check in-memory secrets
     if (context?.projectId) {
@@ -280,7 +491,7 @@ export class SecretService {
   static mask(text: string, secretsMap?: Map<string, string>): string {
     if (!text || typeof text !== 'string') return text;
 
-    let sanitized = text;
+    let sanitized = text.replace(/\x00/g, '');
 
     // 1. Redact known secrets from secretsMap
     if (secretsMap && secretsMap.size > 0) {
@@ -295,13 +506,16 @@ export class SecretService {
       }
     }
 
-    // 2. Defense-in-depth: generic token pattern scrubbing
-    // GitHub Personal Access Tokens (classic and fine-grained)
-    sanitized = sanitized.replace(/gh[pousr]_[A-Za-z0-9_]{36,}/g, '[REDACTED:GITHUB_TOKEN]');
-    // OpenAI / general sk- keys
-    sanitized = sanitized.replace(/sk-[a-zA-Z0-9_\-]{20,}/g, '[REDACTED:API_KEY]');
-    // Authorization: Bearer <token>
-    sanitized = sanitized.replace(/(Authorization:\s*Bearer\s+)[A-Za-z0-9_\-\.]{16,}/gi, '$1[REDACTED:BEARER_TOKEN]');
+    // 2. Pluggable redaction rules (tokens, PCI-DSS PANs, SSNs, custom plugin patterns)
+    for (const rule of this.redactionRules.values()) {
+      const isEnabled = typeof rule.enabled === 'function' ? rule.enabled() : (rule.enabled ?? true);
+      if (!isEnabled) continue;
+      if (typeof rule.replacement === 'function') {
+        sanitized = sanitized.replace(rule.pattern, rule.replacement as any);
+      } else {
+        sanitized = sanitized.replace(rule.pattern, rule.replacement);
+      }
+    }
 
     return sanitized;
   }

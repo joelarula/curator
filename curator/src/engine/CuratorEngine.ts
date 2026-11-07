@@ -16,6 +16,7 @@ import { extendCoffeeAstVerbs } from './CoffeeVerbs.js';
 import { NodeRegistry } from './nodes/NodeRegistry.js';
 import { OutputFormats } from './output/OutputFormats.js';
 import { HistoryCompactors } from './history/HistoryCompaction.js';
+import { GuardrailService } from '../services/GuardrailService.js';
 import type { MaintenanceSystem, ServiceKey } from './nodes/NodeHandler.js';
 
 export type CuratorPlugin = CuratorPluginDefinition;
@@ -128,6 +129,7 @@ export class CuratorEngine {
     for (const [name, formatter] of Object.entries(plugin.formatters ?? {})) this.output.registerFormatter(name, formatter);
     if (plugin.toolOutput) this.output.registerToolOutputs(plugin.toolOutput);
     for (const [name, compactor] of Object.entries(plugin.historyCompactors ?? {})) this.historyCompactors.register(name, compactor);
+    if (plugin.guardrails) GuardrailService.registerPluginGuardrails(plugin.guardrails);
     if (plugin.config) {
       this.pluginConfig = mergeConfig(this.pluginConfig, structuredClone(plugin.config));
     }

@@ -2,6 +2,7 @@ import type { NodeHandler } from './NodeHandler.js';
 import type { CuratorToolNode } from '../CuratorAst.js';
 import type { CuratorStructuredResponse } from '../CuratorContracts.js';
 import { SecretService } from '../../services/SecretService.js';
+import { GuardrailService } from '../../services/GuardrailService.js';
 import { logger } from '../../utils/logger.js';
 
 export const toolNode: NodeHandler<CuratorToolNode> = {
@@ -74,12 +75,21 @@ export const toolNode: NodeHandler<CuratorToolNode> = {
         projectId: req.projectId,
         userId: req.userId,
         agentId: req.agentId,
+        conversationId: req.conversationId,
         prisma: ctx.prisma
       });
       hydratedSecrets = hydration.secretsMap;
 
+      const finalArgs = { ...hydration.hydrated, ...(inflight?.runtimeArgs || {}) };
+      if (req.context?.origin === 'MCP' || (tool as any).strictSchema === true) {
+        const check = GuardrailService.validateToolParameters(tool.parameters, finalArgs);
+        if (!check.valid) {
+          throw new Error(`Invalid parameters for '${toolKey}': ${(check.errors || []).join('; ')}`);
+        }
+      }
+
       rawOutput = await tool.runAsync({
-        args: { ...hydration.hydrated, ...(inflight?.runtimeArgs || {}) },
+        args: finalArgs,
         toolContext: {
           ...ctx.tools.contextExtras,
           conversationId: req.conversationId,
@@ -109,7 +119,7 @@ export const toolNode: NodeHandler<CuratorToolNode> = {
       result = `[Tool Error] ${e.message}`;
     }
 
-    // Egress scrubbing: mask any reflected secrets before writing to DB responses or context
+    // Egress scrubbing: mask any reflected secrets and pluggable redaction rules before writing to DB responses or context
     result = SecretService.mask(result, hydratedSecrets);
 
     // Store tool output in req.context under a short name derived from the tool name.

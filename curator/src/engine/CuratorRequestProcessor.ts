@@ -2271,7 +2271,7 @@ export class CuratorRequestProcessor {
   }
 
   private static readonly STRUCTURED_RECORD_TYPES = new Set([
-    'TOOL_BLOCKED', 'APPROVAL_REQUIRED', 'APPROVAL_EXPIRED', 'HUMAN_TIMEOUT', 'WAIT_TIMEOUT', 'EVENT_EMITTED', 'EVENTS_EMITTED', 'CHOICE_PROMPT', 'CHOICE_RECEIVED',
+    'TOOL_BLOCKED', 'GUARDRAIL_BLOCKED', 'APPROVAL_REQUIRED', 'APPROVAL_EXPIRED', 'HUMAN_TIMEOUT', 'WAIT_TIMEOUT', 'EVENT_EMITTED', 'EVENTS_EMITTED', 'CHOICE_PROMPT', 'CHOICE_RECEIVED',
     'SUBSCRIBED', 'UNSUBSCRIBED', 'MODEL_CHANGED', 'TOOL_CALLS', 'HISTORY_SUMMARY'
   ]);
 
@@ -2654,7 +2654,7 @@ export class CuratorRequestProcessor {
 
     const vmContext = vm.createContext(safeSandbox);
     try {
-      return vm.runInContext(cleanExpr, vmContext);
+      return vm.runInContext(cleanExpr, vmContext, { timeout: 1000 });
     } catch (e) {
       logger.error(`[CuratorRequestProcessor] Expression evaluation failed for: ${cleanExpr}`, e);
       return false;

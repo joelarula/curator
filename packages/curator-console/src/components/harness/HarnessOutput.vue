@@ -1,10 +1,11 @@
 <template>
-  <v-col cols="12" md="6" class="d-flex flex-column">
-    <v-card variant="outlined" rounded="lg" class="fill-height d-flex flex-column pa-0 border bg-surface" style="min-height: 280px;">
-      <!-- Output Subheader -->
-      <div class="d-flex align-center justify-space-between px-3 py-2 border-b bg-surface-variant">
-        <div class="d-flex align-center ga-2">
-          <span class="text-caption font-weight-bold text-high-emphasis">OUTPUT / RESPONSE</span>
+  <div class="d-flex flex-column w-100">
+    <v-card variant="outlined" rounded="lg" class="fill-height d-flex flex-column pa-0 border bg-surface" style="min-height: 240px;">
+      <!-- Feedback / Output Top & Right Subheader -->
+      <div class="d-flex align-center justify-space-between px-3 py-2 border-b bg-surface-variant flex-wrap ga-2">
+        <div class="d-flex align-center ga-2 flex-wrap">
+          <v-icon size="16" color="primary">mdi-monitor-dashboard</v-icon>
+          <span class="text-caption font-weight-bold text-high-emphasis">FEEDBACK &amp; UI SURFACE</span>
           <v-chip
             v-if="status"
             size="x-small"
@@ -22,20 +23,38 @@
           </v-chip>
         </div>
 
-        <v-btn-toggle
-          v-model="tab"
-          mandatory
-          density="compact"
-          variant="text"
-          color="primary"
-        >
-          <v-btn value="formatted" size="x-small">Formatted</v-btn>
-          <v-btn value="json" size="x-small">JSON / AST</v-btn>
-          <v-btn value="history" size="x-small">Turns ({{ historyList.length }})</v-btn>
-        </v-btn-toggle>
+        <!-- Right-Side Toolbar & View Tabs -->
+        <div class="d-flex align-center ga-2 flex-wrap">
+          <v-btn
+            size="x-small"
+            variant="tonal"
+            color="primary"
+            prepend-icon="mdi-view-grid-outline"
+            title="Render interactive Resource Grid | List in Feedback Pane"
+            @click="openResourcesSurface"
+          >
+            Resources (Grid | List)
+          </v-btn>
+
+          <v-btn-toggle
+            v-model="tab"
+            mandatory
+            density="compact"
+            variant="text"
+            color="primary"
+          >
+            <v-btn value="surface" size="x-small">
+              <v-icon size="14" class="me-1">mdi-widgets-outline</v-icon>
+              UI Surface
+            </v-btn>
+            <v-btn value="formatted" size="x-small">Formatted</v-btn>
+            <v-btn value="json" size="x-small">JSON / AST</v-btn>
+            <v-btn value="history" size="x-small">Turns ({{ historyList.length }})</v-btn>
+          </v-btn-toggle>
+        </div>
       </div>
 
-      <!-- Output Body -->
+      <!-- Feedback Body -->
       <div class="pa-3 flex-grow-1 overflow-y-auto">
         <!-- Loading State (Real-Time WebSocket Stream) -->
         <div v-if="isExecuting" class="d-flex flex-column align-center justify-center py-8 text-center">
@@ -63,12 +82,50 @@
           <strong>Execution Error:</strong> {{ execError }}
         </v-alert>
 
+        <!-- 0. Interactive UI Surface View (Grid | List Resource Explorer, Detail Editor, Custom Components) -->
+        <template v-else-if="tab === 'surface'">
+          <component
+            :is="customSurfaceComponent"
+            v-if="customSurfaceComponent"
+            :surface="activeSurface"
+            v-bind="activeSurface?.props || {}"
+          />
+          <HarnessResourceDetail
+            v-else-if="activeDetail || activeSurface?.component === 'resource-detail'"
+            :item="activeDetail || activeSurface?.item || null"
+          />
+          <HarnessResourceCollection
+            v-else-if="activeSurface"
+            :surface="activeSurface"
+          />
+          <div v-else class="text-center py-8">
+            <v-icon size="36" class="mb-2 opacity-30" color="primary">mdi-view-grid-plus-outline</v-icon>
+            <div class="text-body-2 text-medium-emphasis">
+              Interactive Feedback Surface Ready
+            </div>
+            <div class="text-caption text-disabled mt-1 mb-3">
+              Prompt <code>"show app resources"</code> below or click "Resources (Grid | List)" to render custom UI components here above the prompt.
+            </div>
+            <v-btn
+              size="small"
+              color="primary"
+              variant="tonal"
+              prepend-icon="mdi-folder-multiple-image"
+              @click="openResourcesSurface"
+            >
+              Show App Resources
+            </v-btn>
+          </div>
+        </template>
+
         <!-- 1. Formatted View -->
         <template v-else-if="tab === 'formatted'">
-          <div v-if="!outputText && historyList.length === 0" class="text-center py-8">
-            <div class="text-h4 mb-2 opacity-30">⚡</div>
-            <div class="text-body-2 text-medium-emphasis">OpPrompt response will stream here upon execution.</div>
-            <div class="text-caption text-disabled mt-1">Select an agent or tool on the left and click "Run OpPrompt".</div>
+          <div v-if="!outputText && historyList.length === 0" class="text-center py-6">
+            <div class="text-h5 mb-1 opacity-30">⚡</div>
+            <div class="text-body-2 text-medium-emphasis">OpPrompt feedback will stream here above your prompt.</div>
+            <div class="text-caption text-disabled mt-1">
+              Type <code>show app resources</code> or select an agent/tool below and press Ctrl + Enter.
+            </div>
           </div>
 
           <div v-else class="formatted-output-view">
@@ -88,13 +145,25 @@
                   Choice: {{ formatChoiceDisplay(choice) }}
                 </v-chip>
               </div>
-              <v-btn
-                size="x-small"
-                variant="text"
-                icon="mdi-content-copy"
-                title="Copy Output"
-                @click="copyToClipboard(outputText || '')"
-              />
+              <div class="d-flex align-center ga-1">
+                <v-btn
+                  v-if="activeSurface"
+                  size="x-small"
+                  variant="tonal"
+                  color="primary"
+                  prepend-icon="mdi-widgets-outline"
+                  @click="tab = 'surface'"
+                >
+                  Open UI Surface
+                </v-btn>
+                <v-btn
+                  size="x-small"
+                  variant="text"
+                  icon="mdi-content-copy"
+                  title="Copy Output"
+                  @click="copyToClipboard(outputText || '')"
+                />
+              </div>
             </div>
 
             <!-- Text / Markdown Output Container -->
@@ -116,7 +185,7 @@
               </v-card>
             </div>
 
-            <!-- DYNAMIC AST WORKFLOW CHOICES AFTER RESULTS PANE -->
+            <!-- DYNAMIC AST WORKFLOW CHOICES -->
             <HarnessChoices
               v-if="choicesList.length > 0"
               :choices="choicesList"
@@ -184,13 +253,15 @@
         </template>
       </div>
     </v-card>
-  </v-col>
+  </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useHarnessContext } from '../../context';
 import HarnessChoices, { type ChoiceItem } from './HarnessChoices.vue';
+import HarnessResourceCollection from './HarnessResourceCollection.vue';
+import HarnessResourceDetail from './HarnessResourceDetail.vue';
 
 export interface TurnHistoryEntry {
   id: string;
@@ -215,7 +286,7 @@ interface Props {
   lastExecResponses?: any[];
   lastExecRaw?: any | null;
   lastExecError?: string | null;
-  outputTab?: 'formatted' | 'json' | 'history';
+  outputTab?: 'surface' | 'formatted' | 'json' | 'history';
   turnHistory?: TurnHistoryEntry[];
   availableChoices?: ChoiceItem[];
   workflowChoicePrompt?: string;
@@ -251,7 +322,7 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const emit = defineEmits<{
-  (e: 'update:outputTab', tab: 'formatted' | 'json' | 'history'): void;
+  (e: 'update:outputTab', tab: 'surface' | 'formatted' | 'json' | 'history'): void;
   (e: 'update:selectedRadioChoice', val: string | null): void;
   (e: 'update:selectedCheckboxes', val: string[]): void;
   (e: 'update:selectedChipChoice', val: string | null): void;
@@ -277,6 +348,15 @@ const responsesList = computed(() => props.lastExecResponses ?? harness?.lastExe
 const rawPayload = computed(() => props.lastExecRaw ?? harness?.lastExecRaw.value ?? null);
 const execError = computed(() => props.lastExecError ?? harness?.lastExecError.value ?? null);
 
+// UI Surface State
+const activeSurface = computed(() => harness?.uiSurface.value ?? null);
+const activeDetail = computed(() => harness?.activeResourceDetail.value ?? null);
+const customSurfaceComponent = computed(() => {
+  const compName = activeSurface.value?.component;
+  if (!compName || !harness?.customComponents) return null;
+  return harness.customComponents[compName] || null;
+});
+
 const tab = computed({
   get: () => props.outputTab ?? harness?.outputTab.value ?? 'formatted',
   set: (val) => {
@@ -295,6 +375,13 @@ const choiceDisplayMode = computed(() => props.choicesDisplayMode ?? harness?.ch
 const selectedRadio = computed(() => props.selectedRadioChoice ?? harness?.selectedRadioChoice.value ?? null);
 const selectedChecks = computed(() => props.selectedCheckboxes ?? harness?.selectedCheckboxes.value ?? []);
 const selectedChip = computed(() => props.selectedChipChoice ?? harness?.selectedChipChoice.value ?? null);
+
+function openResourcesSurface() {
+  if (harness) {
+    harness.outputTab.value = 'surface';
+    harness.showResourcesSurface();
+  }
+}
 
 function setRadio(val: string | null) {
   if (harness) harness.selectedRadioChoice.value = val;

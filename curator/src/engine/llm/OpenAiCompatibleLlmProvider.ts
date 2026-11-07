@@ -8,12 +8,17 @@ import type {
   LlmEmbeddingResponse,
 } from './ILlmProvider.js';
 import { logger } from '../../utils/logger.js';
+import { GuardrailService } from '../../services/GuardrailService.js';
 
 export class OpenAiCompatibleLlmProvider implements ILlmProvider {
   public readonly providerName = 'openai-compatible';
 
   public async generateContent(req: LlmRequest): Promise<LlmResponse> {
     const baseUrl = req.baseUrl || process.env.LOCAL_LLM_URL || process.env.OPENAI_BASE_URL || 'http://localhost:8080';
+    const urlCheck = GuardrailService.validateEndpointUrl(baseUrl);
+    if (!urlCheck.allowed) {
+      throw new Error(`[OpenAiCompatibleLlmProvider] Blocked endpoint URL: ${urlCheck.reason}`);
+    }
     const apiKey = req.apiKey || process.env.OPENAI_API_KEY || 'no-key-required';
     const model = req.model || 'default';
 
@@ -133,6 +138,10 @@ export class OpenAiCompatibleLlmProvider implements ILlmProvider {
 
   public async embedContent(req: LlmEmbeddingRequest): Promise<LlmEmbeddingResponse> {
     const baseUrl = req.baseUrl || process.env.LOCAL_LLM_URL || process.env.OPENAI_BASE_URL || 'http://localhost:8080';
+    const urlCheck = GuardrailService.validateEndpointUrl(baseUrl);
+    if (!urlCheck.allowed) {
+      throw new Error(`[OpenAiCompatibleLlmProvider] Blocked embedding endpoint URL: ${urlCheck.reason}`);
+    }
     const apiKey = req.apiKey || process.env.OPENAI_API_KEY || 'no-key-required';
     const model = req.model || 'text-embedding-3-small';
 

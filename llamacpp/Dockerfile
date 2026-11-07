@@ -15,6 +15,10 @@ WORKDIR /opt/llama.cpp
 RUN cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 RUN cmake --build build --target llama-server -j 2
 
+# Phase 3 Hardening: Run inference engine as an unprivileged non-root user
+RUN groupadd -g 10001 llmuser && useradd -u 10001 -g llmuser -s /usr/sbin/nologin -M llmuser
+USER 10001:10001
+
 EXPOSE 8080
 
 ENTRYPOINT ["/opt/llama.cpp/build/bin/llama-server"]

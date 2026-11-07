@@ -1,5 +1,6 @@
 import type { ILlmProvider, LlmRequest, LlmResponse, LlmToolCall, LlmMessage } from './ILlmProvider.js';
 import { logger } from '../../utils/logger.js';
+import { GuardrailService } from '../../services/GuardrailService.js';
 
 export class AnthropicLlmProvider implements ILlmProvider {
   public readonly providerName = 'anthropic';
@@ -12,6 +13,10 @@ export class AnthropicLlmProvider implements ILlmProvider {
 
     const model = req.model || 'claude-3-7-sonnet-20250219';
     const baseUrl = req.baseUrl || 'https://api.anthropic.com/v1/messages';
+    const urlCheck = GuardrailService.validateEndpointUrl(baseUrl);
+    if (!urlCheck.allowed) {
+      throw new Error(`[AnthropicLlmProvider] Blocked endpoint URL: ${urlCheck.reason}`);
+    }
 
     // System prompt with prompt caching support
     let system: any = undefined;

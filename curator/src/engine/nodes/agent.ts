@@ -8,6 +8,7 @@ import { buildContext } from '../llm/ConversationFold.js';
 import { traceLlmCall } from '../llm/LlmTrace.js';
 import { toCamelCase } from '../builder/CuratorCoreBuilder.js';
 import { SecretService } from '../../services/SecretService.js';
+import { GuardrailService } from '../../services/GuardrailService.js';
 import {
   DEFAULT_SUMMARY_INSTRUCTION,
   parseCompactionSpec,
@@ -45,6 +46,23 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
 
     let prompt = await ctx.interpolateTemplate(ast.prompt, req) || 'Hello';
     let instruction = await ctx.interpolateTemplate(ast.instruction, req);
+
+    // Deterministic Ingress Filter & Prompt Injection Check prior to model invocation
+    const ingressCheck = await GuardrailService.inspectPromptIngress(prompt, (ast as any).guardrails, {
+      requestId: req.id,
+      conversationId: req.conversationId,
+      agentName: ast.agentName,
+      projectId: req.projectId,
+    });
+    if (!ingressCheck.allowed) {
+      await ctx.saveResponse(
+        req,
+        `[Agent Guardrail Error] (${ingressCheck.atlasTag || 'AML.T0051'}) ${ingressCheck.reason}`
+      );
+      await ctx.completeRequest(req.id, 'COMPLETED');
+      return;
+    }
+    prompt = ingressCheck.sanitizedPrompt;
 
     if (ast.output_schema) {
       const schemaStr = JSON.stringify(ast.output_schema, null, 2);
@@ -96,6 +114,11 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
         for (const { name, tool } of entries) {
           const key: string = tool.name || name;
           if (offeredKeys.has(key)) continue;
+          // Strip raw text/shell execution permissions from agent-callable tools (AML.T0040)
+          if (GuardrailService.isRawExecutionTool(key, tool) || GuardrailService.isRawExecutionTool(name, tool)) {
+            logger.warn(`[GuardrailService] Stripping raw text execution tool '${key}' from agent '${ast.agentName}' [AML.T0040]`);
+            continue;
+          }
           // Never offer a tool the actor may not run (role / project); the call-time check stays as the backstop.
           if (!(await ctx.tools.checkRoleAccess(req, key, tool)).allowed) continue;
           offeredKeys.add(key);
@@ -109,6 +132,10 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
           });
         }
         if (typeof toolOrName !== 'string') {
+          if (GuardrailService.isRawExecutionTool(toolOrName.name, toolOrName)) {
+            logger.warn(`[GuardrailService] Stripping raw text execution inline tool '${toolOrName.name}' from agent '${ast.agentName}' [AML.T0040]`);
+            continue;
+          }
           toolDefs.push({
             name: toolOrName.name,
             description: toolOrName.description,
@@ -212,7 +239,10 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
         let toolOutput = '';
         let isError = false;
 
-        if (tool) {
+        if (GuardrailService.isRawExecutionTool(toolKey, tool) || GuardrailService.isRawExecutionTool(tc.name, tool)) {
+          toolOutput = `[Access Denied] Raw text execution tool '${toolKey}' is prohibited for LLM agents (AML.T0040).`;
+          isError = true;
+        } else if (tool) {
           // Check tool access & permission
           const accessCheck = await ctx.tools.checkAccess(req, toolKey, tool);
           if (!accessCheck.allowed) {
@@ -250,6 +280,7 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
                 projectId: req.projectId,
                 userId: req.userId,
                 agentId: req.agentId,
+                conversationId: req.conversationId,
                 prisma: ctx.prisma
               });
               executionArgs = hydration.hydrated;
@@ -261,33 +292,39 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
             }
 
             if (!secretResolutionError) {
-              try {
-                const res = await tool.runAsync({
-                  args: executionArgs,
-                  toolContext: {
-                    conversationId: req.conversationId,
-                    userId: req.userId,
-                    projectId: req.projectId,
-                    prisma: ctx.prisma,
-                    service: ctx.service,
-                    tryService: ctx.tryService
-                  }
-                });
-                // Egress sanitization: mask any reflected secrets before sending back to LLM/DB
-                toolOutput = formatToolResult(res, offeredNamesByLlmName.get(tc.name) ?? [tc.name], tool, (text) => SecretService.mask(text, hydratedSecrets));
-
-                // Consume ONETIME approval if used
-                if (accessCheck.approvalScope === 'ONETIME' && req.context) {
-                  delete req.context.__humanApproved__;
-                  if (Array.isArray(req.context.__approvedTools__)) {
-                    req.context.__approvedTools__ = req.context.__approvedTools__.filter((t: string) => t !== toolKey);
-                  }
-                }
-                // TODO(db-driven): LLM tool calls should become child Requests; until then the agent's
-                // conversation history is the record of this call.
-              } catch (err: any) {
-                toolOutput = `[Tool Error] ${SecretService.mask(err.message, hydratedSecrets)}`;
+              const paramValidation = GuardrailService.validateToolParameters(tool.parameters as Record<string, unknown>, executionArgs);
+              if (!paramValidation.valid) {
+                toolOutput = `[Tool Schema Error] Invalid parameters for '${tc.name}': ${(paramValidation.errors || []).join('; ')}`;
                 isError = true;
+              } else {
+                try {
+                  const res = await tool.runAsync({
+                    args: executionArgs,
+                    toolContext: {
+                      conversationId: req.conversationId,
+                      userId: req.userId,
+                      projectId: req.projectId,
+                      prisma: ctx.prisma,
+                      service: ctx.service,
+                      tryService: ctx.tryService
+                    }
+                  });
+                  // Egress sanitization: mask any reflected secrets and pluggable redaction rules before sending back to LLM/DB
+                  toolOutput = formatToolResult(res, offeredNamesByLlmName.get(tc.name) ?? [tc.name], tool, (text) => SecretService.mask(text, hydratedSecrets));
+
+                  // Consume ONETIME approval if used
+                  if (accessCheck.approvalScope === 'ONETIME' && req.context) {
+                    delete req.context.__humanApproved__;
+                    if (Array.isArray(req.context.__approvedTools__)) {
+                      req.context.__approvedTools__ = req.context.__approvedTools__.filter((t: string) => t !== toolKey);
+                    }
+                  }
+                  // TODO(db-driven): LLM tool calls should become child Requests; until then the agent's
+                  // conversation history is the record of this call.
+                } catch (err: any) {
+                  toolOutput = `[Tool Error] ${SecretService.mask(err.message, hydratedSecrets)}`;
+                  isError = true;
+                }
               }
             }
           }
@@ -295,26 +332,44 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
           // Inline tool check
           const inlineDef = offeredTools.find((t: any) => typeof t !== 'string' && t.name === tc.name) as any;
           if (inlineDef) {
-            let hydratedSecrets = new Map<string, string>();
-            let executionArgs = tc.args;
-            try {
-              const hydration = await SecretService.hydrate(tc.args, {
-                projectId: req.projectId,
-                userId: req.userId,
-                agentId: req.agentId,
-                prisma: ctx.prisma
-              });
-              executionArgs = hydration.hydrated;
-              hydratedSecrets = hydration.secretsMap;
-
-              const sandbox = { console, args: executionArgs, fetch };
-              const sandboxContext = vm.createContext(sandbox);
-              const wrapper = `(async () => { const fn = ${inlineDef.sourceCode}; return await fn(args); })()`;
-              const res = await vm.runInContext(wrapper, sandboxContext);
-              toolOutput = formatToolResult(res, [tc.name], inlineDef, (text) => SecretService.mask(text, hydratedSecrets));
-            } catch (err: any) {
-              toolOutput = `[Inline Tool Error] ${SecretService.mask(err.message, hydratedSecrets)}`;
+            if (process.env.CURATOR_ALLOW_INLINE_VM_TOOLS === '0') {
+              toolOutput = `[Access Denied] Inline sourceCode tools are disabled by policy (CURATOR_ALLOW_INLINE_VM_TOOLS=0).`;
               isError = true;
+            } else {
+              let hydratedSecrets = new Map<string, string>();
+              let executionArgs = tc.args;
+              try {
+                const hydration = await SecretService.hydrate(tc.args, {
+                  projectId: req.projectId,
+                  userId: req.userId,
+                  agentId: req.agentId,
+                  conversationId: req.conversationId,
+                  prisma: ctx.prisma
+                });
+                executionArgs = hydration.hydrated;
+                hydratedSecrets = hydration.secretsMap;
+
+                const paramValidation = GuardrailService.validateToolParameters(inlineDef.parameters, executionArgs);
+                if (!paramValidation.valid) {
+                  toolOutput = `[Tool Schema Error] Invalid parameters for '${tc.name}': ${(paramValidation.errors || []).join('; ')}`;
+                  isError = true;
+                } else {
+                  // Isolate inline tool VM context: network-restricted by default unless CURATOR_ALLOW_INLINE_TOOL_NETWORK=1
+                  const sandbox: Record<string, unknown> = { console, args: structuredClone(executionArgs ?? {}) };
+                  if (process.env.CURATOR_ALLOW_INLINE_TOOL_NETWORK === '1') {
+                    sandbox.fetch = fetch;
+                  }
+                  const sandboxContext = vm.createContext(sandbox, {
+                    codeGeneration: { strings: false, wasm: false },
+                  });
+                  const wrapper = `(async () => { const fn = ${inlineDef.sourceCode}; return await fn(args); })()`;
+                  const res = await vm.runInContext(wrapper, sandboxContext, { timeout: 5000 });
+                  toolOutput = formatToolResult(res, [tc.name], inlineDef, (text) => SecretService.mask(text, hydratedSecrets));
+                }
+              } catch (err: any) {
+                toolOutput = `[Inline Tool Error] ${SecretService.mask(err.message, hydratedSecrets)}`;
+                isError = true;
+              }
             }
           } else {
             toolOutput = `[Error] Tool '${tc.name}' not found.`;
@@ -352,6 +407,9 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
         logger.warn(`[CuratorRequestProcessor] Agent '${ast.agentName}' output_format failed: ${err.message}`);
       }
     }
+
+    // Egress sanitization: unified SecretService.mask applies hydrated secrets + pluggable redaction rules (PCI/PII/tokens)
+    finalOutput = SecretService.mask(finalOutput);
 
     logger.debug(`[CuratorRequestProcessor] Agent '${ast.agentName}' completed in ${iterations} turn(s). Output length: ${finalOutput.length}`);
     const targetKey = agentOutputKey(ast);

@@ -1,0 +1,66 @@
+# Curator Generic Gallery Configuration (gallery.config.yaml)
+# Loaded by @curator/host/config (`loadAppConfig({ appId: 'gallery' })`).
+# Supports profile overlays (`gallery.config.<profile>.yaml`) and ${ENV_VAR:default} substitution.
+
+appId: gallery
+
+host:
+  profile: embedded
+  intervalMs: 3000
+  logLevel: info
+  durability: checkpoint
+
+gallery:
+  defaultProjectId: ${GALLERY_PROJECT_ID:artmoments}
+  defaultProjectName: Artmoments Gallery
+  sourceArtm2Dir: Z:/artm2/gallery/data/db
+
+storage:
+  dataDir: ${DATA_DIR:./data}
+  publicUrlPrefix: /media
+
+image:
+  thumbnailMaxEdge: 250
+  jpegQuality: 84
+
+database:
+  curatorUrl: ${CURATOR_DATABASE_URL:}
+  curatorSqlitePath: ${CURATOR_DATABASE_PATH:./data/gallery-curator.db}
+
+server:
+  port: ${PORT:4005}
+  frontendUrl: ${FRONTEND_URL:http://localhost:3005}
+
+# Google Web OAuth 2.0 & Project-to-Email RBAC Configuration
+# Seeded idempotently into Curator DB (User, Project, Role, RoleInheritance, ProjectRole, UserRole)
+auth:
+  jwtSecret: ${JWT_SECRET:gallery-curator-secret-key-change-me}
+  defaultManagers:
+    - joel.arula@gmail.com
+    - mailbox@artmoments.ee
+  google:
+    clientId: ${GOOGLE_CLIENT_ID:}
+    clientSecret: ${GOOGLE_CLIENT_SECRET:}
+    callbackUrl: ${GOOGLE_CALLBACK_URL:http://localhost:4005/auth/google/callback}
+  projectEmails:
+    artmoments:
+      name: Artmoments Gallery
+      emails:
+        - joel.arula@gmail.com
+        - mailbox@artmoments.ee
+      roles:
+        - curator_manager
+        - gallery_admin
+        - gallery_curator
+
+# Top-level project-to-email mapping (also supported directly under `projects:`)
+projects:
+  artmoments:
+    name: Artmoments Gallery
+    emails:
+      - joel.arula@gmail.com
+      - mailbox@artmoments.ee
+    roles:
+      - curator_manager
+      - gallery_admin
+      - gallery_curator

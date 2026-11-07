@@ -3,8 +3,18 @@ services:
     image: ghcr.io/ggml-org/llama.cpp:server
     pull_policy: always
     container_name: llama-cpp-server
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
+    networks:
+      - internal_llm_net
     volumes:
       - ../curator-rust/assets/models:/models:ro
     command:
@@ -18,3 +28,8 @@ services:
       - 0.0.0.0
       - --port
       - "8080"
+
+networks:
+  internal_llm_net:
+    driver: bridge
+    internal: true
