@@ -17,7 +17,10 @@ gallery:
 
 storage:
   dataDir: ${DATA_DIR:./data}
-  publicUrlPrefix: /media
+  # Configurable filesystem prefix for relative media paths (`<projectId>/<bucket>/<filename>`).
+  # Database rows store ONLY the relative path so migrating DB + files across environments requires zero DB edits.
+  pathPrefix: ${STORAGE_PATH_PREFIX:./data/media}
+  publicUrlPrefix: ${STORAGE_PUBLIC_URL_PREFIX:/media}
 
 image:
   thumbnailMaxEdge: 250
@@ -45,6 +48,7 @@ auth:
   projectEmails:
     artmoments:
       name: Artmoments Gallery
+      slug: artmoments
       emails:
         - joel.arula@gmail.com
         - mailbox@artmoments.ee
@@ -57,6 +61,7 @@ auth:
 projects:
   artmoments:
     name: Artmoments Gallery
+    slug: artmoments
     emails:
       - joel.arula@gmail.com
       - mailbox@artmoments.ee

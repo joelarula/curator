@@ -1,9 +1,11 @@
 import { CURATOR_ROLES, seedCuratorRbac } from '@curator/plugin-auth';
+import { slugifySeo } from '@curator/plugin-storage';
 import { GalleryConstant, GalleryRole } from '../models/index.ts';
 
 export interface ProjectEmailMapping {
   projectId: string;
   name: string;
+  slug: string;
   emails: string[];
   roles: string[];
 }
@@ -11,6 +13,7 @@ export interface ProjectEmailMapping {
 export interface UserProjectAccessDTO {
   id: string;
   name: string;
+  slug: string;
   roles: string[];
 }
 
@@ -55,6 +58,7 @@ export function resolveProjectEmailMappings(
         (projectId === GalleryConstant.DEFAULT_PROJECT_ID
           ? GalleryConstant.DEFAULT_PROJECT_NAME
           : projectId);
+      let slug = existing?.slug || slugifySeo(projectId, 'default');
       let roles: string[] = existing?.roles || [
         CURATOR_ROLES.MANAGER,
         GalleryRole.ADMIN,
@@ -70,6 +74,9 @@ export function resolveProjectEmailMappings(
           .filter(Boolean);
       } else if (rawEntry && typeof rawEntry === 'object') {
         if (rawEntry.name) name = String(rawEntry.name).trim();
+        if (rawEntry.slug || rawEntry.folderPrefix) {
+          slug = slugifySeo(String(rawEntry.slug || rawEntry.folderPrefix), slugifySeo(projectId));
+        }
         if (Array.isArray(rawEntry.emails)) {
           emails = rawEntry.emails.map((e: any) => String(e).toLowerCase().trim()).filter(Boolean);
         } else if (typeof rawEntry.email === 'string') {
@@ -84,6 +91,7 @@ export function resolveProjectEmailMappings(
       merged[projectId] = {
         projectId,
         name,
+        slug,
         emails: combinedEmails,
         roles: Array.from(new Set(roles)),
       };
@@ -98,6 +106,7 @@ export function resolveProjectEmailMappings(
     merged[GalleryConstant.DEFAULT_PROJECT_ID] = {
       projectId: GalleryConstant.DEFAULT_PROJECT_ID,
       name: GalleryConstant.DEFAULT_PROJECT_NAME,
+      slug: slugifySeo(GalleryConstant.DEFAULT_PROJECT_ID, 'artmoments'),
       emails: defaultManagers.map((e) => String(e).toLowerCase().trim()).filter(Boolean),
       roles: [CURATOR_ROLES.MANAGER, GalleryRole.ADMIN, GalleryRole.CURATOR],
     };
@@ -220,7 +229,7 @@ export async function seedProjectEmailMappings(
 
   // 3. Seed each Project and its mapped User emails + UserRoles
   for (const mapping of Object.values(mappings)) {
-    const { projectId, name: projectName, emails, roles } = mapping;
+    const { projectId, name: projectName, slug: projectSlug, emails, roles } = mapping;
     const projectUsers: any[] = [];
 
     for (const rawEmail of emails) {
@@ -250,11 +259,13 @@ export async function seedProjectEmailMappings(
       where: { id: projectId },
       update: {
         name: projectName,
+        slug: projectSlug || slugifySeo(projectId),
         existent: true,
       },
       create: {
         id: projectId,
         name: projectName,
+        slug: projectSlug || slugifySeo(projectId),
         userId: ownerUserId,
         existent: true,
       },
@@ -349,7 +360,7 @@ export async function resolveUserProjects(
 ): Promise<UserProjectAccessDTO[]> {
   if (!user) return [];
   const email = (user.email || '').toLowerCase().trim();
-  const projectMap = new Map<string, { id: string; name: string; roles: Set<string> }>();
+  const projectMap = new Map<string, { id: string; name: string; slug: string; roles: Set<string> }>();
 
   // 1. Check YAML project-to-email mappings
   for (const mapping of Object.values(mappings)) {
@@ -357,6 +368,7 @@ export async function resolveUserProjects(
       projectMap.set(mapping.projectId, {
         id: mapping.projectId,
         name: mapping.name,
+        slug: mapping.slug || slugifySeo(mapping.projectId),
         roles: new Set(mapping.roles),
       });
     }
@@ -390,9 +402,11 @@ export async function resolveUserProjects(
           const pid = ur.projectId;
           if (!pid || pid === '1' || pid === 'system') continue;
           const pName = ur.project?.name || mappings[pid]?.name || pid;
+          const pSlug = ur.project?.slug || mappings[pid]?.slug || slugifySeo(pid);
           const entry = projectMap.get(pid) || {
             id: pid,
             name: pName,
+            slug: pSlug,
             roles: new Set<string>(),
           };
           const roleName = ur.role?.name || ur.roleId;
@@ -408,6 +422,7 @@ export async function resolveUserProjects(
           const entry = projectMap.get(p.id) || {
             id: p.id,
             name: p.name,
+            slug: p.slug || mappings[p.id]?.slug || slugifySeo(p.id),
             roles: new Set<string>([CURATOR_ROLES.MANAGER, GalleryRole.ADMIN]),
           };
           projectMap.set(p.id, entry);
@@ -419,6 +434,7 @@ export async function resolveUserProjects(
   return Array.from(projectMap.values()).map((p) => ({
     id: p.id,
     name: p.name,
+    slug: p.slug,
     roles: Array.from(p.roles),
   }));
 }

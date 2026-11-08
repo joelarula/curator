@@ -13,6 +13,7 @@ CREATE TABLE "User" (
 CREATE TABLE "Project" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "name" TEXT NOT NULL,
+    "slug" TEXT,
     "userId" TEXT NOT NULL,
     "existent" BOOLEAN DEFAULT true,
     "deletedAt" DATETIME,
@@ -162,12 +163,15 @@ CREATE TABLE "Attachment" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "uri" TEXT NOT NULL,
     "filename" TEXT NOT NULL,
+    "slug" TEXT,
+    "projectId" TEXT,
     "mimetype" TEXT NOT NULL,
     "url" TEXT NOT NULL,
     "size" INTEGER NOT NULL,
     "existent" BOOLEAN DEFAULT true,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "Attachment_resourceId_fkey" FOREIGN KEY ("resourceId") REFERENCES "Resource" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+    CONSTRAINT "Attachment_resourceId_fkey" FOREIGN KEY ("resourceId") REFERENCES "Resource" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "Attachment_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
 -- CreateTable
@@ -482,6 +486,9 @@ CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "User_googleId_key" ON "User"("googleId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Project_slug_key" ON "Project"("slug");
 
 -- CreateIndex
 CREATE INDEX "Project_userId_existent_idx" ON "Project"("userId", "existent");

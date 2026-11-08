@@ -97,7 +97,21 @@
 
         <v-chip size="small" color="primary" variant="tonal" class="font-weight-bold">
           {{ totalItems }} maali
+          <template v-if="totalPages > 1">
+            &nbsp;·&nbsp;lk {{ currentPage }} / {{ totalPages }}
+          </template>
         </v-chip>
+
+        <v-select
+          v-model="pageSize"
+          :items="[12, 24, 48, 96]"
+          density="compact"
+          variant="outlined"
+          hide-details
+          label="Lehel"
+          style="width: 96px"
+          @update:model-value="onPageSizeChange"
+        />
 
         <v-btn-toggle v-model="viewMode" mandatory density="compact" color="primary" variant="outlined">
           <v-btn value="grid" size="small" icon="mdi-view-grid-outline" title="Grid View" />
@@ -264,6 +278,22 @@
       </v-table>
     </v-card>
 
+    <!-- Pagination Bar -->
+    <div v-if="totalPages > 1 && !loading" class="d-flex flex-column flex-sm-row align-center justify-space-between mt-6 ga-3">
+      <div class="text-caption text-medium-emphasis">
+        Kuvatakse {{ items.length }} maali (kokku {{ totalItems }}) — lehekülg {{ currentPage }} / {{ totalPages }}
+      </div>
+      <v-pagination
+        v-model="currentPage"
+        :length="totalPages"
+        :total-visible="7"
+        density="comfortable"
+        rounded="lg"
+        color="primary"
+        @update:model-value="onPageChange"
+      />
+    </div>
+
     <!-- About Modal -->
     <v-dialog v-model="aboutDialog" max-width="680">
       <v-card rounded="lg">
@@ -312,6 +342,9 @@ const viewMode = ref<'grid' | 'list'>('grid');
 const searchQuery = ref('');
 const selectedCategoryLink = ref('');
 const selectedAuthorKey = ref('');
+const currentPage = ref(1);
+const pageSize = ref(24);
+const totalPages = ref(1);
 
 const galleryInfo = ref<any>(null);
 const categories = ref<any[]>([]);
@@ -354,45 +387,47 @@ async function loadItems() {
   try {
     const vars = {
       search: searchQuery.value.trim() || undefined,
-      categoryLink: selectedCategoryLink.value || undefined,
-      authorKey: selectedAuthorKey.value || undefined,
-      publishedOnly: true,
-      limit: 300,
-      offset: 0,
+      category: selectedCategoryLink.value || undefined,
+      author: selectedAuthorKey.value || undefined,
+      page: currentPage.value,
+      pageSize: pageSize.value,
     };
 
     const data = await requestGraphql(
-      `query SearchGallery(
+      `query GetPublicGalleryPage(
         $search: String
-        $categoryLink: String
-        $authorKey: String
-        $publishedOnly: Boolean
-        $limit: Int
-        $offset: Int
+        $category: String
+        $author: String
+        $page: Int
+        $pageSize: Int
       ) {
-        galleryItems(
+        publicGalleryPage(
           search: $search
-          categoryLink: $categoryLink
-          authorKey: $authorKey
-          publishedOnly: $publishedOnly
-          limit: $limit
-          offset: $offset
+          category: $category
+          author: $author
+          page: $page
+          pageSize: $pageSize
         ) {
-          id key name title link photo photoUrl thumbnailUrl authorKey authorName published
-          categories { key name link }
+          total
+          page
+          pageSize
+          totalPages
+          hasPreviousPage
+          hasNextPage
+          items {
+            id key name title link photo photoSlug photoUrl thumbnailSlug thumbnailUrl authorKey authorName published
+            categories { key name link }
+          }
         }
-        galleryItemsCount(
-          search: $search
-          categoryLink: $categoryLink
-          authorKey: $authorKey
-          publishedOnly: $publishedOnly
-        )
       }`,
       vars
     );
 
-    items.value = data.galleryItems || [];
-    totalItems.value = data.galleryItemsCount ?? items.value.length;
+    const pageRes = data.publicGalleryPage;
+    items.value = pageRes?.items || [];
+    totalItems.value = pageRes?.total ?? items.value.length;
+    totalPages.value = pageRes?.totalPages ?? 1;
+    currentPage.value = pageRes?.page ?? currentPage.value;
   } finally {
     loading.value = false;
   }
@@ -400,6 +435,7 @@ async function loadItems() {
 
 function selectCategory(catLink: string) {
   selectedCategoryLink.value = catLink;
+  currentPage.value = 1;
   if (catLink) {
     router.push({ name: 'category', params: { categoryLink: catLink } });
   } else {
@@ -409,6 +445,17 @@ function selectCategory(catLink: string) {
 
 function onAuthorChange(authorKey: string) {
   selectedAuthorKey.value = authorKey;
+  currentPage.value = 1;
+  loadItems();
+}
+
+function onPageChange(page: number) {
+  currentPage.value = page;
+  loadItems();
+}
+
+function onPageSizeChange() {
+  currentPage.value = 1;
   loadItems();
 }
 
@@ -416,14 +463,21 @@ function resetFilters() {
   searchQuery.value = '';
   selectedCategoryLink.value = '';
   selectedAuthorKey.value = '';
+  currentPage.value = 1;
   router.push({ name: 'home' });
   loadItems();
 }
 
 function goToPainting(item: any) {
+  const query: Record<string, string> = {};
+  if (selectedCategoryLink.value) query.category = selectedCategoryLink.value;
+  if (selectedAuthorKey.value) query.author = selectedAuthorKey.value;
+  if (searchQuery.value.trim()) query.search = searchQuery.value.trim();
+
   router.push({
     name: 'painting-detail',
-    params: { itemLink: item.link || item.key },
+    params: { itemLink: item.link || item.photoSlug || item.key },
+    query,
   });
 }
 

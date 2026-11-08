@@ -55,6 +55,7 @@ export interface CreateGalleryHostOptions {
   curatorDbUrl?: string;
   curatorDbPath?: string;
   dataDir?: string;
+  storagePathPrefix?: string;
   mediaPublicUrlPrefix?: string;
   intervalMs?: number;
   quiet?: boolean;
@@ -179,6 +180,15 @@ export async function createGalleryHost(
       DEFAULT_DATA_DIR
   );
 
+  const storagePathPrefix = path.resolve(
+    options.storagePathPrefix ||
+      (options.dataDir
+        ? path.join(dataDir, 'media')
+        : appConfig.values.storage?.pathPrefix ||
+          process.env.STORAGE_PATH_PREFIX ||
+          path.join(dataDir, 'media'))
+  );
+
   const defaultProjectId =
     options.projectId ||
     appConfig.values.gallery?.defaultProjectId ||
@@ -226,19 +236,29 @@ export async function createGalleryHost(
   let hostRef: CuratorHost | null = null;
   const getPrisma = () => (hostRef as any)?.definitionsPrisma ?? (hostRef as any)?.prisma;
 
+  const projectSlugs: Record<string, string> = {};
+  for (const [pid, mapping] of Object.entries(projectEmails)) {
+    if (mapping.slug) {
+      projectSlugs[pid] = mapping.slug;
+    }
+  }
+
   const storageService = new StorageService({
     dataDir,
+    pathPrefix: storagePathPrefix,
     baseUrlPrefix:
       options.mediaPublicUrlPrefix ||
       appConfig.values.storage?.publicUrlPrefix ||
+      process.env.STORAGE_PUBLIC_URL_PREFIX ||
       '/media',
     defaultProjectId,
+    projectSlugs,
     prisma: getPrisma,
   });
 
   const imageProcessor = new ImageProcessorService();
 
-  const galleryRepo = new GalleryRepository(getPrisma, defaultProjectId);
+  const galleryRepo = new GalleryRepository(getPrisma, defaultProjectId, storageService);
 
   const artm2Migrator = new Artm2Migrator({
     repo: galleryRepo,

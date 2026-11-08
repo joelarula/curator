@@ -189,6 +189,83 @@ export async function createGalleryApp(options: {
     }
   });
 
+  // =========================================================================
+  // Public SEO & Search Engine Index Endpoints
+  // =========================================================================
+
+  // XML Sitemap with Google Image extensions (<image:image>)
+  app.get('/sitemap.xml', async (req, res) => {
+    try {
+      const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'http';
+      const hostHeader = (req.headers['x-forwarded-host'] as string) || req.get('host') || 'localhost';
+      const baseUrl = `${proto}://${hostHeader}`;
+      const requestedProject = (req.headers['x-project-id'] as string) || (req.query?.projectId as string);
+      const projectId = requestedProject || host.defaultProjectId;
+
+      const xml = await host.galleryRepo.generateSitemapXml({ projectId, baseUrl });
+      res.header('Content-Type', 'application/xml; charset=utf-8');
+      res.header('Cache-Control', 'public, max-age=3600, s-maxage=86400');
+      res.send(xml);
+    } catch (err: any) {
+      res.status(500).type('text/plain').send(`Error generating sitemap: ${err?.message}`);
+    }
+  });
+
+  // robots.txt pointing to /sitemap.xml
+  app.get('/robots.txt', (req, res) => {
+    const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'http';
+    const hostHeader = (req.headers['x-forwarded-host'] as string) || req.get('host') || 'localhost';
+    const baseUrl = `${proto}://${hostHeader}`;
+    const txt = host.galleryRepo.generateRobotsTxt({ baseUrl });
+    res.header('Content-Type', 'text/plain; charset=utf-8');
+    res.header('Cache-Control', 'public, max-age=86400');
+    res.send(txt);
+  });
+
+  // llms.txt providing clean Markdown catalog summary for AI search and LLMs
+  app.get('/llms.txt', async (req, res) => {
+    try {
+      const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'http';
+      const hostHeader = (req.headers['x-forwarded-host'] as string) || req.get('host') || 'localhost';
+      const baseUrl = `${proto}://${hostHeader}`;
+      const requestedProject = (req.headers['x-project-id'] as string) || (req.query?.projectId as string);
+      const projectId = requestedProject || host.defaultProjectId;
+
+      const txt = await host.galleryRepo.generateLlmsTxt({ projectId, baseUrl });
+      res.header('Content-Type', 'text/plain; charset=utf-8');
+      res.header('Cache-Control', 'public, max-age=3600');
+      res.send(txt);
+    } catch (err: any) {
+      res.status(500).type('text/plain').send(`Error generating llms.txt: ${err?.message}`);
+    }
+  });
+
+  // JSON SEO Index for static site generators (SSG / SSR / ISR hydration)
+  app.get('/api/seo/index.json', async (req, res) => {
+    try {
+      const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'http';
+      const hostHeader = (req.headers['x-forwarded-host'] as string) || req.get('host') || 'localhost';
+      const baseUrl = `${proto}://${hostHeader}`;
+      const requestedProject = (req.headers['x-project-id'] as string) || (req.query?.projectId as string);
+      const projectId = requestedProject || host.defaultProjectId;
+
+      const seoIndex = await host.galleryRepo.getSeoIndex({ projectId, baseUrl });
+
+      // Conditional HTTP caching
+      res.header('ETag', seoIndex.etag);
+      res.header('Last-Modified', new Date(seoIndex.lastModified).toUTCString());
+      res.header('Cache-Control', 'public, max-age=600, stale-while-revalidate=86400');
+
+      if (req.headers['if-none-match'] === seoIndex.etag) {
+        return res.status(304).end();
+      }
+
+      res.json(seoIndex);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || 'Failed to generate SEO index' });
+    }
+  });
+
   // SSE endpoint for live Curator Console & Harness progress
   app.get('/api/curator/events', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');

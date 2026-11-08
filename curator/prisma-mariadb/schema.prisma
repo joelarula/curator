@@ -47,6 +47,8 @@ enum RequestStatus {
 model Project {
   id            String         @id @default(cuid())
   name          String
+  slug          String?        @unique
+  attachments   Attachment[]
   userId        String
   resources     Resource[]
   relations     Relation[]
@@ -253,6 +255,9 @@ model Attachment {
   id         String    @id @default(cuid())
   uri        String    @unique
   filename   String
+  slug       String?
+  projectId  String?
+  project    Project?  @relation(fields: [projectId], references: [id])
   mimetype   String
   url        String @db.Text
   size       Int

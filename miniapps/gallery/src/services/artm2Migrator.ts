@@ -186,8 +186,8 @@ export class Artm2Migrator {
       orderingMarkdown,
       phone,
       email,
-      logoLightUrl: `/media/${projectId}/assets/lillelogo1.svg`,
-      logoDarkUrl: `/media/${projectId}/assets/lillelogo4.svg`,
+      logoLightUrl: `${projectId}/assets/lillelogo1.svg`,
+      logoDarkUrl: `${projectId}/assets/lillelogo4.svg`,
     });
 
     return {
@@ -282,12 +282,12 @@ export class Artm2Migrator {
       let thumbnailUrl: string | null = null;
 
       if (photoFilename) {
-        const { diskPath: destPhotoPath, url: resolvedPhotoUrl } = this.storage.resolveFilePath(
+        const { diskPath: destPhotoPath, relativePath: resolvedPhotoRel } = this.storage.resolveFilePath(
           projectId,
           'photos',
           photoFilename
         );
-        photoUrl = resolvedPhotoUrl;
+        photoUrl = resolvedPhotoRel;
 
         const srcPhotoPath = path.join(photosDir, photoFilename);
         if (copyMedia && fs.existsSync(srcPhotoPath)) {
@@ -302,12 +302,12 @@ export class Artm2Migrator {
         }
 
         const thumbBase = `${path.parse(photoFilename).name}.jpg`;
-        const { diskPath: destThumbPath, url: resolvedThumbUrl } = this.storage.resolveFilePath(
+        const { diskPath: destThumbPath, relativePath: resolvedThumbRel } = this.storage.resolveFilePath(
           projectId,
           'thumbnails',
           thumbBase
         );
-        thumbnailUrl = resolvedThumbUrl;
+        thumbnailUrl = resolvedThumbRel;
 
         if (copyMedia) {
           const matchedSourceThumb = sourceThumbLookup.get(thumbBase.toLowerCase());

@@ -249,6 +249,29 @@ export function createGalleryTools(deps: GalleryToolsDeps): {
     },
   }) as CuratorTool & CuratorToolDefinition;
 
+  // 8. gallery_get_seo_index — Public & MCP tool for full SEO & static site index generation
+  const galleryGetSeoIndexTool = defineTool({
+    name: GalleryTool.GET_SEO_INDEX,
+    description:
+      'Generate complete SEO manifest, XML sitemap link, Schema.org routes, and artwork index for static site generators (SSG/SSR) and search crawlers.',
+    usage: '[baseUrl] [projectId]',
+    aliases: ['seo', 'sitemap', 'seo_index', 'generate_seo_index'],
+    mcp: { expose: true },
+    requiredRole: GalleryRole.VIEWER,
+    accessLevel: 'safe_read',
+    parameters: {
+      type: 'object',
+      properties: {
+        projectId: { type: 'string', description: 'Gallery project ID' },
+        baseUrl: { type: 'string', description: 'Base URL for canonical links and sitemap (e.g. https://artmoments.ee)' },
+      },
+    },
+    execute: async (args: any, ctx: any) => {
+      const projectId = args?.projectId || ctx?.projectId || repo.defaultProjectId;
+      return await repo.getSeoIndex({ projectId, baseUrl: args?.baseUrl });
+    },
+  }) as CuratorTool & CuratorToolDefinition;
+
   // 8. gallery_upsert_item
   const galleryUpsertItemTool = defineTool({
     name: GalleryTool.UPSERT_ITEM,
@@ -483,6 +506,7 @@ export function createGalleryTools(deps: GalleryToolsDeps): {
         const resolved = storage.resolveFilePath(projectId, 'photos', filename);
         storedPhoto = {
           diskPath: resolved.diskPath,
+          relativePath: resolved.relativePath,
           url: resolved.url,
           filename: resolved.safeFilename,
           size: 0,
@@ -490,11 +514,11 @@ export function createGalleryTools(deps: GalleryToolsDeps): {
       }
 
       const thumbFilename = `${path.parse(storedPhoto.filename).name}.jpg`;
-      const { diskPath: thumbDiskPath, url: thumbnailUrl } = storage.resolveFilePath(
-        projectId,
-        'thumbnails',
-        thumbFilename
-      );
+      const {
+        diskPath: thumbDiskPath,
+        relativePath: thumbRelativePath,
+        url: thumbnailUrl,
+      } = storage.resolveFilePath(projectId, 'thumbnails', thumbFilename);
 
       const thumbResult = await imageProcessor.generateThumbnail(storedPhoto.diskPath, thumbDiskPath, {
         width: 250,
@@ -511,8 +535,8 @@ export function createGalleryTools(deps: GalleryToolsDeps): {
         name,
         link,
         photo: storedPhoto.filename,
-        photoUrl: storedPhoto.url,
-        thumbnailUrl,
+        photoUrl: storedPhoto.relativePath,
+        thumbnailUrl: thumbRelativePath,
         authorKey: args.authorKey || 'DI',
         categoryKeys: Array.isArray(args.categoryKeys) ? args.categoryKeys : ['UNCATEGORIZED'],
         published: args.published !== undefined ? Boolean(args.published) : true,
@@ -553,7 +577,11 @@ export function createGalleryTools(deps: GalleryToolsDeps): {
       }
       const { diskPath: photoPath } = storage.resolveFilePath(projectId, 'photos', item.photo);
       const thumbName = `${path.parse(item.photo).name}.jpg`;
-      const { diskPath: thumbPath, url: thumbnailUrl } = storage.resolveFilePath(projectId, 'thumbnails', thumbName);
+      const {
+        diskPath: thumbPath,
+        relativePath: thumbRelativePath,
+        url: thumbnailUrl,
+      } = storage.resolveFilePath(projectId, 'thumbnails', thumbName);
 
       const result = await imageProcessor.generateThumbnail(photoPath, thumbPath, {
         width: 250,
@@ -566,7 +594,7 @@ export function createGalleryTools(deps: GalleryToolsDeps): {
         projectId,
         key: item.key,
         name: item.name,
-        thumbnailUrl,
+        thumbnailUrl: thumbRelativePath,
       });
 
       return { success: true, key: item.key, thumbnailUrl, result };
@@ -711,6 +739,7 @@ export function createGalleryTools(deps: GalleryToolsDeps): {
     [GalleryTool.LIST_AUTHORS]: galleryListAuthorsTool,
     [GalleryTool.GET_INFO]: galleryGetInfoTool,
     [GalleryTool.GET_STATS]: galleryGetStatsTool,
+    [GalleryTool.GET_SEO_INDEX]: galleryGetSeoIndexTool,
     [GalleryTool.UPSERT_ITEM]: galleryUpsertItemTool,
     [GalleryTool.DELETE_ITEM]: galleryDeleteItemTool,
     [GalleryTool.BULK_UPDATE]: galleryBulkUpdateTool,

@@ -86,17 +86,37 @@ describe('Curator Gallery MiniApp Integration Suite', () => {
 
     assert.ok(ingested.item, 'Expected item from upload_and_ingest');
     assert.equal(ingested.item.key, '101_a');
+    assert.equal(ingested.item.slug, '101-a');
+    assert.equal(ingested.item.projectSlug, 'artmoments');
     assert.equal(ingested.item.authorKey, 'DI');
     assert.equal(ingested.item.authorName, 'Kadi Kiho');
     assert.deepEqual(ingested.item.categoryKeys, ['ABSTRACT']);
     assert.ok(ingested.item.photoUrl?.includes('/media/artmoments/photos/101_a.png'));
     assert.ok(ingested.item.thumbnailUrl?.includes('/media/artmoments/thumbnails/101_a.jpg'));
 
-    // Verify files exist on VM file storage disk
+    // Verify files exist on VM file storage disk and can be resolved by SEO slug
     const photoResolved = host.storageService.resolveFilePath('artmoments', 'photos', '101_a.png');
+    assert.equal(photoResolved.projectSlug, 'artmoments');
+    assert.equal(photoResolved.slug, '101-a');
+    assert.equal(photoResolved.relativePath, 'artmoments/photos/101_a.png');
     assert.ok(fs.existsSync(photoResolved.diskPath), 'Photo file must exist on VM file storage');
+    const foundBySlug = host.storageService.findFileBySlugOrFilename('artmoments', 'photos', '101-a');
+    assert.equal(foundBySlug?.slug, '101-a');
+    assert.equal(foundBySlug?.filename, '101_a.png');
     const thumbResolved = host.storageService.resolveFilePath('artmoments', 'thumbnails', '101_a.jpg');
+    assert.equal(thumbResolved.slug, '101-a');
+    assert.equal(thumbResolved.relativePath, 'artmoments/thumbnails/101_a.jpg');
     assert.ok(fs.existsSync(thumbResolved.diskPath), '250px thumbnail must exist on VM file storage');
+
+    // Verify Attachment belongs to Project (`projectId`), has SEO `slug`, and keeps ONLY the relative path
+    const dbAttachment = await host.galleryRepo.prisma.attachment.findUnique({
+      where: { uri: 'attachment:artmoments:photos:101_a.png' },
+    });
+    assert.equal(dbAttachment?.projectId, 'artmoments');
+    assert.equal(dbAttachment?.slug, '101-a');
+    assert.equal(dbAttachment?.url, 'artmoments/photos/101_a.png');
+    assert.equal(ingested.item.metadata.photoPath, 'artmoments/photos/101_a.png');
+    assert.equal(ingested.item.metadata.thumbnailPath, 'artmoments/thumbnails/101_a.jpg');
   });
 
   it('2. returns interactive uiSurface for "show app resources" in Grid and List modes', async () => {
@@ -239,5 +259,243 @@ describe('Curator Gallery MiniApp Integration Suite', () => {
     assert.equal(meData.email, 'joel.arula@gmail.com');
     assert.equal(meData.defaultProjectId, 'artmoments');
     assert.ok(meData.projects.some((p: any) => p.id === 'artmoments'));
+  });
+
+  it('6. supports public-facing GraphQL photo search, category/author filtering, paging (publicGalleryPage), and stepping (publicGalleryPhoto)', async () => {
+    // Ingest 2 more public paintings + 1 unpublished draft painting
+    await host.runTool(GalleryTool.UPLOAD_AND_INGEST, {
+      key: '102_b',
+      name: '102 B',
+      authorKey: 'DI',
+      categoryKeys: ['ABSTRACT'],
+      published: true,
+      filename: '102_b.png',
+      dataBase64: TINY_PNG_BASE64,
+    });
+    await host.runTool(GalleryTool.UPLOAD_AND_INGEST, {
+      key: '103_c',
+      name: '103 C',
+      authorKey: 'DI',
+      categoryKeys: ['ABSTRACT'],
+      published: true,
+      filename: '103_c.png',
+      dataBase64: TINY_PNG_BASE64,
+    });
+    await host.runTool(GalleryTool.UPLOAD_AND_INGEST, {
+      key: '104_draft',
+      name: '104 Draft Secret',
+      authorKey: 'DI',
+      categoryKeys: ['ABSTRACT'],
+      published: false,
+      filename: '104_draft.png',
+      dataBase64: TINY_PNG_BASE64,
+    });
+
+    // 1. Test publicGalleryPage (page 1, pageSize 2, filtered by category & author)
+    const page1Res = await executeGraphql(
+      `query TestPublicPage($category: String, $author: String, $page: Int, $pageSize: Int) {
+        publicGalleryPage(category: $category, author: $author, page: $page, pageSize: $pageSize) {
+          total
+          page
+          pageSize
+          totalPages
+          hasPreviousPage
+          hasNextPage
+          items {
+            key
+            name
+            slug
+            photoSlug
+            published
+          }
+        }
+      }`,
+      { category: 'abstraktne', author: 'kadi-kiho', page: 1, pageSize: 2 },
+      { host, projectId: 'artmoments' }
+    );
+    assert.equal(page1Res.errors, undefined, `page1 errors: ${JSON.stringify(page1Res.errors)}`);
+    const page1 = (page1Res.data as any).publicGalleryPage;
+    assert.equal(page1.total, 3, 'Only the 3 published photos must be visible in publicGalleryPage');
+    assert.equal(page1.page, 1);
+    assert.equal(page1.pageSize, 2);
+    assert.equal(page1.totalPages, 2);
+    assert.equal(page1.hasPreviousPage, false);
+    assert.equal(page1.hasNextPage, true);
+    assert.equal(page1.items.length, 2);
+    assert.deepEqual(
+      page1.items.map((i: any) => i.key),
+      ['101_a', '102_b']
+    );
+
+    // 2. Test publicGalleryPage (page 2)
+    const page2Res = await executeGraphql(
+      `query TestPublicPage2 {
+        publicGalleryPage(category: "abstraktne", page: 2, pageSize: 2) {
+          total
+          page
+          totalPages
+          hasPreviousPage
+          hasNextPage
+          items { key }
+        }
+      }`,
+      {},
+      { host, projectId: 'artmoments' }
+    );
+    const page2 = (page2Res.data as any).publicGalleryPage;
+    assert.equal(page2.page, 2);
+    assert.equal(page2.hasPreviousPage, true);
+    assert.equal(page2.hasNextPage, false);
+    assert.deepEqual(
+      page2.items.map((i: any) => i.key),
+      ['103_c']
+    );
+
+    // 3. Test publicGalleryPhoto stepping on middle photo ("102-b")
+    const stepRes = await executeGraphql(
+      `query TestPublicStep($slug: String!, $category: String) {
+        publicGalleryPhoto(slug: $slug, category: $category, windowSize: 2) {
+          position
+          totalInSequence
+          hasPrevious
+          hasNext
+          activeCategory { key name link }
+          item { key name slug photoSlug }
+          previousItem { key slug }
+          nextItem { key slug }
+          firstItem { key slug }
+          lastItem { key slug }
+          surroundingItems { key slug }
+        }
+      }`,
+      { slug: '102-b', category: 'abstraktne' },
+      { host, projectId: 'artmoments' }
+    );
+    assert.equal(stepRes.errors, undefined, `step errors: ${JSON.stringify(stepRes.errors)}`);
+    const step = (stepRes.data as any).publicGalleryPhoto;
+    assert.ok(step, 'Expected publicGalleryPhoto result for 102-b');
+    assert.equal(step.item.key, '102_b');
+    assert.equal(step.position, 2);
+    assert.equal(step.totalInSequence, 3);
+    assert.equal(step.hasPrevious, true);
+    assert.equal(step.hasNext, true);
+    assert.equal(step.previousItem.key, '101_a');
+    assert.equal(step.nextItem.key, '103_c');
+    assert.equal(step.firstItem.key, '101_a');
+    assert.equal(step.lastItem.key, '103_c');
+    assert.deepEqual(
+      step.surroundingItems.map((i: any) => i.key),
+      ['101_a', '102_b', '103_c']
+    );
+
+    // Ensure unpublished draft cannot be fetched via publicGalleryPhoto
+    const draftStepRes = await executeGraphql(
+      `query TestDraftHidden {
+        publicGalleryPhoto(slug: "104-draft") {
+          item { key }
+        }
+      }`,
+      {},
+      { host, projectId: 'artmoments' }
+    );
+    assert.equal((draftStepRes.data as any).publicGalleryPhoto, null);
+  });
+
+  it('7. generates full SEO manifest, XML sitemap (with image extensions), llms.txt, and JSON SEO index for external presentation frontends', async () => {
+    // 1. Query GraphQL publicGallerySeoIndex
+    const seoGqlRes = await executeGraphql(
+      `query TestSeoIndex {
+        publicGallerySeoIndex(baseUrl: "https://artmoments.ee") {
+          projectId
+          projectSlug
+          canonicalBaseUrl
+          totalRoutes
+          totalPhotos
+          totalCategories
+          totalAuthors
+          sitemapXmlUrl
+          llmsTxtUrl
+          site {
+            title
+            subtitle
+            seo {
+              title
+              canonicalUrl
+              jsonLd
+            }
+          }
+          routes {
+            path
+            canonicalUrl
+            type
+            slug
+            title
+            changeFreq
+            priority
+            image { loc title }
+          }
+          items {
+            key
+            slug
+            title
+            path
+            canonicalUrl
+            authorName
+            categoryNames
+            photoUrl
+          }
+        }
+      }`,
+      {},
+      { host, projectId: 'artmoments' }
+    );
+    assert.equal(seoGqlRes.errors, undefined, `SEO errors: ${JSON.stringify(seoGqlRes.errors)}`);
+    const seoData = (seoGqlRes.data as any).publicGallerySeoIndex;
+    assert.equal(seoData.projectId, 'artmoments');
+    assert.equal(seoData.canonicalBaseUrl, 'https://artmoments.ee');
+    assert.equal(seoData.totalPhotos, 3);
+    assert.equal(seoData.totalCategories, 1);
+    assert.equal(seoData.totalAuthors, 1);
+    // Home (1) + Category (1) + Author (1) + 3 Photos (3) = 6 routes
+    assert.equal(seoData.totalRoutes, 6);
+    assert.equal(seoData.sitemapXmlUrl, 'https://artmoments.ee/sitemap.xml');
+    assert.equal(seoData.llmsTxtUrl, 'https://artmoments.ee/llms.txt');
+
+    // Verify canonical routes
+    const paths = seoData.routes.map((r: any) => r.path);
+    assert.ok(paths.includes('/'));
+    assert.ok(paths.includes('/category/abstraktne'));
+    assert.ok(paths.includes('/author/kadi-kiho'));
+    assert.ok(paths.includes('/painting/101-a'));
+    assert.ok(paths.includes('/painting/102-b'));
+    assert.ok(paths.includes('/painting/103-c'));
+    // Ensure draft is not included in routes or items
+    assert.ok(!paths.includes('/painting/104-draft'));
+    assert.ok(!seoData.items.some((i: any) => i.key === '104_draft'));
+
+    // 2. Test Sitemap XML generation with Google Image namespace
+    const sitemapXml = await host.galleryRepo.generateSitemapXml({
+      projectId: 'artmoments',
+      baseUrl: 'https://artmoments.ee',
+    });
+    assert.ok(sitemapXml.startsWith('<?xml version="1.0" encoding="UTF-8"?>'));
+    assert.ok(sitemapXml.includes('xmlns:image="http://www.google.com/schemas/sitemap-image/1.1"'));
+    assert.ok(sitemapXml.includes('<loc>https://artmoments.ee/painting/101-a</loc>'));
+    assert.ok(sitemapXml.includes('<image:loc>https://artmoments.ee/media/artmoments/photos/101_a.png</image:loc>'));
+
+    // 3. Test robots.txt generation
+    const robotsTxt = host.galleryRepo.generateRobotsTxt({ baseUrl: 'https://artmoments.ee' });
+    assert.ok(robotsTxt.includes('User-agent: *'));
+    assert.ok(robotsTxt.includes('Sitemap: https://artmoments.ee/sitemap.xml'));
+
+    // 4. Test llms.txt generation for AI indexers
+    const llmsTxt = await host.galleryRepo.generateLlmsTxt({
+      projectId: 'artmoments',
+      baseUrl: 'https://artmoments.ee',
+    });
+    assert.ok(llmsTxt.includes('# ARTMOMENTS'));
+    assert.ok(llmsTxt.includes('## Categories'));
+    assert.ok(llmsTxt.includes('## Authors'));
+    assert.ok(llmsTxt.includes('Kadi Kiho'));
   });
 });

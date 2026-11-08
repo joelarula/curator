@@ -77,25 +77,34 @@ export function createStorageRouter(options: CreateStorageRouterOptions): Router
     }
   });
 
-  // 2. Static VM file serving: /media/:projectId/:bucket/:filename
-  router.get('/media/:projectId/:bucket/:filename', (req: Request, res: Response) => {
+  // 2. Static VM file serving under configured baseUrlPrefix (and /media fallback)
+  // Resolves files by exact filename (`101_a.png`) OR by SEO-friendly slug (`101-a` / `101-a.png`).
+  const serveMediaHandler = (req: Request, res: Response) => {
     try {
       const { projectId, bucket, filename } = req.params;
-      const { diskPath } = storage.resolveFilePath(
+      const found = storage.findFileBySlugOrFilename(
         String(projectId),
         String(bucket),
         String(filename)
       );
-      if (!fs.existsSync(diskPath)) {
+      if (!found || !fs.existsSync(found.diskPath)) {
         return res.status(404).json({ error: 'Media file not found' });
       }
-      res.setHeader('Content-Type', inferMimeType(String(filename)));
+      res.setHeader('Content-Type', inferMimeType(found.filename));
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-      res.sendFile(diskPath);
+      res.sendFile(found.diskPath);
     } catch (err: any) {
       res.status(400).json({ error: err?.message || 'Invalid media path' });
     }
-  });
+  };
+
+  const routePrefixes = new Set<string>(['/media']);
+  if (storage.baseUrlPrefix && storage.baseUrlPrefix.startsWith('/')) {
+    routePrefixes.add(storage.baseUrlPrefix.replace(/\/+$/, ''));
+  }
+  for (const prefix of routePrefixes) {
+    router.get(`${prefix}/:projectId/:bucket/:filename`, serveMediaHandler);
+  }
 
   return router;
 }

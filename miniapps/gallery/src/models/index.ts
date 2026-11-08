@@ -11,5 +11,12 @@ export {
   type GalleryItemDTO,
   type GalleryInfoDTO,
   type GalleryStatsDTO,
+  type GalleryPageDTO,
+  type GalleryPhotoStepDTO,
+  type GallerySeoImageDTO,
+  type GallerySeoMetaDTO,
+  type GallerySeoRouteDTO,
+  type GallerySeoItemEntryDTO,
+  type GallerySeoIndexDTO,
 } from './galleryContracts.ts';
 

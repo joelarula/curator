@@ -127,20 +127,30 @@ export function resolvers({ host, user, projectId }: GraphqlContext) {
     galleryItems: async (args: {
       projectId?: string;
       search?: string;
+      category?: string;
       categoryKey?: string;
       categoryLink?: string;
+      author?: string;
       authorKey?: string;
+      authorLink?: string;
       publishedOnly?: boolean;
+      page?: number;
+      pageSize?: number;
       limit?: number;
       offset?: number;
     }) => {
       const res = await repo.searchItems({
         projectId: args?.projectId || activeProjectId,
         search: args?.search,
+        category: args?.category,
         categoryKey: args?.categoryKey,
         categoryLink: args?.categoryLink,
+        author: args?.author,
         authorKey: args?.authorKey,
+        authorLink: args?.authorLink,
         publishedOnly: args?.publishedOnly ?? true,
+        page: args?.page,
+        pageSize: args?.pageSize,
         limit: args?.limit ?? 100,
         offset: args?.offset ?? 0,
       });
@@ -153,17 +163,23 @@ export function resolvers({ host, user, projectId }: GraphqlContext) {
     galleryItemsCount: async (args: {
       projectId?: string;
       search?: string;
+      category?: string;
       categoryKey?: string;
       categoryLink?: string;
+      author?: string;
       authorKey?: string;
+      authorLink?: string;
       publishedOnly?: boolean;
     }) => {
       const res = await repo.searchItems({
         projectId: args?.projectId || activeProjectId,
         search: args?.search,
+        category: args?.category,
         categoryKey: args?.categoryKey,
         categoryLink: args?.categoryLink,
+        author: args?.author,
         authorKey: args?.authorKey,
+        authorLink: args?.authorLink,
         publishedOnly: args?.publishedOnly ?? true,
         limit: 1,
         offset: 0,
@@ -171,8 +187,13 @@ export function resolvers({ host, user, projectId }: GraphqlContext) {
       return res.total;
     },
 
-    galleryItem: async (args: { projectId?: string; key?: string; link?: string }) => {
-      const lookup = args?.key || args?.link;
+    galleryItem: async (args: {
+      projectId?: string;
+      key?: string;
+      link?: string;
+      slug?: string;
+    }) => {
+      const lookup = args?.slug || args?.link || args?.key;
       if (!lookup) return null;
       const item = await repo.getItem({
         projectId: args?.projectId || activeProjectId,
@@ -183,6 +204,95 @@ export function resolvers({ host, user, projectId }: GraphqlContext) {
         ...item,
         title: item.name,
       };
+    },
+
+    publicGalleryPage: async (args: {
+      projectId?: string;
+      search?: string;
+      category?: string;
+      categoryKey?: string;
+      categoryLink?: string;
+      author?: string;
+      authorKey?: string;
+      authorLink?: string;
+      page?: number;
+      pageSize?: number;
+      limit?: number;
+      offset?: number;
+    }) => {
+      const pageRes = await repo.getPublicPhotosPage({
+        projectId: args?.projectId || activeProjectId,
+        search: args?.search,
+        category: args?.category,
+        categoryKey: args?.categoryKey,
+        categoryLink: args?.categoryLink,
+        author: args?.author,
+        authorKey: args?.authorKey,
+        authorLink: args?.authorLink,
+        page: args?.page,
+        pageSize: args?.pageSize,
+        limit: args?.limit,
+        offset: args?.offset,
+      });
+      return {
+        ...pageRes,
+        items: pageRes.items.map((it) => ({
+          ...it,
+          title: it.name,
+        })),
+      };
+    },
+
+    publicGalleryPhoto: async (args: {
+      projectId?: string;
+      slug?: string;
+      link?: string;
+      key?: string;
+      search?: string;
+      category?: string;
+      categoryKey?: string;
+      categoryLink?: string;
+      author?: string;
+      authorKey?: string;
+      authorLink?: string;
+      windowSize?: number;
+    }) => {
+      const stepRes = await repo.stepPublicPhoto({
+        projectId: args?.projectId || activeProjectId,
+        slug: args?.slug,
+        link: args?.link,
+        key: args?.key,
+        search: args?.search,
+        category: args?.category,
+        categoryKey: args?.categoryKey,
+        categoryLink: args?.categoryLink,
+        author: args?.author,
+        authorKey: args?.authorKey,
+        authorLink: args?.authorLink,
+        windowSize: args?.windowSize,
+      });
+      if (!stepRes) return null;
+      const withTitle = (it: typeof stepRes.item | null) =>
+        it ? { ...it, title: it.name } : null;
+      return {
+        ...stepRes,
+        item: { ...stepRes.item, title: stepRes.item.name },
+        previousItem: withTitle(stepRes.previousItem),
+        nextItem: withTitle(stepRes.nextItem),
+        firstItem: withTitle(stepRes.firstItem),
+        lastItem: withTitle(stepRes.lastItem),
+        surroundingItems: stepRes.surroundingItems.map((it) => ({
+          ...it,
+          title: it.name,
+        })),
+      };
+    },
+
+    publicGallerySeoIndex: async (args: { projectId?: string; baseUrl?: string }) => {
+      return repo.getSeoIndex({
+        projectId: args?.projectId || activeProjectId,
+        baseUrl: args?.baseUrl,
+      });
     },
 
     galleryStats: async (args: { projectId?: string }) => {

@@ -1,5 +1,7 @@
 export {
   StorageService,
+  slugifySeo,
+  generateFileSlug,
   inferMimeType,
   sanitizeSegment,
   type StorageBucket,

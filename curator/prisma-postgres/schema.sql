@@ -21,6 +21,7 @@ CREATE TABLE "User" (
 CREATE TABLE "Project" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
+    "slug" TEXT,
     "userId" TEXT NOT NULL,
     "existent" BOOLEAN DEFAULT true,
     "deletedAt" TIMESTAMP(3),
@@ -174,6 +175,8 @@ CREATE TABLE "Attachment" (
     "id" TEXT NOT NULL,
     "uri" TEXT NOT NULL,
     "filename" TEXT NOT NULL,
+    "slug" TEXT,
+    "projectId" TEXT,
     "mimetype" TEXT NOT NULL,
     "url" TEXT NOT NULL,
     "size" INTEGER NOT NULL,
@@ -523,6 +526,9 @@ CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 CREATE UNIQUE INDEX "User_googleId_key" ON "User"("googleId");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "Project_slug_key" ON "Project"("slug");
+
+-- CreateIndex
 CREATE INDEX "Project_userId_existent_idx" ON "Project"("userId", "existent");
 
 -- CreateIndex
@@ -803,6 +809,9 @@ ALTER TABLE "Relation" ADD CONSTRAINT "Relation_projectId_fkey" FOREIGN KEY ("pr
 
 -- AddForeignKey
 ALTER TABLE "Attachment" ADD CONSTRAINT "Attachment_resourceId_fkey" FOREIGN KEY ("resourceId") REFERENCES "Resource"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Attachment" ADD CONSTRAINT "Attachment_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Script" ADD CONSTRAINT "Script_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE SET NULL ON UPDATE CASCADE;

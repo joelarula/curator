@@ -17,12 +17,14 @@ CREATE TABLE `User` (
 CREATE TABLE `Project` (
     `id` VARCHAR(191) NOT NULL,
     `name` VARCHAR(191) NOT NULL,
+    `slug` VARCHAR(191) NULL,
     `userId` VARCHAR(191) NOT NULL,
     `existent` BOOLEAN NULL DEFAULT true,
     `deletedAt` DATETIME(3) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
+    UNIQUE INDEX `Project_slug_key`(`slug`),
     INDEX `Project_userId_existent_idx`(`userId`, `existent`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -197,6 +199,8 @@ CREATE TABLE `Attachment` (
     `id` VARCHAR(191) NOT NULL,
     `uri` VARCHAR(191) NOT NULL,
     `filename` VARCHAR(191) NOT NULL,
+    `slug` VARCHAR(191) NULL,
+    `projectId` VARCHAR(191) NULL,
     `mimetype` VARCHAR(191) NOT NULL,
     `url` TEXT NOT NULL,
     `size` INTEGER NOT NULL,
@@ -631,6 +635,9 @@ ALTER TABLE `Relation` ADD CONSTRAINT `Relation_projectId_fkey` FOREIGN KEY (`pr
 
 -- AddForeignKey
 ALTER TABLE `Attachment` ADD CONSTRAINT `Attachment_resourceId_fkey` FOREIGN KEY (`resourceId`) REFERENCES `Resource`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `Attachment` ADD CONSTRAINT `Attachment_projectId_fkey` FOREIGN KEY (`projectId`) REFERENCES `Project`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `Script` ADD CONSTRAINT `Script_projectId_fkey` FOREIGN KEY (`projectId`) REFERENCES `Project`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;

@@ -13,6 +13,7 @@ export const galleryTypeDefs = /* GraphQL */ `
   type UserProjectAccess {
     id: ID!
     name: String!
+    slug: String!
     roles: [String!]!
   }
 
@@ -35,6 +36,7 @@ export const galleryTypeDefs = /* GraphQL */ `
 
   type GalleryInfo {
     projectId: String!
+    projectSlug: String!
     title: String!
     subtitle: String!
     name: String!
@@ -49,6 +51,89 @@ export const galleryTypeDefs = /* GraphQL */ `
     logoPrimaryUrl: String
     logoSecondaryUrl: String
     structuredData: JSON
+    seo: GallerySeoMeta
+  }
+
+  type GallerySeoImage {
+    loc: String!
+    thumbnailLoc: String
+    title: String!
+    caption: String
+    width: Int
+    height: Int
+  }
+
+  type GallerySeoMeta {
+    title: String!
+    description: String!
+    keywords: [String!]!
+    canonicalPath: String!
+    canonicalUrl: String!
+    robots: String!
+    ogType: String!
+    ogTitle: String!
+    ogDescription: String!
+    ogImage: String
+    ogImageWidth: Int
+    ogImageHeight: Int
+    ogImageAlt: String!
+    locale: String!
+    lastModified: String!
+    jsonLd: JSON
+  }
+
+  type GallerySeoRoute {
+    path: String!
+    canonicalUrl: String!
+    type: String!
+    slug: String!
+    title: String!
+    description: String!
+    keywords: [String!]!
+    lastModified: String!
+    changeFreq: String!
+    priority: Float!
+    image: GallerySeoImage
+  }
+
+  type GallerySeoItemEntry {
+    key: String!
+    slug: String!
+    photoSlug: String!
+    title: String!
+    path: String!
+    canonicalUrl: String!
+    authorKey: String!
+    authorSlug: String!
+    authorName: String!
+    categoryKeys: [String!]!
+    categorySlugs: [String!]!
+    categoryNames: [String!]!
+    photoUrl: String
+    thumbnailUrl: String
+    width: Int
+    height: Int
+    updatedAt: String!
+  }
+
+  type GallerySeoIndex {
+    projectId: String!
+    projectSlug: String!
+    canonicalBaseUrl: String!
+    generatedAt: String!
+    lastModified: String!
+    etag: String!
+    totalRoutes: Int!
+    totalPhotos: Int!
+    totalCategories: Int!
+    totalAuthors: Int!
+    site: GalleryInfo!
+    routes: [GallerySeoRoute!]!
+    categories: [GalleryCategory!]!
+    authors: [GalleryAuthor!]!
+    items: [GallerySeoItemEntry!]!
+    sitemapXmlUrl: String!
+    llmsTxtUrl: String!
   }
 
   type GalleryCategory {
@@ -60,6 +145,7 @@ export const galleryTypeDefs = /* GraphQL */ `
     exposed: Boolean!
     sortOrder: Int
     paintingCount: Int!
+    seo: GallerySeoMeta
   }
 
   type GalleryAuthor {
@@ -68,6 +154,7 @@ export const galleryTypeDefs = /* GraphQL */ `
     link: String!
     bio: String
     paintingCount: Int!
+    seo: GallerySeoMeta
   }
 
   type GalleryItem {
@@ -77,8 +164,12 @@ export const galleryTypeDefs = /* GraphQL */ `
     name: String!
     title: String!
     link: String!
+    slug: String!
+    projectSlug: String!
     photo: String
+    photoSlug: String
     photoUrl: String
+    thumbnailSlug: String
     thumbnailUrl: String
     authorKey: String!
     authorName: String!
@@ -92,6 +183,40 @@ export const galleryTypeDefs = /* GraphQL */ `
     size: Int
     createdAt: String
     updatedAt: String
+    seo: GallerySeoMeta
+  }
+
+  type GalleryPage {
+    items: [GalleryItem!]!
+    total: Int!
+    page: Int!
+    pageSize: Int!
+    totalPages: Int!
+    offset: Int!
+    limit: Int!
+    hasNextPage: Boolean!
+    hasPreviousPage: Boolean!
+    activeCategory: GalleryCategory
+    activeAuthor: GalleryAuthor
+    categories: [GalleryCategory!]!
+    authors: [GalleryAuthor!]!
+    seo: GallerySeoMeta
+  }
+
+  type GalleryPhotoStep {
+    item: GalleryItem!
+    position: Int!
+    totalInSequence: Int!
+    hasPrevious: Boolean!
+    hasNext: Boolean!
+    previousItem: GalleryItem
+    nextItem: GalleryItem
+    firstItem: GalleryItem
+    lastItem: GalleryItem
+    surroundingItems: [GalleryItem!]!
+    activeCategory: GalleryCategory
+    activeAuthor: GalleryAuthor
+    seo: GallerySeoMeta
   }
 
   type GalleryStats {
@@ -209,25 +334,83 @@ export const galleryTypeDefs = /* GraphQL */ `
     galleryInfo(projectId: String): GalleryInfo!
     galleryCategories(projectId: String, includeUnpublished: Boolean): [GalleryCategory!]!
     galleryAuthors(projectId: String): [GalleryAuthor!]!
+
+    """
+    Public-facing paginated gallery search & browse API.
+    Always returns only published photos (isPublished: true) with pagination metadata.
+    """
+    publicGalleryPage(
+      projectId: String
+      search: String
+      category: String
+      categoryKey: String
+      categoryLink: String
+      author: String
+      authorKey: String
+      authorLink: String
+      page: Int
+      pageSize: Int
+      limit: Int
+      offset: Int
+    ): GalleryPage!
+
+    """
+    Public-facing photo detail & stepping API.
+    Returns the requested public photo along with previousItem, nextItem,
+    firstItem, lastItem, position, totalInSequence, and surroundingItems
+    within the active category/author/search sequence.
+    """
+    publicGalleryPhoto(
+      projectId: String
+      slug: String
+      link: String
+      key: String
+      search: String
+      category: String
+      categoryKey: String
+      categoryLink: String
+      author: String
+      authorKey: String
+      authorLink: String
+      wrapAround: Boolean
+      windowSize: Int
+    ): GalleryPhotoStep
+
+    """
+    Public-facing SEO Site Index query.
+    Returns complete route manifest, XML sitemap link, Schema.org entities,
+    and compact index of all published artworks for static site generation (SSG)
+    or client-side search hydration in external frontend applications.
+    """
+    publicGallerySeoIndex(projectId: String, baseUrl: String): GallerySeoIndex!
+
     galleryItems(
       projectId: String
       search: String
+      category: String
       categoryKey: String
       categoryLink: String
+      author: String
       authorKey: String
+      authorLink: String
       publishedOnly: Boolean
+      page: Int
+      pageSize: Int
       limit: Int
       offset: Int
     ): [GalleryItem!]!
     galleryItemsCount(
       projectId: String
       search: String
+      category: String
       categoryKey: String
       categoryLink: String
+      author: String
       authorKey: String
+      authorLink: String
       publishedOnly: Boolean
     ): Int!
-    galleryItem(projectId: String, key: String, link: String): GalleryItem
+    galleryItem(projectId: String, key: String, link: String, slug: String): GalleryItem
     galleryStats(projectId: String): GalleryStats!
 
     metrics: CuratorMetrics!
