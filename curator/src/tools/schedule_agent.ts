@@ -1,5 +1,6 @@
 import { defineTool } from './CuratorTool.js';
 import { isValidSchedule } from '../engine/AgentScheduleSupervisor.js';
+import { ManagementGuardService, actorFromToolContext } from '../services/ManagementGuardService.js';
 
 /**
  * Recurring jobs become an Agent whose script is a Curator_Call to the workflow; the processor's
@@ -69,6 +70,15 @@ export const schedule_agent = defineTool({
         return `Successfully scheduled '${workflowName}' as '${name}' (once at ${runAt}). ID: ${req.id}`;
       }
 
+      // Isolation: never overwrite the caller itself, its creator or an agent/script it does not manage.
+      const actor = actorFromToolContext(ctx);
+      const existingAgent = await ctx.prisma.agent.findUnique({ where: { name } });
+      if (existingAgent) await ManagementGuardService.assertCanManageAgent(ctx.prisma, actor, existingAgent);
+      else await ManagementGuardService.assertWritableProject(ctx.prisma, actor, (ctx.projectId as string | undefined) ?? null);
+      const existingScript = await ctx.prisma.script.findUnique({ where: { name: `scheduled:${name}` } });
+      if (existingScript) await ManagementGuardService.assertCanManageScript(ctx.prisma, actor, existingScript);
+      const actingAgent = actor.agentId ? await ManagementGuardService.findAgent(ctx.prisma, actor.agentId) : null;
+
       const script = await ctx.prisma.script.upsert({
         where: { name: `scheduled:${name}` },
         update: { ast: call, userId, projectId: ctx.projectId ?? null },
@@ -77,10 +87,12 @@ export const schedule_agent = defineTool({
       const agent = await ctx.prisma.agent.upsert({
         where: { name },
         update: { scriptId: script.id, schedule, enabled: true, userId, projectId: ctx.projectId ?? null },
-        create: { name, scriptId: script.id, schedule, enabled: true, userId, projectId: ctx.projectId ?? null }
+        create: { name, scriptId: script.id, schedule, enabled: true, userId, projectId: ctx.projectId ?? null, parentAgentId: actingAgent?.id ?? null }
       });
-      // The scheduled agent acts with its owner's roles.
-      const roles = await ctx.prisma.userRole.findMany({ where: { userId } });
+      // The scheduled agent acts with its owner's roles; scheduled by an agent, with that agent's roles (no escalation).
+      const roles = actingAgent
+        ? await ctx.prisma.agentRole.findMany({ where: { agentId: actingAgent.id } })
+        : await ctx.prisma.userRole.findMany({ where: { userId } });
       for (const r of roles) {
         await ctx.prisma.agentRole.upsert({
           where: { agentId_roleId: { agentId: agent.id, roleId: r.roleId } },

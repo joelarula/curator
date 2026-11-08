@@ -1,5 +1,6 @@
 import { defineTool } from './CuratorTool.js';
 import { cancelAgentLoops } from '../engine/AgentScheduleSupervisor.js';
+import { ManagementGuardService, actorFromToolContext } from '../services/ManagementGuardService.js';
 
 export const cancel_scheduled_agent = defineTool({
   name: 'cancel_scheduled_agent',
@@ -27,6 +28,9 @@ export const cancel_scheduled_agent = defineTool({
 
       const agent = await ctx.prisma.agent.findFirst({ where: id !== undefined ? { id } : { name } });
       if (!agent) return 'Error: Could not find scheduled agent.';
+
+      const actor = actorFromToolContext(ctx);
+      await ManagementGuardService.assertCanManageAgent(ctx.prisma, actor, agent);
 
       await ctx.prisma.agent.update({ where: { id: agent.id }, data: { enabled: false } });
       const cancelled = await cancelAgentLoops(ctx.prisma, agent.id);

@@ -1958,7 +1958,7 @@ export class CuratorRequestProcessor {
     if (!this.prisma) return { allowed: true };
     const accessLevel = (tool as any).accessLevel || 'safe_write';
     const requiresConfirmation = (tool as any).requiresConfirmation || (tool as any).requiresHumanApproval || accessLevel === 'destructive' || accessLevel === 'elevated';
-    const effectiveAgentId = req.agentId || req.context?.agentId || req.context?.activeAgentId || req.context?.actorId;
+    const effectiveAgentId = AgentRoleService.actorAgentId(req);
     const effectiveUserId = req.userId || req.context?.userId;
     const effectiveProjectId = req.projectId || req.context?.projectId;
     try {

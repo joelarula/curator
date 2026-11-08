@@ -19,6 +19,7 @@ CREATE TABLE `Project` (
     `name` VARCHAR(191) NOT NULL,
     `slug` VARCHAR(191) NULL,
     `userId` VARCHAR(191) NOT NULL,
+    `parentId` VARCHAR(191) NULL,
     `existent` BOOLEAN NULL DEFAULT true,
     `deletedAt` DATETIME(3) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -26,6 +27,7 @@ CREATE TABLE `Project` (
 
     UNIQUE INDEX `Project_slug_key`(`slug`),
     INDEX `Project_userId_existent_idx`(`userId`, `existent`),
+    INDEX `Project_parentId_idx`(`parentId`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -433,12 +435,14 @@ CREATE TABLE `Agent` (
     `userId` VARCHAR(191) NOT NULL,
     `projectId` VARCHAR(191) NULL,
     `enabled` BOOLEAN NOT NULL DEFAULT true,
+    `parentAgentId` VARCHAR(191) NULL,
     `existent` BOOLEAN NULL DEFAULT true,
     `deletedAt` DATETIME(3) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
     INDEX `Agent_existent_idx`(`existent`),
+    INDEX `Agent_parentAgentId_idx`(`parentAgentId`),
     UNIQUE INDEX `Agent_name_key`(`name`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

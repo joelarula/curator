@@ -9,6 +9,7 @@ import { traceLlmCall } from '../llm/LlmTrace.js';
 import { toCamelCase } from '../builder/CuratorCoreBuilder.js';
 import { SecretService } from '../../services/SecretService.js';
 import { GuardrailService } from '../../services/GuardrailService.js';
+import { AgentRoleService } from '../../services/AgentRoleService.js';
 import {
   DEFAULT_SUMMARY_INSTRUCTION,
   parseCompactionSpec,
@@ -303,6 +304,9 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
                     toolContext: {
                       conversationId: req.conversationId,
                       userId: req.userId,
+                      // The acting agent and running script: management tools refuse to mutate the actor's own records.
+                      agentId: AgentRoleService.actorAgentId(req),
+                      scriptId: req.scriptId ?? undefined,
                       projectId: req.projectId,
                       prisma: ctx.prisma,
                       service: ctx.service,

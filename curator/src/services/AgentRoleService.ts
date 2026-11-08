@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
+import { isProjectWithin } from './ProjectScopeService.js';
 
 export interface ToolSecurityConfig {
     name: string;
@@ -14,6 +15,14 @@ export interface ActorIdentity {
 }
 
 export class AgentRoleService {
+    /**
+     * The agent a request acts as (the same precedence the tool access check uses), or undefined for human calls.
+     */
+    static actorAgentId(req: { agentId?: unknown; context?: any } | null | undefined): string | undefined {
+        const id = req?.agentId || req?.context?.agentId || req?.context?.activeAgentId || req?.context?.actorId;
+        return id ? String(id) : undefined;
+    }
+
     /**
      * Recursively traverses and resolves all assigned and inherited sub-roles from RoleInheritance.
      */
@@ -130,16 +139,24 @@ export class AgentRoleService {
                 },
             });
 
-            if (!agent) {
+            if (!agent || agent.existent === false || agent.deletedAt != null) {
                 return {
                     allowed: false,
                     roleNames: [],
-                    reason: `Agent '${agentId}' not found.`
+                    reason: `Access Denied: Agent '${agent?.name || agentId}' not found or has been deleted.`
                 };
             }
 
-            // If agent belongs to a specific project, verify project match
-            if (targetProjectId && agent.projectId && agent.projectId !== targetProjectId) {
+            if (agent.enabled === false) {
+                return {
+                    allowed: false,
+                    roleNames: [],
+                    reason: `Access Denied: Agent '${agent.name || agentId}' is disabled.`
+                };
+            }
+
+            // If agent belongs to a specific project, it may act there and in that project's sub-projects
+            if (targetProjectId && agent.projectId && !(await isProjectWithin(prisma, targetProjectId, agent.projectId))) {
                 return {
                     allowed: false,
                     roleNames: [],
@@ -404,6 +421,7 @@ export class AgentRoleService {
             { name: 'agent:developer', description: 'Permits sandboxed script execution' },
             { name: 'agent:browser', description: 'Permits browser automation and DOM interactions' },
             { name: 'agent:llm_user', description: 'Permits llama.cpp and local LLM endpoints' },
+            { name: 'agent:manager', description: 'Permits managing sub-agents, sub-projects and role grants inside the actor\'s workspace (never its own records)' },
             { name: 'agent:admin', description: 'Unrestricted access to all tools including destructive and elevated operations' }
         ];
 

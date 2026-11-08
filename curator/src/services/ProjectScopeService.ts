@@ -65,3 +65,80 @@ export function buildProjectScopeWhere(activeProjectIds?: string | string[] | nu
 export function getReadableRelationProjectWhere(activeProjectId?: string | null) {
   return buildProjectScopeWhere(activeProjectId);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Project hierarchy (Project.parentId): a workspace project may have sub-projects.
+// Agents defined in a project may act in its sub-projects; management tools write only inside the
+// actor's workspace subtree. Walks are bounded so a corrupted parent chain can never loop.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MAX_PROJECT_DEPTH = 32;
+
+/** Ancestor ids of an active project, nearest first (excluding the project itself). Returns empty if the project or any ancestor is soft-deleted. */
+export async function getProjectAncestorIds(prisma: PrismaClient | any, projectId: string | null | undefined): Promise<string[]> {
+  const ancestors: string[] = [];
+  if (!projectId || !prisma?.project?.findUnique) return ancestors;
+  let current: string | null = String(projectId);
+  try {
+    for (let i = 0; i < MAX_PROJECT_DEPTH && current; i++) {
+      const row: { parentId?: string | null; existent?: boolean | null; deletedAt?: Date | null } | null = await prisma.project.findUnique({
+        where: { id: current },
+        select: { parentId: true, existent: true, deletedAt: true },
+      });
+      // If the project or any ancestor has been soft-deleted, break the active chain
+      if (!row || row.existent === false || row.deletedAt != null) {
+        return [];
+      }
+      const parent: string | null = row?.parentId ?? null;
+      if (!parent || parent === projectId || ancestors.includes(parent)) break;
+      ancestors.push(parent);
+      current = parent;
+    }
+  } catch {
+    // Schema without Project.parentId: no hierarchy.
+  }
+  return ancestors;
+}
+
+/** True when `candidateId` is `rootId` itself or one of its active (transitive) sub-projects. */
+export async function isProjectWithin(prisma: PrismaClient | any, candidateId: string | null | undefined, rootId: string | null | undefined): Promise<boolean> {
+  if (!candidateId || !rootId) return false;
+  if (String(candidateId) === String(rootId)) {
+    if (prisma?.project?.findUnique) {
+      const p = await prisma.project.findUnique({ where: { id: String(rootId) }, select: { existent: true, deletedAt: true } });
+      return !!p && p.existent !== false && p.deletedAt == null;
+    }
+    return true;
+  }
+  return (await getProjectAncestorIds(prisma, candidateId)).includes(String(rootId));
+}
+
+/** `rootId` and all its (transitive, active/existing) sub-projects. Returns empty if rootId itself is deleted. */
+export async function getProjectSubtreeIds(prisma: PrismaClient | any, rootId: string | null | undefined): Promise<string[]> {
+  if (!rootId) return [];
+  const rootStr = String(rootId);
+  if (!prisma?.project?.findMany) return [rootStr];
+  try {
+    const root = await prisma.project.findUnique({
+      where: { id: rootStr },
+      select: { id: true, existent: true, deletedAt: true },
+    });
+    if (!root || root.existent === false || root.deletedAt != null) {
+      return [];
+    }
+    const ids = [rootStr];
+    let frontier = [rootStr];
+    for (let depth = 0; depth < MAX_PROJECT_DEPTH && frontier.length > 0; depth++) {
+      const children: { id: string }[] = await prisma.project.findMany({
+        where: { parentId: { in: frontier }, existent: true, deletedAt: null },
+        select: { id: true },
+      });
+      frontier = children.map((c) => c.id).filter((id) => !ids.includes(id));
+      ids.push(...frontier);
+    }
+    return ids;
+  } catch {
+    // Schema without Project.parentId: the subtree is the project itself.
+    return [rootStr];
+  }
+}

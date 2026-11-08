@@ -11,7 +11,7 @@ import { parseCuratorRef, validateCuratorAst } from './CuratorAstValidation.js';
  *  - EventSubscription : derived from `Curator_Module.subscriptions`; the AST stays the source of truth.
  */
 
-export type ScriptDriftPolicy = 'update' | 'keep' | 'error';
+export type ScriptDriftPolicy = 'update' | 'keep' | 'error' | 'draft';
 
 export interface SaveScriptVersionInput {
   name: string;
@@ -25,6 +25,8 @@ export interface SaveScriptVersionInput {
    *  - update (default): create/activate the new version
    *  - keep: leave currentVersion unchanged (runtime-owned definitions win)
    *  - error: throw
+   *  - draft: store the new version but leave currentVersion unchanged; activate it later with
+   *    `activateScriptVersion` (the gated promotion path for agent-authored changes)
    */
   onDrift?: ScriptDriftPolicy;
 }
@@ -200,6 +202,10 @@ export async function saveScriptVersion(prisma: any, input: SaveScriptVersionInp
     created = true;
   }
 
+  if (hasActive && onDrift === 'draft') {
+    return { scriptId: script.id, version, hash, created, drift: true };
+  }
+
   // Script.ast/body mirror the active version for backward compatibility with existing readers.
   await prisma.script.update({
     where: { id: script.id },
@@ -209,6 +215,29 @@ export async function saveScriptVersion(prisma: any, input: SaveScriptVersionInp
 
   await syncScriptSubscriptions(prisma, { id: script.id, userId: script.userId, projectId: script.projectId }, ast);
   return { scriptId: script.id, version, hash, created, drift: false };
+}
+
+/**
+ * Makes a stored (e.g. draft) version the active one: moves `currentVersion`, mirrors Script.ast/body and
+ * re-materializes subscriptions. Running Requests keep their pinned `scriptVersion`.
+ */
+export async function activateScriptVersion(
+  prisma: any,
+  scriptId: number,
+  version: number
+): Promise<{ scriptId: number; version: number; previousVersion: number }> {
+  const script = await prisma.script.findUnique({ where: { id: scriptId } });
+  if (!script) throw new Error(`Script #${scriptId} not found`);
+  const row = await prisma.scriptVersion.findUnique({ where: { scriptId_version: { scriptId, version } } });
+  if (!row?.ast) throw new Error(`ScriptVersion ${scriptId}@${version} not found`);
+  const ast = parseJson<CuratorAstNode>(row.ast);
+  await prisma.script.update({
+    where: { id: scriptId },
+    data: { currentVersion: version, ast: ast as any, body: row.body ?? script.body },
+  });
+  versionCache.set(`${scriptId}:${version}`, ast);
+  await syncScriptSubscriptions(prisma, { id: script.id, userId: script.userId, projectId: script.projectId }, ast);
+  return { scriptId, version, previousVersion: script.currentVersion };
 }
 
 /**

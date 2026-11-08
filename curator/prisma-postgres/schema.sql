@@ -23,6 +23,7 @@ CREATE TABLE "Project" (
     "name" TEXT NOT NULL,
     "slug" TEXT,
     "userId" TEXT NOT NULL,
+    "parentId" TEXT,
     "existent" BOOLEAN DEFAULT true,
     "deletedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -379,6 +380,7 @@ CREATE TABLE "Agent" (
     "userId" TEXT NOT NULL,
     "projectId" TEXT,
     "enabled" BOOLEAN NOT NULL DEFAULT true,
+    "parentAgentId" TEXT,
     "existent" BOOLEAN DEFAULT true,
     "deletedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -557,6 +559,9 @@ CREATE UNIQUE INDEX "Project_slug_key" ON "Project"("slug");
 CREATE INDEX "Project_userId_existent_idx" ON "Project"("userId", "existent");
 
 -- CreateIndex
+CREATE INDEX "Project_parentId_idx" ON "Project"("parentId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "Tool_name_key" ON "Tool"("name");
 
 -- CreateIndex
@@ -726,6 +731,9 @@ CREATE INDEX "ConversationLease_owner_idx" ON "ConversationLease"("owner");
 
 -- CreateIndex
 CREATE INDEX "Agent_existent_idx" ON "Agent"("existent");
+
+-- CreateIndex
+CREATE INDEX "Agent_parentAgentId_idx" ON "Agent"("parentAgentId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Agent_name_key" ON "Agent"("name");

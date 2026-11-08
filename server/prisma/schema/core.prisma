@@ -38,12 +38,15 @@ model Project {
   mcpServers  McpServer[]
   tools       Tool[]
 
+  /// Parent project (sub-project / workspace). Agents defined in a project may act in its sub-projects.
+  parentId      String?
   existent    Boolean?  @default(true)
   deletedAt   DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   @@index([userId, existent])
+  @@index([parentId])
 }
 
 
@@ -475,6 +478,8 @@ model Agent {
   roles        AgentRole[]
   toolApprovals ToolApproval[]
 
+  /// Agent that created this one (sub-agent lineage). An agent may manage only its own descendants.
+  parentAgentId String?
   existent     Boolean?    @default(true)
   deletedAt    DateTime?
   createdAt    DateTime    @default(now())
@@ -484,6 +489,7 @@ model Agent {
 
   @@unique([name])
   @@index([existent])
+  @@index([parentAgentId])
 }
 
 

@@ -200,8 +200,7 @@ export class SemanticSchemaEngine {
                             }
                         });
                     } else if (propShape.datatype) {
-                        const datatypeId = await this.ensureDatatype(tx, propShape.datatype);
-                        const literalData: any = { literalDatatypeId: datatypeId };
+                        const literalData: any = { literalDatatype: propShape.datatype };
                         let targetObjectId: number;
 
                         if (propShape.datatype === 'xsd:string') {
@@ -427,8 +426,7 @@ export class SemanticSchemaEngine {
                             }
                         });
                     } else if (propShape.datatype) {
-                        const datatypeId = await this.ensureDatatype(tx, propShape.datatype);
-                        const literalData: any = { literalDatatypeId: datatypeId };
+                        const literalData: any = { literalDatatype: propShape.datatype };
                         let targetObjectId: number;
 
                         if (propShape.datatype === 'xsd:string') {
