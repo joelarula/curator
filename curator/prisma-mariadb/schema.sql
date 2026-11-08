@@ -580,6 +580,35 @@ CREATE TABLE `LlmCall` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
+CREATE TABLE `LlmTelemetry` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `projectId` VARCHAR(191) NOT NULL DEFAULT 'system',
+    `userId` VARCHAR(191) NULL,
+    `conversationId` INTEGER NOT NULL,
+    `requestId` INTEGER NOT NULL,
+    `turn` INTEGER NOT NULL DEFAULT 1,
+    `provider` VARCHAR(191) NOT NULL,
+    `model` VARCHAR(191) NOT NULL,
+    `status` VARCHAR(191) NOT NULL,
+    `finishReason` VARCHAR(191) NULL,
+    `requestChars` INTEGER NOT NULL,
+    `responseChars` INTEGER NOT NULL,
+    `estimatedTokens` INTEGER NULL,
+    `promptTokens` INTEGER NULL,
+    `completionTokens` INTEGER NULL,
+    `cachedTokens` INTEGER NULL,
+    `totalTokens` INTEGER NULL,
+    `latencyMs` INTEGER NOT NULL,
+
+    INDEX `LlmTelemetry_projectId_createdAt_idx`(`projectId`, `createdAt`),
+    INDEX `LlmTelemetry_projectId_conversationId_createdAt_idx`(`projectId`, `conversationId`, `createdAt`),
+    INDEX `LlmTelemetry_conversationId_turn_idx`(`conversationId`, `turn`),
+    INDEX `LlmTelemetry_requestId_idx`(`requestId`),
+    PRIMARY KEY (`id`, `createdAt`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
 CREATE TABLE `_RequestResources` (
     `A` INTEGER NOT NULL,
     `B` INTEGER NOT NULL,

@@ -6,7 +6,7 @@
 import type { CuratorEventEmitResult, CuratorReducer } from '../CuratorContracts.js';
 import type { DispatchEventOptions } from '../CuratorRequestProcessor.js';
 import type { ILlmProvider } from '../llm/ILlmProvider.js';
-import type { LlmCallSink } from '../llm/LlmTrace.js';
+import type { LlmCallSink, LlmTelemetrySink } from '../llm/LlmTrace.js';
 import type { OutputFormats } from '../output/OutputFormats.js';
 import type { CuratorHistoryCompactor } from '../history/HistoryCompaction.js';
 import type { IStorageAdapter } from '../../storage/IStorageAdapter.js';
@@ -88,6 +88,8 @@ export interface NodeLlmServices {
   provider(name?: string, baseUrl?: string): ILlmProvider;
   /** Records each LLM call in `LlmCall` (see llm/LlmTrace.ts); absent when that trace is off. */
   recordCall?: LlmCallSink;
+  /** Records lightweight numeric LLM usage telemetry in `LlmTelemetry`. */
+  recordTelemetry?: LlmTelemetrySink;
 }
 
 /** Tool / reducer registry and the tool access gate (`ctx.tools`). */

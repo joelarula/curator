@@ -98,7 +98,7 @@ export function makeFakeLlm(script: FakeLlmScript) {
       if (reply === undefined) throw new Error(`FakeLlm: no scripted reply for call #${index + 1}`);
       if (typeof reply === 'string') return { text: reply, finishReason: 'stop' };
       const toolCalls = reply.toolCalls?.map((tc, i) => ({ id: `call_${index}_${i}`, name: tc.name, args: tc.args ?? {} }));
-      return { text: reply.text ?? '', toolCalls, finishReason: toolCalls?.length ? 'tool_use' : 'stop' };
+      return { text: reply.text ?? '', toolCalls, finishReason: toolCalls?.length ? 'tool_use' : 'stop', usage: (reply as any).usage };
     },
   };
   return { provider, requests };

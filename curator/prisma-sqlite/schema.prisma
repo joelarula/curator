@@ -657,3 +657,32 @@ model LlmCall {
   @@index([conversationId, createdAt])
   @@index([requestId])
 }
+
+/// Lightweight numeric usage and context telemetry for LLM requests.
+/// Observability and cost analysis; append-only, written in batches, retired by age.
+model LlmTelemetry {
+  id               Int      @id @default(autoincrement())
+  createdAt        DateTime @default(now())
+  projectId        String   @default("system")
+  userId           String?
+  conversationId   Int
+  requestId        Int
+  turn             Int      @default(1)
+  provider         String
+  model            String
+  status           String
+  finishReason     String?
+  requestChars     Int
+  responseChars    Int
+  estimatedTokens  Int?
+  promptTokens     Int?
+  completionTokens Int?
+  cachedTokens     Int?
+  totalTokens      Int?
+  latencyMs        Int
+
+  @@index([projectId, createdAt])
+  @@index([projectId, conversationId, createdAt])
+  @@index([conversationId, turn])
+  @@index([requestId])
+}

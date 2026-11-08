@@ -23,6 +23,7 @@ export const PARTITIONED_TABLES: readonly PartitionSpec[] = [
   { table: 'StepTrace', column: 'createdAt' },
   { table: 'BusEvent', column: 'createdAt' },
   { table: 'LlmCall', column: 'createdAt' },
+  { table: 'LlmTelemetry', column: 'createdAt' },
 ];
 
 export interface PartitionOptions {

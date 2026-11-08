@@ -466,6 +466,29 @@ CREATE TABLE "LlmCall" (
 );
 
 -- CreateTable
+CREATE TABLE "LlmTelemetry" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "projectId" TEXT NOT NULL DEFAULT 'system',
+    "userId" TEXT,
+    "conversationId" INTEGER NOT NULL,
+    "requestId" INTEGER NOT NULL,
+    "turn" INTEGER NOT NULL DEFAULT 1,
+    "provider" TEXT NOT NULL,
+    "model" TEXT NOT NULL,
+    "status" TEXT NOT NULL,
+    "finishReason" TEXT,
+    "requestChars" INTEGER NOT NULL,
+    "responseChars" INTEGER NOT NULL,
+    "estimatedTokens" INTEGER,
+    "promptTokens" INTEGER,
+    "completionTokens" INTEGER,
+    "cachedTokens" INTEGER,
+    "totalTokens" INTEGER,
+    "latencyMs" INTEGER NOT NULL
+);
+
+-- CreateTable
 CREATE TABLE "_RequestResources" (
     "A" INTEGER NOT NULL,
     "B" INTEGER NOT NULL,
@@ -723,6 +746,18 @@ CREATE INDEX "LlmCall_conversationId_createdAt_idx" ON "LlmCall"("conversationId
 
 -- CreateIndex
 CREATE INDEX "LlmCall_requestId_idx" ON "LlmCall"("requestId");
+
+-- CreateIndex
+CREATE INDEX "LlmTelemetry_projectId_createdAt_idx" ON "LlmTelemetry"("projectId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "LlmTelemetry_projectId_conversationId_createdAt_idx" ON "LlmTelemetry"("projectId", "conversationId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "LlmTelemetry_conversationId_turn_idx" ON "LlmTelemetry"("conversationId", "turn");
+
+-- CreateIndex
+CREATE INDEX "LlmTelemetry_requestId_idx" ON "LlmTelemetry"("requestId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "_RequestResources_AB_unique" ON "_RequestResources"("A", "B");
