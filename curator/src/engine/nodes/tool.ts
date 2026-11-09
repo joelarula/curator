@@ -5,6 +5,7 @@ import { SecretService } from '../../services/SecretService.js';
 import { GuardrailService } from '../../services/GuardrailService.js';
 import { AgentRoleService } from '../../services/AgentRoleService.js';
 import { logger } from '../../utils/logger.js';
+import { ToolExecutionError } from '../FaultPolicy.js';
 
 export const toolNode: NodeHandler<CuratorToolNode> = {
   type: 'Curator_Tool',
@@ -105,6 +106,8 @@ export const toolNode: NodeHandler<CuratorToolNode> = {
           state: req.context?.state ?? await ctx.readState(req.conversationId, req.context?.__scope),
           service: ctx.service,
           tryService: ctx.tryService,
+          // Aborts when the node's timeoutMs passes; long-running tools should honour it
+          signal: ctx.abortSignal?.(),
           ...(inflight?.runtimeContext || {})
         }
       });
@@ -119,6 +122,8 @@ export const toolNode: NodeHandler<CuratorToolNode> = {
       }
     } catch(e: any) {
       if (inflight) inflight.error = e;
+      // With a fault policy the error fails the attempt (retried or FAILED, see FaultPolicy); without one it is the result
+      if (ast.retry) throw new ToolExecutionError(ast.toolName, SecretService.mask(e?.message ?? String(e), hydratedSecrets));
       result = `[Tool Error] ${e.message}`;
     }
 

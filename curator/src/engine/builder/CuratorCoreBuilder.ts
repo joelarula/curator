@@ -27,6 +27,7 @@ import {
   type CuratorGraphNode,
   type CuratorGraphTransition,
   type CuratorActorRefNode,
+  type CuratorRetryPolicy,
 } from '../CuratorAst.js';
 import {
   toVarName,
@@ -782,6 +783,23 @@ export class CuratorCoreBuilder {
       ...node,
       timeoutSeconds,
       ...(onTimeout ? { onTimeout: resolveBuilderNode(onTimeout) } : {}),
+    };
+  }
+
+  /**
+   * Attaches a fault policy to any node: `retry` (attempts, backoff, retryOn) and/or `timeoutMs` per attempt.
+   * Exhausted failures end the node FAILED, so a `withFallback` handler (onError) runs.
+   */
+  static withRetry<T extends CuratorAstNode | CuratorAstNode[]>(
+    node: T,
+    retry: CuratorRetryPolicy | undefined,
+    options: { timeoutMs?: number } = {}
+  ): CuratorAstNode {
+    const resolved = resolveBuilderNode(node)!;
+    return {
+      ...resolved,
+      ...(retry ? { retry } : {}),
+      ...(options.timeoutMs != null ? { timeoutMs: options.timeoutMs } : {}),
     };
   }
 

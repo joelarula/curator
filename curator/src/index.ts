@@ -8,6 +8,7 @@ export * from './engine/CuratorContracts.js';
 export * from './engine/ConversationStateLog.js';
 export * from './engine/Retention.js';
 export * from './engine/Checkpoint.js';
+export { classifyError, decideRetry, DEFAULT_RETRY_POLICY, DEFAULT_RETRY_ON, ERROR_CLASSES, NodeTimeoutError, ToolExecutionError, AbandonedAttemptError, type ErrorClass, type RetryDecision } from './engine/FaultPolicy.js';
 export * from './engine/CuratorAst.js';
 export * from './engine/CuratorBuilder.js';
 export * from './engine/builder/index.js';

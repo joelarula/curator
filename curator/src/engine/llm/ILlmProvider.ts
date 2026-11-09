@@ -32,6 +32,8 @@ export interface LlmRequest {
   apiKey?: string;
   baseUrl?: string;
   cachedContent?: string; // e.g. "cachedContents/ab12cd34ef"
+  /** Aborts the provider call (the node's `timeoutMs` passed). Not serialized into traces. */
+  signal?: AbortSignal;
 }
 
 export interface LlmResponse {

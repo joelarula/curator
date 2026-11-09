@@ -91,6 +91,7 @@ export class OpenAiCompatibleLlmProvider implements ILlmProvider {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(payload),
+      signal: req.signal,
     });
 
     if (!res.ok) {

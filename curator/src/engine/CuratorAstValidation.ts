@@ -21,6 +21,20 @@ const baseProperties = {
   entryAction: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' },
   exitAction: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' },
   onTimeout: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' },
+  retry: {
+    type: 'object',
+    properties: {
+      maxAttempts: { type: 'integer', minimum: 1 },
+      backoff: {
+        type: 'object',
+        properties: { initialMs: { type: 'number', minimum: 0 }, factor: { type: 'number', minimum: 1 }, maxMs: { type: 'number', minimum: 0 }, jitter: { type: 'boolean' } },
+        additionalProperties: false,
+      },
+      retryOn: { type: 'array', items: { type: 'string', minLength: 1 } },
+    },
+    additionalProperties: false,
+  },
+  timeoutMs: { type: 'integer', minimum: 1 },
 };
 
 /** Subroutine reference: 'script', 'script#sub' or '#sub'. */

@@ -147,7 +147,8 @@ export async function traceLlmCall(
     // 2. Full debug trace (LlmCall table & file dump)
     if (sink || dir) {
       // Copied now: the caller keeps appending to `llmReq.messages` after this call.
-      const request = JSON.parse(JSON.stringify(llmReq));
+      const { signal: _signal, ...traced } = llmReq;
+      const request = JSON.parse(JSON.stringify(traced));
       const record: LlmCallRecord = {
         createdAt,
         conversationId: key.conversationId,

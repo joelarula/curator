@@ -15,9 +15,10 @@ import { LlmFactory } from './llm/LlmFactory.js';
 import { appendStatePatch, STATE_SEQ_KEY } from './ConversationStateLog.js';
 import { STATE_PATCH_KEY, withoutStoredStateCopies } from './RequestContextStorage.js';
 import { recordDeadLetter, TERMINAL_STATUSES } from './DeadLetters.js';
+import { AbandonedAttemptError, NodeTimeoutError, decideRetry, messageOf, type RetryDecision } from './FaultPolicy.js';
 import { clearRequestContexts, completedChildrenWithContext, sweepCompletedContexts, retireByAge } from './Retention.js';
 import { PrismaStorageAdapter } from '../storage/PrismaStorageAdapter.js';
-import type { RequestFilter, RequestPatch, RequestStatus } from '../storage/IStorageAdapter.js';
+import type { IStorageAdapter, RequestFilter, RequestPatch, RequestStatus } from '../storage/IStorageAdapter.js';
 import { BatchTraceWriter, StepTraceWriter, isControlNode } from './StepTrace.js';
 import type { LlmCallRecord, LlmTelemetryRecord } from './llm/LlmTrace.js';
 import { PostgresWakeChannel } from './WakeChannel.js';
@@ -37,6 +38,39 @@ import type { NodeContext, NodeHandler, MaintenanceContext, MaintenanceSystem, I
 
 /** Statuses of a request that has not ended. */
 const LIVE_STATUSES: RequestStatus[] = ['NEW', 'WAITING', 'WAITING_FOR_USER', 'WAITING_FOR_EVENT', 'PAUSED'];
+
+/**
+ * One execution attempt of a request's node, carried in the async context of its handler. A timed-out attempt is
+ * `abandoned`: its signal aborts, and engine writes from it throw (its late results are discarded). `spawned`
+ * counts requests the attempt created: an attempt that spawned children is never retried (they would run twice).
+ */
+interface AttemptScope {
+  requestId: number;
+  /** The resolved node: its `retry` / `timeoutMs` apply to this attempt. */
+  node: CuratorAstNode;
+  controller: AbortController;
+  abandoned: boolean;
+  spawned: number;
+}
+
+/** `store` for node handlers: repository calls from an abandoned attempt throw (see AttemptScope). */
+function guardedStore(store: IStorageAdapter, assertLive: () => void): IStorageAdapter {
+  const guard = <R extends object>(repo: R): R =>
+    new Proxy(repo, {
+      get(obj, prop) {
+        const value = Reflect.get(obj, prop);
+        return typeof value === 'function' ? (...args: any[]) => { assertLive(); return value.apply(obj, args); } : value;
+      },
+    });
+  const repos = { requests: guard(store.requests), responses: guard(store.responses), events: guard(store.events) };
+  return new Proxy(store, {
+    get(obj, prop) {
+      if (prop in repos) return repos[prop as keyof typeof repos];
+      const value = Reflect.get(obj, prop);
+      return typeof value === 'function' ? value.bind(obj) : value;
+    },
+  });
+}
 
 export interface CuratorRequestProcessorOptions {
   onEvent?: (type: string, payload: any) => void;
@@ -230,7 +264,7 @@ export class CuratorRequestProcessor {
   private astStorage: 'reference' | 'snapshot';
   private maxCallDepth: number;
   /** Script version of the Request being executed; pins child Requests to the same version. */
-  private execScope = new AsyncLocalStorage<{ scriptId?: number | null; scriptVersion?: number | null; priority?: number }>();
+  private execScope = new AsyncLocalStorage<{ scriptId?: number | null; scriptVersion?: number | null; priority?: number; attempt?: AttemptScope }>();
   private engine: ProcessorEngine;
   private toolContextExtras: Record<string, any>;
   /** In-process data of direct tool Requests: runtime-only inputs and the raw output/error. */
@@ -401,9 +435,10 @@ export class CuratorRequestProcessor {
         recordCall: this.llmCalls?.enabled ? (row) => this.llmCalls!.record(row) : undefined,
         recordTelemetry: this.llmTelemetry?.enabled ? (row) => this.llmTelemetry!.record(row) : undefined,
       },
-      store: this.store,
+      store: guardedStore(this.store, () => this.assertLive()),
       prisma: this.prisma,
       now: () => this.clock(),
+      abortSignal: () => this.currentAttempt()?.controller.signal,
       emit: (type, payload) => this.emit(type, payload),
       saveResponse: (req, content) => this.saveResponse(req, content),
       completeRequest: (id, status, skipNotify, data) => this.completeRequest(id, status, skipNotify, data),
@@ -509,8 +544,21 @@ export class CuratorRequestProcessor {
     } catch (_) {}
   }
 
+  /** The attempt running in this async context, if any (see AttemptScope). */
+  private currentAttempt(): AttemptScope | undefined {
+    return this.execScope.getStore()?.attempt;
+  }
+
+  /** Stops the writes of an abandoned (timed-out) attempt: they would race its retry or failure handling. */
+  private assertLive() {
+    const attempt = this.currentAttempt();
+    if (attempt?.abandoned) throw new AbandonedAttemptError(attempt.requestId);
+  }
+
   private async createValidatedRequest(args: any) {
+    this.assertLive();
     const scope = this.execScope.getStore();
+    if (scope?.attempt) scope.attempt.spawned++;
     if (scope?.scriptVersion && args.data.scriptId != null && args.data.scriptId === scope.scriptId && args.data.scriptVersion === undefined) {
       args = { ...args, data: { ...args.data, scriptVersion: scope.scriptVersion } };
     }
@@ -561,6 +609,7 @@ export class CuratorRequestProcessor {
   }
 
   private async writeState(conversationId: any, scope: string | null | undefined, updates: Record<string, any>) {
+    this.assertLive();
     // Event-sourced: append a patch to the EventLog and refresh the materialized view (no read-modify-write race).
     return appendStatePatch(this.prisma, conversationId, { scope: scope ?? null, set: updates });
   }
@@ -1358,6 +1407,9 @@ export class CuratorRequestProcessor {
   private async executeRequest(request: any) {
     logger.debug(`[CuratorRequestProcessor] Processing request ${request.id}`);
     this.emit('request_start', { requestId: request.id });
+    // The node whose fault policy applies (null until resolved: resolution failures fall back to the default policy)
+    let policyNode: CuratorAstNode | null = null;
+    let attempt: AttemptScope | undefined;
     try {
       // A claimed row was read just after its claim; a bare `{ id }` is loaded
       const req: any = 'status' in request && 'ast' in request ? request : await this.store.requests.get(request.id);
@@ -1435,8 +1487,10 @@ export class CuratorRequestProcessor {
         return;
       }
       const ast: CuratorAstNode = validation.node!;
+      policyNode = ast;
+      attempt = { requestId: req.id, node: ast, controller: new AbortController(), abandoned: false, spawned: 0 };
 
-      await this.execScope.run({ scriptId: req.scriptId, scriptVersion: req.scriptVersion, priority: req.priority ?? undefined }, () => curatorContext.run({
+      await this.execScope.run({ scriptId: req.scriptId, scriptVersion: req.scriptVersion, priority: req.priority ?? undefined, attempt }, () => curatorContext.run({
         userId: req.userId,
         projectId: req.projectId || 1,
         userIds: [req.userId],
@@ -1469,23 +1523,12 @@ export class CuratorRequestProcessor {
           await this.completeRequest(req.id, 'SKIPPED');
           return;
         }
-        return await handler.run(ast, req, this.nodeContext);
+        return await this.runAttempt(handler, ast, req, attempt!);
       }));
     } catch (error: any) {
-      const msg = error.message || String(error);
-      const retryMatch = msg.match(/Please retry in ([\d\.]+)s/);
-      const isRateLimit = msg.includes('429') || msg.includes('Quota exceeded') || !!retryMatch;
-      const MAX_RETRIES = 5;
-
+      const msg = messageOf(error);
       const req = await this.store.requests.get(request.id);
-      if (isRateLimit && req && req.retryCount < MAX_RETRIES) {
-        let delayMs = 5000 * Math.pow(2, req.retryCount);
-        if (retryMatch) delayMs = parseFloat(retryMatch[1]) * 1000 + 1000;
-        const scheduledAt = new Date(this.clock() + delayMs);
-        logger.debug(`[CuratorRequestProcessor] Rate limit. Rescheduling request ${request.id} in ${Math.round(delayMs/1000)}s (Attempt ${req.retryCount + 1}/${MAX_RETRIES})`);
-        await this.store.requests.update(request.id, { status: 'NEW', lockedBy: null, lockedAt: null, retryCount: req.retryCount + 1, scheduledAt });
-        return;
-      }
+      if (req && (await this.retryIfAllowed(req, policyNode, attempt, error))) return;
 
       logger.error(`[CuratorRequestProcessor] Failed request ${request.id}:`, error);
       try {
@@ -1795,7 +1838,74 @@ export class CuratorRequestProcessor {
     return out;
   }
 
+  /**
+   * Runs one attempt of `handler`. With `timeoutMs`, an attempt still running past it is abandoned: its signal
+   * aborts, its later engine writes throw, and the attempt fails with a NodeTimeoutError.
+   */
+  private async runAttempt(handler: NodeHandler, ast: CuratorAstNode, req: any, attempt: AttemptScope) {
+    const timeoutMs = (ast as any).timeoutMs;
+    const run = handler.run(ast, req, this.nodeContext);
+    if (!(timeoutMs > 0)) return await run;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        const err = new NodeTimeoutError(timeoutMs);
+        attempt.abandoned = true;
+        attempt.controller.abort(err);
+        reject(err);
+      }, timeoutMs);
+    });
+    // The abandoned run may still settle later; its outcome is discarded
+    run.catch(() => {});
+    try {
+      return await Promise.race([run, timedOut]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Applies the node's fault policy to a failed attempt of `req` (still non-terminal): reschedules it and returns
+   * true, or returns false to let the failure stand. An attempt that spawned requests is never retried.
+   */
+  private async retryIfAllowed(req: any, node: CuratorAstNode | null, attempt: AttemptScope | undefined, error: unknown): Promise<boolean> {
+    const decision: RetryDecision = decideRetry((node as any)?.retry, req.retryCount ?? 0, error);
+    if (!decision.retry) {
+      if (decision.reason === 'exhausted') {
+        logger.debug(`[CuratorRequestProcessor] Request ${req.id}: ${decision.errorClass} after ${decision.attempt}/${decision.maxAttempts} attempts, giving up`);
+      }
+      return false;
+    }
+    if (attempt && attempt.spawned > 0) {
+      logger.warn(`[CuratorRequestProcessor] Request ${req.id} not retried: the failed attempt created ${attempt.spawned} request(s)`);
+      return false;
+    }
+    const msg = messageOf(error);
+    const scheduledAt = new Date(this.clock() + decision.delayMs);
+    logger.debug(`[CuratorRequestProcessor] Request ${req.id}: ${decision.errorClass}, retrying in ${Math.round(decision.delayMs / 1000)}s (attempt ${decision.attempt + 1}/${decision.maxAttempts})`);
+    await this.store.requests.update(req.id, { status: 'NEW', lockedBy: null, lockedAt: null, retryCount: (req.retryCount ?? 0) + 1, scheduledAt });
+    this.emit('request_retry', { requestId: req.id, attempt: decision.attempt, maxAttempts: decision.maxAttempts, errorClass: decision.errorClass, delayMs: decision.delayMs, error: msg });
+    this.trace?.record({
+      conversationId: req.conversationId,
+      requestId: req.id,
+      projectId: req.projectId ?? null,
+      nodeType: this.nodeTypeOf(req),
+      status: 'RETRY',
+      output: `${decision.errorClass}: ${msg}`.slice(0, 2000),
+      startedAt: this.executing.get(req.id)?.startedAt ?? null,
+      worker: this.workerId,
+      createdAt: new Date(this.clock()),
+    });
+    return true;
+  }
+
   private async failRequest(req: any, reason: string) {
+    // A handler failing its own running attempt: the node's fault policy may run it again instead
+    const attempt = this.currentAttempt();
+    if (attempt && attempt.requestId === req.id && !attempt.abandoned) {
+      const current = await this.store.requests.get(req.id);
+      if (current && !TERMINAL_STATUSES.has(current.status) && (await this.retryIfAllowed(current, attempt.node, attempt, reason))) return;
+    }
     logger.error(`[CuratorRequestProcessor] Request ${req.id} failed: ${reason}`);
     await this.saveResponse(req, `ERROR: ${reason}`);
     await this.completeRequest(req.id, 'FAILED');
@@ -2280,6 +2390,7 @@ export class CuratorRequestProcessor {
 
   /** Records a step result: a Response for history steps, `Request.output` for control-flow steps (see StepTrace.ts). */
   private async saveResponse(req: any, content: string) {
+    this.assertLive();
     try {
       if (isControlNode(this.nodeTypeOf(req))) {
         await this.store.requests.update(req.id, { output: content });
@@ -2479,6 +2590,7 @@ export class CuratorRequestProcessor {
 
   /** Sets the final status (with `data`, e.g. `{ context }`, in the same update) and notifies the waiting request. */
   private async completeRequest(requestId: number, status: string = 'COMPLETED', skipNotify: boolean = false, data?: RequestPatch) {
+    this.assertLive();
     let req: any;
     try {
       req = await this.store.requests.update(requestId, { ...data, status: status as RequestStatus, lockedBy: null, lockedAt: null });

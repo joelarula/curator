@@ -142,6 +142,8 @@ export interface NodeContext extends ServiceAccess {
   prisma: any;
   /** Clock (epoch ms) used for scheduling and deadlines. */
   now(): number;
+  /** Abort signal of the attempt running in this async context: aborts when the node's `timeoutMs` passes. */
+  abortSignal?(): AbortSignal | undefined;
   emit(type: string, payload: any): void;
   saveResponse(req: any, content: string): Promise<void>;
   /** Sets the final status; `data` (e.g. `{ context }`) is written in the same update. */

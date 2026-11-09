@@ -32,6 +32,8 @@ export interface LlmRequest {
   apiKey?: string;
   baseUrl?: string;
   cachedContent?: string;
+  /** Aborts the call (the node's `timeoutMs` passed). */
+  signal?: AbortSignal;
 }
 
 export interface LlmResponse {
@@ -106,6 +108,8 @@ export class GeminiLlmProvider implements ILlmProvider {
     const model = req.model || this.defaultModel;
 
     const config: any = {};
+    // Client-side cancel (node timeoutMs); the service may still bill the call
+    if (req.signal) config.abortSignal = req.signal;
     if (req.systemPrompt) {
       config.systemInstruction = req.systemPrompt;
     }

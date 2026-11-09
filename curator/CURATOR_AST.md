@@ -416,3 +416,26 @@ const reviewFlow = as_role('developer', () =>
 `Curator_Loop` is supported by `CuratorRequestProcessor` in two forms:
 * **Condition / Collection Loops (`repeat`)**: Iterates `agent` until `until` evaluates to true, while `while` holds, or over elements of `over` (bounded by `maxIterations`).
 * **Scheduled Loops (`every`)**: Supervised by `AgentScheduleSupervisor` (`superviseAgentLoops`), executing `agent` on a 5-field cron expression or interval (`"every 10 minutes"`, `"at 14:00"`).
+
+## 12. Fault policies (`retry`, `timeoutMs`, any node)
+
+Every node accepts a fault policy (`src/engine/FaultPolicy.ts`):
+
+```json
+{
+  "type": "Curator_Tool", "toolName": "crm.lookup", "args": {},
+  "retry": { "maxAttempts": 4, "backoff": { "initialMs": 1000, "factor": 2, "maxMs": 30000, "jitter": true }, "retryOn": ["transient", "rate_limit", "lock (held|busy)"] },
+  "timeoutMs": 20000,
+  "onError": { "type": "Curator_Tool", "toolName": "notify_ops", "args": {} }
+}
+```
+
+Builder: `CuratorCoreBuilder.withRetry(node, { maxAttempts: 4 }, { timeoutMs: 20000 })`, combined with `withFallback` for `onError`.
+
+### How it is handled
+* **Error classes**: `rate_limit` (429, quota, "retry in Ns"), `transient` (5xx gateway errors, ECONNRESET, fetch failed, ...), `timeout` (`timeoutMs` passed), `tool_error` (a tool threw something else), `error` (anything else). `retryOn` entries that are not class names are case-insensitive regexes on the error message.
+* **Defaults**: a node without `retry` retries only `rate_limit`, 5 times (5s doubling, or the server's "retry in Ns"), as before. A declared `retry` defaults to `maxAttempts: 3`, `retryOn: ['rate_limit', 'transient', 'timeout']`, `initialMs: 1000`, `factor: 2`, `maxMs: 300000`, `jitter: true` (delay scaled by 0.5 to 1). `maxAttempts: 1` turns retries off.
+* **Retry**: the same Request runs again after the delay (`retryCount` + 1, `scheduledAt` moved); a failed attempt leaves no Response, and is recorded as a StepTrace row with status `RETRY` plus a `request_retry` event. An attempt that already created requests (children) is never retried, so nothing runs twice.
+* **Exhausted or not retryable**: the node ends `FAILED` and normal failure handling runs: `onError` if set, otherwise dead letter, downstream poisoning, or the Join's tolerance of failed branches.
+* **Tools**: without `retry`, a throwing tool still completes the node with `[Tool Error] ...` (unchanged). With `retry`, the throw fails the attempt; it keeps its cause's class (a tool hitting a rate limit is `rate_limit`), otherwise `tool_error`.
+* **`timeoutMs`** limits one attempt of the node's own execution, not time parked waiting on children, humans or events (waits use `timeoutSeconds` / `onTimeout`). Past it, the attempt's abort signal fires (agents pass it to the LLM provider, tools get `toolContext.signal`), its later engine writes are discarded, and it fails as `timeout`. Gemini cancels client-side only, so the call may still be billed. Side effects a tool already made outside the engine are not undone.

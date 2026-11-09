@@ -165,7 +165,7 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
         : ast.history_compaction;
       const compacted = compaction
         ? await compactHistory(compaction as HistoryCompactionSpec, turns, `${ast.agentName ?? req.agentId ?? 'agent'}|${profile}`, req, ctx, (text) => {
-            const summaryReq: LlmRequest = { model, systemPrompt: DEFAULT_SUMMARY_INSTRUCTION, messages: [{ role: 'user', content: text }], baseUrl: ast.baseUrl };
+            const summaryReq: LlmRequest = { model, systemPrompt: DEFAULT_SUMMARY_INSTRUCTION, messages: [{ role: 'user', content: text }], baseUrl: ast.baseUrl, signal: ctx.abortSignal?.() };
             return traceLlmCall({ ...traceKey, turn: 'summary' }, summaryReq, () => provider.generateContent(summaryReq), ctx.llm.recordCall, ctx.llm.recordTelemetry)
               .then((r) => r.text || '');
           })
@@ -194,7 +194,10 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
     const MAX_ITERATIONS = 10;
     let finalOutput = '';
 
+    const signal = ctx.abortSignal?.();
     while (iterations < MAX_ITERATIONS) {
+      // A timed-out attempt stops between turns too (providers abort the call in flight)
+      signal?.throwIfAborted();
       iterations++;
 
       const llmReq: LlmRequest = {
@@ -203,7 +206,8 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
         messages,
         tools: toolDefs.length > 0 ? toolDefs : undefined,
         jsonOutput: !!ast.output_schema,
-        baseUrl: ast.baseUrl
+        baseUrl: ast.baseUrl,
+        signal
       };
 
       const response = await traceLlmCall({ ...traceKey, turn: iterations }, llmReq, () => provider.generateContent(llmReq), ctx.llm.recordCall, ctx.llm.recordTelemetry);

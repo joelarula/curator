@@ -101,6 +101,7 @@ export class AnthropicLlmProvider implements ILlmProvider {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify(payload),
+      signal: req.signal,
     });
 
     if (!res.ok) {

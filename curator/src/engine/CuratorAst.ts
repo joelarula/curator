@@ -40,6 +40,31 @@ export interface CuratorBaseNode {
    * Optional fallback AST node executed when a wait/input/approval times out.
    */
   onTimeout?: CuratorAstNode;
+  /**
+   * Which failures of this node run it again, how often and with what backoff. Without it, only rate-limit
+   * errors are retried (5 times, 5s doubling). Exhausted or non-retryable failures end the node FAILED
+   * (`onError` runs if set). With a policy, a tool that throws fails the node instead of completing as `[Tool Error]`.
+   */
+  retry?: CuratorRetryPolicy;
+  /**
+   * Wall-clock limit (ms) for one attempt of this node's own execution (not time parked waiting on children,
+   * humans or events: waits use `timeoutSeconds`). The attempt is aborted (LLM/tool calls get an abort signal),
+   * its late writes are discarded, and it counts as a `timeout` error for `retry`.
+   */
+  timeoutMs?: number;
+}
+
+/** Per-node retry policy (see `CuratorBaseNode.retry`). */
+export interface CuratorRetryPolicy {
+  /** Total attempts including the first (default 3; 1 = never retry). */
+  maxAttempts?: number;
+  /** Delay before retry n (0-based): min(maxMs, initialMs * factor^n), halved at random with jitter. */
+  backoff?: { initialMs?: number; factor?: number; maxMs?: number; jitter?: boolean };
+  /**
+   * Error classes to retry: 'rate_limit' | 'timeout' | 'transient' | 'tool_error' | 'error' (anything else);
+   * other entries are case-insensitive regexes on the error message. Default: rate_limit, transient, timeout.
+   */
+  retryOn?: string[];
 }
 
 /**
