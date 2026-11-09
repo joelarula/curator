@@ -49,6 +49,7 @@
         "type": "Curator_Tool"
       },
       "context": {
+        "__createdBy": 1,
         "echo": {
           "echoed": "after"
         },
@@ -79,7 +80,9 @@
         "toolName": "boom",
         "type": "Curator_Tool"
       },
-      "context": null,
+      "context": {
+        "__createdBy": 1
+      },
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,

@@ -51,7 +51,9 @@
         "language": "javascript",
         "type": "Curator_Script"
       },
-      "context": null,
+      "context": {
+        "__createdBy": 1
+      },
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -75,6 +77,7 @@
         "type": "Curator_Script"
       },
       "context": {
+        "__createdBy": 1,
         "input": "{\"output\":\"optionB\"}"
       },
       "deletedAt": null,

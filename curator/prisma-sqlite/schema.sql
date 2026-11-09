@@ -447,6 +447,10 @@ CREATE TABLE "StepTrace" (
     "nodeType" TEXT,
     "status" TEXT NOT NULL,
     "output" TEXT,
+    "createdBy" INTEGER,
+    "astHash" TEXT,
+    "context" JSONB,
+    "statePatches" JSONB,
     "startedAt" DATETIME,
     "worker" TEXT
 );

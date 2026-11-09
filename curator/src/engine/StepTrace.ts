@@ -50,11 +50,17 @@ export interface StepTraceRecord {
   projectId: string | null;
   nodeType: string | null;
   status: string;
-  /** Control-flow steps only; a history step's result is its Response. */
+  /** Control-flow steps, and replayable steps (their result, for fork replay); other history steps: their Response. */
   output: string | null;
   startedAt: Date | null;
   worker: string;
   createdAt: Date;
+  /** The request that created this one (see TimeTravel.ts). */
+  createdBy?: number | null;
+  /** Replayable steps: node hash, final context (secrets masked) and the state patches the step wrote. Roots: context. */
+  astHash?: string | null;
+  context?: Record<string, any> | null;
+  statePatches?: Array<{ scope?: string | null; set: Record<string, any> }> | null;
 }
 
 const MAX_BUFFER = 500;
@@ -120,5 +126,11 @@ export class BatchTraceWriter<T> {
 export class StepTraceWriter extends BatchTraceWriter<StepTraceRecord> {
   constructor(prisma: any) {
     super(prisma, 'StepTrace');
+  }
+
+  /** A conversation's rows, oldest first (flush first to include buffered ones). */
+  async forConversation(conversationId: number): Promise<any[]> {
+    if (!this.enabled) return [];
+    return this.prisma.stepTrace.findMany({ where: { conversationId }, orderBy: { id: 'asc' } });
   }
 }

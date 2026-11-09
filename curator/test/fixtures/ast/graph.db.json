@@ -64,6 +64,7 @@
         "type": "Curator_Script"
       },
       "context": {
+        "__createdBy": 1,
         "input": ""
       },
       "deletedAt": null,
@@ -89,6 +90,7 @@
         "type": "Curator_Script"
       },
       "context": {
+        "__createdBy": 1,
         "input": "{\"count\":1,\"currentColor\":\"RED\",\"message\":\"Waiting...\"}"
       },
       "deletedAt": null,
@@ -114,6 +116,7 @@
         "type": "Curator_Script"
       },
       "context": {
+        "__createdBy": 1,
         "input": "{\"count\":1,\"currentColor\":\"RED\",\"message\":\"Waiting...\"}"
       },
       "deletedAt": null,
@@ -139,6 +142,7 @@
         "type": "Curator_Script"
       },
       "context": {
+        "__createdBy": 1,
         "input": "{\"count\":1,\"currentColor\":\"GREEN\",\"message\":\"Go!\",\"output\":\"GREEN\"}"
       },
       "deletedAt": null,
@@ -164,6 +168,7 @@
         "type": "Curator_Script"
       },
       "context": {
+        "__createdBy": 1,
         "input": "{\"count\":1,\"currentColor\":\"YELLOW\",\"message\":\"Slow down!\",\"output\":\"GREEN\"}"
       },
       "deletedAt": null,
@@ -189,6 +194,7 @@
         "type": "Curator_Script"
       },
       "context": {
+        "__createdBy": 1,
         "input": "{\"count\":2,\"currentColor\":\"RED\",\"message\":\"Waiting...\",\"output\":\"GREEN\"}"
       },
       "deletedAt": null,
@@ -214,6 +220,7 @@
         "type": "Curator_Script"
       },
       "context": {
+        "__createdBy": 1,
         "input": "{\"count\":2,\"currentColor\":\"RED\",\"message\":\"Waiting...\",\"output\":\"GREEN\"}"
       },
       "deletedAt": null,
@@ -239,6 +246,7 @@
         "type": "Curator_Script"
       },
       "context": {
+        "__createdBy": 1,
         "input": "{\"count\":2,\"currentColor\":\"GREEN\",\"message\":\"Go!\",\"output\":\"GREEN\"}"
       },
       "deletedAt": null,
@@ -264,6 +272,7 @@
         "type": "Curator_Script"
       },
       "context": {
+        "__createdBy": 1,
         "input": "{\"count\":2,\"currentColor\":\"YELLOW\",\"message\":\"Slow down!\",\"output\":\"GREEN\"}"
       },
       "deletedAt": null,
@@ -289,6 +298,7 @@
         "type": "Curator_Script"
       },
       "context": {
+        "__createdBy": 1,
         "input": "{\"count\":3,\"currentColor\":\"RED\",\"message\":\"Waiting...\",\"output\":\"GREEN\"}"
       },
       "deletedAt": null,
@@ -314,6 +324,7 @@
         "type": "Curator_Script"
       },
       "context": {
+        "__createdBy": 1,
         "input": "{\"count\":3,\"currentColor\":\"RED\",\"message\":\"Waiting...\",\"output\":\"GREEN\"}"
       },
       "deletedAt": null,
@@ -339,6 +350,7 @@
         "type": "Curator_Script"
       },
       "context": {
+        "__createdBy": 1,
         "input": "{\"count\":3,\"currentColor\":\"GREEN\",\"message\":\"Go!\",\"output\":\"GREEN\"}"
       },
       "deletedAt": null,
@@ -364,6 +376,7 @@
         "type": "Curator_Script"
       },
       "context": {
+        "__createdBy": 1,
         "input": "{\"count\":3,\"currentColor\":\"YELLOW\",\"message\":\"Slow down!\",\"output\":\"GREEN\"}"
       },
       "deletedAt": null,
@@ -389,6 +402,7 @@
         "type": "Curator_Script"
       },
       "context": {
+        "__createdBy": 1,
         "input": "{\"count\":4,\"currentColor\":\"RED\",\"message\":\"STOP\",\"output\":\"GREEN\"}"
       },
       "deletedAt": null,

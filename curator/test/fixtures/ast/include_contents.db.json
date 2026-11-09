@@ -47,6 +47,7 @@
         "type": "Curator_Agent"
       },
       "context": {
+        "__createdBy": 1,
         "$last": "Noted.",
         "$response": "Noted.",
         "decision": "Noted.",
@@ -74,6 +75,7 @@
         "type": "Curator_Agent"
       },
       "context": {
+        "__createdBy": 1,
         "$last": "Noted.",
         "$response": "Noted.",
         "decision": "Noted.",
@@ -101,7 +103,9 @@
         "prompt": "Hi! My name is Alice. Acknowledge this fact.",
         "type": "Curator_Agent"
       },
-      "context": null,
+      "context": {
+        "__createdBy": 1
+      },
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,

@@ -32,6 +32,7 @@
         "type": "Curator_Tool"
       },
       "context": {
+        "__createdBy": 1,
         "got": 42,
         "input": "{\"doubled\":42,\"output\":\"42\",\"result\":42}",
         "record": {
@@ -65,6 +66,7 @@
         "type": "Curator_Call"
       },
       "context": {
+        "__createdBy": 1,
         "astPath": "",
         "input": "{\"doubled\":42,\"output\":\"Assigned doubled = 42\"}",
         "result": 42
@@ -88,6 +90,7 @@
       "aiModelId": null,
       "ast": null,
       "context": {
+        "__createdBy": 3,
         "astPath": "subroutines.double.body",
         "callDepth": 1,
         "origin": "AST",
@@ -119,6 +122,7 @@
         "type": "Curator_Assign"
       },
       "context": {
+        "__createdBy": 4,
         "astPath": "subroutines.double.body",
         "callDepth": 1,
         "origin": "AST",

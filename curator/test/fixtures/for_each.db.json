@@ -60,6 +60,7 @@
         "type": "Curator_ForEach"
       },
       "context": {
+        "__createdBy": 1,
         "echo": {
           "echoed": "c"
         },
@@ -100,7 +101,9 @@
         },
         "type": "Curator_SetState"
       },
-      "context": null,
+      "context": {
+        "__createdBy": 1
+      },
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -126,6 +129,7 @@
         "type": "Curator_Tool"
       },
       "context": {
+        "__createdBy": 2,
         "echo": {
           "echoed": "a"
         },
@@ -158,6 +162,7 @@
         "type": "Curator_Tool"
       },
       "context": {
+        "__createdBy": 2,
         "echo": {
           "echoed": "b"
         },
@@ -196,6 +201,7 @@
         "type": "Curator_Tool"
       },
       "context": {
+        "__createdBy": 2,
         "echo": {
           "echoed": "c"
         },

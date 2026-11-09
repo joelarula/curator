@@ -29,6 +29,7 @@
       "aiModelId": null,
       "ast": null,
       "context": {
+        "__createdBy": 1,
         "astPath": "",
         "callDepth": 1,
         "got": "from-agent",

@@ -108,6 +108,7 @@
         "type": "Curator_Agent"
       },
       "context": {
+        "__createdBy": 1,
         "input": "{\"userTarget\":\"Master Curator\",\"limit\":42,\"status\":\"State updated\",\"state\":{\"userTarget\":\"Master Curator\",\"limit\":42},\"name\":\"Testing Entity\"}"
       },
       "deletedAt": null,
@@ -133,6 +134,7 @@
         "type": "Curator_Script"
       },
       "context": {
+        "__createdBy": 1,
         "input": "{\"userTarget\":\"Master Curator\",\"limit\":42,\"status\":\"State updated\",\"state\":{\"userTarget\":\"Master Curator\",\"limit\":42}}"
       },
       "deletedAt": null,
@@ -159,7 +161,9 @@
         },
         "type": "Curator_SetState"
       },
-      "context": null,
+      "context": {
+        "__createdBy": 1
+      },
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,

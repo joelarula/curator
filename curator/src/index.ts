@@ -14,6 +14,10 @@ export {
   type CuratorInterrupt, type InterruptKind, type ApprovalResume, type InterruptApi,
   type ListInterruptsFilter, type ResumeInterruptInput, type ResumeInterruptResult,
 } from './engine/Interrupts.js';
+export {
+  TimeTravelService, REPLAYABLE_NODE_TYPES, decideReplay, indexRun,
+  type Checkpoint, type ForkInput, type ForkResult, type ForkSpec, type TimeTravelApi,
+} from './engine/TimeTravel.js';
 export * from './engine/CuratorAst.js';
 export * from './engine/CuratorBuilder.js';
 export * from './engine/builder/index.js';

@@ -69,16 +69,23 @@ Not done in B (follow-ups):
 - Migrate clients to `conversation_resume`: the server `approveRequest` resolver (and a deny mutation), both CLIs (they write Response rows directly), frontend.
 - Agent tool-call denial fails the agent step; feeding the denial back to the model as a tool error would let it continue.
 
-## Phase C: Checkpoints, fork & replay
+## Phase C: Checkpoints, fork & replay (implemented in curator core 2026-11-09)
 
-1. Stamp `EventLog.source = requestId` on state events (thread the id through `writeState`).
-2. `listCheckpoints(conversationId)`: finished steps from StepTrace with the state seq after each. Host tools `conversation.checkpoints`, `conversation.state_at`.
-3. Stable step identity: `__step` key set in `createValidatedRequest` (parent step key + child index + loop iteration). Today only reference-mode requests have one (`astPath`).
-4. `forkConversation({ conversationId, atRequestId | atSeq, statePatch?, input?, scriptVersion? })` (newer versions allowed, see Decisions):
-   - new conversation in the same project, seeded with one patch (state at that point + overrides), plus a non-state `__fork` lineage event (so `Conversation.metadata` stays a pure state view);
-   - re-runs the root script; steps before the fork point (matched by `__step`) return their recorded outputs, recorded resume values (Phase B) are reused;
-   - **side-effect safety**: replayed tool calls never execute; after the fork point tools run normally with approval/RBAC.
+Reference: `curator/CURATOR_AST.md` §14; code: `src/engine/TimeTravel.ts`, `src/tools/timeTravel.ts`.
+
 - **Decided (2026-11-09): fork re-runs the script and reuses recorded outputs**, instead of copying the live request tree (which would mean rebuilding notify chains and fan-in counters).
+- State events record their step (`EventLog.source`, via `appendStatePatch(..., { source })`; `writeState` defaults to the running attempt).
+- Step identity changed from the planned `__step` counter (Graph/Loop rebuild their own context across runs, so a counter kept there is lost) to **lineage**: `__createdBy` on every request; a path is the k-th request a creator created. Forks count children with `__fork.spawn` events in their own EventLog.
+- **Decided (2026-11-09): replay records live in StepTrace** (new nullable columns `createdBy`, `astHash`, `context`, `statePatches`; `output` now also holds replayable steps' results), because retention trims request contexts and compacts event logs. Schema change in curator's three schemas and `server/prisma/schema/core.prisma`; `schema.sql` regenerated.
+- Replay applies to agent, tool, reducer, human input and event-wait steps that finished no later than the fork point (by StepTrace time, then id: creation order is not execution order). Control flow re-runs. A mismatch before the fork point stops the fork (diverged), unless the fork runs a different script version.
+- Tools `conversation_checkpoints`, `conversation_state_at`, `conversation_fork` (fork: humans only), backed by `TimeTravelService`.
+
+Not done in C (follow-ups):
+- Server: run `db:push` / regenerate for the new StepTrace columns.
+- Forks are possible only within StepTrace retention (default 7 days) and for runs recorded after this change.
+- StepTrace is batched per worker: rows still buffered on another worker are not seen by a fork made right away; a lost row makes that step diverge.
+- Script nodes and plugin node types re-run in forks (scripts may spawn subtrees; their VM has no network by default).
+- Agent tool calls made inside an agent step are not separate steps; the agent step replays as a whole.
 
 ## Phase D: Merge rules + fan-out/fan-in semantics
 

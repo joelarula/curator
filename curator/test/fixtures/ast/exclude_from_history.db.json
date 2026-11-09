@@ -46,6 +46,7 @@
         "type": "Curator_Agent"
       },
       "context": {
+        "__createdBy": 1,
         "$last": "Hi Bob",
         "$response": "Hi Bob",
         "decision": "Hi Bob",
@@ -74,6 +75,7 @@
         "type": "Curator_Agent"
       },
       "context": {
+        "__createdBy": 1,
         "$last": "Hi Bob",
         "$response": "Hi Bob",
         "decision": "Hi Bob",
@@ -101,7 +103,9 @@
         "prompt": "Hi! My name is Bob.",
         "type": "Curator_Agent"
       },
-      "context": null,
+      "context": {
+        "__createdBy": 1
+      },
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,

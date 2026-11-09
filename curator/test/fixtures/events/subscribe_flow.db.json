@@ -68,6 +68,7 @@
         "type": "Curator_EmitEvent"
       },
       "context": {
+        "__createdBy": 1,
         "input": "{}"
       },
       "deletedAt": null,
@@ -93,6 +94,7 @@
         "type": "Curator_Unsubscribe"
       },
       "context": {
+        "__createdBy": 1,
         "input": "{}"
       },
       "deletedAt": null,
@@ -120,6 +122,7 @@
         "type": "Curator_EmitEvent"
       },
       "context": {
+        "__createdBy": 1,
         "input": "{}"
       },
       "deletedAt": null,
@@ -147,6 +150,7 @@
         "type": "Curator_EmitEvent"
       },
       "context": {
+        "__createdBy": 1,
         "input": "{}"
       },
       "deletedAt": null,
@@ -173,7 +177,9 @@
         "type": "Curator_Subscribe",
         "when": "evt.n > 1"
       },
-      "context": null,
+      "context": {
+        "__createdBy": 1
+      },
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -193,6 +199,7 @@
       "aiModelId": null,
       "ast": null,
       "context": {
+        "__createdBy": 4,
         "astPath": "",
         "eventName": "ping",
         "got": 2,

@@ -12,7 +12,7 @@ import type { CuratorConfig, CuratorEventEmitResult, CuratorReducer, CuratorStru
 import { resolveRequestNode, getScriptVersionAst, getEntry, entryAstPath, expandInlineCalls, saveAdhocScript } from './ScriptRegistry.js';
 import type { Prisma } from '@prisma/client';
 import { LlmFactory } from './llm/LlmFactory.js';
-import { appendStatePatch, STATE_SEQ_KEY } from './ConversationStateLog.js';
+import { appendStatePatch, STATE_SEQ_KEY, STATE_PATCH, STATE_REWIND, stateAt } from './ConversationStateLog.js';
 import { STATE_PATCH_KEY, withoutStoredStateCopies } from './RequestContextStorage.js';
 import { recordDeadLetter, TERMINAL_STATUSES } from './DeadLetters.js';
 import { AbandonedAttemptError, NodeTimeoutError, decideRetry, messageOf, type RetryDecision } from './FaultPolicy.js';
@@ -21,10 +21,19 @@ import {
   type ApprovalResume, type CuratorInterrupt, type ListInterruptsFilter, type ResumeInterruptInput, type ResumeInterruptResult,
 } from './Interrupts.js';
 import { getReadableProjectIds } from '../services/ProjectScopeService.js';
+import {
+  CREATED_BY_KEY, FORK_PATH_KEY, FORK_EVENT, FORK_SPAWN_EVENT, FORK_BOUNDARY_EVENT, ROOT_PATH, REPLAYABLE_NODE_TYPES,
+  TimeTravelService, decideReplay, indexRun, nodeHash, rootOf, withoutBookkeeping,
+  type Checkpoint, type ForkInput, type ForkResult, type ForkSpec, type OriginalStep, type StepRow, type FinishOrder,
+} from './TimeTravel.js';
+
+/** A StepTrace row's finish order (see TimeTravel.FinishOrder). */
+const finishOrderOf = (row: any): FinishOrder => [new Date(row.createdAt).getTime(), Number(row.id)];
+import { SecretService } from '../services/SecretService.js';
 import { clearRequestContexts, completedChildrenWithContext, sweepCompletedContexts, retireByAge } from './Retention.js';
 import { PrismaStorageAdapter } from '../storage/PrismaStorageAdapter.js';
 import type { IStorageAdapter, RequestFilter, RequestPatch, RequestStatus } from '../storage/IStorageAdapter.js';
-import { BatchTraceWriter, StepTraceWriter, isControlNode } from './StepTrace.js';
+import { BatchTraceWriter, StepTraceWriter, isControlNode, type StepTraceRecord } from './StepTrace.js';
 import type { LlmCallRecord, LlmTelemetryRecord } from './llm/LlmTrace.js';
 import { PostgresWakeChannel } from './WakeChannel.js';
 import { sqlDialect, type SqlDialect } from '../db/sqlDialect.js';
@@ -300,7 +309,13 @@ export class CuratorRequestProcessor {
   private lastMaintenanceAt = 0;
   /** Request id -> resolved node type and start time while this worker executes it (req.ast is null in reference mode). */
   /** Requests this worker is executing: node type, start, and the content of the Response it last saved for one. */
-  private executing = new Map<number, { nodeType: string; startedAt: Date; lastResponse?: string }>();
+  private executing = new Map<number, { nodeType: string; startedAt: Date; lastResponse?: string; astHash?: string }>();
+  /** Fork specs by conversation (null: not a fork), the original runs' step index per fork, and forks past their fork point. */
+  private forkSpecs = new Map<number, ForkSpec | null>();
+  private forkIndexes = new Map<number, Promise<Map<string, OriginalStep>>>();
+  private forkBoundaries = new Set<number>();
+  /** Fork-point steps being completed: their fork's statePatch is applied right after their own state merge. */
+  private boundaryPatches = new Map<number, Record<string, any>>();
   private clock: () => number;
   /** AST node type → handler. */
   private nodes = new NodeRegistry();
@@ -389,6 +404,11 @@ export class CuratorRequestProcessor {
     this.services.set(InterruptService, {
       list: (filter: ListInterruptsFilter) => this.listInterrupts(filter),
       resume: (input: ResumeInterruptInput) => this.resumeInterrupt(input),
+    });
+    this.services.set(TimeTravelService, {
+      checkpoints: (conversationId: number, projectIds: string[]) => this.listCheckpoints(conversationId, projectIds),
+      stateAt: (conversationId: number, seq: number | undefined, projectIds: string[]) => this.stateAtCheckpoint(conversationId, seq, projectIds),
+      fork: (input: ForkInput) => this.forkConversation(input),
     });
     for (const { key, value } of options.services ?? []) this.services.set(key, value);
     this.initNodes(options.nodeHandlers ?? []);
@@ -565,10 +585,16 @@ export class CuratorRequestProcessor {
     if (attempt?.abandoned) throw new AbandonedAttemptError(attempt.requestId);
   }
 
+  /**
+   * `args.createdBy`: the request creating this one (default: the attempt running in this async context; null: none).
+   * It is stamped as `context.__createdBy` (lineage: fork replay rebuilds the run's tree from it), and in a fork
+   * conversation the new request's path is stamped too (`__forkPath`).
+   */
   private async createValidatedRequest(args: any) {
     this.assertLive();
     const scope = this.execScope.getStore();
     if (scope?.attempt) scope.attempt.spawned++;
+    args = { ...args, data: await this.withLineage(args.data, 'createdBy' in args ? args.createdBy : scope?.attempt?.requestId ?? null, args.forkPath) };
     if (scope?.scriptVersion && args.data.scriptId != null && args.data.scriptId === scope.scriptId && args.data.scriptVersion === undefined) {
       args = { ...args, data: { ...args.data, scriptVersion: scope.scriptVersion } };
     }
@@ -595,6 +621,48 @@ export class CuratorRequestProcessor {
     return this.store.requests.create(cleanData);
   }
 
+  /**
+   * Request data with its lineage in the context. A context copied from the creator (e.g. a branch's) carries the
+   * creator's own keys, so they are always replaced; a request created by nothing keeps an untouched context.
+   */
+  private async withLineage(data: any, createdBy: number | null, forkPath?: string): Promise<any> {
+    const parsed = data.context == null ? null : this.parseContext(data.context);
+    const inherited = parsed && (parsed[CREATED_BY_KEY] !== undefined || parsed[FORK_PATH_KEY] !== undefined);
+    if (createdBy == null && !inherited && !forkPath) return data;
+    const context: Record<string, any> = { ...(parsed || {}) };
+    delete context[CREATED_BY_KEY];
+    delete context[FORK_PATH_KEY];
+    if (createdBy != null) context[CREATED_BY_KEY] = createdBy;
+    const path = forkPath ?? (createdBy != null ? await this.forkPathFor(data.conversationId, createdBy) : null);
+    if (path) context[FORK_PATH_KEY] = path;
+    return { ...data, context };
+  }
+
+  /** In a fork conversation: the path of the next request `createdBy` creates (`<creator path>.<k>`); else null. */
+  private async forkPathFor(conversationId: number | undefined, createdBy: number): Promise<string | null> {
+    if (conversationId == null || !(await this.forkSpec(conversationId))) return null;
+    const creator = await this.store.requests.get(createdBy);
+    const creatorPath = creator ? this.parseContext(creator.context)[FORK_PATH_KEY] : undefined;
+    if (!creatorPath) return null;
+    // The creator runs one attempt at a time, so counting its spawn events gives each child its own index
+    const k = await this.prisma.eventLog.count({ where: { conversationId, eventName: FORK_SPAWN_EVENT, target: String(createdBy) } });
+    await this.prisma.eventLog.create({ data: { conversationId, eventName: FORK_SPAWN_EVENT, target: String(createdBy), payload: { k } } });
+    return `${creatorPath}.${k}`;
+  }
+
+  /** The fork spec of a conversation (its `__fork` event), or null when it is not a fork. Cached per process. */
+  private async forkSpec(conversationId: number): Promise<ForkSpec | null> {
+    if (this.forkSpecs.has(conversationId)) return this.forkSpecs.get(conversationId)!;
+    let spec: ForkSpec | null = null;
+    if (this.prisma.eventLog?.findFirst) {
+      const row = await this.prisma.eventLog.findFirst({ where: { conversationId, eventName: FORK_EVENT }, orderBy: { id: 'asc' } });
+      spec = (row?.payload as ForkSpec) ?? null;
+    }
+    if (this.forkSpecs.size >= 10_000) this.forkSpecs.clear();
+    this.forkSpecs.set(conversationId, spec);
+    return spec;
+  }
+
   private getConversationState(conv: any): Record<string, any> {
     if (!conv) return {};
     const raw = conv.state ?? conv.metadata;
@@ -618,10 +686,11 @@ export class CuratorRequestProcessor {
     return scope != null ? { ...shared, ...((__scopes || {})[scope] || {}) } : shared;
   }
 
-  private async writeState(conversationId: any, scope: string | null | undefined, updates: Record<string, any>) {
+  /** `source`: the request whose step writes (default: the attempt running in this async context). */
+  private async writeState(conversationId: any, scope: string | null | undefined, updates: Record<string, any>, source?: number | null) {
     this.assertLive();
     // Event-sourced: append a patch to the EventLog and refresh the materialized view (no read-modify-write race).
-    return appendStatePatch(this.prisma, conversationId, { scope: scope ?? null, set: updates });
+    return appendStatePatch(this.prisma, conversationId, { scope: scope ?? null, set: updates }, { source: source ?? this.currentAttempt()?.requestId ?? null });
   }
 
   private parseContext(ctx: any): any {
@@ -1525,7 +1594,14 @@ export class CuratorRequestProcessor {
           return;
         }
 
-        this.executing.set(req.id, { nodeType: ast.type, startedAt: new Date(this.clock()) });
+        this.executing.set(req.id, {
+          nodeType: ast.type,
+          startedAt: new Date(this.clock()),
+          // Replayable steps record their node's hash in StepTrace (a fork matches steps by it)
+          ...(REPLAYABLE_NODE_TYPES.has(ast.type) ? { astHash: nodeHash(ast) } : {}),
+        });
+        // In a fork, a step recorded before the fork point returns its recorded result instead of running
+        if (await this.replayIfForked(req, ast)) return;
         const handler = this.nodes.get(ast.type) ?? this.engine.nodes?.get(ast.type);
         if (!handler) {
           logger.warn(`[CuratorRequestProcessor] Request ${req.id} has unknown AST type: ${(ast as any).type}. Skipping.`);
@@ -1636,6 +1712,7 @@ export class CuratorRequestProcessor {
       }
 
       const child = await this.createValidatedRequest({
+        createdBy: req.id ?? null,
         data: {
           userId: sub.userId,
           projectId: sub.projectId,
@@ -1715,7 +1792,7 @@ export class CuratorRequestProcessor {
       if (aliasKey) updatedContext[aliasKey] = value;
       updatedContext.state = { ...(updatedContext.state || {}), ...newState };
 
-      await this.writeState(waitReq.conversationId, ctx?.__scope, newState);
+      await this.writeState(waitReq.conversationId, ctx?.__scope, newState, waitReq.id);
     }
     if (opts.contextPatch) {
       Object.assign(updatedContext, opts.contextPatch);
@@ -2124,6 +2201,249 @@ export class CuratorRequestProcessor {
     return { interruptId: id, requestId: req.id, kind: interrupt.kind, outcome };
   }
 
+  // --- Checkpoints, fork & replay (TimeTravel.ts) ---
+
+  /** StepTrace fields a fork needs: lineage always; node hash, context, result and state patches for replayable steps. */
+  private async replayRecord(req: any, nodeType: string | null, status: string): Promise<Partial<StepTraceRecord>> {
+    const ctx = this.parseContext(req.context);
+    const createdBy = typeof ctx[CREATED_BY_KEY] === 'number' ? ctx[CREATED_BY_KEY] : null;
+    if (nodeType && REPLAYABLE_NODE_TYPES.has(nodeType) && TERMINAL_STATUSES.has(status)) {
+      try {
+        const astHash = this.executing.get(req.id)?.astHash ?? (await this.resolvedNodeHash(req));
+        // State the step wrote itself (its output merged into state on completion is re-derived when replayed)
+        const patches = this.prisma.eventLog?.findMany
+          ? await this.prisma.eventLog.findMany({ where: { conversationId: req.conversationId, source: req.id, eventName: STATE_PATCH }, orderBy: { id: 'asc' } })
+          : [];
+        const result = req.output ?? this.executing.get(req.id)?.lastResponse ?? (await this.store.responses.latest(req.id))?.content ?? null;
+        return {
+          createdBy,
+          astHash,
+          output: result,
+          context: SecretService.sanitizeContext(withoutBookkeeping(ctx)),
+          statePatches: patches.map((p: any) => ({ scope: p.payload?.scope ?? null, set: p.payload?.set ?? {} })),
+        };
+      } catch (err: any) {
+        logger.warn(`[CuratorRequestProcessor] Replay record of request ${req.id} skipped: ${err?.message ?? err}`);
+        return { createdBy };
+      }
+    }
+    // A root (created by nothing): the context a fork re-runs it with
+    if (createdBy == null) return { createdBy, context: SecretService.sanitizeContext(this.rootContextOf(ctx)) };
+    return { createdBy };
+  }
+
+  /** A root's context without run bookkeeping (its `input` stays: it is the run's input). */
+  private rootContextOf(ctx: any): Record<string, any> {
+    return { ...withoutBookkeeping(ctx), ...(ctx?.input !== undefined ? { input: ctx.input } : {}) };
+  }
+
+  private async resolvedNodeHash(req: any): Promise<string | null> {
+    const { node } = await resolveRequestNode(this.prisma, req);
+    return node ? nodeHash(node) : null;
+  }
+
+  /** The original run's steps by path, for fork `conversationId` (built once per process). */
+  private forkIndex(conversationId: number, spec: ForkSpec): Promise<Map<string, OriginalStep>> {
+    let index = this.forkIndexes.get(conversationId);
+    if (!index) {
+      index = this.runSteps(spec.from).then((rows) => indexRun(rows, spec.rootRequestId).byPath);
+      index.catch(() => this.forkIndexes.delete(conversationId));
+      if (this.forkIndexes.size >= 1_000) this.forkIndexes.clear();
+      this.forkIndexes.set(conversationId, index);
+    }
+    return index;
+  }
+
+  /**
+   * Every request of a conversation as a step: StepTrace for finished ones (it outlives context trimming), the
+   * Request row for the rest.
+   */
+  private async runSteps(conversationId: number): Promise<StepRow[]> {
+    await this.trace?.flush();
+    const traced = new Map<number, any>();
+    for (const row of (await this.trace?.forConversation(conversationId)) ?? []) {
+      if (row.status !== 'RETRY') traced.set(row.requestId, row);
+    }
+    const rows = new Map<number, StepRow>();
+    for (const req of await this.store.requests.find({ conversationId })) {
+      const t = traced.get(req.id);
+      const ctx = this.parseContext(req.context);
+      rows.set(req.id, {
+        requestId: req.id,
+        createdBy: t?.createdBy ?? (typeof ctx[CREATED_BY_KEY] === 'number' ? ctx[CREATED_BY_KEY] : null),
+        status: t?.status ?? req.status,
+        nodeType: t?.nodeType ?? this.parseAst(req.ast)?.type ?? null,
+        astHash: t?.astHash ?? null,
+        context: t?.context ?? null,
+        statePatches: t?.statePatches ?? null,
+        result: t?.output ?? null,
+        finished: t ? finishOrderOf(t) : null,
+      });
+    }
+    // Finished requests whose Request row is gone (pruned) still count
+    for (const [id, t] of traced) {
+      if (!rows.has(id)) {
+        rows.set(id, { requestId: id, createdBy: t.createdBy ?? null, status: t.status, nodeType: t.nodeType, astHash: t.astHash, context: t.context, statePatches: t.statePatches, result: t.output, finished: finishOrderOf(t) });
+      }
+    }
+    return [...rows.values()];
+  }
+
+  private async forkBoundaryPassed(conversationId: number): Promise<boolean> {
+    if (this.forkBoundaries.has(conversationId)) return true;
+    const passed = (await this.prisma.eventLog.count({ where: { conversationId, eventName: FORK_BOUNDARY_EVENT } })) > 0;
+    if (passed) this.forkBoundaries.add(conversationId);
+    return passed;
+  }
+
+  /**
+   * In a fork: returns the recorded result of a step the original run finished before the fork point (true),
+   * fails a step the original never had before it (replay diverged: true), or lets the step run (false).
+   */
+  private async replayIfForked(req: any, ast: CuratorAstNode): Promise<boolean> {
+    if (!REPLAYABLE_NODE_TYPES.has(ast.type) || req.conversationId == null) return false;
+    const spec = await this.forkSpec(req.conversationId);
+    if (!spec) return false;
+    const ctx = this.parseContext(req.context);
+    const path: string | undefined = ctx[FORK_PATH_KEY];
+    if (!path) return false;
+
+    const original = (await this.forkIndex(req.conversationId, spec)).get(path);
+    const decision = decideReplay(spec, original, ast, nodeHash(ast), await this.forkBoundaryPassed(req.conversationId));
+    if (decision.action === 'live') return false;
+    if (decision.action === 'diverge') {
+      await this.failRequest(req, `Fork replay diverged at step ${path}: ${decision.reason}`);
+      return true;
+    }
+
+    const orig = decision.original;
+    for (const patch of orig.statePatches) await this.writeState(req.conversationId, patch.scope ?? null, patch.set, req.id);
+    const nextCtx: Record<string, any> = {
+      ...withoutBookkeeping(orig.context ?? {}),
+      [CREATED_BY_KEY]: ctx[CREATED_BY_KEY],
+      [FORK_PATH_KEY]: path,
+      ...(ctx.__scope != null ? { __scope: ctx.__scope } : {}),
+    };
+    req.context = nextCtx;
+    const patch = decision.boundary && spec.statePatch && Object.keys(spec.statePatch).length > 0 ? spec.statePatch : null;
+    if (decision.boundary) {
+      await this.prisma.eventLog.create({ data: { conversationId: req.conversationId, eventName: FORK_BOUNDARY_EVENT, source: req.id, payload: { path } } });
+      this.forkBoundaries.add(req.conversationId);
+      if (patch && req.notifyId) this.boundaryPatches.set(req.id, patch);
+    }
+    if (orig.result != null) await this.saveResponse(req, orig.result);
+    this.emit('request_replayed', { requestId: req.id, conversationId: req.conversationId, originalRequestId: orig.requestId, path, boundary: decision.boundary });
+    await this.completeRequest(req.id, orig.status, false, { context: nextCtx });
+    // Nothing downstream merged it (a root step): apply it now
+    if (patch && (!req.notifyId || this.boundaryPatches.delete(req.id))) await this.writeState(req.conversationId, null, patch, req.id);
+    return true;
+  }
+
+  /** The conversation, when the caller's projects may read it. */
+  private async readableConversation(conversationId: number, projectIds: string[]) {
+    const conv = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
+    if (!conv || !this.canAccessRequestProject(conv.projectId, projectIds)) throw new Error(`Conversation ${conversationId} not found`);
+    return conv;
+  }
+
+  /** State events of a conversation as checkpoints, oldest first. Compacted conversations keep one event. */
+  public async listCheckpoints(conversationId: number, projectIds: string[]): Promise<Checkpoint[]> {
+    await this.readableConversation(conversationId, projectIds);
+    const events = await this.prisma.eventLog.findMany({
+      where: { conversationId, eventName: { in: [STATE_PATCH, STATE_REWIND] } },
+      orderBy: { id: 'asc' },
+    });
+    const steps = new Map((await this.runSteps(conversationId)).map((s) => [s.requestId, s]));
+    return events.map((e: any) => {
+      const step = e.source != null ? steps.get(e.source) : undefined;
+      return {
+        seq: e.id,
+        kind: e.eventName === STATE_REWIND ? 'rewind' : 'patch',
+        requestId: e.source ?? null,
+        nodeType: step?.nodeType ?? null,
+        scope: e.payload?.scope ?? null,
+        keys: Object.keys(e.payload?.set ?? {}),
+        forkable: !!step && step.status === 'COMPLETED' && !!step.nodeType && REPLAYABLE_NODE_TYPES.has(step.nodeType) && step.astHash != null,
+      } satisfies Checkpoint;
+    });
+  }
+
+  /** The conversation state right after state event `seq` (default: now). */
+  public async stateAtCheckpoint(conversationId: number, seq: number | undefined, projectIds: string[]) {
+    await this.readableConversation(conversationId, projectIds);
+    return stateAt(this.prisma, conversationId, seq);
+  }
+
+  /**
+   * Forks a conversation right after a finished replayable step: a new conversation runs the original root again,
+   * replaying recorded steps up to the fork point (no tool calls, model calls or prompts repeat), applies
+   * `statePatch` there, and runs live from then on. The original is not changed.
+   */
+  public async forkConversation(input: ForkInput): Promise<ForkResult> {
+    const conv = await this.readableConversation(input.conversationId, input.projectIds);
+    let atRequestId = input.atRequestId;
+    if (atRequestId == null && input.atSeq != null) {
+      const event = await this.prisma.eventLog.findFirst({ where: { conversationId: conv.id, id: input.atSeq } });
+      if (!event) throw new Error(`State event ${input.atSeq} not found in conversation ${conv.id}`);
+      if (event.source == null) throw new Error(`State event ${input.atSeq} was not written by a step; fork at a step instead`);
+      atRequestId = event.source;
+    }
+    if (atRequestId == null) throw new Error('Fork needs atRequestId or atSeq');
+
+    const rows = await this.runSteps(conv.id);
+    const at = rows.find((r) => r.requestId === atRequestId);
+    if (!at) throw new Error(`Request ${atRequestId} is not part of conversation ${conv.id}`);
+    if (at.status !== 'COMPLETED' || !at.nodeType || !REPLAYABLE_NODE_TYPES.has(at.nodeType) || !at.astHash || !at.finished) {
+      throw new Error(`Request ${atRequestId} is not a finished, recorded step (agent, tool, reducer, human input or event wait); fork at one of those`);
+    }
+    const rootId = rootOf(rows, atRequestId);
+    if (rootId == null) throw new Error(`Request ${atRequestId} has no recorded lineage (it predates fork support or its records were retired)`);
+    const { pathOf } = indexRun(rows, rootId);
+    const boundaryPath = pathOf.get(atRequestId)!;
+
+    const root = await this.store.requests.get(rootId);
+    const rootTrace = rows.find((r) => r.requestId === rootId);
+    if (!root) throw new Error(`Root request ${rootId} of the run is gone; this run can no longer be forked`);
+    const rootContext = root.context != null ? this.rootContextOf(this.parseContext(root.context)) : (rootTrace?.context ?? {});
+
+    const fork = await this.prisma.conversation.create({ data: { userId: input.userId, projectId: conv.projectId ?? null } });
+    const spec: ForkSpec = {
+      from: conv.id,
+      atRequestId,
+      boundaryPath,
+      rootRequestId: rootId,
+      atFinished: at.finished,
+      statePatch: input.statePatch ?? null,
+      scriptVersion: input.scriptVersion ?? root.scriptVersion ?? null,
+      originalScriptVersion: root.scriptVersion ?? null,
+    };
+    // Written before the root request exists, so every request of the fork sees it is a fork
+    await this.prisma.eventLog.create({ data: { conversationId: fork.id, eventName: FORK_EVENT, payload: spec as any } });
+    this.forkSpecs.set(fork.id, spec);
+
+    const created = await this.createValidatedRequest({
+      createdBy: null,
+      forkPath: ROOT_PATH,
+      data: {
+        userId: input.userId,
+        projectId: root.projectId ?? null,
+        conversationId: fork.id,
+        agentId: root.agentId ?? undefined,
+        scriptId: root.scriptId ?? undefined,
+        scriptVersion: input.scriptVersion ?? root.scriptVersion ?? undefined,
+        toolName: root.toolName ?? undefined,
+        priority: root.priority ?? undefined,
+        status: 'NEW',
+        pendingDependencies: 0,
+        ast: root.ast ?? undefined,
+        context: rootContext,
+      },
+    });
+    this.emit('conversation_forked', { conversationId: fork.id, from: conv.id, atRequestId, boundaryPath, rootRequestId: created.id });
+    this.announce();
+    return { conversationId: fork.id, rootRequestId: created.id, boundaryPath };
+  }
+
   /** Resolves a handler ref to its Script row id and entry (local refs use the executing script). */
   private async resolveHandler(handler: string, req: any): Promise<{ scriptId: number; entry: string | null }> {
     const parsed = parseCuratorRef(handler);
@@ -2369,6 +2689,7 @@ export class CuratorRequestProcessor {
       const reqAst = this.parseAst(req.ast);
       if (reqAst?.onTimeout) {
         await this.createValidatedRequest({
+          createdBy: req.id,
           data: {
             userId: req.userId,
             projectId: req.projectId,
@@ -2578,6 +2899,7 @@ export class CuratorRequestProcessor {
       logger.debug(`[CuratorRequestProcessor] Request ${req.id} failed, spawning onError fallback AST.`);
       await this.cancelOrphans(req.id);
       await this.createValidatedRequest({
+        createdBy: req.id,
         data: {
           userId: req.userId,
           projectId: req.projectId,
@@ -2620,7 +2942,7 @@ export class CuratorRequestProcessor {
             failedAt: new Date().toISOString(),
           },
         },
-      });
+      }, { source: req.id });
     } catch (err: any) {
       logger.warn(`[CuratorRequestProcessor] Could not record workflow failure for request ${req.id}: ${err?.message ?? err}`);
     }
@@ -2745,17 +3067,20 @@ export class CuratorRequestProcessor {
     }
     this.emit('request_done', { requestId, success: status === 'COMPLETED', status });
     const nodeType = this.nodeTypeOf(req);
-    this.trace?.record({
-      conversationId: req.conversationId,
-      requestId,
-      projectId: req.projectId ?? null,
-      nodeType,
-      status,
-      output: isControlNode(nodeType) ? req.output ?? null : null,
-      startedAt: this.executing.get(requestId)?.startedAt ?? null,
-      worker: this.workerId,
-      createdAt: new Date(this.clock()),
-    });
+    if (this.trace?.enabled) {
+      this.trace.record({
+        conversationId: req.conversationId,
+        requestId,
+        projectId: req.projectId ?? null,
+        nodeType,
+        status,
+        output: isControlNode(nodeType) ? req.output ?? null : null,
+        startedAt: this.executing.get(requestId)?.startedAt ?? null,
+        worker: this.workerId,
+        createdAt: new Date(this.clock()),
+        ...(await this.replayRecord(req, nodeType, status)),
+      });
+    }
 
     if (status !== 'COMPLETED') {
       await this.handleUnsuccessful(req, status, skipNotify);
@@ -2806,10 +3131,16 @@ export class CuratorRequestProcessor {
           const targetIsJoin = this.parseAst(targetReq.ast)?.type === 'Curator_Join';
           const shouldPersistInState = req.ast?.type !== 'Curator_Agent' && !req.ast?.ephemeral;
           // The state the write produced; read only when nothing was written
-          const written =
+          let written =
             shouldPersistInState && Object.keys(newUpdates).length > 0
-              ? await this.writeState(targetReq.conversationId, sourceScope, newUpdates)
+              ? await this.writeState(targetReq.conversationId, sourceScope, newUpdates, req.id)
               : null;
+          // A fork's fork-point step: its statePatch lands after the step's own output, before anything reads it
+          const boundaryPatch = this.boundaryPatches.get(req.id);
+          if (boundaryPatch) {
+            this.boundaryPatches.delete(req.id);
+            written = await this.writeState(targetReq.conversationId, null, boundaryPatch, req.id);
+          }
           const stateNow = written
             ? written.state
             : this.getConversationState(await this.prisma.conversation.findUnique({ where: { id: targetReq.conversationId } }));
@@ -2829,7 +3160,7 @@ export class CuratorRequestProcessor {
           }
           const skipKeys = new Set(['forEachIndex', 'forEachCollection', 'ifElseEvaluated',
             'spawnedChild', 'routeDecided', 'pendingToolCall', 'waitEvent', 'payloadAlias', 'astPath',
-            '__humanInputReceived__', '__joinScope', 'waitDeadline', INTERRUPT_KEY, INTERRUPT_SEQ_KEY,
+            '__humanInputReceived__', '__joinScope', 'waitDeadline', INTERRUPT_KEY, INTERRUPT_SEQ_KEY, CREATED_BY_KEY, FORK_PATH_KEY,
             'loopIteration', 'loopRunning', 'loopCollection', 'iteration', 'index']);
           // A parked Curator_Call caller is isolated from its callee: the result flows back only via `as`.
           if (!targetContext.callPending && !(targetIsJoin && sourceScope != null)) {

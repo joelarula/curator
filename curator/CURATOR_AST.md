@@ -467,3 +467,21 @@ Declare a typed resume on a wait: `{ "type": "Curator_HumanInput", "prompt": "Am
 * **Events**: parking emits `curator:interrupt` (the envelope); a resume emits `curator:interrupt_resumed` and logs a `curator:interrupt_resumed` bus event with the value (for replay).
 * Expiry (`APPROVAL_EXPIRED`) and timeouts (`HUMAN_TIMEOUT` / `WAIT_TIMEOUT`) close the interrupt as before. The older ways to answer (an event named `curator:choice` / the awaited event, a Response row on the parked request, the server's `approveRequest`) still work.
 * A one-time approval needs no table (it rides on the request); `CONVERSATION` / `PERMANENT` scopes need the `ToolApproval` table (server schema).
+
+## 14. Checkpoints, fork & replay
+
+`src/engine/TimeTravel.ts`; tools `conversation_checkpoints`, `conversation_state_at`, `conversation_fork` (human callers only).
+
+* **Checkpoints** are the conversation's state events (`EventLog`), each with the step that wrote it (`EventLog.source`), the changed keys and whether a fork can start after it. `conversation_state_at { conversationId, seq }` is the state right after one.
+* **Fork** `{ conversationId, atRequestId | atSeq, statePatch?, scriptVersion? }` creates a new conversation (same project) that runs the original root again:
+  * a replayable step (agent, tool, reducer, human input, event wait) that the original finished **no later than the fork point**, at the same position and with the same node, returns its recorded result and state writes: tools are not called, agents do not call the model, prompts do not ask again;
+  * the fork point's step gets `statePatch` merged into state right after its own output;
+  * everything after runs live; control flow always runs (it is deterministic and has no side effects);
+  * a step before the fork point that the original never had, or that differs, **stops the fork** (the step fails with `Fork replay diverged at step <path>`) instead of running, so nothing irreversible repeats. With a different `scriptVersion`, such steps run live instead.
+  * The original conversation is never changed.
+
+### How it is handled
+* **Lineage**: every request records its creator (`context.__createdBy`, `StepTrace.createdBy`). A step's path is its position in that tree: `r`, then `.k` for the k-th request its creator created (a Sequential creates its steps last to first, so its first step is `r.<n-1>`). In a fork each new request gets its path when created (`context.__forkPath`, counted with `__fork.spawn` events).
+* **Records**: `StepTrace` keeps, per finished replayable step, its node hash, final context (secrets masked), result (`output`) and the state patches it wrote; roots keep their context. Request contexts are trimmed and finished conversations' event logs compacted, so StepTrace is the source: **a run can be forked while its StepTrace rows exist** (`stepTrace.ttlMs`, default 7 days). StepTrace is written in batches; a row lost with a crashed process makes a fork through that step diverge (it stops, it does not re-run).
+* **Order**: "before the fork point" is by finish time (StepTrace time, then row id), not creation order.
+* Runs recorded before this feature have no lineage and cannot be forked.

@@ -53,6 +53,7 @@
         "type": "Curator_Tool"
       },
       "context": {
+        "__createdBy": 1,
         "activeChoices": [],
         "as": "code",
         "choiceAs": "code",
@@ -89,6 +90,7 @@
         "type": "Curator_HumanInput"
       },
       "context": {
+        "__createdBy": 1,
         "__humanInputReceived__": true,
         "__interruptSeq": 1,
         "activeChoices": [],
@@ -121,7 +123,9 @@
         "language": "javascript",
         "type": "Curator_Script"
       },
-      "context": null,
+      "context": {
+        "__createdBy": 1
+      },
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,

@@ -54,6 +54,7 @@
         "type": "Curator_SetState"
       },
       "context": {
+        "__createdBy": 1,
         "echo": {
           "echoed": "hello"
         },
@@ -86,6 +87,7 @@
         "type": "Curator_Tool"
       },
       "context": {
+        "__createdBy": 1,
         "echo": {
           "echoed": "hello"
         },
@@ -115,7 +117,9 @@
         },
         "type": "Curator_SetState"
       },
-      "context": null,
+      "context": {
+        "__createdBy": 1
+      },
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,

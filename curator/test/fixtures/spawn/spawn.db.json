@@ -36,6 +36,7 @@
         "type": "Curator_Tool"
       },
       "context": {
+        "__createdBy": 1,
         "ping": "pong",
         "spawnedChild": false
       },

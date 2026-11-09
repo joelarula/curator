@@ -26,6 +26,8 @@ export interface StateEventRow {
   id: number;
   eventName: string;
   payload: any;
+  /** Request whose step wrote the event (null: written outside a workflow step). */
+  source?: number | null;
 }
 
 export interface StatePatchPayload {
@@ -197,6 +199,7 @@ async function appendStateEvent(
   conversationId: number,
   eventName: string,
   payload: any,
+  source: number | null = null,
 ): Promise<{ seq: number; state: ConversationStateData }> {
   const projectors = projectorsByClient.get(prisma);
   const dialect = dialectOf(prisma);
@@ -213,8 +216,8 @@ async function appendStateEvent(
     }
     // Lock first, then append: the event gets its id after every earlier writer's (see lockedSnapshot)
     const before = await materializeIn(db, conversationId, dialect);
-    const event = { id: 0, eventName, payload };
-    event.id = (await db.eventLog.create({ data: { conversationId, eventName, payload } })).id;
+    const event: StateEventRow = { id: 0, eventName, payload, source };
+    event.id = (await db.eventLog.create({ data: { conversationId, eventName, payload, ...(source != null ? { source } : {}) } })).id;
     const { state } = needsFullRefold([event], before)
       ? foldState(await stateEventsAfter(db, conversationId, 0))
       : foldState([event], { from: before });
@@ -229,13 +232,17 @@ async function appendStateEvent(
   });
 }
 
-/** Appends a patch event and refreshes the materialized view. Returns the event's sequence id and new state. */
+/**
+ * Appends a patch event and refreshes the materialized view. Returns the event's sequence id and new state.
+ * `source` is the request whose step wrote it (`EventLog.source`): checkpoints and fork replay use it.
+ */
 export async function appendStatePatch(
   prisma: any,
   conversationId: number,
   patch: StatePatchPayload,
+  opts: { source?: number | null } = {},
 ): Promise<{ seq: number; state: ConversationStateData }> {
-  return appendStateEvent(prisma, conversationId, STATE_PATCH, patch);
+  return appendStateEvent(prisma, conversationId, STATE_PATCH, patch, opts.source ?? null);
 }
 
 /** Zero-loss rollback: appends a compensating event; the abandoned events stay in the log for debugging. */

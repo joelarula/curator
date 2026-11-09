@@ -47,6 +47,7 @@
         "type": "Curator_Join"
       },
       "context": {
+        "__createdBy": 1,
         "input": "{\"section\":\"Environment\",\"content\":\"Green energy investments will double.\"}"
       },
       "deletedAt": null,
@@ -71,7 +72,9 @@
         "language": "javascript",
         "type": "Curator_Script"
       },
-      "context": null,
+      "context": {
+        "__createdBy": 1
+      },
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -94,7 +97,9 @@
         "language": "javascript",
         "type": "Curator_Script"
       },
-      "context": null,
+      "context": {
+        "__createdBy": 1
+      },
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -117,7 +122,9 @@
         "language": "javascript",
         "type": "Curator_Script"
       },
-      "context": null,
+      "context": {
+        "__createdBy": 1
+      },
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,

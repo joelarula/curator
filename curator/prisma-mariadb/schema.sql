@@ -555,6 +555,10 @@ CREATE TABLE `StepTrace` (
     `nodeType` VARCHAR(191) NULL,
     `status` VARCHAR(191) NOT NULL,
     `output` LONGTEXT NULL,
+    `createdBy` INTEGER NULL,
+    `astHash` VARCHAR(191) NULL,
+    `context` JSON NULL,
+    `statePatches` JSON NULL,
     `startedAt` DATETIME(3) NULL,
     `worker` VARCHAR(191) NULL,
 

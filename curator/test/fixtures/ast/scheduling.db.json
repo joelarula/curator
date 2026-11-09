@@ -49,6 +49,7 @@
         "type": "Curator_Agent"
       },
       "context": {
+        "__createdBy": 1,
         "$last": "Successfully scheduled my_test_task. ID: 7",
         "$response": "Successfully scheduled my_test_task. ID: 7",
         "decision": "Successfully scheduled my_test_task. ID: 7",
@@ -78,7 +79,9 @@
         ],
         "type": "Curator_Agent"
       },
-      "context": null,
+      "context": {
+        "__createdBy": 1
+      },
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,

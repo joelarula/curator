@@ -654,6 +654,13 @@ model StepTrace {
   nodeType       String?
   status         String
   output         String?  @db.LongText
+  /// Request that created this one (fork replay rebuilds the run's tree from it).
+  createdBy      Int?
+  /// Replayable steps (agent, tool, reducer, human input, event wait): hash of the node, the context it ended with
+  /// and the state patches it wrote, so a fork can return the recorded result instead of running it again.
+  astHash        String?
+  context        Json?
+  statePatches   Json?
   startedAt      DateTime?
   worker         String?
 

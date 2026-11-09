@@ -70,6 +70,7 @@
         "type": "Curator_IfElse"
       },
       "context": {
+        "__createdBy": 1,
         "echo": {
           "echoed": "high"
         },
@@ -100,7 +101,9 @@
         },
         "type": "Curator_SetState"
       },
-      "context": null,
+      "context": {
+        "__createdBy": 1
+      },
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -126,6 +129,7 @@
         "type": "Curator_Tool"
       },
       "context": {
+        "__createdBy": 2,
         "echo": {
           "echoed": "high"
         },

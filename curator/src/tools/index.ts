@@ -38,6 +38,7 @@ import {
   delete_relation,
 } from './resources.js';
 import { interruptTools, conversation_interrupts, conversation_resume } from './interrupts.js';
+import { timeTravelTools, conversation_checkpoints, conversation_state_at, conversation_fork } from './timeTravel.js';
 import type { CuratorTool } from './CuratorTool.js';
 
 export {
@@ -78,6 +79,10 @@ export {
   // Interrupt tools
   conversation_interrupts,
   conversation_resume,
+  // Checkpoint / fork tools
+  conversation_checkpoints,
+  conversation_state_at,
+  conversation_fork,
 };
 
 export const toolRegistry: Record<string, CuratorTool> = {
@@ -91,4 +96,5 @@ export const toolRegistry: Record<string, CuratorTool> = {
   ...(shapeTools as Record<string, CuratorTool>),
   ...(resourceTools as Record<string, CuratorTool>),
   ...(interruptTools as Record<string, CuratorTool>),
+  ...(timeTravelTools as Record<string, CuratorTool>),
 };
