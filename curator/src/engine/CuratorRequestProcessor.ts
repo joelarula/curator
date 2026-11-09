@@ -22,6 +22,7 @@ import {
 } from './Interrupts.js';
 import { canReadProject } from '../services/ProjectScopeService.js';
 import { PROGRESS_EVENT, PROGRESS_EVENT_VERSION, type ProgressEventInput, type StepStatus } from './ProgressEvents.js';
+import { stepProgressLabel } from './progressLabel.js';
 import { BRANCH_KEY, rulesOf, type MergeRules } from './StateMerge.js';
 import { JOIN_FAIL_FAST_KEY } from './nodes/join.js';
 import {
@@ -314,7 +315,7 @@ export class CuratorRequestProcessor {
   private lastMaintenanceAt = 0;
   /** Request id -> resolved node type and start time while this worker executes it (req.ast is null in reference mode). */
   /** Requests this worker is executing: node type, start, and the content of the Response it last saved for one. */
-  private executing = new Map<number, { nodeType: string; startedAt: Date; lastResponse?: string; astHash?: string }>();
+  private executing = new Map<number, { nodeType: string; startedAt: Date; lastResponse?: string; astHash?: string; label?: string }>();
   /** Sequence of this process's progress events. */
   private progressSeq = 0;
   /** Fork specs by conversation (null: not a fork), the original runs' step index per fork, and forks past their fork point. */
@@ -479,6 +480,7 @@ export class CuratorRequestProcessor {
       now: () => this.clock(),
       abortSignal: () => this.currentAttempt()?.controller.signal,
       emit: (type, payload) => this.emit(type, payload),
+      progress: (event) => this.progress(event),
       saveResponse: (req, content) => this.saveResponse(req, content),
       completeRequest: (id, status, skipNotify, data) => this.completeRequest(id, status, skipNotify, data),
       failRequest: (req, reason) => this.failRequest(req, reason),
@@ -1664,13 +1666,15 @@ export class CuratorRequestProcessor {
           return;
         }
 
+        const label = stepProgressLabel(ast as any, (name) => this.engine.resolveTool?.(name, { projectId: req.projectId ?? undefined }) ?? this.engine.tools.get(name));
         this.executing.set(req.id, {
           nodeType: ast.type,
           startedAt: new Date(this.clock()),
           // Replayable steps record their node's hash in StepTrace (a fork matches steps by it)
           ...(REPLAYABLE_NODE_TYPES.has(ast.type) ? { astHash: nodeHash(ast) } : {}),
+          ...(label ? { label } : {}),
         });
-        this.progress({ kind: 'step.started', conversationId: req.conversationId, requestId: req.id, nodeType: ast.type, attempt: (req.retryCount ?? 0) + 1 });
+        this.progress({ kind: 'step.started', conversationId: req.conversationId, requestId: req.id, nodeType: ast.type, attempt: (req.retryCount ?? 0) + 1, ...(label ? { label } : {}) });
         // In a fork, a step recorded before the fork point returns its recorded result instead of running
         if (await this.replayIfForked(req, ast)) return;
         const handler = this.nodes.get(ast.type) ?? this.engine.nodes?.get(ast.type);
@@ -3168,10 +3172,11 @@ export class CuratorRequestProcessor {
       throw err;
     }
     this.emit('request_done', { requestId, success: status === 'COMPLETED', status });
-    const startedAt = this.executing.get(requestId)?.startedAt;
+    const { startedAt, label } = this.executing.get(requestId) ?? {};
     this.progress({
       kind: 'step.finished', conversationId: req.conversationId, requestId, nodeType: this.nodeTypeOf(req),
       status: status as StepStatus, durationMs: startedAt ? Math.max(0, this.clock() - startedAt.getTime()) : null,
+      ...(label ? { label } : {}),
     });
     // A flow ends at a step that hands over to nothing (hand-overs pass skipNotify; a failure with onError continues)
     if (!skipNotify && !req.notifyId && TERMINAL_STATUSES.has(status) && !(status === 'FAILED' && this.parseAst(req.ast)?.onError)) {

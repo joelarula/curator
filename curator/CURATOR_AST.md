@@ -535,8 +535,10 @@ Every event has `{ v: 1, kind, seq, ts, conversationId, requestId? }`:
 
 | kind | when | extra fields |
 |---|---|---|
-| `step.started` | a step's node resolved and it runs | `nodeType`, `attempt` |
-| `step.finished` | a step ended | `nodeType`, `status` (COMPLETED, FAILED, CANCELLED, SKIPPED), `durationMs` |
+| `step.started` | a step's node resolved and it runs | `nodeType`, `attempt`, `label?` |
+| `step.finished` | a step ended | `nodeType`, `status` (COMPLETED, FAILED, CANCELLED, SKIPPED), `durationMs`, `label?` |
+| `tool.started` | an agent step started one of its model's tool calls | `callId`, `toolName`, `label?` |
+| `tool.finished` | that call ended | `callId`, `toolName`, `label?`, `status` (COMPLETED, FAILED), `durationMs` |
 | `step.retrying` | a failed attempt runs again later (`retry`) | `attempt`, `maxAttempts`, `errorClass`, `delayMs`, `error` |
 | `step.replayed` | a fork returned a recorded result | `originalRequestId`, `path`, `boundary` |
 | `wait.opened` | a step parked on an interrupt | `interrupt` (the §13 envelope) |
@@ -545,6 +547,10 @@ Every event has `{ v: 1, kind, seq, ts, conversationId, requestId? }`:
 | `run.finished` | a flow's last step ended with nothing waiting on it | `status` |
 | `run.forked` | this conversation was forked from another | `from`, `atRequestId`, `rootRequestId` |
 
+* `label` (`src/engine/progressLabel.ts`), first match: the node's `name`; a tool node's tool `ui.progressLabel`, else
+  its `toolName`; an agent node's `agentName`; a call node's `ref`. Tool calls: the tool's `ui.progressLabel`, else its
+  name. Labels come only from definitions, never from argument values. `step.finished` repeats the step's label.
+* Tool calls an agent makes run inside its step (not as Requests); `tool.*` events carry the agent step's `requestId`.
 * `seq` orders one worker's events (not global across workers); `ts` is the processor's clock.
 * New kinds and optional fields may appear within `v: 1`: ignore kinds you do not know. `v` changes only for breaking changes.
 * The older events (`request_start`, `request_done`, `request_poisoned`, `curator:human_input`, ...) are still emitted; the facts added by this work are published only as progress events.

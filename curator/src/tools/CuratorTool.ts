@@ -54,6 +54,12 @@ export interface McpToolExposure {
   description?: string;
 }
 
+/** How clients present a tool (plain text only; never built from argument values). */
+export interface CuratorToolUi {
+  /** Label in progress events and status lines (e.g. "Searching the knowledge base"); default: the tool name. */
+  progressLabel?: string;
+}
+
 export interface CuratorTool<TArgs = Record<string, unknown>, TOutput = CuratorToolOutput> {
   /**
    * Directly callable in workflow AST definitions (like Bevy `register_curator_tool::<T>`):
@@ -72,6 +78,8 @@ export interface CuratorTool<TArgs = Record<string, unknown>, TOutput = CuratorT
   readonly aliases?: string[];
   /** Default formatting of this tool's result for the model and for people; plugin and agent rules override it. */
   readonly output?: ToolOutputSpec;
+  /** Presentation hints for clients (progress label). */
+  readonly ui?: CuratorToolUi;
 
   runAsync(input: {
     args: Record<string, unknown>;
@@ -109,6 +117,7 @@ export function defineTool<TArgs = Record<string, unknown>, TOutput = CuratorToo
   usage?: string;
   aliases?: string[];
   output?: ToolOutputSpec;
+  ui?: CuratorToolUi;
   execute: (args: TArgs, ctx: CuratorToolContext) => Promise<TOutput>;
 }): CuratorTool<TArgs, TOutput> {
   const requiresApproval = opts.requiresHumanApproval ?? opts.requiresConfirmation ?? false;
@@ -139,6 +148,7 @@ export function defineTool<TArgs = Record<string, unknown>, TOutput = CuratorToo
     usage: opts.usage,
     aliases: opts.aliases,
     output: opts.output,
+    ui: opts.ui,
     call: buildNode,
     async runAsync({ args, toolContext }: { args: Record<string, unknown>; toolContext: CuratorToolContext }): Promise<TOutput> {
       return opts.execute(args as TArgs, toolContext);

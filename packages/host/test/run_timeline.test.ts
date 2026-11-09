@@ -93,3 +93,30 @@ test('CLI renderer: conversation filter and verbose mode', () => {
   assert.deepEqual(printed.map(plain), ['  · Tool started']);
   r.dispose();
 });
+
+test('tool calls inside an agent step fold as sub-steps; a call cut short ends with its step', () => {
+  const run = createRunTimeline({ rootRequestId: 50 }, 1000);
+  applyProgressEvent(run, ev({ kind: 'step.started', requestId: 50, nodeType: 'Curator_Agent', attempt: 1, label: 'weather' }));
+  applyProgressEvent(run, ev({ kind: 'tool.started', requestId: 50, callId: 'a', toolName: 'lookup', label: 'Looking up' }));
+  assert.equal(run.lastLine, 'Looking up started');
+  applyProgressEvent(run, ev({ kind: 'tool.finished', requestId: 50, callId: 'a', toolName: 'lookup', label: 'Looking up', status: 'COMPLETED', durationMs: 40 }));
+  assert.equal(run.lastLine, 'Looking up completed · 40 ms');
+  applyProgressEvent(run, ev({ kind: 'tool.started', requestId: 50, callId: 'b', toolName: 'danger' }));
+  applyProgressEvent(run, ev({ kind: 'step.finished', requestId: 50, nodeType: 'Curator_Agent', label: 'weather', status: 'FAILED', durationMs: 90 }));
+  const step = run.steps[0];
+  assert.equal(step.label, 'weather');
+  assert.deepEqual(step.calls.map((c) => [c.label, c.state]), [['Looking up', 'COMPLETED'], ['danger', 'FAILED']]);
+});
+
+test('CLI renderer prints finished tool calls at the prompt', () => {
+  const { io, printed } = fakeIo({ tty: false, atPrompt: false });
+  const r = new ShellProgressRenderer(io);
+  r.ingest(ev({ kind: 'step.started', requestId: 60, nodeType: 'Curator_Agent', attempt: 1, label: 'weather' }));
+  r.ingest(ev({ kind: 'tool.started', requestId: 60, callId: 'a', toolName: 'lookup' }));
+  r.ingest(ev({ kind: 'tool.finished', requestId: 60, callId: 'a', toolName: 'lookup', status: 'COMPLETED', durationMs: 3 }));
+  r.ingest(ev({ kind: 'step.finished', requestId: 60, nodeType: 'Curator_Agent', label: 'weather', status: 'COMPLETED', durationMs: 9 }));
+  r.ingest(ev({ kind: 'run.finished', requestId: 60, status: 'COMPLETED' }));
+  assert.deepEqual(printed.map(plain).slice(0, 2), ['  · lookup completed · 3 ms', '  · weather completed · 9 ms']);
+  assert.match(plain(printed[2]), /^✔ weather completed · 1 step · /);
+  r.dispose();
+});

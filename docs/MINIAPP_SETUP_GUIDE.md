@@ -65,6 +65,7 @@ export const calculateRiskTool = defineTool({
   },
   accessLevel: 'safe_read',
   requiredRole: 'finance:analyst', // Strict RBAC whitelist: only actors with finance:analyst can execute
+  ui: { progressLabel: 'Calculating risk' }, // Shown in console/CLI run status (default: the tool name)
   async execute(args) {
     const exp = Number(args.exposure || 0);
     const vol = Number(args.volatility || 1.0);

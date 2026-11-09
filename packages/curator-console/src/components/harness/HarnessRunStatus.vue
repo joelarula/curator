@@ -15,15 +15,24 @@
     <v-expand-transition>
       <div v-show="expanded" class="mt-1 ps-5">
         <div v-if="run.steps.length === 0" class="text-disabled">No steps reported yet.</div>
-        <div v-for="step in run.steps" :key="step.requestId" class="d-flex align-center ga-2 py-0">
-          <v-icon size="12" :color="stateColor(step.state)">{{ stateIcon(step.state) }}</v-icon>
-          <span class="font-weight-medium">{{ step.label }}</span>
-          <span class="text-disabled font-monospace">#{{ step.requestId }}</span>
-          <v-chip v-if="step.replayed" size="x-small" variant="tonal" color="secondary">replayed</v-chip>
-          <span v-if="step.attempt > 1" class="text-warning">attempt {{ step.attempt }}</span>
-          <span v-if="step.detail" class="text-medium-emphasis text-truncate" :title="step.detail">{{ step.detail }}</span>
-          <span v-if="step.durationMs != null" class="ms-auto text-medium-emphasis">{{ formatProgressDuration(step.durationMs) }}</span>
-        </div>
+        <template v-for="step in run.steps" :key="step.requestId">
+          <div class="d-flex align-center ga-2 py-0">
+            <v-icon size="12" :color="stateColor(step.state)">{{ stateIcon(step.state) }}</v-icon>
+            <span class="font-weight-medium">{{ step.label }}</span>
+            <span class="text-disabled font-monospace">#{{ step.requestId }}</span>
+            <v-chip v-if="step.replayed" size="x-small" variant="tonal" color="secondary">replayed</v-chip>
+            <span v-if="step.attempt > 1" class="text-warning">attempt {{ step.attempt }}</span>
+            <span v-if="step.detail" class="text-medium-emphasis text-truncate" :title="step.detail">{{ step.detail }}</span>
+            <span v-if="step.durationMs != null" class="ms-auto text-medium-emphasis">{{ formatProgressDuration(step.durationMs) }}</span>
+          </div>
+          <!-- Tool calls made inside the step (agent steps) -->
+          <div v-for="call in step.calls" :key="`${step.requestId}-${call.callId}`" class="d-flex align-center ga-2 py-0 ps-5">
+            <v-progress-circular v-if="call.state === 'running'" indeterminate size="10" width="1" color="primary" />
+            <v-icon v-else size="11" :color="stateColor(call.state)">{{ stateIcon(call.state) }}</v-icon>
+            <span>{{ call.label }}</span>
+            <span v-if="call.durationMs != null" class="ms-auto text-medium-emphasis">{{ formatProgressDuration(call.durationMs) }}</span>
+          </div>
+        </template>
       </div>
     </v-expand-transition>
   </div>

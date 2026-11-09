@@ -47,7 +47,7 @@ Scope (agreed 2026-11-09):
 ## Priority order
 
 **Track A, conversation UI**
-1. Phase 1: Inline run status (S), done. Phase 1b: event labels + tool progress (S–M), next.
+1. Phase 1: Inline run status, done. Phase 1b: event labels + tool progress, done.
 2. Phase 2: Interrupt cards (S–M). Needs 1.
 3. ~~Phase 3: Branch navigation~~ deferred.
 
@@ -92,7 +92,7 @@ A collapsible status line per turn, the same in the web console and the CLI: liv
   finished/retried step; waits print as permanent lines; the end prints "✔ … · n steps · t". Runs without
   `run.finished` close after 15 s idle. `ingestProgress(payload)` remains for events that arrive another way.
 
-Limits: labels are node types until Phase 1b; tools an agent calls inline don't show as steps yet (Phase 1b); AST
+Limits: AST
 turns have no root request id; a tool turn shows its run after the mutation returns (the run is replayed from the
 buffer, not live).
 
@@ -103,34 +103,28 @@ Found, not fixed: with an adapter that has `send`, the harness's tool mode sends
 `executeTool` mutation, so the tool may run twice (keeris' direct target runs `curator:tool_call`). Fix with Phase 9,
 which replaces that code path.
 
-## Phase 1b: Event labels and tool progress (planned)
+## Phase 1b: Event labels and tool progress (implemented 2026-11-10)
 
-Goal: steps read as "search_knowledge completed · 0.4 s" instead of "Tool completed", and tools an agent calls show
-as steps of its run.
+Steps read as "search_knowledge completed · 0.4 s" instead of "Tool completed", and tools an agent calls show as
+sub-steps of its run, in the console and the CLI.
 
-Labels (engine, additive within progress `v: 1`):
-- `label?: string` on `step.started` and `step.finished`, computed once when the step starts (kept in the
-  processor's `executing` entry so both events carry the same value), first match wins:
-  1. the node's `name` (`CuratorBaseNode.name`, already documented as an optional label), set by the workflow author;
-  2. `Curator_Tool`: the tool's `ui.progressLabel` (new optional field on `defineTool` / `CuratorToolContract`, the
-     same `ui` object as Phase 4's message actions), else `toolName`;
-  3. `Curator_Agent`: the agent's `presentation.title` (Phase 6), else `agentName`;
-  4. `Curator_Call` / module nodes: the module name;
-  5. otherwise no label (clients fall back to the node type).
-- Labels never contain argument values (they can hold secrets or personal data). If templates are added later, only
-  declared placeholders, values passed through `SecretService.mask` and cut to 40 characters.
-- Plain text; clients already escape it (Vue interpolation, terminal) and already prefer it (`progressStepLabel`).
+- Engine (additive within progress `v: 1`, documented in `curator/CURATOR_AST.md` §16):
+  - `label?` on `step.started` / `step.finished`, computed once at step start (`src/engine/progressLabel.ts`, kept in
+    the processor's `executing` entry). First match: node `name`; tool node: tool `ui.progressLabel`, else
+    `toolName`; agent node: `agentName`; call node: `ref`. Never argument values (tested); cut to 80 characters.
+  - `ui?: { progressLabel }` on `defineTool` / `CuratorTool` and on the host's `CuratorToolContract` (Phase 4 adds
+    message actions to the same object).
+  - `tool.started` / `tool.finished` (`callId`, `toolName`, `label?`, `status`, `durationMs`) emitted by
+    `nodes/agent.ts` around each tool call through the new `NodeContext.progress`. Access denials, schema errors
+    and unknown tools finish as FAILED. The ad-hoc `agent:tool_result` event is unchanged.
+- Clients: the fold keeps calls as `RunStep.calls` (a call still running when its step ends takes the step's
+  outcome, e.g. an approval pause); `describeProgressEvent` has lines for both kinds; `HarnessRunStatus` lists calls
+  under their step; the CLI prints finished calls as lines and shows the latest call on the live line.
 
-Tool progress inside agent turns:
-- New kinds `tool.started` / `tool.finished` (`{ requestId, callId, toolName, label?, status?, durationMs? }`) emitted
-  by `nodes/agent.ts` around each inline tool call, through a `progress` function added to the node context (the
-  processor's `progress`). Older clients ignore them (contract rule).
-- `applyProgressEvent` folds them as sub-steps of the agent step (`RunStep.calls`); `HarnessRunStatus` lists them
-  indented; the CLI live line shows the running call ("Agent › search_knowledge…").
-- The ad-hoc `agent:tool_result` event stays (consumers use its `display`); deprecate later if unused.
+Not done: agent presentation titles as labels (waits for Phase 6); argument-based label templates (not planned).
 
-Tests: label precedence per node type; no argument values in labels; tool events from an agent turn with two calls;
-fold of sub-steps; CLI line with a running call.
+Tests: `curator/test/engine/progress-events.test.ts` (labels, no argument values, tool events),
+`packages/host/test/run_timeline.test.ts` (sub-step fold, CLI lines).
 
 ## Phase 2: Interrupt cards
 

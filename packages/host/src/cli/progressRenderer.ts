@@ -36,7 +36,7 @@ const DIM = '\x1b[90m';
 const RESET = '\x1b[0m';
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 /** Kinds printed as lines when the live line can't be used. */
-const LINE_KINDS = new Set(['step.finished', 'step.retrying', 'step.replayed', 'wait.opened', 'wait.resumed']);
+const LINE_KINDS = new Set(['step.finished', 'tool.finished', 'step.retrying', 'step.replayed', 'wait.opened', 'wait.resumed']);
 
 export class ShellProgressRenderer {
   private run: RunTimeline | null = null;

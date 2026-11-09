@@ -8,6 +8,15 @@ import { describeProgressEvent, formatProgressDuration, progressStepLabel } from
 /** State of one step (one Request) within a run. */
 export type RunStepState = 'running' | 'retrying' | 'waiting' | StepStatus;
 
+/** A tool call an agent step made (runs inside the step; `tool.started` / `tool.finished`). */
+export interface RunToolCall {
+  callId: string;
+  toolName: string;
+  label: string;
+  state: 'running' | 'COMPLETED' | 'FAILED';
+  durationMs: number | null;
+}
+
 export interface RunStep {
   requestId: number;
   nodeType: string | null;
@@ -19,6 +28,8 @@ export interface RunStep {
   /** Retry reason or wait prompt. */
   detail: string | null;
   startedAt: number;
+  /** Tool calls made inside this step (agent steps). */
+  calls: RunToolCall[];
 }
 
 export interface RunTimeline {
@@ -58,7 +69,7 @@ export function createRunTimeline(
 function stepFor(run: RunTimeline, requestId: number, ts: number): RunStep {
   let step = run.steps.find((s) => s.requestId === requestId);
   if (!step) {
-    step = { requestId, nodeType: null, label: 'Step', state: 'running', attempt: 1, durationMs: null, replayed: false, detail: null, startedAt: ts };
+    step = { requestId, nodeType: null, label: 'Step', state: 'running', attempt: 1, durationMs: null, replayed: false, detail: null, startedAt: ts, calls: [] };
     run.steps.push(step);
   }
   return step;
@@ -97,6 +108,27 @@ export function applyProgressEvent(run: RunTimeline, event: ProgressEvent): bool
       }
       step.state = event.status;
       step.durationMs = event.durationMs;
+      // A call cut short (approval pause, crash) ends with its step
+      for (const call of step.calls) if (call.state === 'running') call.state = event.status === 'COMPLETED' ? 'COMPLETED' : 'FAILED';
+      break;
+    }
+    case 'tool.started': {
+      const step = stepFor(run, event.requestId, event.ts);
+      const call = step.calls.find((c) => c.callId === event.callId);
+      const label = event.label || event.toolName;
+      if (call) Object.assign(call, { state: 'running', label, durationMs: null });
+      else step.calls.push({ callId: event.callId, toolName: event.toolName, label, state: 'running', durationMs: null });
+      break;
+    }
+    case 'tool.finished': {
+      const step = stepFor(run, event.requestId, event.ts);
+      let call = step.calls.find((c) => c.callId === event.callId);
+      if (!call) {
+        call = { callId: event.callId, toolName: event.toolName, label: event.label || event.toolName, state: 'running', durationMs: null };
+        step.calls.push(call);
+      }
+      call.state = event.status;
+      call.durationMs = event.durationMs;
       break;
     }
     case 'step.retrying': {

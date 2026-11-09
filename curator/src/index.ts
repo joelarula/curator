@@ -26,8 +26,9 @@ export {
   PROGRESS_EVENT, PROGRESS_EVENT_VERSION, isProgressEvent,
   type ProgressEvent, type ProgressEventKind, type StepStatus, type StepStartedEvent, type StepFinishedEvent,
   type StepRetryingEvent, type StepReplayedEvent, type WaitOpenedEvent, type WaitResumedEvent, type StateChangedEvent,
-  type RunFinishedEvent, type RunForkedEvent,
+  type RunFinishedEvent, type RunForkedEvent, type ToolStartedEvent, type ToolFinishedEvent,
 } from './engine/ProgressEvents.js';
+export { stepProgressLabel, toolProgressLabel } from './engine/progressLabel.js';
 export * from './engine/CuratorAst.js';
 export * from './engine/CuratorBuilder.js';
 export * from './engine/builder/index.js';

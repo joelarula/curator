@@ -12,5 +12,7 @@ export interface CuratorToolContract<TArgs = Record<string, unknown>, TOutput = 
   readonly usage?: string;
   readonly requiresHumanApproval?: boolean;
   readonly requiresConfirmation?: boolean;
+  /** Presentation hints: `progressLabel` names the tool in progress events (plain text, no argument values). */
+  readonly ui?: { readonly progressLabel?: string };
 }
 

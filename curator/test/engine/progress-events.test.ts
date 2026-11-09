@@ -93,3 +93,55 @@ test('progress: isProgressEvent accepts any kind of this version', () => {
   assert.equal(isProgressEvent({ v: 2, kind: 'step.started' }), false);
   assert.equal(isProgressEvent(null), false);
 });
+
+test('progress: step events carry labels from definitions, never from arguments', async () => {
+  const { env, events } = await envWithProgress('pg_labels', { lookup: () => 'ok', search: () => 'ok' });
+  try {
+    const search = (env.processor as any).engine.tools.get('search');
+    search.ui = { progressLabel: 'Searching the knowledge base' };
+    await runAst(env, {
+      type: 'Curator_Sequential',
+      name: 'Find answers',
+      subAgents: [tool('lookup', { args: { secret: 'p@ss' } }), tool('search'), tool('lookup', { name: 'Second lookup' })],
+    });
+    const started = events.filter((e) => e.kind === 'step.started') as any[];
+    assert.deepEqual(started.map((e) => e.label), ['Find answers', 'lookup', 'Searching the knowledge base', 'Second lookup']);
+    const finished = events.filter((e) => e.kind === 'step.finished') as any[];
+    assert.deepEqual(finished.map((e) => e.label).sort(), started.map((e) => e.label).sort(), 'finished repeats the label');
+    assert.ok(!JSON.stringify(events).includes('p@ss'), 'argument values never appear in progress events');
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test('progress: tool calls inside an agent step report tool.started / tool.finished', async () => {
+  const { env, events } = await envWithProgress('pg_agent_tools', { lookup: () => ({ temp: 21 }) });
+  try {
+    env.useLlm([
+      { toolCalls: [{ name: 'lookup', args: { city: 'Tartu' } }, { name: 'nope', args: {} }] },
+      'done',
+    ]);
+    const { requestId } = await runAst(env, { type: 'Curator_Agent', agentName: 'weather', model: 'fake-model', prompt: 'hi', tools: ['lookup', 'nope'] });
+    const agentStart = events.find((e) => e.kind === 'step.started') as any;
+    assert.equal(agentStart.label, 'weather');
+
+    const calls = events.filter((e) => e.kind === 'tool.started' || e.kind === 'tool.finished') as any[];
+    assert.deepEqual(
+      calls.map((e) => [e.kind, e.toolName, e.status ?? null]),
+      [
+        ['tool.started', 'lookup', null],
+        ['tool.finished', 'lookup', 'COMPLETED'],
+        ['tool.started', 'nope', null],
+        ['tool.finished', 'nope', 'FAILED'],
+      ]
+    );
+    assert.equal(calls[0].callId, calls[1].callId, 'started and finished share the call id');
+    assert.notEqual(calls[0].callId, calls[2].callId);
+    assert.ok(calls.every((e) => e.requestId === requestId && e.conversationId === env.conversationId));
+    assert.ok(calls.filter((e) => e.kind === 'tool.finished').every((e) => typeof e.durationMs === 'number'));
+    const kindsSeen = kinds(events);
+    assert.ok(kindsSeen.indexOf('tool.finished') < kindsSeen.indexOf('step.finished'), 'calls end before the agent step');
+  } finally {
+    await env.cleanup();
+  }
+});

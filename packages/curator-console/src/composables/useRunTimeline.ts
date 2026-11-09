@@ -18,6 +18,7 @@ export {
   type RunTimeline,
   type RunStep,
   type RunStepState,
+  type RunToolCall,
 } from '@curator/host/contracts';
 
 export type ProgressSubscribe = (callback: (type: string, payload: any) => void) => () => void;

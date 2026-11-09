@@ -10,6 +10,7 @@ import type { LlmCallSink, LlmTelemetrySink } from '../llm/LlmTrace.js';
 import type { OutputFormats } from '../output/OutputFormats.js';
 import type { CuratorHistoryCompactor } from '../history/HistoryCompaction.js';
 import type { IStorageAdapter } from '../../storage/IStorageAdapter.js';
+import type { ProgressEventInput } from '../ProgressEvents.js';
 
 /**
  * Typed handle for a plugin-provided service (like a Bevy resource type). Keys are compared by identity,
@@ -145,6 +146,8 @@ export interface NodeContext extends ServiceAccess {
   /** Abort signal of the attempt running in this async context: aborts when the node's `timeoutMs` passes. */
   abortSignal?(): AbortSignal | undefined;
   emit(type: string, payload: any): void;
+  /** Publishes a typed progress event (`curator:progress`; `v`, `seq`, `ts` are stamped by the processor). */
+  progress?(event: ProgressEventInput): void;
   saveResponse(req: any, content: string): Promise<void>;
   /** Sets the final status; `data` (e.g. `{ context }`) is written in the same update. */
   completeRequest(requestId: number, status?: string, skipNotify?: boolean, data?: Record<string, any>): Promise<void>;

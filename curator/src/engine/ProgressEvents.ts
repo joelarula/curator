@@ -29,6 +29,8 @@ export interface StepStartedEvent extends ProgressBase {
   kind: 'step.started';
   requestId: number;
   nodeType: string;
+  /** Display label (node `name`, tool `ui.progressLabel` / name, agent name, called module); never argument values. */
+  label?: string;
   /** Attempt number (1 = first run; see the node's `retry` policy). */
   attempt: number;
 }
@@ -38,6 +40,8 @@ export interface StepFinishedEvent extends ProgressBase {
   kind: 'step.finished';
   requestId: number;
   nodeType: string | null;
+  /** Same label as the step's `step.started`. */
+  label?: string;
   status: StepStatus;
   durationMs: number | null;
 }
@@ -103,6 +107,29 @@ export interface RunForkedEvent extends ProgressBase {
   rootRequestId: number;
 }
 
+/** An agent step started one of its model's tool calls (these run inside the agent step, not as Requests). */
+export interface ToolStartedEvent extends ProgressBase {
+  kind: 'tool.started';
+  /** The agent step's request. */
+  requestId: number;
+  /** The model's call id (or `<turn>.<index>` when the provider sends none). */
+  callId: string;
+  toolName: string;
+  /** Tool `ui.progressLabel`, else the tool name. */
+  label?: string;
+}
+
+/** An agent step's tool call ended (FAILED covers access denials, schema errors and thrown errors). */
+export interface ToolFinishedEvent extends ProgressBase {
+  kind: 'tool.finished';
+  requestId: number;
+  callId: string;
+  toolName: string;
+  label?: string;
+  status: 'COMPLETED' | 'FAILED';
+  durationMs: number | null;
+}
+
 export type ProgressEvent =
   | StepStartedEvent
   | StepFinishedEvent
@@ -112,7 +139,9 @@ export type ProgressEvent =
   | WaitResumedEvent
   | StateChangedEvent
   | RunFinishedEvent
-  | RunForkedEvent;
+  | RunForkedEvent
+  | ToolStartedEvent
+  | ToolFinishedEvent;
 
 export type ProgressEventKind = ProgressEvent['kind'];
 

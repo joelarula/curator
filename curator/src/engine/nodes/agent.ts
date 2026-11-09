@@ -20,6 +20,7 @@ import {
 } from '../history/HistoryCompaction.js';
 import { logger } from '../../utils/logger.js';
 import { INTERRUPT_OPENED, openInterrupt, APPROVAL_RESUME_SCHEMA } from '../Interrupts.js';
+import { toolProgressLabel } from '../progressLabel.js';
 
 const Ajv = (AjvModule as any).default || AjvModule;
 
@@ -238,12 +239,19 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
       // Execute each tool and check permissions
       let pausedForUser = false;
 
-      for (const tc of response.toolCalls) {
+      for (const [callIndex, tc] of response.toolCalls.entries()) {
         // Only tools offered to this agent may run, even if others are registered in the engine.
         const tool = offeredByLlmName.get(tc.name);
         const toolKey: string = tool?.name || tc.name;
         let toolOutput = '';
         let isError = false;
+
+        // Progress for the call (it runs inside this step, not as its own Request)
+        const callId = String(tc.id ?? `${iterations}.${callIndex}`);
+        const callLabel = toolProgressLabel(tool as any, toolKey);
+        const callStartedAt = ctx.now();
+        const callEvent = { conversationId: req.conversationId, requestId: req.id, callId, toolName: toolKey, ...(callLabel ? { label: callLabel } : {}) };
+        ctx.progress?.({ kind: 'tool.started', ...callEvent });
 
         if (GuardrailService.isRawExecutionTool(toolKey, tool) || GuardrailService.isRawExecutionTool(tc.name, tool)) {
           toolOutput = `[Access Denied] Raw text execution tool '${toolKey}' is prohibited for LLM agents (AML.T0040).`;
@@ -394,6 +402,8 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
             isError = true;
           }
         }
+
+        ctx.progress?.({ kind: 'tool.finished', ...callEvent, status: isError ? 'FAILED' : 'COMPLETED', durationMs: Math.max(0, ctx.now() - callStartedAt) });
 
         // Push tool output message to context
         messages.push({

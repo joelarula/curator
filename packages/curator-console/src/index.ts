@@ -17,6 +17,7 @@ export {
   type RunTimeline,
   type RunStep,
   type RunStepState,
+  type RunToolCall,
   type RunTimelineHandle,
   type ProgressSubscribe,
 } from './composables/useRunTimeline';

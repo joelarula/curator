@@ -19,6 +19,8 @@ export type {
   StateChangedEvent,
   RunFinishedEvent,
   RunForkedEvent,
+  ToolStartedEvent,
+  ToolFinishedEvent,
   CuratorInterrupt,
 } from '@curator/agent-server';
 
@@ -85,6 +87,12 @@ export function describeProgressEvent(event: ProgressEvent): string | null {
       return `Run ${event.status.toLowerCase()}`;
     case 'run.forked':
       return `Forked from conversation #${event.from} at step #${event.atRequestId}`;
+    case 'tool.started':
+      return `${event.label || event.toolName} started`;
+    case 'tool.finished': {
+      const took = formatProgressDuration(event.durationMs);
+      return `${event.label || event.toolName} ${event.status.toLowerCase()}${took ? ` · ${took}` : ''}`;
+    }
     default:
       return null;
   }
