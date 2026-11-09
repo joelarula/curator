@@ -62,7 +62,8 @@
           <div class="text-subtitle-2 text-high-emphasis font-weight-medium">
             Executing OpPrompt Turn...
           </div>
-          <div v-if="stepMsg" class="text-caption text-primary mt-1 font-monospace">
+          <HarnessRunStatus v-if="currentRun?.active" :run="currentRun" default-expanded class="mt-2 text-start" />
+          <div v-else-if="stepMsg" class="text-caption text-primary mt-1 font-monospace">
             {{ stepMsg }}
           </div>
           <div class="text-caption text-medium-emphasis mt-1">
@@ -165,6 +166,8 @@
                 />
               </div>
             </div>
+
+            <HarnessRunStatus v-if="currentRun && !currentRun.active" :run="currentRun" class="mb-2" />
 
             <!-- Callouts if parsed from conversational speech acts -->
             <div v-if="parsedSpeechActs.callouts.length > 0" class="d-flex flex-column ga-2 mb-3">
@@ -279,6 +282,7 @@
               <div class="text-caption text-truncate text-medium-emphasis">
                 {{ turn.output }}
               </div>
+              <HarnessRunStatus v-if="turn.run" :run="turn.run" class="mt-1" @click.stop />
             </v-card>
           </div>
         </template>
@@ -292,6 +296,8 @@ import { computed } from 'vue';
 import { parseSpeechActs } from '@curator/host/contracts';
 import { useHarnessContext } from '../../context';
 import HarnessChoices, { type ChoiceItem } from './HarnessChoices.vue';
+import HarnessRunStatus from './HarnessRunStatus.vue';
+import type { RunTimeline } from '../../composables/useRunTimeline';
 import HarnessResourceCollection from './HarnessResourceCollection.vue';
 import HarnessResourceDetail from './HarnessResourceDetail.vue';
 
@@ -303,6 +309,8 @@ export interface TurnHistoryEntry {
   prompt: string;
   output: string;
   timestamp: number;
+  /** The turn's run as it ended (from `curator:progress`); absent for turns without a root request. */
+  run?: RunTimeline | null;
 }
 
 interface Props {
@@ -369,6 +377,7 @@ const harness = useHarnessContext();
 // Execution & Output State
 const isExecuting = computed(() => props.executing ?? harness?.executing.value ?? false);
 const stepMsg = computed(() => props.liveStepMessage ?? harness?.liveStepMessage.value ?? null);
+const currentRun = computed(() => harness?.runTimeline?.value ?? null);
 const status = computed(() => props.lastExecStatus ?? harness?.lastExecStatus.value ?? null);
 const duration = computed(() => props.lastExecDuration ?? harness?.lastExecDuration.value ?? null);
 const reqId = computed(() => props.lastExecRequestId ?? harness?.lastExecRequestId.value ?? null);

@@ -258,6 +258,11 @@ export interface ClientShellConfig<TState = any, _TAction = any> {
   conversationId?: string;
   roomUri?: string;
   channel?: import('./client/curatorChannel.js').CuratorChannel;
+  /**
+   * Run status for the channel's `curator:progress` events: live line + summary (default), `{ verbose: true }` for a
+   * line per event, `{ conversationId }` to follow one conversation, `false` to turn it off.
+   */
+  progress?: boolean | import('./cli/progressRenderer.js').ShellProgressOptions;
   commands?: ReplCommand[];
   availableTools?: (string | CuratorToolDefinition)[];
   tools?: (string | CuratorToolDefinition)[];

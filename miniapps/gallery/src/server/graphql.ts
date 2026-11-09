@@ -553,6 +553,8 @@ export function resolvers({ host, user, projectId }: GraphqlContext) {
           success: true,
           tool: name,
           result,
+          requestId: execOut?.requestId != null ? String(execOut.requestId) : null,
+          status: execOut?.status ?? null,
           error: null,
         };
       } catch (err: any) {

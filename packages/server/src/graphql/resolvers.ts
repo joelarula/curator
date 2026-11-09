@@ -235,15 +235,19 @@ export function createCuratorResolvers(host: CuratorHost, customResolvers: Recor
     // ----------------------------------------------------
     executeTool: async ({ name, args }: { name: string; args?: any }) => {
       try {
-        const tool = host.engine.tools.get(name);
-        if (!tool) {
-          return { success: false, tool: name, result: null, error: `Tool '${name}' not found` };
-        }
         const parsedArgs = typeof args === 'string' ? JSON.parse(args) : args || {};
-        const result = await tool.execute(parsedArgs, { prisma: host.prisma, events: host.events });
-        return { success: true, tool: name, result, error: null };
+        // Through the host like every tool call: a Request (RBAC, approval, audit) whose progress clients can follow
+        const out = await host.runTool(name, parsedArgs, { origin: 'GRAPHQL' });
+        return {
+          success: true,
+          tool: name,
+          result: out.result !== undefined ? out.result : out.record ?? null,
+          requestId: String(out.requestId),
+          status: out.status,
+          error: null,
+        };
       } catch (err: any) {
-        return { success: false, tool: name, result: null, error: err.message };
+        return { success: false, tool: name, result: null, requestId: null, status: 'FAILED', error: err.message };
       }
     },
 

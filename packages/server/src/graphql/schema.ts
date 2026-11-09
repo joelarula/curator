@@ -108,6 +108,10 @@ export const curatorGraphQLTypeDefs = /* GraphQL */ `
     success: Boolean!
     tool: String!
     result: JSON
+    "Request the call ran as; follow its curator:progress events"
+    requestId: ID
+    "Request status, e.g. COMPLETED or WAITING_FOR_USER (approval pending)"
+    status: String
     error: String
   }
 

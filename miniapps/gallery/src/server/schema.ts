@@ -320,6 +320,8 @@ export const galleryTypeDefs = /* GraphQL */ `
     success: Boolean!
     tool: String!
     result: JSON
+    requestId: ID
+    status: String
     error: String
   }
 

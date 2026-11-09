@@ -90,6 +90,8 @@ export const EXECUTE_TOOL_MUTATION = /* GraphQL */ `
       success
       tool
       result
+      requestId
+      status
       error
     }
   }

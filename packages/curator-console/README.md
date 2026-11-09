@@ -66,3 +66,25 @@ export const curatorAdapter: CuratorConsoleAdapter = {
   triggerAgent: (agentId) => client.triggerAgent(agentId),
 };
 ```
+
+---
+
+## Run status (`useRunTimeline`)
+
+`CuratorHarness` shows a status line per agent turn, built from the typed `curator:progress` stream your adapter
+already delivers through `onProgress(type, payload)`. No adapter change is needed.
+
+Use it in your own components:
+
+```typescript
+import { useRunTimeline, HarnessRunStatus } from '@curator/console';
+
+const timeline = useRunTimeline(adapter.onProgress?.bind(adapter));
+timeline.begin(requestId);   // root request of the turn
+// <HarnessRunStatus :run="timeline.current.value" />
+timeline.end();
+```
+
+The fold and the line text come from `@curator/host/contracts` (`applyProgressEvent`, `summarizeRun`,
+`describeProgressEvent`), shared with the CLI: `ClientShell` follows its channel's progress by itself (live line,
+then a summary). Tool turns show a run when the server's `executeTool` returns a `requestId`.

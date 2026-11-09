@@ -183,3 +183,15 @@ I reviewed your migration options.
 });
 
 
+
+test('ingestProgress returns the status line for progress events and ignores other payloads', () => {
+  const shell = createClientShell({});
+  const base = { v: 1, seq: 1, ts: 1, conversationId: 7 };
+  assert.equal(
+    shell.ingestProgress({ ...base, kind: 'step.finished', requestId: 3, nodeType: 'Curator_Tool', status: 'COMPLETED', durationMs: 1234 }, { print: false }),
+    'Tool completed · 1.2 s'
+  );
+  assert.equal(shell.ingestProgress({ ...base, kind: 'state.changed', stateSeq: 1, scope: null, keys: [] }, { print: false }), null);
+  assert.equal(shell.ingestProgress({ kind: 'step.started' }, { print: false }), null);
+  assert.equal(shell.ingestProgress('not an event', { print: false }), null);
+});

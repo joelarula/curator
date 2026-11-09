@@ -18,6 +18,8 @@ import {
   formatSpeechActsForTerminal,
   type ParsedSpeechActs,
 } from '../contracts/speechActs.js';
+import { describeProgressEvent, isProgressEventPayload, PROGRESS_EVENT_TYPE } from '../contracts/progress.js';
+import { ShellProgressRenderer } from './progressRenderer.js';
 
 export {
   type ToolAction,
@@ -125,6 +127,9 @@ export class ClientShell<TState = any, TAction = ToolAction> {
   private isHandlingLine: boolean = false;
   public readonly auth?: ShellAuthController;
   private unsubscribeAuth?: () => void;
+  private unsubscribeProgress?: () => void;
+  /** Live run status for `curator:progress` (see progressRenderer.ts). */
+  private readonly progress: ShellProgressRenderer;
 
   constructor(config: ClientShellConfig<TState, TAction> = {}) {
     this.config = config;
@@ -136,6 +141,16 @@ export class ClientShell<TState = any, TAction = ToolAction> {
         log: (line) => this.printAsync(line),
       });
     }
+    const progressOptions = typeof config.progress === 'object' ? config.progress : {};
+    this.progress = new ShellProgressRenderer(
+      {
+        isTTY: () => !!process.stdout.isTTY,
+        atPrompt: () => this.isAtPrompt(),
+        printAsync: (...lines) => this.printAsync(...lines),
+        write: (text) => process.stdout.write(text),
+      },
+      progressOptions
+    );
     const initialCmds = config.commands || [];
     for (const cmd of initialCmds) {
       this.registerCommand(cmd);
@@ -289,7 +304,8 @@ export class ClientShell<TState = any, TAction = ToolAction> {
 
   /** Like printAsync, for a renderer that writes to the console itself (e.g. an event renderer). */
   public printAbove(render: () => void): void {
-    const atPrompt = !!this.rl && this.isRunning && !this.isHandlingLine;
+    const atPrompt = this.isAtPrompt();
+    const liveWasShown = this.progress?.suspend() ?? false;
     if (atPrompt && process.stdout.isTTY) {
       readline.clearLine(process.stdout, 0);
       readline.cursorTo(process.stdout, 0);
@@ -298,7 +314,13 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       render();
     } finally {
       if (atPrompt) this.rl!.prompt(true);
+      this.progress?.resume(liveWasShown);
     }
+  }
+
+  /** The readline prompt is showing (no line is being handled). */
+  private isAtPrompt(): boolean {
+    return !!this.rl && this.isRunning && !this.isHandlingLine;
   }
 
   /**
@@ -331,6 +353,18 @@ export class ClientShell<TState = any, TAction = ToolAction> {
     }
 
     return parsed;
+  }
+
+  /**
+   * Renders a `curator:progress` payload like the web console's run status: a live line while a run is going, a
+   * summary line when it ends (see ShellProgressRenderer). The shell calls this itself for its channel's events
+   * (unless `progress: false`); call it for events that arrive some other way.
+   * Returns the event's status line, or null when the payload isn't a progress event or its kind has no line.
+   */
+  public ingestProgress(payload: unknown, options: { print?: boolean } = {}): string | null {
+    if (!isProgressEventPayload(payload)) return null;
+    if (options.print === false) return describeProgressEvent(payload);
+    return this.progress.ingest(payload);
   }
 
   public printChoices(): void {
@@ -1004,6 +1038,12 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       });
     }
 
+    if (this.config.channel && this.config.progress !== false) {
+      this.unsubscribeProgress = this.config.channel.on((event: any) => {
+        if (event?.type === PROGRESS_EVENT_TYPE) this.ingestProgress(event.payload);
+      });
+    }
+
     this.rl.on('line', async (line) => {
       this.isHandlingLine = true;
       try {
@@ -1014,6 +1054,7 @@ export class ClientShell<TState = any, TAction = ToolAction> {
         this.isHandlingLine = false;
       }
       if (this.isRunning && this.rl) {
+        this.progress.detachLive();
         this.rl.prompt();
       }
     });
@@ -1030,6 +1071,9 @@ export class ClientShell<TState = any, TAction = ToolAction> {
     this.isRunning = false;
     this.unsubscribeAuth?.();
     this.unsubscribeAuth = undefined;
+    this.unsubscribeProgress?.();
+    this.unsubscribeProgress = undefined;
+    this.progress.dispose();
     this.auth?.cancel();
     if (this.rl) {
       this.rl.close();

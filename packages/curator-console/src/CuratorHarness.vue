@@ -223,6 +223,7 @@ import type {
   HarnessUploadedFile,
 } from './types';
 import { provideHarnessContext } from './context';
+import { useRunTimeline } from './composables/useRunTimeline';
 import {
   GET_AGENTS_QUERY,
   GET_TOOLS_QUERY,
@@ -347,6 +348,11 @@ const resourceContextMenuTarget = ref<HarnessResourceItem | null>(null);
 // Execution State
 const executing = ref(false);
 const liveStepMessage = ref<string | null>(null);
+// Typed progress for the current turn; its latest line also drives liveStepMessage.
+const runTimeline = useRunTimeline(props.adapter?.onProgress?.bind(props.adapter));
+watch(runTimeline.activeLine, (line) => {
+  if (line && executing.value) liveStepMessage.value = line;
+});
 const lastExecChoice = ref<any | null>(null);
 const lastExecStatus = ref<string | null>(null);
 const lastExecDuration = ref<number | null>(null);
@@ -884,6 +890,7 @@ async function executeOpPrompt() {
 
   const startTime = Date.now();
   executing.value = true;
+  runTimeline.reset();
   lastExecError.value = null;
   lastExecStatus.value = 'RUNNING';
   lastExecOutput.value = null;
@@ -1006,6 +1013,7 @@ async function executeOpPrompt() {
 
       lastExecRequestId.value = triggerRes.requestId;
       liveStepMessage.value = 'Streaming turn messages over channel...';
+      runTimeline.begin(triggerRes.requestId);
 
       let channelOutput: string | null = null;
       let channelRaw: any = null;
@@ -1104,8 +1112,13 @@ async function executeOpPrompt() {
 
       const toolRes = result.executeTool;
       if (!toolRes.success) throw new Error(toolRes.error || 'Tool execution failed');
+      if (toolRes.requestId) {
+        lastExecRequestId.value = String(toolRes.requestId);
+        // The call ran during the mutation: its events are already buffered and replay into the run
+        runTimeline.begin(toolRes.requestId);
+      }
 
-      lastExecStatus.value = 'COMPLETED';
+      lastExecStatus.value = toolRes.status === 'WAITING_FOR_USER' ? 'WAITING_FOR_USER' : 'COMPLETED';
       lastExecRaw.value = toolRes.result;
       lastExecOutput.value = JSON.stringify(toolRes.result, null, 2);
       if (!applySurfaceIfPresent(toolRes.result)) {
@@ -1141,6 +1154,7 @@ async function executeOpPrompt() {
       prompt: historyPrompt,
       output: lastExecOutput.value || '',
       timestamp: Date.now(),
+      run: runTimeline.snapshot(),
     });
 
     fetchRequests();
@@ -1152,6 +1166,7 @@ async function executeOpPrompt() {
   } finally {
     executing.value = false;
     liveStepMessage.value = null;
+    runTimeline.end();
   }
 }
 
@@ -1349,6 +1364,7 @@ provideHarnessContext({
   activeChoiceValue,
   executing,
   liveStepMessage,
+  runTimeline: runTimeline.current,
   lastExecChoice,
   lastExecStatus,
   lastExecDuration,
