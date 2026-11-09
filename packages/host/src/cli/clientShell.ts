@@ -20,6 +20,8 @@ import {
 } from '../contracts/speechActs.js';
 import { describeProgressEvent, isProgressEventPayload, PROGRESS_EVENT_TYPE } from '../contracts/progress.js';
 import { ShellProgressRenderer } from './progressRenderer.js';
+import { interruptInputMode, interruptOptions, interruptTitle } from '../contracts/interrupts.js';
+import type { CuratorInterrupt } from '@curator/agent-server';
 
 export {
   type ToolAction,
@@ -128,6 +130,10 @@ export class ClientShell<TState = any, TAction = ToolAction> {
   public readonly auth?: ShellAuthController;
   private unsubscribeAuth?: () => void;
   private unsubscribeProgress?: () => void;
+  /** Interrupt whose answers are the active choices (they then aren't replaced by speech-act choices). */
+  private interruptChoiceId?: string;
+  /** Prompt interrupt answered by the next non-command line. */
+  private pendingInputInterrupt?: CuratorInterrupt;
   /** Live run status for `curator:progress` (see progressRenderer.ts). */
   private readonly progress: ShellProgressRenderer;
 
@@ -343,7 +349,8 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       }
     }
 
-    if (shouldActivate && parsed.activeChoices.length > 0) {
+    // An open interrupt's choices block its run: they stay until it is answered
+    if (shouldActivate && parsed.activeChoices.length > 0 && !this.interruptChoiceId) {
       const groupPrompt = parsed.choiceGroups[0]?.prompt;
       const isBlocking = parsed.choiceGroups.some((g) => g.blocking);
       this.setChoices(parsed.activeChoices, {
@@ -364,7 +371,40 @@ export class ClientShell<TState = any, TAction = ToolAction> {
   public ingestProgress(payload: unknown, options: { print?: boolean } = {}): string | null {
     if (!isProgressEventPayload(payload)) return null;
     if (options.print === false) return describeProgressEvent(payload);
-    return this.progress.ingest(payload);
+    const line = this.progress.ingest(payload);
+    this.ingestInterruptEvent(payload);
+    return line;
+  }
+
+  /**
+   * Turns an interrupt into something to answer: choices and approvals become numbered choices that resume it with
+   * `conversation_resume`; a free-text prompt takes the next line. `wait.resumed` clears them.
+   */
+  public ingestInterruptEvent(event: any): void {
+    if (event?.kind === 'wait.resumed') {
+      if (this.interruptChoiceId === event.interruptId) {
+        this.activeChoices = [];
+        this.interruptChoiceId = undefined;
+      }
+      if (this.pendingInputInterrupt?.id === event.interruptId) this.pendingInputInterrupt = undefined;
+      return;
+    }
+    if (event?.kind !== 'wait.opened' || !event.interrupt?.id) return;
+    const interrupt = event.interrupt as CuratorInterrupt;
+    const mode = interruptInputMode(interrupt);
+    if (mode === 'choices' || mode === 'approval') {
+      const choices = interruptOptions(interrupt).map((o) => ({
+        label: o.label,
+        tool: 'conversation_resume',
+        args: { interruptId: interrupt.id, value: o.value },
+      }));
+      this.setChoices(choices, { prompt: interruptTitle(interrupt) });
+      this.interruptChoiceId = interrupt.id;
+      this.printAbove(() => this.printChoices());
+    } else if (mode === 'text' || mode === 'json') {
+      this.pendingInputInterrupt = interrupt;
+      this.printAsync(`[90m  (type your answer${mode === 'json' ? ' as JSON' : ''}; lines starting with / are still commands)[0m`);
+    }
   }
 
   public printChoices(): void {
@@ -891,6 +931,22 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       this.blockingResolve = undefined;
       res(trimmed);
       return;
+    }
+
+    // 1b. The answer to an open prompt interrupt (commands still work)
+    if (this.pendingInputInterrupt && !trimmed.startsWith('/')) {
+      const interrupt = this.pendingInputInterrupt;
+      let value: unknown = trimmed;
+      if (interruptInputMode(interrupt) === 'json') {
+        try {
+          value = JSON.parse(trimmed);
+        } catch (err: any) {
+          console.log(`[31mNot valid JSON: ${err?.message ?? err}[0m`);
+          return;
+        }
+      }
+      this.pendingInputInterrupt = undefined;
+      return await this.dispatchTool('conversation_resume', { interruptId: interrupt.id, value });
     }
 
     // 2. Tokenize command for Commander program

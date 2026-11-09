@@ -2,6 +2,7 @@ import { inject, provide, type InjectionKey, type Ref, type ComputedRef } from '
 import type { ChoiceItem } from './components/harness/HarnessChoices.vue';
 import type { TurnHistoryEntry } from './components/harness/HarnessOutput.vue';
 import type { RunTimeline } from './composables/useRunTimeline';
+import type { InterruptsHandle } from './composables/useInterrupts';
 import type {
   HarnessLayoutMode,
   HarnessResourceViewMode,
@@ -62,6 +63,8 @@ export interface CuratorHarnessContext {
   liveStepMessage: Ref<string | null>;
   /** Current (or last) turn's run, folded from `curator:progress` (see useRunTimeline). */
   runTimeline: Ref<RunTimeline | null>;
+  /** Open interrupts (cards and interrupt choices); answer with `interrupts.resume(id, value)`. */
+  interrupts: InterruptsHandle;
   lastExecChoice: Ref<any | null>;
   lastExecStatus: Ref<string | null>;
   lastExecDuration: Ref<number | null>;

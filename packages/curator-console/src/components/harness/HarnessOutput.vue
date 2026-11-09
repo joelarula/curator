@@ -9,7 +9,7 @@
           <v-chip
             v-if="status"
             size="x-small"
-            :color="status === 'COMPLETED' ? 'success' : status === 'RUNNING' ? 'primary' : 'error'"
+            :color="status === 'COMPLETED' ? 'success' : status === 'RUNNING' ? 'primary' : status === 'WAITING_FOR_USER' ? 'warning' : 'error'"
             variant="flat"
             class="font-weight-bold"
           >
@@ -56,6 +56,18 @@
 
       <!-- Feedback Body -->
       <div class="pa-3 flex-grow-1 overflow-y-auto">
+        <!-- Open interrupts that need an answer here (approvals, free input, event waits); choice prompts use the choice bar -->
+        <div v-if="interruptCards.length > 0 && !isExecuting" class="d-flex flex-column ga-2 mb-3">
+          <HarnessInterruptCard
+            v-for="i in interruptCards"
+            :key="i.id"
+            :interrupt="i"
+            :busy="harness?.interrupts.resuming.value === i.id"
+            :error="harness?.interrupts.failedId.value === i.id ? harness?.interrupts.error.value : null"
+            @resume="(value) => harness?.interrupts.resume(i.id, value)"
+          />
+        </div>
+
         <!-- Loading State (Real-Time WebSocket Stream) -->
         <div v-if="isExecuting" class="d-flex flex-column align-center justify-center py-8 text-center">
           <v-progress-circular indeterminate color="primary" size="36" class="mb-3" />
@@ -297,6 +309,7 @@ import { parseSpeechActs } from '@curator/host/contracts';
 import { useHarnessContext } from '../../context';
 import HarnessChoices, { type ChoiceItem } from './HarnessChoices.vue';
 import HarnessRunStatus from './HarnessRunStatus.vue';
+import HarnessInterruptCard from './HarnessInterruptCard.vue';
 import type { RunTimeline } from '../../composables/useRunTimeline';
 import HarnessResourceCollection from './HarnessResourceCollection.vue';
 import HarnessResourceDetail from './HarnessResourceDetail.vue';
@@ -378,6 +391,7 @@ const harness = useHarnessContext();
 const isExecuting = computed(() => props.executing ?? harness?.executing.value ?? false);
 const stepMsg = computed(() => props.liveStepMessage ?? harness?.liveStepMessage.value ?? null);
 const currentRun = computed(() => harness?.runTimeline?.value ?? null);
+const interruptCards = computed(() => harness?.interrupts?.cardInterrupts.value ?? []);
 const status = computed(() => props.lastExecStatus ?? harness?.lastExecStatus.value ?? null);
 const duration = computed(() => props.lastExecDuration ?? harness?.lastExecDuration.value ?? null);
 const reqId = computed(() => props.lastExecRequestId ?? harness?.lastExecRequestId.value ?? null);

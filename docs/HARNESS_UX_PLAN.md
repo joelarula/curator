@@ -48,7 +48,7 @@ Scope (agreed 2026-11-09):
 
 **Track A, conversation UI**
 1. Phase 1: Inline run status, done. Phase 1b: event labels + tool progress, done.
-2. Phase 2: Interrupt cards (S–M). Needs 1.
+2. Phase 2: Interrupt cards, done.
 3. ~~Phase 3: Branch navigation~~ deferred.
 
 **Track B, engine and plugins**
@@ -61,8 +61,8 @@ Scope (agreed 2026-11-09):
 8. Phase 8: Output panel (M). Independent.
 9. Phase 9: Composer `/` and `@` on the shared command list (M). `@` needs 6; args form shares Phase 5's form.
 
-Shared piece built once, first time it's needed: `useSchemaForm` + `HarnessSchemaForm.vue` (Phase 2 or 5, whichever
-starts first).
+Shared piece: `useSchemaForm` + `HarnessSchemaForm.vue`, built with Phase 5 (Phase 2 uses a JSON field for
+structured answers until then).
 
 ---
 
@@ -126,22 +126,35 @@ Not done: agent presentation titles as labels (waits for Phase 6); argument-base
 Tests: `curator/test/engine/progress-events.test.ts` (labels, no argument values, tool events),
 `packages/host/test/run_timeline.test.ts` (sub-step fold, CLI lines).
 
-## Phase 2: Interrupt cards
+## Phase 2: Interrupt cards (implemented 2026-11-10)
 
-Goal: a parked step shows where it happened in the conversation; answering it resumes the run.
+A parked step can be answered where it shows up, in the console and the CLI; every answer goes through
+`conversation_resume` (via `host.runTool`), never through a handler or the old event path.
 
-- `useInterrupts()` composable: opens on `wait.opened`, closes on `wait.resumed`, hydrates from
-  `conversation_interrupts` on load; resolves via `conversation_resume` through the adapter (tool path).
-- One choice source: today `availableChoices` is written in two places in `CuratorHarness.vue`
-  (`updateChoicesFromPayload` for workflow choices, and `parseSpeechActs` after a turn). A `useChoices()` composable
-  owns that state and merges both inputs with a fixed rule: an open engine interrupt (blocking) wins; speech-act
-  `<choose>`/`<ask>` choices (non-blocking, picking one sends it as the next message, as today) show only when no
-  interrupt is open. `useInterrupts()` feeds it; `HarnessChoices` renders it unchanged.
-  Prompt interrupts with a schema use `HarnessSchemaForm`; approvals get one small `HarnessApprovalCard.vue`
-  (tool, args preview, approve/deny).
-- CLI: same rule in `ClientShell`: interrupts and `ingestSpeechActs` both go through `setChoices`, interrupt first.
+- Host contract `contracts/interrupts.ts` (shared, browser-safe): `interruptInputMode` (choices / text / json /
+  approval / event), `interruptOptions` (prompt choices: `value`, else `id`, else label; approvals: approve once,
+  approve for this conversation, deny), `interruptTitle`, `applyInterruptEvent` (open list from `wait.opened` /
+  `wait.resumed`).
+- Console:
+  - `useInterrupts(onProgress, runTool)`: open interrupts from progress events, `hydrate()` with
+    `conversation_interrupts` on mount, `resume(id, value)` with `conversation_resume` through `executeTool`.
+  - `useChoices()`: now owns the choice bar state that was declared in `CuratorHarness.vue`, with one rule: an open
+    interrupt's choices win; speech-act `<choose>`/`<ask>` and legacy workflow choice payloads show only without one.
+    Picking an interrupt choice resumes it instead of starting a turn.
+  - `HarnessInterruptCard.vue` for approvals (tool, requesting agent, reason, sanitized args, three answers), free
+    text, JSON answers (until the shared schema form arrives with Phase 5) and event waits (read-only, deadline).
+    Shown at the top of the output pane in every tab.
+  - An agent turn ends when its run parks (`wait.opened` in the run's conversation) with status `WAITING_FOR_USER`,
+    instead of waiting for the 30 s timeout.
+- CLI (`ClientShell.ingestInterruptEvent`, fed by the progress subscription): choice and approval interrupts become
+  numbered choices whose tool is `conversation_resume`; a text/JSON prompt takes the next non-command line;
+  speech-act choices don't replace interrupt choices; `wait.resumed` clears them.
 
-Tests: each interrupt kind; resume/deny round trip; hydration after reload.
+Kept for one release: the legacy workflow choice path (`curator:choice` events, `adapter.resumeRequest`) for
+payloads that don't come from an interrupt.
+
+Tests: `packages/host/test/interrupts_contract.test.ts` (contract, CLI approval and text answers, precedence),
+`packages/curator-console/test/interrupts.test.ts` (`useChoices` precedence, `useInterrupts`).
 
 ## Phase 3: Branch navigation (deferred 2026-11-09)
 

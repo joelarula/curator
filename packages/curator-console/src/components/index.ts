@@ -8,6 +8,7 @@ export { default as HarnessWorktable } from './harness/HarnessWorktable.vue';
 export { default as HarnessOpPrompt } from './harness/HarnessOpPrompt.vue';
 export { default as HarnessOutput } from './harness/HarnessOutput.vue';
 export { default as HarnessRunStatus } from './harness/HarnessRunStatus.vue';
+export { default as HarnessInterruptCard } from './harness/HarnessInterruptCard.vue';
 
 export { default as AgentsTab } from './tabs/AgentsTab.vue';
 export { default as ToolsTab } from './tabs/ToolsTab.vue';

@@ -212,7 +212,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { parseSpeechActs } from '@curator/host/contracts';
+import { parseSpeechActs, interruptOptions, interruptTitle, PROGRESS_EVENT_TYPE } from '@curator/host/contracts';
 import type {
   CuratorConsoleAdapter,
   DatabaseHealth,
@@ -224,6 +224,8 @@ import type {
 } from './types';
 import { provideHarnessContext } from './context';
 import { useRunTimeline } from './composables/useRunTimeline';
+import { useChoices } from './composables/useChoices';
+import { useInterrupts } from './composables/useInterrupts';
 import {
   GET_AGENTS_QUERY,
   GET_TOOLS_QUERY,
@@ -322,17 +324,20 @@ const conversationContextId = ref('conv_blueprint');
 const promptHistory = ref<string[]>([]);
 const promptHistoryIndex = ref<number>(-1);
 
-// Choices State
-const choicesDisplayMode = ref<'radio' | 'checkbox' | 'chips'>('radio');
-const selectedRadioChoice = ref<string | null>(null);
-const selectedCheckboxes = ref<string[]>([]);
-const selectedChipChoice = ref<string | null>(null);
-
-const availableChoices = ref<ChoiceItem[]>([]);
-const workflowChoicePrompt = ref<string>('');
-const workflowWaitingRequestId = ref<string | null>(null);
-const workflowChoiceEvent = ref<string>('curator:choice');
-const workflowChoiceAs = ref<string | null>(null);
+// Choices State (one source at a time: an open interrupt wins over speech-act and workflow choices)
+const choices = useChoices();
+const {
+  choicesDisplayMode,
+  selectedRadioChoice,
+  selectedCheckboxes,
+  selectedChipChoice,
+  availableChoices,
+  workflowChoicePrompt,
+  workflowWaitingRequestId,
+  workflowChoiceEvent,
+  workflowChoiceAs,
+  activeChoiceValue,
+} = choices;
 
 // Program Commands Context Menu State
 const contextMenuVisible = ref(false);
@@ -352,6 +357,35 @@ const liveStepMessage = ref<string | null>(null);
 const runTimeline = useRunTimeline(props.adapter?.onProgress?.bind(props.adapter));
 watch(runTimeline.activeLine, (line) => {
   if (line && executing.value) liveStepMessage.value = line;
+});
+
+// Open interrupts, answered through conversation_resume via executeTool (host.runTool)
+async function runHostTool(name: string, args: Record<string, unknown>): Promise<any> {
+  const data = await executeGraphql(EXECUTE_TOOL_MUTATION, { name, args });
+  const res = data?.executeTool;
+  if (!res?.success) throw new Error(res?.error || `Tool '${name}' failed`);
+  return res.result;
+}
+const interrupts = useInterrupts(props.adapter?.onProgress?.bind(props.adapter), runHostTool);
+// A prompt interrupt with choices drives the choice bar; resolving it clears them
+watch(interrupts.choiceInterrupt, (interrupt) => {
+  if (!interrupt) {
+    choices.clearChoices('interrupt');
+    return;
+  }
+  const options = interruptOptions(interrupt);
+  const resumeValues = new Map<string, unknown>();
+  const items: ChoiceItem[] = options.map((o, i) => {
+    const key = typeof o.value === 'string' ? o.value : `option_${i}`;
+    resumeValues.set(key, o.value);
+    return { label: o.label, value: key };
+  });
+  choices.setChoices('interrupt', items, {
+    prompt: interruptTitle(interrupt),
+    interruptId: interrupt.id,
+    inputType: interrupt.payload?.inputType,
+    resumeValues,
+  });
 });
 const lastExecChoice = ref<any | null>(null);
 const lastExecStatus = ref<string | null>(null);
@@ -405,17 +439,7 @@ watch(selectedTool, (toolName) => {
   onToolSelected(toolName);
 });
 
-const activeChoiceValue = computed(() => {
-  if (choicesDisplayMode.value === 'radio') return selectedRadioChoice.value;
-  if (choicesDisplayMode.value === 'checkbox') return selectedCheckboxes.value;
-  return selectedChipChoice.value;
-});
-
-function clearChoiceSelection() {
-  selectedRadioChoice.value = null;
-  selectedCheckboxes.value = [];
-  selectedChipChoice.value = null;
-}
+const clearChoiceSelection = choices.clearSelection;
 
 function formatChoiceDisplay(choice: any): string {
   if (!choice) return '';
@@ -436,7 +460,7 @@ function getChoiceColor(val: any): string {
 function updateChoicesFromPayload(payload: any, eventType?: string) {
   const incomingChoices = payload?.choices || payload?.activeChoices;
   if (Array.isArray(incomingChoices) && incomingChoices.length > 0) {
-    availableChoices.value = incomingChoices.map((c: any, i: number) => {
+    const items: ChoiceItem[] = incomingChoices.map((c: any, i: number) => {
       if (typeof c === 'string') {
         return {
           label: c,
@@ -456,30 +480,16 @@ function updateChoicesFromPayload(payload: any, eventType?: string) {
         args: c.args,
       };
     });
-
-    workflowChoicePrompt.value = payload.prompt || payload.choicePrompt || 'Workflow awaiting selection:';
-    workflowWaitingRequestId.value = payload.requestId ? String(payload.requestId) : null;
-    workflowChoiceEvent.value = payload.waitEvent || payload.event || 'curator:choice';
-    workflowChoiceAs.value = payload.as || payload.choiceAs || null;
-
-    const inputType = String(payload.inputType || '').toLowerCase();
-    if (inputType.includes('check') || inputType.includes('multi')) {
-      choicesDisplayMode.value = 'checkbox';
-    } else if (inputType.includes('chip') || incomingChoices.length > 4) {
-      choicesDisplayMode.value = 'chips';
-    } else {
-      choicesDisplayMode.value = 'radio';
-    }
-
-    if (choicesDisplayMode.value === 'radio' && availableChoices.value.length > 0) {
-      selectedRadioChoice.value = availableChoices.value[0].value;
-    }
+    choices.setChoices('workflow', items, {
+      prompt: payload.prompt || payload.choicePrompt || 'Workflow awaiting selection:',
+      requestId: payload.requestId ? String(payload.requestId) : null,
+      event: payload.waitEvent || payload.event || 'curator:choice',
+      as: payload.as || payload.choiceAs || null,
+      inputType: payload.inputType,
+    });
   } else if (eventType === 'request_done' || payload?.status === 'COMPLETED') {
     if (workflowWaitingRequestId.value && String(payload?.requestId || payload?.id) === workflowWaitingRequestId.value) {
-      availableChoices.value = [];
-      workflowChoicePrompt.value = '';
-      workflowWaitingRequestId.value = null;
-      clearChoiceSelection();
+      choices.clearChoices('workflow');
     }
   }
 }
@@ -899,6 +909,20 @@ async function executeOpPrompt() {
   lastExecMode.value = execMode.value;
 
   try {
+    // Choices of an open interrupt are answers: resume it (conversation_resume) instead of starting a turn
+    if (choices.source.value === 'interrupt' && choices.interruptId.value) {
+      const chosen = activeChoiceValue.value;
+      if (chosen == null || (Array.isArray(chosen) && chosen.length === 0)) throw new Error('Select an answer first.');
+      const id = choices.interruptId.value;
+      const answered = await interrupts.resume(id, choices.resumeValueFor(chosen));
+      if (!answered) throw new Error(interrupts.error.value || 'Resume failed');
+      lastExecTarget.value = `interrupt ${id}`;
+      lastExecStatus.value = 'COMPLETED';
+      lastExecOutput.value = `Answered: ${formatChoiceDisplay(chosen)}`;
+      lastExecDuration.value = Date.now() - startTime;
+      return;
+    }
+
     if (execMode.value === 'agent') {
       const prompt = promptInput.value.trim();
       const chosen = activeChoiceValue.value;
@@ -1025,6 +1049,18 @@ async function executeOpPrompt() {
         const onEvent = (type: string, payload: any) => {
           const evtReqId = String(payload?.requestId ?? payload?.id ?? '');
 
+          // The run parked on an interrupt: end the turn so its card or choices can be answered
+          if (
+            type === PROGRESS_EVENT_TYPE &&
+            payload?.kind === 'wait.opened' &&
+            runTimeline.current.value?.conversationId != null &&
+            payload.conversationId === runTimeline.current.value.conversationId
+          ) {
+            cleanup();
+            resolve();
+            return;
+          }
+
           if (!evtReqId || evtReqId === triggerRes.requestId) {
             if (type.includes('step') || type.includes('tool') || type.includes('log')) {
               liveStepMessage.value = payload?.message || payload?.tool || `Event: ${type}`;
@@ -1080,19 +1116,19 @@ async function executeOpPrompt() {
         }
       });
 
-      lastExecStatus.value = 'COMPLETED';
-      lastExecOutput.value = channelOutput || 'Turn completed.';
+      const parked = runTimeline.current.value?.status === 'waiting';
+      lastExecStatus.value = parked ? 'WAITING_FOR_USER' : 'COMPLETED';
+      lastExecOutput.value = channelOutput || (parked ? 'Waiting for your answer.' : 'Turn completed.');
       lastExecRaw.value = channelRaw || triggerRes;
 
       // Automatically hydrate choices from conversational speech acts (<choose> / <ask>)
       const parsedActs = parseSpeechActs(lastExecOutput.value);
       if (parsedActs.activeChoices.length > 0) {
-        availableChoices.value = parsedActs.activeChoices.map((c) => ({
-          label: c.label,
-          value: c.value,
-          action: c.action,
-        }));
-        workflowChoicePrompt.value = parsedActs.choiceGroups[0]?.prompt || 'Select an option to proceed';
+        choices.setChoices(
+          'speech',
+          parsedActs.activeChoices.map((c) => ({ label: c.label, value: c.value, action: c.action })),
+          { prompt: parsedActs.choiceGroups[0]?.prompt || 'Select an option to proceed' }
+        );
       }
     } else if (execMode.value === 'tool') {
       lastExecTarget.value = selectedTool.value;
@@ -1365,6 +1401,7 @@ provideHarnessContext({
   executing,
   liveStepMessage,
   runTimeline: runTimeline.current,
+  interrupts,
   lastExecChoice,
   lastExecStatus,
   lastExecDuration,
@@ -1413,6 +1450,7 @@ let unsubscribeDbChange: (() => void) | null = null;
 
 onMounted(async () => {
   await loadAllData();
+  interrupts.hydrate().catch(() => {});
   // Automatically hydrate initial resource surface if available
   showResourcesSurface().catch(() => {});
 

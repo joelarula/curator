@@ -21,3 +21,5 @@ export {
   type RunTimelineHandle,
   type ProgressSubscribe,
 } from './composables/useRunTimeline';
+export { useInterrupts, type InterruptsHandle, type HarnessToolRunner } from './composables/useInterrupts';
+export { useChoices, type ChoicesHandle, type ChoiceSource, type SetChoicesOptions } from './composables/useChoices';

@@ -88,3 +88,12 @@ timeline.end();
 The fold and the line text come from `@curator/host/contracts` (`applyProgressEvent`, `summarizeRun`,
 `describeProgressEvent`), shared with the CLI: `ClientShell` follows its channel's progress by itself (live line,
 then a summary). Tool turns show a run when the server's `executeTool` returns a `requestId`.
+
+---
+
+## Interrupts (`useInterrupts`, `useChoices`)
+
+Open interrupts (prompts, tool approvals, event waits) appear as cards (`HarnessInterruptCard`) or, for prompts with
+choices, in the choice bar. Answers go through the `conversation_resume` tool via your server's `executeTool`
+mutation; the list is loaded with `conversation_interrupts` and kept current from `curator:progress`. An open
+interrupt's choices take precedence over speech-act choices.
