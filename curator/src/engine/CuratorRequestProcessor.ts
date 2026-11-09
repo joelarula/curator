@@ -43,6 +43,7 @@ import { PostgresWakeChannel } from './WakeChannel.js';
 import { sqlDialect, type SqlDialect } from '../db/sqlDialect.js';
 import { AgentRoleService } from '../services/AgentRoleService.js';
 import { ApprovalService } from '../services/ApprovalService.js';
+import { PluginConfig, PluginConfigService } from '../services/PluginConfigService.js';
 import { defaultOutputFormats, type OutputFormats } from './output/OutputFormats.js';
 import { defaultHistoryCompactors, type HistoryCompactors } from './history/HistoryCompaction.js';
 import {
@@ -187,6 +188,8 @@ export interface ProcessorEngine {
   /** History compaction strategies (CuratorEngine); built-ins only when absent. */
   historyCompactors?: HistoryCompactors;
   config?: CuratorConfig;
+  /** Config schemas by namespace (plugin `configSchema`; CuratorEngine). */
+  configSchemas?: Map<string, Record<string, any>>;
   nodes?: { get(type: string): NodeHandler | undefined };
   services?: Map<ServiceKey<any>, any>;
   maintenanceSystems?: MaintenanceSystem[];
@@ -410,6 +413,9 @@ export class CuratorRequestProcessor {
     this.maxConcurrency = explicitConcurrency ?? defaultConcurrency;
     logger.debug(`[CuratorRequestProcessor] Concurrency limit initialized to ${this.maxConcurrency} (DB Pool: ${this.poolLimit}, Reserved for Web: ${this.reserveWebConnections})`);
 
+    // Built-in: saved plugin configuration behind $config and config_get / config_set (options may replace it)
+    this.services.set(PluginConfig, new PluginConfigService(this.prisma, () => this.engine.configSchemas ?? new Map(), () => this.engine.config ?? {}));
+
     // Built-in: the interrupt API behind conversation_interrupts / conversation_resume (options may replace it)
     this.services.set(InterruptService, {
       list: (filter: ListInterruptsFilter) => this.listInterrupts(filter),
@@ -590,6 +596,18 @@ export class CuratorRequestProcessor {
     try {
       this.onEvent?.(type, payload);
     } catch (_) {}
+  }
+
+  /** `$config` for a request: defaults plus saved values (PluginConfigService) of its project and user. */
+  private async configFor(req: any): Promise<CuratorConfig> {
+    const service = this.tryService(PluginConfig);
+    if (!service) return this.engine.config ?? {};
+    try {
+      return await service.resolve({ projectId: req.projectId ?? null, userId: req.userId ?? null });
+    } catch (err: any) {
+      logger.warn(`[CuratorRequestProcessor] Saved config unavailable, using defaults: ${err?.message ?? err}`);
+      return this.engine.config ?? {};
+    }
   }
 
   /** Emits a typed progress event (`curator:progress`, see ProgressEvents.ts). */
@@ -3379,8 +3397,8 @@ export class CuratorRequestProcessor {
     safeSandbox.$params = req.context.params ?? {};
     safeSandbox.$response = req.context?.$response;
     safeSandbox.$last = req.context?.$last ?? req.context?.$response;
-    // Host/plugin configuration: read-only (frozen by the engine), the same for every flow
-    safeSandbox.$config = this.engine.config ?? {};
+    // Configuration: plugin/host defaults with saved values of this request's project and user (read-only)
+    safeSandbox.$config = await this.configFor(req);
 
     const vmContext = vm.createContext(safeSandbox);
     try {

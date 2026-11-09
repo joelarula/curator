@@ -11,6 +11,7 @@ import type {
   LlmCacheInfo,
 } from './llm/ILlmProvider.js';
 import YAML from 'yaml';
+import { logger } from '../utils/logger.js';
 import { LlmFactory } from './llm/LlmFactory.js';
 import { extendCoffeeAstVerbs } from './CoffeeVerbs.js';
 import { NodeRegistry } from './nodes/NodeRegistry.js';
@@ -91,6 +92,8 @@ export class CuratorEngine {
    * `config:`), plugin `config`, host settings. Frozen; replaced on every change.
    */
   public config: CuratorConfig = freezeConfig({});
+  /** Config schemas by namespace (plugin `configSchema`); the first plugin to declare a namespace owns it. */
+  public readonly configSchemas = new Map<string, Record<string, any>>();
   private scriptConfig: CuratorConfig = {};
   private pluginConfig: CuratorConfig = {};
   private hostConfig: CuratorConfig = {};
@@ -132,6 +135,13 @@ export class CuratorEngine {
     if (plugin.guardrails) GuardrailService.registerPluginGuardrails(plugin.guardrails);
     if (plugin.config) {
       this.pluginConfig = mergeConfig(this.pluginConfig, structuredClone(plugin.config));
+    }
+    for (const [namespace, schema] of Object.entries(plugin.configSchema ?? {})) {
+      if (this.configSchemas.has(namespace)) {
+        logger.warn(`[CuratorEngine] Config namespace '${namespace}' is already declared; plugin '${plugin.name}' ignored for it`);
+        continue;
+      }
+      this.configSchemas.set(namespace, structuredClone(schema));
     }
     if (plugin.models) {
       plugin.models.forEach(m => this.models.set(m.uri, m));

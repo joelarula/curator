@@ -617,6 +617,25 @@ CREATE TABLE `LlmTelemetry` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
+CREATE TABLE `PluginConfigValue` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `namespace` VARCHAR(100) NOT NULL,
+    `key` VARCHAR(100) NOT NULL,
+    `scope` VARCHAR(16) NOT NULL,
+    `projectId` VARCHAR(191) NOT NULL DEFAULT 'system',
+    `userId` VARCHAR(191) NOT NULL DEFAULT '',
+    `value` JSON NULL,
+    `updatedBy` VARCHAR(191) NULL,
+    `existent` BOOLEAN NULL DEFAULT true,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    INDEX `PluginConfigValue_projectId_userId_existent_idx`(`projectId`, `userId`, `existent`),
+    UNIQUE INDEX `PluginConfigValue_namespace_key_scope_projectId_userId_exist_key`(`namespace`, `key`, `scope`, `projectId`, `userId`, `existent`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
 CREATE TABLE `_RequestResources` (
     `A` INTEGER NOT NULL,
     `B` INTEGER NOT NULL,

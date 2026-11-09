@@ -132,6 +132,9 @@
           <v-tab value="events" prepend-icon="mdi-broadcast">
             Events ({{ eventLogs.length }})
           </v-tab>
+          <v-tab value="settings" prepend-icon="mdi-cog-outline">
+            Settings
+          </v-tab>
         </v-tabs>
 
         <v-card-text class="pa-4">
@@ -197,6 +200,10 @@
                 @clear="eventLogs = []"
               />
             </v-window-item>
+
+            <v-window-item value="settings">
+              <SettingsTab :config="pluginConfig" />
+            </v-window-item>
           </v-window>
         </v-card-text>
       </v-card>
@@ -255,6 +262,8 @@ import WorkflowStudioTab from './components/tabs/WorkflowStudioTab.vue';
 import DatabaseHealthTab from './components/tabs/DatabaseHealthTab.vue';
 import GraphQLStudioTab from './components/tabs/GraphQLStudioTab.vue';
 import EventStreamTab, { type EventLogEntry } from './components/tabs/EventStreamTab.vue';
+import SettingsTab from './components/tabs/SettingsTab.vue';
+import { usePluginConfig } from './composables/usePluginConfig';
 
 interface Props {
   adapter?: CuratorConsoleAdapter;
@@ -371,6 +380,8 @@ async function runHostTool(name: string, args: Record<string, unknown>): Promise
 const interrupts = useInterrupts(props.adapter?.onProgress?.bind(props.adapter), runHostTool);
 // Tools offered on messages (ui.messageAction), opened from the context menu on a turn
 const messageActions = useMessageActions(tools, runHostTool);
+// Plugin settings (config_get / config_set / config_unset)
+const pluginConfig = usePluginConfig(runHostTool);
 const contextMenuTurn = ref<HarnessMessageRef | null>(null);
 // A prompt interrupt with choices drives the choice bar; resolving it clears them
 watch(interrupts.choiceInterrupt, (interrupt) => {

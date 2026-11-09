@@ -36,7 +36,15 @@
       <v-btn type="submit" size="small" color="primary" :loading="busy" :disabled="busy || !text.trim()">Send</v-btn>
     </form>
 
-    <!-- Structured answer (resumeSchema is not a string); a generated form comes with plugin config schemas -->
+    <!-- Structured answer with an object schema: generated form -->
+    <form v-else-if="mode === 'json' && formSchema" @submit.prevent="emit('resume', formValue)">
+      <HarnessSchemaForm v-model="formValue" v-model:valid="formValid" :schema="formSchema" :disabled="busy" />
+      <div class="d-flex justify-end mt-2">
+        <v-btn type="submit" size="small" color="primary" :loading="busy" :disabled="busy || !formValid">Send</v-btn>
+      </div>
+    </form>
+
+    <!-- Other structured answers: JSON -->
     <form v-else-if="mode === 'json'" @submit.prevent="submitJson">
       <v-textarea v-model="text" density="compact" variant="outlined" rows="3" auto-grow hide-details placeholder="{ }" class="font-monospace" />
       <div v-if="jsonError" class="text-caption text-error mt-1">{{ jsonError }}</div>
@@ -57,6 +65,8 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { isFormSchema } from '../../composables/useSchemaForm';
+import HarnessSchemaForm from './HarnessSchemaForm.vue';
 import {
   interruptInputMode,
   interruptOptions,
@@ -69,6 +79,9 @@ const emit = defineEmits<{ (e: 'resume', value: unknown): void }>();
 
 const text = ref('');
 const jsonError = ref<string | null>(null);
+const formValue = ref<Record<string, unknown>>({});
+const formValid = ref(false);
+const formSchema = computed(() => (isFormSchema(props.interrupt.resumeSchema) ? props.interrupt.resumeSchema! : null));
 
 const mode = computed(() => interruptInputMode(props.interrupt));
 const title = computed(() => interruptTitle(props.interrupt));

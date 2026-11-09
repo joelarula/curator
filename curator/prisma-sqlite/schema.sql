@@ -494,6 +494,21 @@ CREATE TABLE "LlmTelemetry" (
 );
 
 -- CreateTable
+CREATE TABLE "PluginConfigValue" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "namespace" TEXT NOT NULL,
+    "key" TEXT NOT NULL,
+    "scope" TEXT NOT NULL,
+    "projectId" TEXT NOT NULL DEFAULT 'system',
+    "userId" TEXT NOT NULL DEFAULT '',
+    "value" JSONB,
+    "updatedBy" TEXT,
+    "existent" BOOLEAN DEFAULT true,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+
+-- CreateTable
 CREATE TABLE "_RequestResources" (
     "A" INTEGER NOT NULL,
     "B" INTEGER NOT NULL,
@@ -772,6 +787,12 @@ CREATE INDEX "LlmTelemetry_conversationId_turn_idx" ON "LlmTelemetry"("conversat
 
 -- CreateIndex
 CREATE INDEX "LlmTelemetry_requestId_idx" ON "LlmTelemetry"("requestId");
+
+-- CreateIndex
+CREATE INDEX "PluginConfigValue_projectId_userId_existent_idx" ON "PluginConfigValue"("projectId", "userId", "existent");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "PluginConfigValue_namespace_key_scope_projectId_userId_existent_key" ON "PluginConfigValue"("namespace", "key", "scope", "projectId", "userId", "existent");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "_RequestResources_AB_unique" ON "_RequestResources"("A", "B");

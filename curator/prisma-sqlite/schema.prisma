@@ -699,3 +699,24 @@ model LlmTelemetry {
   @@index([conversationId, turn])
   @@index([requestId])
 }
+
+/// Saved plugin configuration values (configSchema, see PluginConfigService). Workflows see them merged into
+/// `$config`: plugin defaults < system < project < user. Scope keys are never NULL, so the unique key holds:
+/// system = ('system', ''), project = (projectId, ''), user = (projectId, userId). Soft delete: existent = NULL.
+model PluginConfigValue {
+  id        Int      @id @default(autoincrement())
+  namespace String
+  key       String
+  /// system | project | user
+  scope     String
+  projectId String   @default("system")
+  userId    String   @default("")
+  value     Json?
+  updatedBy String?
+  existent  Boolean? @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([namespace, key, scope, projectId, userId, existent])
+  @@index([projectId, userId, existent])
+}

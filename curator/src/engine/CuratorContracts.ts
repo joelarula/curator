@@ -139,6 +139,13 @@ export interface CuratorPluginDefinition {
    * `$config.<namespace>...`; values the host sets with `engine.setConfig` win over these defaults.
    */
   config?: CuratorConfig;
+  /**
+   * JSON Schema per config namespace (an object schema whose `properties` are the settable keys). Properties may set
+   * `x-curator-scope` ('system' | 'project' | 'user', or a list; default 'system'): where a value may be saved;
+   * `format: 'secret'` values must be `secret://NAME` references. Saved values (PluginConfigService) are merged over
+   * the defaults in `$config`: defaults < system < project < user.
+   */
+  configSchema?: Record<string, Record<string, any>>;
   models?: SemanticNodeShape[];
   scripts?: Record<string, CuratorScriptInput> | CuratorScriptInput[];
   agents?: Record<string, CuratorAgentDefinition | CuratorAstNode>;

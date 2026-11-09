@@ -272,3 +272,34 @@ npm run test
 - [Scripting Reference Guide](./SCRIPTING_REFERENCE.md): Comprehensive cheatsheet of all speech acts, discourse patterns, and AST control flow.
 - [Reference Blueprint App](file:///z:/curator/miniapps/blueprint/): Fully functional reference MiniApp with Vue 3 UI, Dev Console, and P2P mesh wiring.
 - [Tabletop Plugin Example](file:///z:/curator/curator/src/plugins/tabletop/): Example of building a rich domain DSL on top of the generic engine.
+
+
+## Plugin settings (`configSchema`)
+
+A plugin's `config` holds defaults that workflows read as `$config.<namespace>`. Add `configSchema` to let people
+change them at runtime, per system, project or user:
+
+```typescript
+export const riskPlugin: CuratorPlugin = {
+  name: 'risk',
+  config: { risk: { threshold: 500, model: 'gemini-2.5-flash' } },
+  configSchema: {
+    risk: {
+      type: 'object',
+      title: 'Risk scoring',
+      properties: {
+        threshold: { type: 'integer', minimum: 1, 'x-curator-scope': ['system', 'project'] },
+        model: { type: 'string', 'x-curator-scope': ['system', 'project', 'user'] },
+        apiKey: { type: 'string', format: 'secret' }, // stored as a secret://NAME reference only
+      },
+    },
+  },
+};
+```
+
+- Saved values live in `PluginConfigValue` and are merged per key: defaults < system < project < user. Workflows see
+  the result as `$config` for the request's project and user; code uses `ctx.tryService(PluginConfig).resolve(...)`.
+- `x-curator-scope` says where a key may be saved (default `system`). Saving needs a person: user scope is your own
+  value; project scope needs the `config:project` role, system scope `config:system`.
+- Tools: `config_get`, `config_set`, `config_unset` (project and user always come from the session). The console's
+  Settings tab renders a form from the schema.

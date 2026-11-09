@@ -53,7 +53,7 @@ Scope (agreed 2026-11-09):
 
 **Track B, engine and plugins**
 4. Phase 4: Guardrail filter hooks and message actions, done.
-5. Phase 5: Plugin config schemas, persisted values, settings tab (M–L, schema change).
+5. Phase 5: Plugin config schemas, persisted values, settings tab, done.
 6. Phase 6: Agent presentation and capability flags (S–M, small schema change).
 7. Phase 7: Prompt-based tool calling in providers (M). Needs 6.
 
@@ -61,8 +61,8 @@ Scope (agreed 2026-11-09):
 8. Phase 8: Output panel (M). Independent.
 9. Phase 9: Composer `/` and `@` on the shared command list (M). `@` needs 6; args form shares Phase 5's form.
 
-Shared piece: `useSchemaForm` + `HarnessSchemaForm.vue`, built with Phase 5 (Phase 2 uses a JSON field for
-structured answers until then).
+Shared piece: `useSchemaForm` + `HarnessSchemaForm.vue`, built in Phase 5 (also used by interrupt cards; Phase 9
+reuses it for tool arguments).
 
 ---
 
@@ -191,21 +191,30 @@ Message actions: tool metadata, shown in the existing context menu.
 Tests: `curator/test/engine/guardrail-hooks.test.ts` (rewrite limits, block and fail-closed, outlet limits, egress
 order, priority/appliesTo), `packages/curator-console/test/messageActions.test.ts`.
 
-## Phase 5: Plugin config schemas, persisted values, settings tab
+## Phase 5: Plugin config schemas, persisted values, settings tab (implemented 2026-11-10)
 
 Extends `config` / `$config`; nothing replaces them.
-- `CuratorPluginDefinition.configSchema?: Record<namespace, JSONSchema>` next to `config`. Property extensions:
-  `x-curator-scope: 'system' | 'project' | 'user'` (who may set it), `format: 'secret'`. Scope names confirmed 2026-11-09.
-- Resolution into the same `$config`: plugin defaults < system < project < user (project/user from the host session,
-  never the payload); `engine.setConfig` stays as the in-memory override for hosts and tests. Ajv-validated on write.
-- Storage: dedicated `PluginConfigValue` table (consistent with dedicated tables over RDF `Resource` rows), all three
-  Prisma providers: `namespace`, `key`, `scope`, `projectId?`, `userId?`, `value Json`, `existent` in the unique key
-  `(namespace, key, scope, projectId, userId, existent)`.
-- Secrets: stored as `SecretService` / `ISecretVaultProvider` references only.
-- Access: `config_get` / `config_set` tools (role-checked per scope), GraphQL fields for the console.
-- Console: "Settings" tab rendering each namespace with `HarnessSchemaForm`.
+- `CuratorPluginDefinition.configSchema` (JSON Schema per namespace; `x-curator-scope`: where a key may be saved,
+  default system; `format: 'secret'`: `secret://NAME` references only). `CuratorEngine.configSchemas` collects them
+  (the first plugin to declare a namespace owns it).
+- `PluginConfigValue` table in the three curator schemas and the server's `core.prisma`; scope keys are never NULL
+  (system = `('system', '')`, project = `(projectId, '')`, user = `(projectId, userId)`) so the unique key with
+  `existent` holds; MariaDB columns sized to fit InnoDB's key limit. `schema.sql` regenerated; provisioners create
+  the table on start.
+- `PluginConfigService` (built-in processor service `PluginConfig`): Ajv validation, `set` / `unset` (soft delete) /
+  `resolve` / `describe`. `$config` in workflows now resolves per request: defaults < system < project < user, frozen,
+  cached 5 s per (project, user), invalidated on writes. A database without the table keeps running on defaults.
+- Tools `config_get`, `config_set`, `config_unset`: project and user from the session; saving needs a person; project
+  scope needs role `config:project`, system scope `config:system`.
+- Console: `useSchemaForm` + `HarnessSchemaField` / `HarnessSchemaForm` (string, text, number, integer, boolean,
+  enum, secret reference, JSON fallback), `usePluginConfig`, and a Settings tab (per key: source, default, field,
+  scope, Save, Reset). `HarnessInterruptCard` uses the form for object `resumeSchema`s.
 
-Tests: layer merge, scope permissions, Ajv rejection, secret round trip, form per field type.
+Follow-ups: `server` module `db:push` for the new table (with the earlier pending push); roles `config:project` /
+`config:system` have to be assigned to the people who may save at those scopes.
+
+Tests: `curator/test/engine/plugin-config.test.ts` (precedence, validation, unset, describe, `$config` per project,
+tool authorization), `packages/curator-console/test/settings.test.ts`.
 
 ## Phase 6: Agent presentation and capability flags
 

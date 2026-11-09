@@ -30,3 +30,19 @@ export {
   type HarnessMessageRef,
   type MessageActionTool,
 } from './composables/useMessageActions';
+export {
+  schemaField,
+  schemaFields,
+  isFormSchema,
+  formatFieldValue,
+  parseFieldInput,
+  type SchemaField,
+  type SchemaFieldKind,
+} from './composables/useSchemaForm';
+export {
+  usePluginConfig,
+  type PluginConfigHandle,
+  type ConfigNamespaceView,
+  type ConfigKeyView,
+  type ConfigScope,
+} from './composables/usePluginConfig';

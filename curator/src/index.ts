@@ -59,6 +59,7 @@ export * from './services/SemanticSchemaEngine.js';
 export * from './services/BrowserRelayService.js';
 export * from './services/AgentRoleService.js';
 export * from './services/ApprovalService.js';
+export * from './services/PluginConfigService.js';
 export * from './services/AuditService.js';
 export * from './services/ProjectScopeService.js';
 export * from './services/DefaultProjectService.js';

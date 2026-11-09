@@ -39,6 +39,7 @@ import {
 } from './resources.js';
 import { interruptTools, conversation_interrupts, conversation_resume } from './interrupts.js';
 import { timeTravelTools, conversation_state_history, conversation_state_at, conversation_fork } from './timeTravel.js';
+import { pluginConfigTools, config_get, config_set, config_unset } from './pluginConfig.js';
 import type { CuratorTool } from './CuratorTool.js';
 
 export {
@@ -83,6 +84,10 @@ export {
   conversation_state_history,
   conversation_state_at,
   conversation_fork,
+  // Plugin configuration tools
+  config_get,
+  config_set,
+  config_unset,
 };
 
 export const toolRegistry: Record<string, CuratorTool> = {
@@ -97,4 +102,5 @@ export const toolRegistry: Record<string, CuratorTool> = {
   ...(resourceTools as Record<string, CuratorTool>),
   ...(interruptTools as Record<string, CuratorTool>),
   ...(timeTravelTools as Record<string, CuratorTool>),
+  ...(pluginConfigTools as Record<string, CuratorTool>),
 };
