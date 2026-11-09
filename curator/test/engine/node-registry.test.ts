@@ -176,7 +176,7 @@ test('services: processor services win over plugin services; missing services fa
 test('maintenance systems: ordered, positionable, and disableable per processor', () => {
   const processor = new CuratorRequestProcessor({}, { engine: { tools: new Map() }, disabledMaintenance: ['pruneReadOnlyRequests'] });
   assert.deepEqual(processor.maintenanceSystems(), [
-    'unlockStaleRequests', 'flushStepTrace', 'retireBusEvents', 'pollScheduledAgents', 'expireApprovalWaits', 'expireHumanWaits', 'trimCompletedContexts', 'resumeUserResponses',
+    'unlockStaleRequests', 'flushStepTrace', 'flushLlmCalls', 'flushLlmTelemetry', 'retireBusEvents', 'pollScheduledAgents', 'expireApprovalWaits', 'expireHumanWaits', 'trimCompletedContexts', 'resumeUserResponses',
   ]);
   const noop = (name: string) => ({ name, run: async () => {} });
   processor.registerMaintenanceSystem(noop('first'), { before: 'unlockStaleRequests' });
@@ -186,6 +186,6 @@ test('maintenance systems: ordered, positionable, and disableable per processor'
   assert.throws(() => processor.registerMaintenanceSystem(noop('x'), { after: 'missing' }), /Unknown maintenance system/);
   assert.equal(processor.removeMaintenanceSystem('pollScheduledAgents'), true);
   assert.deepEqual(processor.maintenanceSystems(), [
-    'first', 'unlockStaleRequests', 'flushStepTrace', 'retireBusEvents', 'expireApprovalWaits', 'afterApprovals', 'expireHumanWaits', 'trimCompletedContexts', 'resumeUserResponses', 'last',
+    'first', 'unlockStaleRequests', 'flushStepTrace', 'flushLlmCalls', 'flushLlmTelemetry', 'retireBusEvents', 'expireApprovalWaits', 'afterApprovals', 'expireHumanWaits', 'trimCompletedContexts', 'resumeUserResponses', 'last',
   ]);
 });
