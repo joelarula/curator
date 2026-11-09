@@ -13,6 +13,11 @@ import type {
   RemoteToolInfo,
 } from '../types.js';
 import { ShellAuthController, isAuthRequiredError } from './shellAuth.js';
+import {
+  parseSpeechActs,
+  formatSpeechActsForTerminal,
+  type ParsedSpeechActs,
+} from '../contracts/speechActs.js';
 
 export {
   type ToolAction,
@@ -294,6 +299,38 @@ export class ClientShell<TState = any, TAction = ToolAction> {
     } finally {
       if (atPrompt) this.rl!.prompt(true);
     }
+  }
+
+  /**
+   * Ingests a conversational message from an agent or system.
+   * Parses speech act tags (<suggest>, <choose>/<ask>, <callout>),
+   * formats terminal ANSI output, and activates any embedded choices or suggestions.
+   */
+  public ingestSpeechActs(
+    rawMessage: string,
+    options: { print?: boolean; activateChoices?: boolean } = {}
+  ): ParsedSpeechActs {
+    const parsed = parseSpeechActs(rawMessage);
+    const shouldPrint = options.print ?? true;
+    const shouldActivate = options.activateChoices ?? true;
+
+    if (shouldPrint) {
+      const formatted = formatSpeechActsForTerminal(parsed);
+      if (formatted) {
+        this.printAsync(formatted);
+      }
+    }
+
+    if (shouldActivate && parsed.activeChoices.length > 0) {
+      const groupPrompt = parsed.choiceGroups[0]?.prompt;
+      const isBlocking = parsed.choiceGroups.some((g) => g.blocking);
+      this.setChoices(parsed.activeChoices, {
+        prompt: groupPrompt,
+        blocking: isBlocking,
+      });
+    }
+
+    return parsed;
   }
 
   public printChoices(): void {

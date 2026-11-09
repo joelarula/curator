@@ -212,6 +212,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { parseSpeechActs } from '@curator/host/contracts';
 import type {
   CuratorConsoleAdapter,
   DatabaseHealth,
@@ -1074,6 +1075,17 @@ async function executeOpPrompt() {
       lastExecStatus.value = 'COMPLETED';
       lastExecOutput.value = channelOutput || 'Turn completed.';
       lastExecRaw.value = channelRaw || triggerRes;
+
+      // Automatically hydrate choices from conversational speech acts (<choose> / <ask>)
+      const parsedActs = parseSpeechActs(lastExecOutput.value);
+      if (parsedActs.activeChoices.length > 0) {
+        availableChoices.value = parsedActs.activeChoices.map((c) => ({
+          label: c.label,
+          value: c.value,
+          action: c.action,
+        }));
+        workflowChoicePrompt.value = parsedActs.choiceGroups[0]?.prompt || 'Select an option to proceed';
+      }
     } else if (execMode.value === 'tool') {
       lastExecTarget.value = selectedTool.value;
       const parsedArgs = JSON.parse(toolArgsInput.value || '{}');

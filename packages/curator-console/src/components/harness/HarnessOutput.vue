@@ -166,9 +166,40 @@
               </div>
             </div>
 
+            <!-- Callouts if parsed from conversational speech acts -->
+            <div v-if="parsedSpeechActs.callouts.length > 0" class="d-flex flex-column ga-2 mb-3">
+              <v-alert
+                v-for="(c, idx) in parsedSpeechActs.callouts"
+                :key="idx"
+                :type="c.type"
+                variant="tonal"
+                density="compact"
+                class="text-caption"
+              >
+                <div v-if="c.title" class="font-weight-bold mb-1">{{ c.title }}</div>
+                <div>{{ c.body }}</div>
+              </v-alert>
+            </div>
+
             <!-- Text / Markdown Output Container -->
             <div class="mb-3">
-              <pre class="font-monospace text-caption pa-3 rounded bg-surface-variant text-primary overflow-auto text-wrap">{{ outputText || 'Turn completed with no text output.' }}</pre>
+              <pre class="font-monospace text-caption pa-3 rounded bg-surface-variant text-primary overflow-auto text-wrap">{{ displayCleanText || 'Turn completed with no text output.' }}</pre>
+            </div>
+
+            <!-- Suggestion Chips if parsed from conversational speech acts -->
+            <div v-if="parsedSpeechActs.suggestions.length > 0" class="d-flex align-center flex-wrap ga-1 mt-2 mb-3">
+              <span class="text-caption text-medium-emphasis me-1">💡 Suggestions:</span>
+              <v-chip
+                v-for="(s, idx) in parsedSpeechActs.suggestions"
+                :key="idx"
+                size="small"
+                variant="tonal"
+                :color="s.color || 'primary'"
+                class="cursor-pointer font-weight-medium"
+                @click="applySuggestion(s.prompt)"
+              >
+                {{ s.label }}
+              </v-chip>
             </div>
 
             <!-- Sub-Responses if available -->
@@ -258,6 +289,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { parseSpeechActs } from '@curator/host/contracts';
 import { useHarnessContext } from '../../context';
 import HarnessChoices, { type ChoiceItem } from './HarnessChoices.vue';
 import HarnessResourceCollection from './HarnessResourceCollection.vue';
@@ -344,6 +376,20 @@ const target = computed(() => props.lastExecTarget ?? harness?.lastExecTarget.va
 const mode = computed(() => props.lastExecMode ?? harness?.lastExecMode.value ?? null);
 const choice = computed(() => props.lastExecChoice ?? harness?.lastExecChoice.value ?? null);
 const outputText = computed(() => props.lastExecOutput ?? harness?.lastExecOutput.value ?? null);
+const parsedSpeechActs = computed(() => parseSpeechActs(outputText.value || ''));
+const displayCleanText = computed(() => {
+  if (parsedSpeechActs.value.hasSpeechActs) {
+    return parsedSpeechActs.value.cleanText;
+  }
+  return outputText.value;
+});
+
+function applySuggestion(prompt: string) {
+  if (harness) {
+    harness.promptInput.value = prompt;
+    harness.focusPrompt();
+  }
+}
 const responsesList = computed(() => props.lastExecResponses ?? harness?.lastExecResponses.value ?? []);
 const rawPayload = computed(() => props.lastExecRaw ?? harness?.lastExecRaw.value ?? null);
 const execError = computed(() => props.lastExecError ?? harness?.lastExecError.value ?? null);

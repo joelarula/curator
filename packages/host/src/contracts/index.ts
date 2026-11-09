@@ -4,4 +4,5 @@ export * from './reducers.js';
 export * from './game.js';
 export * from './app.js';
 export * from './progress.js';
+export * from './speechActs.js';
 

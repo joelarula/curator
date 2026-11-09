@@ -164,3 +164,22 @@ test('ClientShell: Asynchronous non-blocking turn choice execution via numeric o
   assert.deepEqual(executedAction, { tool: 'poker_apply_action', type: 'CALL', amount: 50 });
 });
 
+test('ClientShell: Ingesting speech acts sets active choices from <choose> tags', async () => {
+  const shell = createClientShell({ actorName: 'Alice' });
+  const message = `
+I reviewed your migration options.
+<choose prompt="Choose target database">
+  <option value="sqlite" label="SQLite Memory" />
+  <option value="postgres" label="PostgreSQL Cluster" />
+</choose>
+`;
+
+  const parsed = shell.ingestSpeechActs(message, { print: false });
+  assert.equal(parsed.activeChoices.length, 2);
+  const context = shell.buildContext();
+  assert.equal(context.activeChoices?.length, 2);
+  assert.equal(context.activeChoices?.[0].label, 'SQLite Memory');
+  assert.equal(context.activeChoices?.[1].value, 'postgres');
+});
+
+

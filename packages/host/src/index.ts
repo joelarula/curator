@@ -62,5 +62,16 @@ export {
   type ConversationStepResult,
   type SessionActor,
 } from './session/InteractiveSessionRunner.js';
+export {
+  parseSpeechActs,
+  formatSpeechActsForTerminal,
+  withSpeechActPromptRules,
+  SPEECH_ACT_PROMPT_GUIDELINES,
+  type ParsedSpeechActs,
+  type SpeechActSuggestion,
+  type SpeechActChoiceOption,
+  type SpeechActChoiceGroup,
+  type SpeechActCallout,
+} from './contracts/speechActs.js';
 export * from './contracts/index.js';
 export * from './types.js';

@@ -445,6 +445,89 @@ export function revoke_lease(options: {
   );
 }
 
+/**
+ * Standard prompt guidelines teaching agents how to emit lightweight conversational speech acts.
+ */
+export const SPEECH_ACT_PROMPT_GUIDELINES = `
+### Conversational Speech Acts (Interactive Tags)
+You may naturally enhance your responses with semantic speech act tags:
+1. **Next-Step Suggestions (<suggest>)**:
+   When concluding an answer or suggesting immediate follow-up tasks, add clickable chips:
+   <suggest>
+     <chip prompt="Prompt text to send on click">Short Button Label</chip>
+   </suggest>
+
+2. **Everyday User Choices (<choose> or <ask>)**:
+   When you need the user to make a choice or clarify intent before continuing:
+   <choose prompt="What strategy would you like to use?">
+     <option value="strategy_a" label="Strategy A (Recommended)" recommended="true">Description of A</option>
+     <option value="strategy_b" label="Strategy B">Description of B</option>
+   </choose>
+
+3. **Contextual Callouts (<callout>)**:
+   To highlight tips, caveats, or important notes:
+   <callout type="tip|info|warning|error" title="Optional Title">
+     Key takeaway or advice.
+   </callout>
+
+Do NOT invent non-standard tags. Use standard markdown for regular explanations.
+`.trim();
+
+/**
+ * Composable helper to attach speech act guidelines to an agent prompt.
+ */
+export function withSpeechActGuidelines(basePrompt?: string): string {
+  if (!basePrompt || !basePrompt.trim()) return SPEECH_ACT_PROMPT_GUIDELINES;
+  return `${basePrompt.trim()}\n\n${SPEECH_ACT_PROMPT_GUIDELINES}`;
+}
+
+/**
+ * Formats a semantic <suggest> block for workflows/agents.
+ */
+export function tagSuggest(chips: Array<{ label: string; prompt?: string; color?: string }>): string {
+  if (!chips || chips.length === 0) return '';
+  const inner = chips
+    .map((c) => {
+      const promptAttr = c.prompt ? ` prompt="${c.prompt.replace(/"/g, '&quot;')}"` : '';
+      const colorAttr = c.color ? ` color="${c.color}"` : '';
+      return `  <chip${promptAttr}${colorAttr}>${c.label}</chip>`;
+    })
+    .join('\n');
+  return `<suggest>\n${inner}\n</suggest>`;
+}
+
+/**
+ * Formats a semantic <choose> block for workflows/agents.
+ */
+export function tagChoose(
+  prompt: string,
+  options: Array<{ value: string; label?: string; recommended?: boolean; description?: string }>
+): string {
+  if (!options || options.length === 0) return '';
+  const promptAttr = prompt ? ` prompt="${prompt.replace(/"/g, '&quot;')}"` : '';
+  const inner = options
+    .map((o) => {
+      const recAttr = o.recommended ? ' recommended="true"' : '';
+      const labelAttr = o.label ? ` label="${o.label.replace(/"/g, '&quot;')}"` : '';
+      const desc = o.description ? o.description : '';
+      return `  <option value="${o.value}"${labelAttr}${recAttr}>${desc}</option>`;
+    })
+    .join('\n');
+  return `<choose${promptAttr}>\n${inner}\n</choose>`;
+}
+
+/**
+ * Formats a semantic <callout> block for workflows/agents.
+ */
+export function tagCallout(
+  type: 'tip' | 'info' | 'warning' | 'error',
+  body: string,
+  title?: string
+): string {
+  const titleAttr = title ? ` title="${title.replace(/"/g, '&quot;')}"` : '';
+  return `<callout type="${type}"${titleAttr}>\n${body}\n</callout>`;
+}
+
 export const conversationalVerbs = {
   ask,
   propose,
@@ -468,6 +551,10 @@ export const conversationalVerbs = {
   as_role,
   with_role,
   role,
+  tagSuggest,
+  tagChoose,
+  tagCallout,
+  withSpeechActGuidelines,
 };
 
 export class CuratorConversationalBuilder {
@@ -493,6 +580,10 @@ export class CuratorConversationalBuilder {
   static as_role = as_role;
   static with_role = with_role;
   static role = role;
+  static tagSuggest = tagSuggest;
+  static tagChoose = tagChoose;
+  static tagCallout = tagCallout;
+  static withSpeechActGuidelines = withSpeechActGuidelines;
 }
 
 // Automatically register standard conversational speech acts into vocabularyRegistry
