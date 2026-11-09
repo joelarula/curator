@@ -262,6 +262,7 @@ CREATE TABLE "Request" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "parentId" INTEGER,
+    "createdBy" INTEGER,
     "existent" BOOLEAN DEFAULT true,
 
     CONSTRAINT "Request_pkey" PRIMARY KEY ("id")
@@ -481,10 +482,8 @@ CREATE TABLE "StepTrace" (
     "nodeType" TEXT,
     "status" TEXT NOT NULL,
     "output" TEXT,
-    "createdBy" INTEGER,
     "astHash" TEXT,
     "context" JSONB,
-    "statePatches" JSONB,
     "startedAt" TIMESTAMP(3),
     "worker" TEXT,
 
@@ -684,6 +683,9 @@ CREATE INDEX "Request_conversationId_updatedAt_idx" ON "Request"("conversationId
 
 -- CreateIndex
 CREATE INDEX "Request_parentId_idx" ON "Request"("parentId");
+
+-- CreateIndex
+CREATE INDEX "Request_conversationId_createdBy_idx" ON "Request"("conversationId", "createdBy");
 
 -- CreateIndex
 CREATE INDEX "Request_notifyId_idx" ON "Request"("notifyId");

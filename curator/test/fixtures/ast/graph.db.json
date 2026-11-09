@@ -41,6 +41,7 @@
         "stateData": "{\"count\":4,\"currentColor\":\"RED\",\"message\":\"STOP\",\"output\":\"GREEN\"}",
         "waitingFor": "ROUTER"
       },
+      "createdBy": null,
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -64,9 +65,9 @@
         "type": "Curator_Script"
       },
       "context": {
-        "__createdBy": 1,
         "input": ""
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -90,9 +91,9 @@
         "type": "Curator_Script"
       },
       "context": {
-        "__createdBy": 1,
         "input": "{\"count\":1,\"currentColor\":\"RED\",\"message\":\"Waiting...\"}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -116,9 +117,9 @@
         "type": "Curator_Script"
       },
       "context": {
-        "__createdBy": 1,
         "input": "{\"count\":1,\"currentColor\":\"RED\",\"message\":\"Waiting...\"}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -142,9 +143,9 @@
         "type": "Curator_Script"
       },
       "context": {
-        "__createdBy": 1,
         "input": "{\"count\":1,\"currentColor\":\"GREEN\",\"message\":\"Go!\",\"output\":\"GREEN\"}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -168,9 +169,9 @@
         "type": "Curator_Script"
       },
       "context": {
-        "__createdBy": 1,
         "input": "{\"count\":1,\"currentColor\":\"YELLOW\",\"message\":\"Slow down!\",\"output\":\"GREEN\"}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -194,9 +195,9 @@
         "type": "Curator_Script"
       },
       "context": {
-        "__createdBy": 1,
         "input": "{\"count\":2,\"currentColor\":\"RED\",\"message\":\"Waiting...\",\"output\":\"GREEN\"}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -220,9 +221,9 @@
         "type": "Curator_Script"
       },
       "context": {
-        "__createdBy": 1,
         "input": "{\"count\":2,\"currentColor\":\"RED\",\"message\":\"Waiting...\",\"output\":\"GREEN\"}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -246,9 +247,9 @@
         "type": "Curator_Script"
       },
       "context": {
-        "__createdBy": 1,
         "input": "{\"count\":2,\"currentColor\":\"GREEN\",\"message\":\"Go!\",\"output\":\"GREEN\"}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -272,9 +273,9 @@
         "type": "Curator_Script"
       },
       "context": {
-        "__createdBy": 1,
         "input": "{\"count\":2,\"currentColor\":\"YELLOW\",\"message\":\"Slow down!\",\"output\":\"GREEN\"}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -298,9 +299,9 @@
         "type": "Curator_Script"
       },
       "context": {
-        "__createdBy": 1,
         "input": "{\"count\":3,\"currentColor\":\"RED\",\"message\":\"Waiting...\",\"output\":\"GREEN\"}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -324,9 +325,9 @@
         "type": "Curator_Script"
       },
       "context": {
-        "__createdBy": 1,
         "input": "{\"count\":3,\"currentColor\":\"RED\",\"message\":\"Waiting...\",\"output\":\"GREEN\"}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -350,9 +351,9 @@
         "type": "Curator_Script"
       },
       "context": {
-        "__createdBy": 1,
         "input": "{\"count\":3,\"currentColor\":\"GREEN\",\"message\":\"Go!\",\"output\":\"GREEN\"}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -376,9 +377,9 @@
         "type": "Curator_Script"
       },
       "context": {
-        "__createdBy": 1,
         "input": "{\"count\":3,\"currentColor\":\"YELLOW\",\"message\":\"Slow down!\",\"output\":\"GREEN\"}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -402,9 +403,9 @@
         "type": "Curator_Script"
       },
       "context": {
-        "__createdBy": 1,
         "input": "{\"count\":4,\"currentColor\":\"RED\",\"message\":\"STOP\",\"output\":\"GREEN\"}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,

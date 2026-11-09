@@ -31,6 +31,7 @@
         "type": "Curator_Sequential"
       },
       "context": null,
+      "createdBy": null,
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -60,7 +61,6 @@
         "type": "Curator_ForEach"
       },
       "context": {
-        "__createdBy": 1,
         "echo": {
           "echoed": "c"
         },
@@ -74,6 +74,7 @@
         "input": "{\"items\":[\"a\",\"b\",\"c\"],\"status\":\"State updated\",\"state\":{\"items\":[\"a\",\"b\",\"c\"]},\"echoed\":\"c\"}",
         "item": "c"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -101,9 +102,8 @@
         },
         "type": "Curator_SetState"
       },
-      "context": {
-        "__createdBy": 1
-      },
+      "context": null,
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -129,7 +129,6 @@
         "type": "Curator_Tool"
       },
       "context": {
-        "__createdBy": 2,
         "echo": {
           "echoed": "a"
         },
@@ -137,6 +136,7 @@
         "input": "{\"items\":[\"a\",\"b\",\"c\"],\"status\":\"State updated\",\"state\":{\"items\":[\"a\",\"b\",\"c\"]}}",
         "item": "a"
       },
+      "createdBy": "<req:2>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -162,7 +162,6 @@
         "type": "Curator_Tool"
       },
       "context": {
-        "__createdBy": 2,
         "echo": {
           "echoed": "b"
         },
@@ -176,6 +175,7 @@
         "input": "{\"items\":[\"a\",\"b\",\"c\"],\"status\":\"State updated\",\"state\":{\"items\":[\"a\",\"b\",\"c\"]},\"echoed\":\"a\"}",
         "item": "b"
       },
+      "createdBy": "<req:2>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -201,7 +201,6 @@
         "type": "Curator_Tool"
       },
       "context": {
-        "__createdBy": 2,
         "echo": {
           "echoed": "c"
         },
@@ -215,6 +214,7 @@
         "input": "{\"items\":[\"a\",\"b\",\"c\"],\"status\":\"State updated\",\"state\":{\"items\":[\"a\",\"b\",\"c\"]},\"echoed\":\"b\"}",
         "item": "c"
       },
+      "createdBy": "<req:2>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,

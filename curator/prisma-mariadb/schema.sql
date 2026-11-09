@@ -296,6 +296,7 @@ CREATE TABLE `Request` (
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
     `parentId` INTEGER NULL,
+    `createdBy` INTEGER NULL,
     `existent` BOOLEAN NULL DEFAULT true,
 
     INDEX `Request_status_existent_idx`(`status`, `existent`),
@@ -303,6 +304,7 @@ CREATE TABLE `Request` (
     INDEX `Request_conversationId_status_idx`(`conversationId`, `status`),
     INDEX `Request_conversationId_updatedAt_idx`(`conversationId`, `updatedAt`),
     INDEX `Request_parentId_idx`(`parentId`),
+    INDEX `Request_conversationId_createdBy_idx`(`conversationId`, `createdBy`),
     INDEX `Request_notifyId_idx`(`notifyId`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -555,10 +557,8 @@ CREATE TABLE `StepTrace` (
     `nodeType` VARCHAR(191) NULL,
     `status` VARCHAR(191) NOT NULL,
     `output` LONGTEXT NULL,
-    `createdBy` INTEGER NULL,
     `astHash` VARCHAR(191) NULL,
     `context` JSON NULL,
-    `statePatches` JSON NULL,
     `startedAt` DATETIME(3) NULL,
     `worker` VARCHAR(191) NULL,
 

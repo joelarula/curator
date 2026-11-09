@@ -28,6 +28,7 @@
         "type": "Curator_Sequential"
       },
       "context": null,
+      "createdBy": null,
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -53,7 +54,6 @@
         "type": "Curator_Tool"
       },
       "context": {
-        "__createdBy": 1,
         "activeChoices": [],
         "as": "code",
         "choiceAs": "code",
@@ -66,6 +66,7 @@
         "input": "{\"status\":\"pre-processed\",\"code\":\"CODE-42\",\"output\":\"CODE-42\"}",
         "targetUserId": null
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -90,7 +91,6 @@
         "type": "Curator_HumanInput"
       },
       "context": {
-        "__createdBy": 1,
         "__humanInputReceived__": true,
         "__interruptSeq": 1,
         "activeChoices": [],
@@ -101,6 +101,7 @@
         "input": "{\"status\":\"pre-processed\"}",
         "targetUserId": null
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -123,9 +124,8 @@
         "language": "javascript",
         "type": "Curator_Script"
       },
-      "context": {
-        "__createdBy": 1
-      },
+      "context": null,
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -151,6 +151,7 @@
       "context": {
         "origin": "API"
       },
+      "createdBy": null,
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,

@@ -19,7 +19,7 @@ import {
   type HistoryTurn,
 } from '../history/HistoryCompaction.js';
 import { logger } from '../../utils/logger.js';
-import { openInterrupt, APPROVAL_RESUME_SCHEMA } from '../Interrupts.js';
+import { INTERRUPT_OPENED, openInterrupt, APPROVAL_RESUME_SCHEMA } from '../Interrupts.js';
 
 const Ajv = (AjvModule as any).default || AjvModule;
 
@@ -275,7 +275,7 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
                   ...interruptKeys
                 }
               });
-              ctx.emit('curator:interrupt', interrupt);
+              ctx.emit(INTERRUPT_OPENED, interrupt);
               await ctx.saveResponse(req, JSON.stringify({
                 type: 'APPROVAL_REQUIRED', ok: false, tool: toolKey, reason: accessCheck.reason, expiresAt
               } satisfies CuratorStructuredResponse));

@@ -123,7 +123,7 @@ const schema: Record<string, any> = {
     },
     {
       type: 'object',
-      properties: { ...baseProperties, type: { const: 'Curator_Join' }, name: { type: 'string' }, joinLogic: { type: 'string' }, nextNode: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' } },
+      properties: { ...baseProperties, type: { const: 'Curator_Join' }, name: { type: 'string' }, joinLogic: { type: 'string' }, nextNode: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' }, fanIn: { type: 'object' } },
       required: ['type'],
       additionalProperties: false,
     },

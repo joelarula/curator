@@ -60,24 +60,25 @@ test('time travel: replay decisions', () => {
 
 // --- engine ---
 
-test('time travel: steps record lineage, state events record their step, checkpoints list them', async () => {
-  const env = await createEnv('tt_checkpoints', canned());
+test('time travel: steps record lineage, state events record their step, the state history lists them', async () => {
+  const env = await createEnv('tt_history', canned());
   try {
     await runOriginal(env);
     const fetch = await stepOf(env, env.conversationId, 'fetch');
     const root = (await env.prisma.request.findMany({ where: { conversationId: env.conversationId }, orderBy: { id: 'asc' } }))[0];
-    assert.equal(fetch.context.__createdBy, root.id);
+    assert.equal(fetch.createdBy, root.id);
+    assert.equal(fetch.context?.__createdBy, undefined, 'lineage is a column, not a context key');
 
-    const checkpoints = await env.processor.listCheckpoints(env.conversationId, []);
-    const fetchPoint = checkpoints.find((c: any) => c.requestId === fetch.id);
+    const history = await env.processor.listStateHistory(env.conversationId, []);
+    const fetchPoint = history.find((c: any) => c.requestId === fetch.id);
     assert.ok(fetchPoint, 'the fetch output merged into state is attributed to the fetch step');
     assert.deepEqual(fetchPoint.keys, ['price']);
     assert.equal(fetchPoint.forkable, true);
 
-    const before = await env.processor.stateAtCheckpoint(env.conversationId, fetchPoint.seq, []);
+    const before = await env.processor.stateAtSeq(env.conversationId, fetchPoint.seq, []);
     assert.equal(before.price, 10);
     assert.equal(before.pick, undefined, 'the answer came later');
-    await assert.rejects(env.processor.listCheckpoints(env.conversationId, ['other-project']), /not found/);
+    await assert.rejects(env.processor.listStateHistory(env.conversationId, ['other-project']), /not found/);
   } finally {
     await env.cleanup();
   }
@@ -156,7 +157,7 @@ test('time travel: forks need a finished recorded step and a visible conversatio
     await assert.rejects(fork({ atRequestId: root.id }), /not a finished, recorded step/);
     await assert.rejects(fork({}), /needs atRequestId or atSeq/);
     await assert.rejects(fork({ atRequestId: fetch.id, projectIds: ['p-other'] }), /not found/);
-    const point = (await env.processor.listCheckpoints(env.conversationId, [])).find((c: any) => c.requestId === fetch.id);
+    const point = (await env.processor.listStateHistory(env.conversationId, [])).find((c: any) => c.requestId === fetch.id);
     const viaSeq = await fork({ atSeq: point.seq });
     assert.equal(viaSeq.boundaryPath, 'r.2');
   } finally {
@@ -166,7 +167,7 @@ test('time travel: forks need a finished recorded step and a visible conversatio
 
 test('time travel: conversation_fork refuses agents and uses the session project', async () => {
   const calls: any[] = [];
-  const api = { checkpoints: async () => [], stateAt: async () => ({}), fork: async (input: any) => { calls.push(input); return { conversationId: 9, rootRequestId: 1, boundaryPath: 'r.0' }; } };
+  const api = { history: async () => [], stateAt: async () => ({}), fork: async (input: any) => { calls.push(input); return { conversationId: 9, rootRequestId: 1, boundaryPath: 'r.0' }; } };
   const ctx = (extra: any) => ({ userId: 'u1', projectId: 'p1', tryService: (key: any) => (key === TimeTravelService ? api : undefined), ...extra });
   await assert.rejects(conversation_fork.runAsync({ args: { conversationId: 1, atRequestId: 2 }, toolContext: ctx({ agentId: 'bot' }) }), /human callers/);
   await conversation_fork.runAsync({ args: { conversationId: 1, atRequestId: 2 }, toolContext: ctx({}) });

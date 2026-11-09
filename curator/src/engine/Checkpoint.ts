@@ -372,6 +372,7 @@ export async function demoteConversation(memory: any, durable: any, conversation
           data: {
             ...data,
             parentId: mapRequest(r.parentId),
+            createdBy: mapRequest(r.createdBy),
             notifyId: mapRequest(r.notifyId),
             scriptId: await durableScript(r.scriptId),
             agentId: await durableAgent(r.agentId),

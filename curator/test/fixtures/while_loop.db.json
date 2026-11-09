@@ -38,6 +38,7 @@
         "type": "Curator_Sequential"
       },
       "context": null,
+      "createdBy": null,
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -78,13 +79,13 @@
         "type": "Curator_While"
       },
       "context": {
-        "__createdBy": 1,
         "echo": {
           "echoed": "tick"
         },
         "echoed": "tick",
         "input": "{\"n\":3,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 3\"}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -108,9 +109,8 @@
         },
         "type": "Curator_SetState"
       },
-      "context": {
-        "__createdBy": 1
-      },
+      "context": null,
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -147,9 +147,9 @@
         "type": "Curator_Sequential"
       },
       "context": {
-        "__createdBy": 2,
         "input": "{\"n\":0,\"status\":\"State updated\",\"state\":{\"n\":0}}"
       },
+      "createdBy": "<req:2>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -173,13 +173,13 @@
         "type": "Curator_Assign"
       },
       "context": {
-        "__createdBy": 4,
         "echo": {
           "echoed": "tick"
         },
         "echoed": "tick",
         "input": "{\"n\":0,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\"}"
       },
+      "createdBy": "<req:4>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -205,13 +205,13 @@
         "type": "Curator_Tool"
       },
       "context": {
-        "__createdBy": 4,
         "echo": {
           "echoed": "tick"
         },
         "echoed": "tick",
         "input": "{\"n\":0,\"status\":\"State updated\",\"state\":{\"n\":0}}"
       },
+      "createdBy": "<req:4>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -248,13 +248,13 @@
         "type": "Curator_Sequential"
       },
       "context": {
-        "__createdBy": 2,
         "echo": {
           "echoed": "tick"
         },
         "echoed": "tick",
         "input": "{\"n\":1,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 1\"}"
       },
+      "createdBy": "<req:2>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -278,13 +278,13 @@
         "type": "Curator_Assign"
       },
       "context": {
-        "__createdBy": 7,
         "echo": {
           "echoed": "tick"
         },
         "echoed": "tick",
         "input": "{\"n\":1,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 1\"}"
       },
+      "createdBy": "<req:7>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -310,13 +310,13 @@
         "type": "Curator_Tool"
       },
       "context": {
-        "__createdBy": 7,
         "echo": {
           "echoed": "tick"
         },
         "echoed": "tick",
         "input": "{\"n\":1,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 1\"}"
       },
+      "createdBy": "<req:7>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -353,13 +353,13 @@
         "type": "Curator_Sequential"
       },
       "context": {
-        "__createdBy": 2,
         "echo": {
           "echoed": "tick"
         },
         "echoed": "tick",
         "input": "{\"n\":2,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 2\"}"
       },
+      "createdBy": "<req:2>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -383,13 +383,13 @@
         "type": "Curator_Assign"
       },
       "context": {
-        "__createdBy": 10,
         "echo": {
           "echoed": "tick"
         },
         "echoed": "tick",
         "input": "{\"n\":2,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 2\"}"
       },
+      "createdBy": "<req:10>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -415,13 +415,13 @@
         "type": "Curator_Tool"
       },
       "context": {
-        "__createdBy": 10,
         "echo": {
           "echoed": "tick"
         },
         "echoed": "tick",
         "input": "{\"n\":2,\"status\":\"State updated\",\"state\":{\"n\":0},\"echoed\":\"tick\",\"output\":\"Assigned n = 2\"}"
       },
+      "createdBy": "<req:10>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,

@@ -30,6 +30,7 @@
         "type": "Curator_Sequential"
       },
       "context": null,
+      "createdBy": null,
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -54,13 +55,13 @@
         "type": "Curator_SetState"
       },
       "context": {
-        "__createdBy": 1,
         "echo": {
           "echoed": "hello"
         },
         "echoed": "hello",
         "input": "{\"counter\":1,\"status\":\"State updated\",\"state\":{\"counter\":1},\"echoed\":\"hello\"}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -87,13 +88,13 @@
         "type": "Curator_Tool"
       },
       "context": {
-        "__createdBy": 1,
         "echo": {
           "echoed": "hello"
         },
         "echoed": "hello",
         "input": "{\"counter\":1,\"status\":\"State updated\",\"state\":{\"counter\":1}}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -117,9 +118,8 @@
         },
         "type": "Curator_SetState"
       },
-      "context": {
-        "__createdBy": 1
-      },
+      "context": null,
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,

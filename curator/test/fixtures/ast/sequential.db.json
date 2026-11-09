@@ -25,6 +25,7 @@
         "type": "Curator_Sequential"
       },
       "context": null,
+      "createdBy": null,
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -48,9 +49,9 @@
         "type": "Curator_Script"
       },
       "context": {
-        "__createdBy": 1,
         "input": "{\"facts\":[\"AI will be autonomous\",\"Agents will collaborate\"],\"draft\":\"The future of AI is collaborative autonomy.\"}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -74,9 +75,9 @@
         "type": "Curator_Script"
       },
       "context": {
-        "__createdBy": 1,
         "input": "{\"facts\":[\"AI will be autonomous\",\"Agents will collaborate\"]}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -99,9 +100,8 @@
         "language": "javascript",
         "type": "Curator_Script"
       },
-      "context": {
-        "__createdBy": 1
-      },
+      "context": null,
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,

@@ -38,6 +38,16 @@ export async function ensureSystemProject(prisma: PrismaClient | any) {
   return { systemUser, systemProject };
 }
 
+/**
+ * Whether a caller with `activeProjectIds` may read an entity of `projectId`: its own projects plus 'system'. Entities
+ * without a project belong to unscoped sessions: only a caller without an active project sees them.
+ */
+export function canReadProject(projectId: string | null | undefined, activeProjectIds: string[]): boolean {
+  const active = activeProjectIds.filter(Boolean);
+  if (projectId == null) return active.length === 0;
+  return getReadableProjectIds(active).includes(projectId);
+}
+
 export function getReadableProjectIds(activeProjectIds?: string | string[] | null) {
   const ids = new Set<string>([SYSTEM_PROJECT_ID]);
   if (activeProjectIds) {

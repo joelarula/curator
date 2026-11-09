@@ -15,9 +15,10 @@ export type MergeRuleName = (typeof MERGE_RULE_NAMES)[number];
 export type CuratorMergeRule = MergeRuleName | { reducer: string };
 export type CuratorStateSchema = Record<string, { merge: CuratorMergeRule }>;
 
-/** Context key carrying a Parallel's rules (over the module's) to its branches and their steps. */
-export const MERGE_RULES_KEY = '__mergeRules';
-/** Context key marking a parallel branch: `{ join, name }` (the Join request and the branch's name). */
+/**
+ * Context key marking a parallel branch: `{ join, name }` (the Join request and the branch's name). The parallel's
+ * merge rules are on its Join's node (`fanIn.rules`).
+ */
 export const BRANCH_KEY = '__branch';
 
 export type MergeRules = Record<string, CuratorMergeRule>;

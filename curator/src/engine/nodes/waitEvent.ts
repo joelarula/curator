@@ -1,6 +1,6 @@
 import type { NodeHandler } from './NodeHandler.js';
 import { logger } from '../../utils/logger.js';
-import { openInterrupt } from '../Interrupts.js';
+import { INTERRUPT_OPENED, openInterrupt } from '../Interrupts.js';
 
 export const waitEventNode: NodeHandler<any> = {
   type: 'Curator_WaitEvent',
@@ -70,6 +70,6 @@ export const waitEventNode: NodeHandler<any> = {
       deadline: updatedContext.waitDeadline,
     }, ctx.now());
     await ctx.store.requests.update(req.id, { status: 'WAITING_FOR_EVENT', context: { ...updatedContext, ...interruptKeys } });
-    ctx.emit('curator:interrupt', interrupt);
+    ctx.emit(INTERRUPT_OPENED, interrupt);
   },
 };

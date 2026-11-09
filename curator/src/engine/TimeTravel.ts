@@ -1,28 +1,28 @@
 /**
  * Checkpoints, fork and replay (docs/ENGINE_EVOLUTION_PLAN.md, Phase C).
  *
- * Every request records the request that created it (`context.__createdBy`, and `StepTrace.createdBy` once it
- * finishes), so a run is a tree. A step's path is its position in that tree: `r` for the root, then `.k` for the
- * k-th request its creator created (`r.0.2`). Replayable steps (agents, tools, reducers, human input, event waits)
- * also record their node hash, final context, result and the state patches they wrote in `StepTrace`.
+ * Every request records the request that created it (`Request.createdBy`), so a run is a tree. A step's path is its
+ * position in that tree: `r` for the root, then `.k` for the k-th request its creator created (`r.0.2`). Replayable
+ * steps (agents, tools, reducers, human input, event waits) record their node hash and final context in `StepTrace`
+ * (request contexts are trimmed); their result is their Response (control steps: `StepTrace.output`) and the state
+ * they wrote is in the EventLog (`source`).
  *
  * A fork is a new conversation that runs the original root again. Each request it creates gets the path of its
- * position (counted with `__fork.spawn` events in the fork's EventLog). When a replayable step of the fork has a
+ * position (`context.__forkPath`). When a replayable step of the fork has a
  * finished original at the same path, with the same node, that finished no later than the fork point, the recorded
  * result is returned instead of running it: tools are not called again, agents do not call the model, prompts do
  * not ask again. The fork point's step gets the fork's `statePatch` right after it; later steps run live.
  */
 import { hashAst } from './ScriptRegistry.js';
+import { ENGINE_PROGRESS_KEYS } from './RequestContextStorage.js';
 import { defineService } from './nodes/NodeHandler.js';
 import type { ConversationStateData } from './ConversationStateLog.js';
 
 /** EventLog events of a fork conversation (not state events: they never enter the state fold). */
 export const FORK_EVENT = '__fork';
-export const FORK_SPAWN_EVENT = '__fork.spawn';
 export const FORK_BOUNDARY_EVENT = '__fork.boundary';
 
-/** Context keys: the creating request, and (in forks) the step's path. */
-export const CREATED_BY_KEY = '__createdBy';
+/** Context key (forks only): the step's path. */
 export const FORK_PATH_KEY = '__forkPath';
 export const ROOT_PATH = 'r';
 
@@ -37,12 +37,9 @@ export const REPLAYABLE_NODE_TYPES: ReadonlySet<string> = new Set([
 
 /** Context keys that describe the engine's bookkeeping of one run, not the step's data (never copied by a fork). */
 export const RUN_BOOKKEEPING_KEYS: readonly string[] = [
-  CREATED_BY_KEY, FORK_PATH_KEY, '__interrupt', '__interruptSeq', 'waitDeadline', 'pendingToolCall', '__deadLetter',
-  '__humanInputReceived__', '__hooksExpanded__', 'state', 'input',
-  // Control-flow progress (a fork re-runs control flow from the start)
-  'activeNode', 'stateData', 'waitingFor', 'nextNode', 'callPending', 'callReturns', 'callAs',
-  'forEachIndex', 'forEachCollection', 'ifElseEvaluated', 'spawnedChild', 'routeDecided',
-  'loopIteration', 'loopRunning', 'loopCollection', 'interruptHandled',
+  ...ENGINE_PROGRESS_KEYS, FORK_PATH_KEY, '__deadLetter', '__hooksExpanded__', 'state', 'input',
+  // Control-flow progress not carried between steps (a fork re-runs control flow from the start)
+  'activeNode', 'stateData', 'waitingFor', 'nextNode', 'callPending', 'callReturns', 'callAs', 'interruptHandled',
 ];
 
 export const withoutBookkeeping = (context: any): Record<string, any> => {
@@ -88,8 +85,8 @@ export interface OriginalStep {
   nodeType: string | null;
   astHash: string | null;
   context: Record<string, any> | null;
-  statePatches: Array<{ scope?: string | null; set: Record<string, any> }>;
-  result: string | null;
+  /** Control steps' result (`StepTrace.output`); a history step's result is its latest Response. */
+  output: string | null;
 }
 
 export interface StepRow {
@@ -99,8 +96,7 @@ export interface StepRow {
   nodeType: string | null;
   astHash?: string | null;
   context?: any;
-  statePatches?: any;
-  result?: string | null;
+  output?: string | null;
   finished?: FinishOrder | null;
 }
 
@@ -135,8 +131,7 @@ export function indexRun(rows: StepRow[], rootId: number): { byPath: Map<string,
         nodeType: row.nodeType,
         astHash: row.astHash ?? null,
         context: row.context ?? null,
-        statePatches: Array.isArray(row.statePatches) ? row.statePatches : [],
-        result: row.result ?? null,
+        output: row.output ?? null,
       });
     }
     (children.get(id) ?? []).forEach((child, k) => queue.push([child, `${path}.${k}`]));
@@ -188,7 +183,8 @@ export function decideReplay(
   return { action: 'live' };
 }
 
-export interface Checkpoint {
+/** One state change of a conversation (a state event), as `conversation_state_history` lists it. */
+export interface StateHistoryEntry {
   /** EventLog id of the state event: `stateAt(seq)` is the state right after it. */
   seq: number;
   kind: 'patch' | 'rewind';
@@ -222,9 +218,9 @@ export interface ForkResult {
   boundaryPath: string;
 }
 
-/** Processor API behind conversation_checkpoints / conversation_state_at / conversation_fork. */
+/** Processor API behind conversation_state_history / conversation_state_at / conversation_fork. */
 export interface TimeTravelApi {
-  checkpoints(conversationId: number, projectIds: string[]): Promise<Checkpoint[]>;
+  history(conversationId: number, projectIds: string[]): Promise<StateHistoryEntry[]>;
   stateAt(conversationId: number, seq: number | undefined, projectIds: string[]): Promise<ConversationStateData>;
   fork(input: ForkInput): Promise<ForkResult>;
 }

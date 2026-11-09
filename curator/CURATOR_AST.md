@@ -435,7 +435,7 @@ Builder: `CuratorCoreBuilder.withRetry(node, { maxAttempts: 4 }, { timeoutMs: 20
 ### How it is handled
 * **Error classes**: `rate_limit` (429, quota, "retry in Ns"), `transient` (5xx gateway errors, ECONNRESET, fetch failed, ...), `timeout` (`timeoutMs` passed), `tool_error` (a tool threw something else), `error` (anything else). `retryOn` entries that are not class names are case-insensitive regexes on the error message.
 * **Defaults**: a node without `retry` retries only `rate_limit`, 5 times (5s doubling, or the server's "retry in Ns"), as before. A declared `retry` defaults to `maxAttempts: 3`, `retryOn: ['rate_limit', 'transient', 'timeout']`, `initialMs: 1000`, `factor: 2`, `maxMs: 300000`, `jitter: true` (delay scaled by 0.5 to 1). `maxAttempts: 1` turns retries off.
-* **Retry**: the same Request runs again after the delay (`retryCount` + 1, `scheduledAt` moved); a failed attempt leaves no Response, and is recorded as a StepTrace row with status `RETRY` plus a `request_retry` event. An attempt that already created requests (children) is never retried, so nothing runs twice.
+* **Retry**: the same Request runs again after the delay (`retryCount` + 1, `scheduledAt` moved); a failed attempt leaves no Response, and is recorded as a StepTrace row with status `RETRY` plus a `step.retrying` progress event (§16). An attempt that already created requests (children) is never retried, so nothing runs twice.
 * **Exhausted or not retryable**: the node ends `FAILED` and normal failure handling runs: `onError` if set, otherwise dead letter, downstream poisoning, or the Join's tolerance of failed branches.
 * **Tools**: without `retry`, a throwing tool still completes the node with `[Tool Error] ...` (unchanged). With `retry`, the throw fails the attempt; it keeps its cause's class (a tool hitting a rate limit is `rate_limit`), otherwise `tool_error`.
 * **`timeoutMs`** limits one attempt of the node's own execution, not time parked waiting on children, humans or events (waits use `timeoutSeconds` / `onTimeout`). Past it, the attempt's abort signal fires (agents pass it to the LLM provider, tools get `toolContext.signal`), its later engine writes are discarded, and it fails as `timeout`. Gemini cancels client-side only, so the call may still be billed. Side effects a tool already made outside the engine are not undone.
@@ -464,15 +464,16 @@ Declare a typed resume on a wait: `{ "type": "Curator_HumanInput", "prompt": "Am
 * **Ids** are `<requestId>.<n>`; `n` counts the interrupts a request opened (`__interruptSeq`), so an answer to an older wait of the same request is refused.
 * **Checks**: the interrupt must be open and visible to the caller's project (from the host session: the request's project, or `'system'`; requests without a project only for callers without one), `targetUserId` must match the resuming user, and the value must match `resumeSchema` (Ajv). A failed resume leaves the interrupt open.
 * **Humans only**: `conversation_resume` refuses when an agent is the actor, so a model can never answer a prompt or approve its own gated tool call.
-* **Events**: parking emits `curator:interrupt` (the envelope); a resume emits `curator:interrupt_resumed` and logs a `curator:interrupt_resumed` bus event with the value (for replay).
+* **Stored**: only what no other key holds (`{ v, id, kind, createdAt, resumeSchema?, inputType? }`); prompt, choices, tool call, event names, target user and deadline are described from the wait's own keys (`choicePrompt`, `activeChoices`, `pendingToolCall`, `waitEvent(s)`, `targetUserId`, `waitDeadline`).
+* **Events**: parking and resuming are announced as `wait.opened` (with the envelope) and `wait.resumed` progress events (§16).
 * Expiry (`APPROVAL_EXPIRED`) and timeouts (`HUMAN_TIMEOUT` / `WAIT_TIMEOUT`) close the interrupt as before. The older ways to answer (an event named `curator:choice` / the awaited event, a Response row on the parked request, the server's `approveRequest`) still work.
 * A one-time approval needs no table (it rides on the request); `CONVERSATION` / `PERMANENT` scopes need the `ToolApproval` table (server schema).
 
 ## 14. Checkpoints, fork & replay
 
-`src/engine/TimeTravel.ts`; tools `conversation_checkpoints`, `conversation_state_at`, `conversation_fork` (human callers only).
+`src/engine/TimeTravel.ts`; tools `conversation_state_history`, `conversation_state_at`, `conversation_fork` (human callers only). (Not to be confused with the `checkpoint` durability tier, `Checkpoint.ts`.)
 
-* **Checkpoints** are the conversation's state events (`EventLog`), each with the step that wrote it (`EventLog.source`), the changed keys and whether a fork can start after it. `conversation_state_at { conversationId, seq }` is the state right after one.
+* **State history** is the conversation's state events (`EventLog`), each with the step that wrote it (`EventLog.source`), the changed keys and whether a fork can start after it. `conversation_state_at { conversationId, seq }` is the state right after one.
 * **Fork** `{ conversationId, atRequestId | atSeq, statePatch?, scriptVersion? }` creates a new conversation (same project) that runs the original root again:
   * a replayable step (agent, tool, reducer, human input, event wait) that the original finished **no later than the fork point**, at the same position and with the same node, returns its recorded result and state writes: tools are not called, agents do not call the model, prompts do not ask again;
   * the fork point's step gets `statePatch` merged into state right after its own output;
@@ -481,8 +482,8 @@ Declare a typed resume on a wait: `{ "type": "Curator_HumanInput", "prompt": "Am
   * The original conversation is never changed.
 
 ### How it is handled
-* **Lineage**: every request records its creator (`context.__createdBy`, `StepTrace.createdBy`). A step's path is its position in that tree: `r`, then `.k` for the k-th request its creator created (a Sequential creates its steps last to first, so its first step is `r.<n-1>`). In a fork each new request gets its path when created (`context.__forkPath`, counted with `__fork.spawn` events).
-* **Records**: `StepTrace` keeps, per finished replayable step, its node hash, final context (secrets masked), result (`output`) and the state patches it wrote; roots keep their context. Request contexts are trimmed and finished conversations' event logs compacted, so StepTrace is the source: **a run can be forked while its StepTrace rows exist** (`stepTrace.ttlMs`, default 7 days). StepTrace is written in batches; a row lost with a crashed process makes a fork through that step diverge (it stops, it does not re-run).
+* **Lineage**: every request records its creator (`Request.createdBy`, indexed; `parentId` is a subset of it with cancel semantics). A step's path is its position in that tree: `r`, then `.k` for the k-th request its creator created (a Sequential creates its steps last to first, so its first step is `r.<n-1>`). In a fork each new request gets its path when created (`context.__forkPath`).
+* **Records**: each fact is kept once. `StepTrace` keeps what request-context trimming would lose: a replayable step's node hash and final context (secrets masked), and a root's context. A step's result is its Response (control steps: `StepTrace.output`); the state it wrote is its `EventLog` rows (`source`; the output merged on hand-over is marked `output: true` and re-derived instead of replayed). **A run can be forked while its StepTrace rows exist** (`stepTrace.ttlMs`, default 7 days). StepTrace is written in batches; a row lost with a crashed process makes a fork through that step diverge (it stops, it does not re-run).
 * **Order**: "before the fork point" is by finish time (StepTrace time, then row id), not creation order.
 * Runs recorded before this feature have no lineage and cannot be forked.
 
@@ -518,6 +519,7 @@ At the Join, keys without a rule that two or more branches wrote are conflicts. 
   "join": { "as": "outcome", "requires": { "min": 2 }, "onBranchFailure": "cancel_siblings", "timeoutMs": 60000 } }
 ```
 * **Branch names**: a branch is named after its node's `name` (every node may have one), else `branch<i>`.
+* **Where it lives**: the Parallel puts its fan-in contract and its own merge rules on the Join node it creates (`fanIn`); branch steps carry only `__branch: { join, name }`, and their rules are found through it (module, then enclosing parallels, outermost first).
 * **`as`**: `{ [branch]: { status, output } }` (status `COMPLETED`, `FAILED`, `CANCELLED` or `TIMEOUT`) in the Join's context and in state.
 * **`requires`**: `'any'` (default: at least one branch succeeded, as before), `'all'`, or `{ min: n }`. Otherwise the Join fails (`onError` / downstream failure handling apply).
 * **`onBranchFailure`**: `'continue'` (default) waits for every branch; `'cancel_siblings'` cancels the other branches and the Join decides by `requires`; `'fail_fast'` cancels them and fails the Join.
@@ -545,5 +547,5 @@ Every event has `{ v: 1, kind, seq, ts, conversationId, requestId? }`:
 
 * `seq` orders one worker's events (not global across workers); `ts` is the processor's clock.
 * New kinds and optional fields may appear within `v: 1`: ignore kinds you do not know. `v` changes only for breaking changes.
-* The older events (`request_start`, `request_done`, `curator:interrupt`, `request_retry`, ...) are still emitted.
+* The older events (`request_start`, `request_done`, `request_poisoned`, `curator:human_input`, ...) are still emitted; the facts added by this work are published only as progress events.
 * Not on the stream yet: LLM token streaming (providers return whole responses) and state written outside workflow steps.

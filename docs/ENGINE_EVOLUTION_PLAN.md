@@ -44,7 +44,7 @@ timeoutMs?: number;                // wall-clock limit for one attempt
 
 - The fallback after exhausted attempts is the existing `onError` (no new `onFailure` field).
 - `src/engine/FaultPolicy.ts`: `classifyError`, `decideRetry`, the default policy (the old hardcoded rate-limit rule). One decision for thrown errors and for handlers calling `failRequest` on their own attempt.
-- Retries reuse `retryCount` + `scheduledAt` (no schema change), are recorded as StepTrace `RETRY` rows and `request_retry` events. An attempt that created requests is never retried.
+- Retries reuse `retryCount` + `scheduledAt` (no schema change), are recorded as StepTrace `RETRY` rows and `step.retrying` progress events. An attempt that created requests is never retried.
 - Timeouts: each attempt runs in an `AttemptScope` (async context) with an `AbortController`; `ctx.abortSignal()` reaches LLM providers (`LlmRequest.signal`, incl. the Gemini plugin) and tools (`toolContext.signal`). An abandoned attempt's engine writes throw `AbandonedAttemptError`.
 - Tools with a `retry` policy fail on a throw (`ToolExecutionError`, keeping the cause's class); without one they still complete as `[Tool Error]`.
 
@@ -62,7 +62,7 @@ Reference: `curator/CURATOR_AST.md` §13; code: `src/engine/Interrupts.ts`, `src
 - Tools `conversation_interrupts` / `conversation_resume` (repo naming, not `conversation.*`), backed by the processor's `InterruptService`; project scope from the session; resume refused for agent actors.
 - AST: `resume: { schema }` on HumanInput / WaitEvent (`as` / `payloadAlias` already exist). Approvals use a fixed schema `{ approved, scope?: ONETIME|CONVERSATION|PERMANENT, reason? }`.
 - New: denying an approval (`APPROVAL_DENIED`, governed by `onApprovalExpired`). Event-wait resume binds the value without publishing the event.
-- Resume values are logged as `curator:interrupt_resumed` bus events for Phase C replay. Bus events are retired by age (30 days), so replay of older runs needs them copied with the fork data.
+- The stored envelope holds only what no other key holds; the rest is described from the wait's own keys (cleanup). Resumes are not logged separately: their effect is the state write and Response they produce, which fork replay uses.
 
 Not done in B (follow-ups):
 - `pause` kind: `Curator_Interrupt` pause/play suspends other requests and resumes them itself; no human resolves it, so it has no interrupt yet.
@@ -75,13 +75,13 @@ Reference: `curator/CURATOR_AST.md` §14; code: `src/engine/TimeTravel.ts`, `src
 
 - **Decided (2026-11-09): fork re-runs the script and reuses recorded outputs**, instead of copying the live request tree (which would mean rebuilding notify chains and fan-in counters).
 - State events record their step (`EventLog.source`, via `appendStatePatch(..., { source })`; `writeState` defaults to the running attempt).
-- Step identity changed from the planned `__step` counter (Graph/Loop rebuild their own context across runs, so a counter kept there is lost) to **lineage**: `__createdBy` on every request; a path is the k-th request a creator created. Forks count children with `__fork.spawn` events in their own EventLog.
-- **Decided (2026-11-09): replay records live in StepTrace** (new nullable columns `createdBy`, `astHash`, `context`, `statePatches`; `output` now also holds replayable steps' results), because retention trims request contexts and compacts event logs. Schema change in curator's three schemas and `server/prisma/schema/core.prisma`; `schema.sql` regenerated.
+- Step identity changed from the planned `__step` counter (Graph/Loop rebuild their own context across runs, so a counter kept there is lost) to **lineage**: `Request.createdBy` (indexed column) on every request; a path is the k-th request a creator created.
+- **Decided (2026-11-09): StepTrace keeps only what context trimming loses** (`astHash`, `context`); results come from Responses / `output`, state writes from the EventLog (`source`). Schema change in curator's three schemas and `server/prisma/schema/core.prisma` (`Request.createdBy` + index, StepTrace `astHash` / `context`); `schema.sql` regenerated.
 - Replay applies to agent, tool, reducer, human input and event-wait steps that finished no later than the fork point (by StepTrace time, then id: creation order is not execution order). Control flow re-runs. A mismatch before the fork point stops the fork (diverged), unless the fork runs a different script version.
-- Tools `conversation_checkpoints`, `conversation_state_at`, `conversation_fork` (fork: humans only), backed by `TimeTravelService`.
+- Tools `conversation_state_history`, `conversation_state_at`, `conversation_fork` (fork: humans only), backed by `TimeTravelService`.
 
 Not done in C (follow-ups):
-- Server: run `db:push` / regenerate for the new StepTrace columns.
+- Server: run `db:push` / regenerate for `Request.createdBy` and the StepTrace columns.
 - Forks are possible only within StepTrace retention (default 7 days) and for runs recorded after this change.
 - StepTrace is batched per worker: rows still buffered on another worker are not seen by a fork made right away; a lost row makes that step diverge.
 - Script nodes and plugin node types re-run in forks (scripts may spawn subtrees; their VM has no network by default).
@@ -137,6 +137,29 @@ Not done in G (follow-ups):
 - `token` events: LLM providers return whole responses; streaming needs provider support first.
 - `state.changed` covers writes made through workflow steps, not direct `appendStatePatch` calls (conversation managers).
 - `seq` is per worker; a global order would need a shared sequence.
+
+## Redundancy cleanup (2026-11-09)
+
+A review of Phases A–G against retention (contexts trimmed by default; EventLog compaction and Response deletion only
+with a whole conversation in `pruneConversationHistory`) removed duplicates before anything shipped:
+
+- Lineage: one indexed `Request.createdBy` column replaces `context.__createdBy`, `StepTrace.createdBy` and the
+  per-request `__fork.spawn` EventLog rows (fork paths count children by `createdBy`).
+- StepTrace: dropped `statePatches` (the EventLog rows with `source` are the record; hand-over merges carry
+  `output: true`) and results of history steps (their Responses are the record). It keeps `astHash` and `context`.
+- Interrupts: the stored envelope keeps only `{ v, id, kind, createdAt, resumeSchema?, inputType? }`; the rest is
+  described from the wait's own keys. The `curator:interrupt_resumed` bus-event row was dropped.
+- Parallel/Join: the fan-in contract and merge rules live on the Join node (`fanIn`), not copied into contexts
+  (`__joinSpec`, `__joinBranches`, per-request `__mergeRules` removed).
+- Events: the ad-hoc events added in A–C (`request_retry`, `request_replayed`, `conversation_forked`,
+  `curator:interrupt`, `curator:interrupt_resumed`) are published only as progress events.
+- Code: one list of engine progress keys (`ENGINE_PROGRESS_KEYS`), one session-scope helper for the tools
+  (`tools/sessionScope.ts`), project access via `ProjectScopeService.canReadProject`; "checkpoints" renamed
+  "state history" (`conversation_state_history`) to avoid the `checkpoint` durability tier's name.
+- Kept on purpose: StepTrace `astHash`/`context` (context trimming), state events' `incoming` (order-independent
+  rules on replay) and `branch` (branch contexts may be trimmed before the Join), StepTrace `RETRY` rows vs
+  `retryCount` (history vs counter). Pre-existing overlap: `parentId` is a subset of `createdBy` (kept: it drives
+  orphan cancellation).
 
 ## Decisions (2026-11-09)
 

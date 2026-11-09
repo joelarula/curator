@@ -16,7 +16,7 @@ export {
 } from './engine/Interrupts.js';
 export {
   TimeTravelService, REPLAYABLE_NODE_TYPES, decideReplay, indexRun,
-  type Checkpoint, type ForkInput, type ForkResult, type ForkSpec, type TimeTravelApi,
+  type StateHistoryEntry, type ForkInput, type ForkResult, type ForkSpec, type TimeTravelApi,
 } from './engine/TimeTravel.js';
 export {
   MERGE_RULE_NAMES, applyMergeRules, mergeValue, rulesOf, branchConflicts,

@@ -1,6 +1,6 @@
 import type { NodeHandler } from './NodeHandler.js';
 import { logger } from '../../utils/logger.js';
-import { openInterrupt } from '../Interrupts.js';
+import { INTERRUPT_OPENED, openInterrupt } from '../Interrupts.js';
 
 export const humanInputNode: NodeHandler<any> = {
   type: 'Curator_HumanInput',
@@ -102,6 +102,6 @@ export const humanInputNode: NodeHandler<any> = {
       deadline: (updatedContext as any).waitDeadline,
     }, ctx.now());
     await ctx.store.requests.update(req.id, { status: 'WAITING_FOR_USER', context: { ...updatedContext, ...interruptKeys } });
-    ctx.emit('curator:interrupt', interrupt);
+    ctx.emit(INTERRUPT_OPENED, interrupt);
   },
 };

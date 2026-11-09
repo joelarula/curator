@@ -299,6 +299,7 @@ export async function snapshotDb(env: TestEnv) {
           ...r,
           id: reqIds.get(r.id),
           parentId: r.parentId == null ? null : reqIds.get(r.parentId) ?? '<req:?>',
+          createdBy: r.createdBy == null ? null : reqIds.get(r.createdBy) ?? '<req:?>',
           notifyId: r.notifyId == null ? null : reqIds.get(r.notifyId) ?? '<req:?>',
         },
         ['createdAt', 'updatedAt', 'lockedAt', 'lockedBy', 'scheduledAt', 'userId', 'conversationId', 'scriptId', 'scriptVersion', 'eventCursor'],

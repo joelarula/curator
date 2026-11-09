@@ -28,6 +28,7 @@
         "type": "Curator_Sequential"
       },
       "context": null,
+      "createdBy": null,
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -53,7 +54,6 @@
         "type": "Curator_Tool"
       },
       "context": {
-        "__createdBy": 1,
         "echo": {
           "echoed": "hi"
         },
@@ -63,6 +63,7 @@
           "msg": "hi"
         }
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -86,7 +87,6 @@
         "type": "Curator_WaitEvent"
       },
       "context": {
-        "__createdBy": 1,
         "__humanInputReceived__": true,
         "__interruptSeq": 1,
         "input": "{\"phase\":1,\"status\":\"State updated\",\"state\":{\"phase\":1}}",
@@ -94,6 +94,7 @@
           "msg": "hi"
         }
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -117,9 +118,8 @@
         },
         "type": "Curator_SetState"
       },
-      "context": {
-        "__createdBy": 1
-      },
+      "context": null,
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -147,6 +147,7 @@
       "context": {
         "origin": "API"
       },
+      "createdBy": null,
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,

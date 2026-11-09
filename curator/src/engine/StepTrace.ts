@@ -51,17 +51,14 @@ export interface StepTraceRecord {
   projectId: string | null;
   nodeType: string | null;
   status: string;
-  /** Control-flow steps, and replayable steps (their result, for fork replay); other history steps: their Response. */
+  /** Control-flow steps only; a history step's result is its Response. */
   output: string | null;
   startedAt: Date | null;
   worker: string;
   createdAt: Date;
-  /** The request that created this one (see TimeTravel.ts). */
-  createdBy?: number | null;
-  /** Replayable steps: node hash, final context (secrets masked) and the state patches the step wrote. Roots: context. */
+  /** Replayable steps: node hash and final context, secrets masked (request contexts are trimmed). Roots: context. */
   astHash?: string | null;
   context?: Record<string, any> | null;
-  statePatches?: Array<{ scope?: string | null; set: Record<string, any> }> | null;
 }
 
 const MAX_BUFFER = 500;

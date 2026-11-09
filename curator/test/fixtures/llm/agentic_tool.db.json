@@ -13,6 +13,7 @@
         "type": "Curator_Agent"
       },
       "context": null,
+      "createdBy": null,
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,

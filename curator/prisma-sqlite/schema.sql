@@ -246,6 +246,7 @@ CREATE TABLE "Request" (
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     "parentId" INTEGER,
+    "createdBy" INTEGER,
     "existent" BOOLEAN DEFAULT true,
     CONSTRAINT "Request_scriptId_fkey" FOREIGN KEY ("scriptId") REFERENCES "Script" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT "Request_aiModelId_fkey" FOREIGN KEY ("aiModelId") REFERENCES "AIModel" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
@@ -447,10 +448,8 @@ CREATE TABLE "StepTrace" (
     "nodeType" TEXT,
     "status" TEXT NOT NULL,
     "output" TEXT,
-    "createdBy" INTEGER,
     "astHash" TEXT,
     "context" JSONB,
-    "statePatches" JSONB,
     "startedAt" DATETIME,
     "worker" TEXT
 );
@@ -644,6 +643,9 @@ CREATE INDEX "Request_conversationId_updatedAt_idx" ON "Request"("conversationId
 
 -- CreateIndex
 CREATE INDEX "Request_parentId_idx" ON "Request"("parentId");
+
+-- CreateIndex
+CREATE INDEX "Request_conversationId_createdBy_idx" ON "Request"("conversationId", "createdBy");
 
 -- CreateIndex
 CREATE INDEX "Request_notifyId_idx" ON "Request"("notifyId");

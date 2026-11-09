@@ -49,6 +49,8 @@ export interface StoredRequest {
   /** Request to wake (decrement) when this one completes. */
   notifyId: number | null;
   parentId: number | null;
+  /** Request that created this one (lineage; see TimeTravel.ts). */
+  createdBy: number | null;
   pendingDependencies: number;
   retryCount: number;
   eventCursor: number | null;
@@ -73,6 +75,7 @@ export interface NewRequest {
   priority?: number;
   notifyId?: number | null;
   parentId?: number | null;
+  createdBy?: number | null;
   pendingDependencies?: number;
   /** Default: now. */
   scheduledAt?: Date;
@@ -101,6 +104,8 @@ export interface RequestFilter {
   notifyId?: number | null;
   /** null: a root request. */
   parentId?: number | null;
+  /** Requests created by this one. */
+  createdBy?: number;
   /** null: unlocked. */
   lockedBy?: string | null;
   lockedBefore?: Date;

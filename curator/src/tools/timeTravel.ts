@@ -1,23 +1,21 @@
 import { defineTool } from './CuratorTool.js';
 import { TimeTravelService } from '../engine/TimeTravel.js';
-import { actorFromToolContext } from '../services/ManagementGuardService.js';
+import { requireHumanCaller, sessionProjects } from './sessionScope.js';
 
 /**
- * Checkpoints, fork and replay (src/engine/TimeTravel.ts). Project scope comes from the calling session
+ * State history, fork and replay (src/engine/TimeTravel.ts). Project scope comes from the calling session
  * (`toolContext.projectId`), never from arguments.
  */
 
-const sessionProjects = (ctx: Record<string, any>): string[] => (ctx.projectId != null ? [String(ctx.projectId)] : []);
-
 const timeTravelApi = (ctx: Record<string, any>) => {
   const api = ctx.tryService?.(TimeTravelService);
-  if (!api) throw new Error('Checkpoints are only available inside a Curator processor');
+  if (!api) throw new Error('State history is only available inside a Curator processor');
   return api;
 };
 
-export const conversation_checkpoints = defineTool<{ conversationId: number }>({
-  name: 'conversation_checkpoints',
-  description: "Lists a conversation's state changes as checkpoints (seq, the step that wrote it, changed keys), marking the ones a fork can start after.",
+export const conversation_state_history = defineTool<{ conversationId: number }>({
+  name: 'conversation_state_history',
+  description: "Lists a conversation's state changes (seq, the step that wrote it, changed keys), marking the ones a fork can start after.",
   accessLevel: 'read_only',
   parameters: {
     type: 'object',
@@ -25,12 +23,12 @@ export const conversation_checkpoints = defineTool<{ conversationId: number }>({
     required: ['conversationId'],
     additionalProperties: false,
   },
-  execute: async (args, ctx) => ({ checkpoints: await timeTravelApi(ctx).checkpoints(args.conversationId, sessionProjects(ctx)) }),
+  execute: async (args, ctx) => ({ history: await timeTravelApi(ctx).history(args.conversationId, sessionProjects(ctx)) }),
 });
 
 export const conversation_state_at = defineTool<{ conversationId: number; seq?: number }>({
   name: 'conversation_state_at',
-  description: 'The conversation state right after checkpoint `seq` (default: now).',
+  description: 'The conversation state right after state change `seq` (default: now).',
   accessLevel: 'read_only',
   parameters: {
     type: 'object',
@@ -49,8 +47,8 @@ export const conversation_fork = defineTool<{ conversationId: number; atRequestI
     type: 'object',
     properties: {
       conversationId: { type: 'integer' },
-      atRequestId: { type: 'integer', description: 'The step to fork after (a forkable checkpoint\'s requestId).' },
-      atSeq: { type: 'integer', description: 'Or: the checkpoint seq whose step to fork after.' },
+      atRequestId: { type: 'integer', description: "The step to fork after (a forkable history entry's requestId)." },
+      atSeq: { type: 'integer', description: 'Or: the state change seq whose step to fork after.' },
       statePatch: { type: 'object', description: 'Keys merged into state right after the fork point.' },
       scriptVersion: { type: 'integer', description: "Run this version of the root's script; changed steps then run live." },
     },
@@ -59,11 +57,9 @@ export const conversation_fork = defineTool<{ conversationId: number; atRequestI
   },
   execute: async (args, ctx) => {
     // A fork runs the workflow live after the fork point: only people start one
-    const actor = actorFromToolContext(ctx);
-    if (actor.agentId) throw new Error(`conversation_fork is for human callers; agent '${actor.agentId}' cannot fork conversations`);
-    if (!actor.userId) throw new Error('conversation_fork needs the calling user');
-    return timeTravelApi(ctx).fork({ ...args, userId: actor.userId, projectIds: sessionProjects(ctx) });
+    const userId = requireHumanCaller(ctx, 'conversation_fork');
+    return timeTravelApi(ctx).fork({ ...args, userId, projectIds: sessionProjects(ctx) });
   },
 });
 
-export const timeTravelTools = { conversation_checkpoints, conversation_state_at, conversation_fork };
+export const timeTravelTools = { conversation_state_history, conversation_state_at, conversation_fork };

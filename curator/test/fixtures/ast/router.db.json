@@ -29,6 +29,7 @@
         "input": "{\"output\":\"optionB\"}",
         "routeDecided": true
       },
+      "createdBy": null,
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -51,9 +52,8 @@
         "language": "javascript",
         "type": "Curator_Script"
       },
-      "context": {
-        "__createdBy": 1
-      },
+      "context": null,
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -77,9 +77,9 @@
         "type": "Curator_Script"
       },
       "context": {
-        "__createdBy": 1,
         "input": "{\"output\":\"optionB\"}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,

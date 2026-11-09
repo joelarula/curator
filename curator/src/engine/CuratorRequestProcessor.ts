@@ -13,22 +13,21 @@ import { resolveRequestNode, getScriptVersionAst, getEntry, entryAstPath, expand
 import type { Prisma } from '@prisma/client';
 import { LlmFactory } from './llm/LlmFactory.js';
 import { appendStatePatch, STATE_SEQ_KEY, STATE_PATCH, STATE_REWIND, stateAt } from './ConversationStateLog.js';
-import { STATE_PATCH_KEY, withoutStoredStateCopies } from './RequestContextStorage.js';
+import { ENGINE_PROGRESS_KEYS, STATE_PATCH_KEY, withoutStoredStateCopies } from './RequestContextStorage.js';
 import { recordDeadLetter, TERMINAL_STATUSES } from './DeadLetters.js';
 import { AbandonedAttemptError, NodeTimeoutError, decideRetry, messageOf, type RetryDecision } from './FaultPolicy.js';
 import {
-  INTERRUPT_KEY, INTERRUPT_SEQ_KEY, InterruptService, interruptRequestId, validateResumeValue,
+  INTERRUPT_KEY, INTERRUPT_OPENED, InterruptService, describeInterrupt, interruptRequestId, validateResumeValue,
   type ApprovalResume, type CuratorInterrupt, type ListInterruptsFilter, type ResumeInterruptInput, type ResumeInterruptResult,
 } from './Interrupts.js';
-import { getReadableProjectIds } from '../services/ProjectScopeService.js';
+import { canReadProject } from '../services/ProjectScopeService.js';
 import { PROGRESS_EVENT, PROGRESS_EVENT_VERSION, type ProgressEventInput, type StepStatus } from './ProgressEvents.js';
-import { BRANCH_KEY, MERGE_RULES_KEY, rulesOf, type MergeRules } from './StateMerge.js';
-import { JOIN_SPEC_KEY } from './nodes/parallel.js';
+import { BRANCH_KEY, rulesOf, type MergeRules } from './StateMerge.js';
 import { JOIN_FAIL_FAST_KEY } from './nodes/join.js';
 import {
-  CREATED_BY_KEY, FORK_PATH_KEY, FORK_EVENT, FORK_SPAWN_EVENT, FORK_BOUNDARY_EVENT, ROOT_PATH, REPLAYABLE_NODE_TYPES,
+  FORK_PATH_KEY, FORK_EVENT, FORK_BOUNDARY_EVENT, ROOT_PATH, REPLAYABLE_NODE_TYPES,
   TimeTravelService, decideReplay, indexRun, nodeHash, rootOf, withoutBookkeeping,
-  type Checkpoint, type ForkInput, type ForkResult, type ForkSpec, type OriginalStep, type StepRow, type FinishOrder,
+  type StateHistoryEntry, type ForkInput, type ForkResult, type ForkSpec, type OriginalStep, type StepRow, type FinishOrder,
 } from './TimeTravel.js';
 
 /** A StepTrace row's finish order (see TimeTravel.FinishOrder). */
@@ -324,6 +323,8 @@ export class CuratorRequestProcessor {
   private forkBoundaries = new Set<number>();
   /** Fork-point steps being completed: their fork's statePatch is applied right after their own state merge. */
   private boundaryPatches = new Map<number, Record<string, any>>();
+  /** Merge rules of parallels by Join request id (see parallelRules). */
+  private joinRules = new Map<number, MergeRules[]>();
   private clock: () => number;
   /** AST node type → handler. */
   private nodes = new NodeRegistry();
@@ -414,8 +415,8 @@ export class CuratorRequestProcessor {
       resume: (input: ResumeInterruptInput) => this.resumeInterrupt(input),
     });
     this.services.set(TimeTravelService, {
-      checkpoints: (conversationId: number, projectIds: string[]) => this.listCheckpoints(conversationId, projectIds),
-      stateAt: (conversationId: number, seq: number | undefined, projectIds: string[]) => this.stateAtCheckpoint(conversationId, seq, projectIds),
+      history: (conversationId: number, projectIds: string[]) => this.listStateHistory(conversationId, projectIds),
+      stateAt: (conversationId: number, seq: number | undefined, projectIds: string[]) => this.stateAtSeq(conversationId, seq, projectIds),
       fork: (input: ForkInput) => this.forkConversation(input),
     });
     for (const { key, value } of options.services ?? []) this.services.set(key, value);
@@ -494,7 +495,7 @@ export class CuratorRequestProcessor {
         const conv = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
         return this.stateView(this.getConversationState(conv), scope);
       },
-      writeState: async (conversationId, scope, updates) => { await this.writeState(conversationId, scope, updates); },
+      writeState: async (conversationId, scope, updates, opts) => { await this.writeState(conversationId, scope, updates, undefined, { rules: opts?.rules as MergeRules | undefined }); },
       resolveHandler: (handler, req) => this.resolveHandler(handler, req),
       mergeRules: (req) => this.mergeRulesFor(req),
       closeJoin: (joinId, flags, reason) => this.closeJoin(joinId, flags, reason),
@@ -579,13 +580,14 @@ export class CuratorRequestProcessor {
   }
 
   private emit(type: string, payload: any) {
+    // Node handlers announce an opened interrupt as `curator:interrupt`: it goes out as a progress event only
+    if (type === INTERRUPT_OPENED) {
+      if (payload?.requestId != null) this.progress({ kind: 'wait.opened', conversationId: payload.conversationId, requestId: payload.requestId, interrupt: payload });
+      return;
+    }
     try {
       this.onEvent?.(type, payload);
     } catch (_) {}
-    // Interrupts are opened by node handlers (ctx.emit): announce them on the progress stream too
-    if (type === 'curator:interrupt' && payload?.requestId != null) {
-      this.progress({ kind: 'wait.opened', conversationId: payload.conversationId, requestId: payload.requestId, interrupt: payload });
-    }
   }
 
   /** Emits a typed progress event (`curator:progress`, see ProgressEvents.ts). */
@@ -606,8 +608,8 @@ export class CuratorRequestProcessor {
 
   /**
    * `args.createdBy`: the request creating this one (default: the attempt running in this async context; null: none).
-   * It is stamped as `context.__createdBy` (lineage: fork replay rebuilds the run's tree from it), and in a fork
-   * conversation the new request's path is stamped too (`__forkPath`).
+   * It is stored as `Request.createdBy` (lineage: fork replay rebuilds the run's tree from it), and in a fork
+   * conversation the new request's path is stamped in its context too (`__forkPath`).
    */
   private async createValidatedRequest(args: any) {
     this.assertLive();
@@ -641,20 +643,18 @@ export class CuratorRequestProcessor {
   }
 
   /**
-   * Request data with its lineage in the context. A context copied from the creator (e.g. a branch's) carries the
-   * creator's own keys, so they are always replaced; a request created by nothing keeps an untouched context.
+   * Request data with its lineage: `createdBy`, and in a fork the step's path in its context. A context copied from
+   * the creator (e.g. a branch's) carries the creator's path, so it is always replaced.
    */
   private async withLineage(data: any, createdBy: number | null, forkPath?: string): Promise<any> {
+    const withCreator = createdBy != null ? { ...data, createdBy } : data;
     const parsed = data.context == null ? null : this.parseContext(data.context);
-    const inherited = parsed && (parsed[CREATED_BY_KEY] !== undefined || parsed[FORK_PATH_KEY] !== undefined);
-    if (createdBy == null && !inherited && !forkPath) return data;
-    const context: Record<string, any> = { ...(parsed || {}) };
-    delete context[CREATED_BY_KEY];
-    delete context[FORK_PATH_KEY];
-    if (createdBy != null) context[CREATED_BY_KEY] = createdBy;
     const path = forkPath ?? (createdBy != null ? await this.forkPathFor(data.conversationId, createdBy) : null);
+    if (!path && parsed?.[FORK_PATH_KEY] === undefined) return withCreator;
+    const context: Record<string, any> = { ...(parsed || {}) };
+    delete context[FORK_PATH_KEY];
     if (path) context[FORK_PATH_KEY] = path;
-    return { ...data, context };
+    return { ...withCreator, context };
   }
 
   /** In a fork conversation: the path of the next request `createdBy` creates (`<creator path>.<k>`); else null. */
@@ -663,9 +663,8 @@ export class CuratorRequestProcessor {
     const creator = await this.store.requests.get(createdBy);
     const creatorPath = creator ? this.parseContext(creator.context)[FORK_PATH_KEY] : undefined;
     if (!creatorPath) return null;
-    // The creator runs one attempt at a time, so counting its spawn events gives each child its own index
-    const k = await this.prisma.eventLog.count({ where: { conversationId, eventName: FORK_SPAWN_EVENT, target: String(createdBy) } });
-    await this.prisma.eventLog.create({ data: { conversationId, eventName: FORK_SPAWN_EVENT, target: String(createdBy), payload: { k } } });
+    // The creator runs one attempt at a time, so the children it created so far give the next one its index
+    const k = await this.store.requests.count({ conversationId, createdBy });
     return `${creatorPath}.${k}`;
   }
 
@@ -708,16 +707,23 @@ export class CuratorRequestProcessor {
   /**
    * Appends a state patch. `writer` is the request whose step writes (default: the attempt running in this async
    * context): it is recorded as the event's source, and its module's and parallel's `stateSchema` decide how the
-   * keys merge (StateMerge.ts). `raw` writes the values as given (no merge rules: overrides, replays of results).
+   * keys merge (StateMerge.ts). `raw` writes the values as given (no merge rules: overrides). `output` marks the
+   * writer's result merged on hand-over (a fork re-derives it instead of replaying the event).
    */
-  private async writeState(conversationId: any, scope: string | null | undefined, updates: Record<string, any>, writer?: any, opts: { raw?: boolean } = {}) {
+  private async writeState(
+    conversationId: any,
+    scope: string | null | undefined,
+    updates: Record<string, any>,
+    writer?: any,
+    opts: { raw?: boolean; output?: boolean; rules?: MergeRules } = {}
+  ) {
     this.assertLive();
     const req = writer ?? this.currentAttempt()?.req;
     const ctx = req ? this.parseContext(req.context) : {};
     const branch = scope == null && ctx[BRANCH_KEY] ? { branch: ctx[BRANCH_KEY] } : {};
-    const rules = opts.raw || !req ? undefined : await this.mergeRulesFor(req);
+    const rules = opts.raw ? undefined : opts.rules ?? (req ? await this.mergeRulesFor(req) : undefined);
     // Event-sourced: append a patch to the EventLog and refresh the materialized view (no read-modify-write race).
-    const written = await appendStatePatch(this.prisma, conversationId, { scope: scope ?? null, set: updates, ...branch }, {
+    const written = await appendStatePatch(this.prisma, conversationId, { scope: scope ?? null, set: updates, ...branch, ...(opts.output ? { output: true as const } : {}) }, {
       source: req?.id ?? null,
       rules,
       reducer: (name) => this.engine.reducers?.get(name),
@@ -726,7 +732,10 @@ export class CuratorRequestProcessor {
     return written;
   }
 
-  /** Merge rules of a request's writes: its module's `stateSchema`, then its parallel's (`__mergeRules`). */
+  /**
+   * Merge rules of a request's writes: its module's `stateSchema`, then those of the parallels it runs in, outermost
+   * first (each parallel's rules are on its Join's node, found through the branch tag `__branch`).
+   */
   private async mergeRulesFor(req: any): Promise<MergeRules | undefined> {
     const ctx = this.parseContext(req.context);
     let moduleRules: MergeRules | undefined;
@@ -736,8 +745,22 @@ export class CuratorRequestProcessor {
         if (ast?.type === 'Curator_Module' && (ast as any).stateSchema) moduleRules = rulesOf((ast as any).stateSchema);
       } catch { /* not a stored version: no module rules */ }
     }
-    const rules = rulesOf(moduleRules, ctx[MERGE_RULES_KEY]);
+    const rules = rulesOf(moduleRules, ...(await this.parallelRules(ctx[BRANCH_KEY]?.join)));
     return Object.keys(rules).length ? rules : undefined;
+  }
+
+  /** Rules of the parallel whose Join is `joinId` and of the parallels around it, outermost first. Cached: a Join's node never changes. */
+  private async parallelRules(joinId: number | undefined, depth = 0): Promise<MergeRules[]> {
+    if (joinId == null || depth > 64) return [];
+    const cached = this.joinRules.get(joinId);
+    if (cached) return cached;
+    const join = await this.store.requests.get(joinId);
+    if (!join) return [];
+    const own = (this.parseAst(join.ast) as any)?.fanIn?.rules as MergeRules | undefined;
+    const chain = [...(await this.parallelRules(this.parseContext(join.context)[BRANCH_KEY]?.join, depth + 1)), ...(own ? [own] : [])];
+    if (this.joinRules.size >= 5_000) this.joinRules.clear();
+    this.joinRules.set(joinId, chain);
+    return chain;
   }
 
   private parseContext(ctx: any): any {
@@ -2036,7 +2059,6 @@ export class CuratorRequestProcessor {
     const scheduledAt = new Date(this.clock() + decision.delayMs);
     logger.debug(`[CuratorRequestProcessor] Request ${req.id}: ${decision.errorClass}, retrying in ${Math.round(decision.delayMs / 1000)}s (attempt ${decision.attempt + 1}/${decision.maxAttempts})`);
     await this.store.requests.update(req.id, { status: 'NEW', lockedBy: null, lockedAt: null, retryCount: (req.retryCount ?? 0) + 1, scheduledAt });
-    this.emit('request_retry', { requestId: req.id, attempt: decision.attempt, maxAttempts: decision.maxAttempts, errorClass: decision.errorClass, delayMs: decision.delayMs, error: msg });
     this.progress({ kind: 'step.retrying', conversationId: req.conversationId, requestId: req.id, attempt: decision.attempt, maxAttempts: decision.maxAttempts, errorClass: decision.errorClass, delayMs: decision.delayMs, error: msg });
     this.trace?.record({
       conversationId: req.conversationId,
@@ -2146,15 +2168,6 @@ export class CuratorRequestProcessor {
     }
   }
 
-  /**
-   * A request is visible to a caller when its project is one the caller may read (`projectIds` + 'system'). Requests
-   * without a project belong to unscoped sessions: only a caller without an active project sees them.
-   */
-  private canAccessRequestProject(projectId: string | null | undefined, projectIds: string[]): boolean {
-    const active = projectIds.filter(Boolean);
-    if (projectId == null) return active.length === 0;
-    return getReadableProjectIds(active).includes(projectId);
-  }
 
   /** Open interrupts (parked waits a human or client resolves), oldest first. See Interrupts.ts. */
   public async listInterrupts(filter: ListInterruptsFilter): Promise<CuratorInterrupt[]> {
@@ -2164,9 +2177,9 @@ export class CuratorRequestProcessor {
     );
     const open: CuratorInterrupt[] = [];
     for (const req of parked) {
-      const interrupt: CuratorInterrupt | undefined = this.parseContext(req.context)[INTERRUPT_KEY];
-      if (!interrupt || interrupt.requestId !== req.id) continue;
-      if (!this.canAccessRequestProject(req.projectId, filter.projectIds)) continue;
+      const interrupt = describeInterrupt(req, this.parseContext(req.context));
+      if (!interrupt) continue;
+      if (!canReadProject(req.projectId, filter.projectIds)) continue;
       if (filter.kind && interrupt.kind !== filter.kind) continue;
       open.push(interrupt);
     }
@@ -2176,7 +2189,7 @@ export class CuratorRequestProcessor {
   /**
    * Resumes an open interrupt with `value` (validated against its `resumeSchema`): a prompt or event wait gets the
    * value bound to its alias; an approval is granted (`{ approved: true, scope? }`) or denied, which ends the step
-   * like an expired approval (`onApprovalExpired`). The resume is logged as a `curator:interrupt_resumed` bus event.
+   * like an expired approval (`onApprovalExpired`). The resume is announced as a `wait.resumed` progress event.
    * Throws when the interrupt is unknown, not visible to the caller, no longer open, for another user, or the
    * value is invalid.
    */
@@ -2186,8 +2199,8 @@ export class CuratorRequestProcessor {
     if (requestId == null) throw new Error(`Malformed interrupt id '${id}' (expected '<requestId>.<n>')`);
     const req = await this.store.requests.get(requestId);
     const ctx = req ? this.parseContext(req.context) : {};
-    const interrupt: CuratorInterrupt | undefined = ctx[INTERRUPT_KEY];
-    if (!req || !this.canAccessRequestProject(req.projectId, input.projectIds)) {
+    const interrupt = req ? describeInterrupt(req, ctx) : undefined;
+    if (!req || !canReadProject(req.projectId, input.projectIds)) {
       throw new Error(`Interrupt ${id} not found`);
     }
     if (!interrupt || interrupt.id !== id || (req.status !== 'WAITING_FOR_USER' && req.status !== 'WAITING_FOR_EVENT')) {
@@ -2244,42 +2257,31 @@ export class CuratorRequestProcessor {
       throw err;
     }
 
-    await this.logEvent(req.conversationId, 'curator:interrupt_resumed', { interruptId: id, kind: interrupt.kind, outcome, userId: input.userId, value: input.value ?? null }, null, req.id);
-    this.emit('curator:interrupt_resumed', { interruptId: id, requestId: req.id, conversationId: req.conversationId, kind: interrupt.kind, outcome });
     this.progress({ kind: 'wait.resumed', conversationId: req.conversationId, requestId: req.id, interruptId: id, waitKind: interrupt.kind, outcome });
     this.announce();
     return { interruptId: id, requestId: req.id, kind: interrupt.kind, outcome };
   }
 
-  // --- Checkpoints, fork & replay (TimeTravel.ts) ---
+  // --- State history, fork & replay (TimeTravel.ts) ---
 
-  /** StepTrace fields a fork needs: lineage always; node hash, context, result and state patches for replayable steps. */
+  /**
+   * StepTrace fields a fork needs that nothing else keeps (request contexts are trimmed): a replayable step's node
+   * hash and final context, a root's context. Results stay in Responses / `output`, state writes in the EventLog.
+   */
   private async replayRecord(req: any, nodeType: string | null, status: string): Promise<Partial<StepTraceRecord>> {
     const ctx = this.parseContext(req.context);
-    const createdBy = typeof ctx[CREATED_BY_KEY] === 'number' ? ctx[CREATED_BY_KEY] : null;
     if (nodeType && REPLAYABLE_NODE_TYPES.has(nodeType) && TERMINAL_STATUSES.has(status)) {
       try {
         const astHash = this.executing.get(req.id)?.astHash ?? (await this.resolvedNodeHash(req));
-        // State the step wrote itself (its output merged into state on completion is re-derived when replayed)
-        const patches = this.prisma.eventLog?.findMany
-          ? await this.prisma.eventLog.findMany({ where: { conversationId: req.conversationId, source: req.id, eventName: STATE_PATCH }, orderBy: { id: 'asc' } })
-          : [];
-        const result = req.output ?? this.executing.get(req.id)?.lastResponse ?? (await this.store.responses.latest(req.id))?.content ?? null;
-        return {
-          createdBy,
-          astHash,
-          output: result,
-          context: SecretService.sanitizeContext(withoutBookkeeping(ctx)),
-          statePatches: patches.map((p: any) => ({ scope: p.payload?.scope ?? null, set: p.payload?.incoming ?? p.payload?.set ?? {} })),
-        };
+        return { astHash, context: SecretService.sanitizeContext(withoutBookkeeping(ctx)) };
       } catch (err: any) {
         logger.warn(`[CuratorRequestProcessor] Replay record of request ${req.id} skipped: ${err?.message ?? err}`);
-        return { createdBy };
+        return {};
       }
     }
     // A root (created by nothing): the context a fork re-runs it with
-    if (createdBy == null) return { createdBy, context: SecretService.sanitizeContext(this.rootContextOf(ctx)) };
-    return { createdBy };
+    if (req.createdBy == null) return { context: SecretService.sanitizeContext(this.rootContextOf(ctx)) };
+    return {};
   }
 
   /** A root's context without run bookkeeping (its `input` stays: it is the run's input). */
@@ -2314,29 +2316,20 @@ export class CuratorRequestProcessor {
     for (const row of (await this.trace?.forConversation(conversationId)) ?? []) {
       if (row.status !== 'RETRY') traced.set(row.requestId, row);
     }
-    const rows = new Map<number, StepRow>();
-    for (const req of await this.store.requests.find({ conversationId })) {
+    // Requests are deleted only with their whole conversation, so the Request rows are the run's tree
+    return (await this.store.requests.find({ conversationId })).map((req): StepRow => {
       const t = traced.get(req.id);
-      const ctx = this.parseContext(req.context);
-      rows.set(req.id, {
+      return {
         requestId: req.id,
-        createdBy: t?.createdBy ?? (typeof ctx[CREATED_BY_KEY] === 'number' ? ctx[CREATED_BY_KEY] : null),
+        createdBy: req.createdBy ?? null,
         status: t?.status ?? req.status,
         nodeType: t?.nodeType ?? this.parseAst(req.ast)?.type ?? null,
         astHash: t?.astHash ?? null,
         context: t?.context ?? null,
-        statePatches: t?.statePatches ?? null,
-        result: t?.output ?? null,
+        output: t?.output ?? null,
         finished: t ? finishOrderOf(t) : null,
-      });
-    }
-    // Finished requests whose Request row is gone (pruned) still count
-    for (const [id, t] of traced) {
-      if (!rows.has(id)) {
-        rows.set(id, { requestId: id, createdBy: t.createdBy ?? null, status: t.status, nodeType: t.nodeType, astHash: t.astHash, context: t.context, statePatches: t.statePatches, result: t.output, finished: finishOrderOf(t) });
-      }
-    }
-    return [...rows.values()];
+      };
+    });
   }
 
   private async forkBoundaryPassed(conversationId: number): Promise<boolean> {
@@ -2367,11 +2360,16 @@ export class CuratorRequestProcessor {
     }
 
     const orig = decision.original;
-    // Recorded as written (before merge rules): this fork's state is the original's here, so the rules give the same values
-    for (const patch of orig.statePatches) await this.writeState(req.conversationId, patch.scope ?? null, patch.set, req);
+    // The state the step wrote itself (its output merged on hand-over is re-derived when this one completes), as
+    // written before merge rules: this fork's state is the original's here, so the rules give the same values
+    const written = await this.prisma.eventLog.findMany({ where: { conversationId: spec.from, source: orig.requestId, eventName: STATE_PATCH }, orderBy: { id: 'asc' } });
+    for (const e of written) {
+      if (e.payload?.output) continue;
+      await this.writeState(req.conversationId, e.payload?.scope ?? null, e.payload?.incoming ?? e.payload?.set ?? {}, req);
+    }
+    const result = orig.output ?? (await this.store.responses.latest(orig.requestId))?.content ?? null;
     const nextCtx: Record<string, any> = {
       ...withoutBookkeeping(orig.context ?? {}),
-      [CREATED_BY_KEY]: ctx[CREATED_BY_KEY],
       [FORK_PATH_KEY]: path,
       ...(ctx.__scope != null ? { __scope: ctx.__scope } : {}),
     };
@@ -2382,8 +2380,7 @@ export class CuratorRequestProcessor {
       this.forkBoundaries.add(req.conversationId);
       if (patch && req.notifyId) this.boundaryPatches.set(req.id, patch);
     }
-    if (orig.result != null) await this.saveResponse(req, orig.result);
-    this.emit('request_replayed', { requestId: req.id, conversationId: req.conversationId, originalRequestId: orig.requestId, path, boundary: decision.boundary });
+    if (result != null) await this.saveResponse(req, result);
     this.progress({ kind: 'step.replayed', conversationId: req.conversationId, requestId: req.id, originalRequestId: orig.requestId, path, boundary: decision.boundary });
     await this.completeRequest(req.id, orig.status, false, { context: nextCtx });
     // Nothing downstream merged it (a root step): apply it now
@@ -2394,12 +2391,12 @@ export class CuratorRequestProcessor {
   /** The conversation, when the caller's projects may read it. */
   private async readableConversation(conversationId: number, projectIds: string[]) {
     const conv = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
-    if (!conv || !this.canAccessRequestProject(conv.projectId, projectIds)) throw new Error(`Conversation ${conversationId} not found`);
+    if (!conv || !canReadProject(conv.projectId, projectIds)) throw new Error(`Conversation ${conversationId} not found`);
     return conv;
   }
 
-  /** State events of a conversation as checkpoints, oldest first. Compacted conversations keep one event. */
-  public async listCheckpoints(conversationId: number, projectIds: string[]): Promise<Checkpoint[]> {
+  /** A conversation's state changes (its state events), oldest first. Compacted conversations keep one event. */
+  public async listStateHistory(conversationId: number, projectIds: string[]): Promise<StateHistoryEntry[]> {
     await this.readableConversation(conversationId, projectIds);
     const events = await this.prisma.eventLog.findMany({
       where: { conversationId, eventName: { in: [STATE_PATCH, STATE_REWIND] } },
@@ -2416,12 +2413,12 @@ export class CuratorRequestProcessor {
         scope: e.payload?.scope ?? null,
         keys: Object.keys(e.payload?.set ?? {}),
         forkable: !!step && step.status === 'COMPLETED' && !!step.nodeType && REPLAYABLE_NODE_TYPES.has(step.nodeType) && step.astHash != null,
-      } satisfies Checkpoint;
+      } satisfies StateHistoryEntry;
     });
   }
 
   /** The conversation state right after state event `seq` (default: now). */
-  public async stateAtCheckpoint(conversationId: number, seq: number | undefined, projectIds: string[]) {
+  public async stateAtSeq(conversationId: number, seq: number | undefined, projectIds: string[]) {
     await this.readableConversation(conversationId, projectIds);
     return stateAt(this.prisma, conversationId, seq);
   }
@@ -2491,7 +2488,6 @@ export class CuratorRequestProcessor {
         context: rootContext,
       },
     });
-    this.emit('conversation_forked', { conversationId: fork.id, from: conv.id, atRequestId, boundaryPath, rootRequestId: created.id });
     this.progress({ kind: 'run.forked', conversationId: fork.id, from: conv.id, atRequestId, rootRequestId: created.id });
     this.announce();
     return { conversationId: fork.id, rootRequestId: created.id, boundaryPath };
@@ -3084,7 +3080,7 @@ export class CuratorRequestProcessor {
         (await this.store.requests.updateWhere({ ids: [target.id], pendingDependencies: target.pendingDependencies }, data)) > 0;
 
       // The parallel's failure policy: close the Join now instead of waiting for the other branches
-      const policy = targetAst?.type === 'Curator_Join' ? this.parseContext(target.context)[JOIN_SPEC_KEY]?.onBranchFailure : undefined;
+      const policy = targetAst?.type === 'Curator_Join' ? (targetAst as any).fanIn?.onBranchFailure : undefined;
       if ((policy === 'cancel_siblings' || policy === 'fail_fast') && pending > 0) {
         if (!(await counted())) return false;
         await this.closeJoin(target.id, policy === 'fail_fast' ? { [JOIN_FAIL_FAST_KEY]: true } : {}, `branch failed (${policy})`);
@@ -3248,7 +3244,7 @@ export class CuratorRequestProcessor {
           // The state the write produced; read only when nothing was written
           let written =
             shouldPersistInState && Object.keys(newUpdates).length > 0
-              ? await this.writeState(targetReq.conversationId, sourceScope, newUpdates, req)
+              ? await this.writeState(targetReq.conversationId, sourceScope, newUpdates, req, { output: true })
               : null;
           // A fork's fork-point step: its statePatch lands after the step's own output, before anything reads it
           const boundaryPatch = this.boundaryPatches.get(req.id);
@@ -3273,16 +3269,13 @@ export class CuratorRequestProcessor {
             targetContext.$response = agentOutput;
             targetContext.$last = agentOutput;
           }
-          const skipKeys = new Set(['forEachIndex', 'forEachCollection', 'ifElseEvaluated',
-            'spawnedChild', 'routeDecided', 'pendingToolCall', 'waitEvent', 'payloadAlias', 'astPath',
-            '__humanInputReceived__', '__joinScope', 'waitDeadline', INTERRUPT_KEY, INTERRUPT_SEQ_KEY, CREATED_BY_KEY, FORK_PATH_KEY,
-            'loopIteration', 'loopRunning', 'loopCollection', 'iteration', 'index']);
+          const skipKeys = new Set([...ENGINE_PROGRESS_KEYS, 'waitEvent', 'payloadAlias', 'astPath', '__joinScope', FORK_PATH_KEY, 'iteration', 'index']);
           // A parked Curator_Call caller is isolated from its callee: the result flows back only via `as`.
           if (!targetContext.callPending && !(targetIsJoin && sourceScope != null)) {
             for (const [k, v] of Object.entries(sourceContext)) {
               if (skipKeys.has(k)) continue;
-              // A Join keeps the branch tag and rules of the parallel's parent (set when the parallel started)
-              if (targetIsJoin && (k === BRANCH_KEY || k === MERGE_RULES_KEY)) continue;
+              // A Join keeps the branch tag of the parallel's parent (set when the parallel started)
+              if (targetIsJoin && k === BRANCH_KEY) continue;
               targetContext[k] = v;
             }
           }

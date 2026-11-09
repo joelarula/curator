@@ -51,9 +51,9 @@ test('interrupts: a human prompt parks with an interrupt and resumes with a type
       /no longer open/,
       'a resumed interrupt cannot be resumed twice'
     );
-    const logged = await env.prisma.busEvent.findMany({ where: { conversationId: env.conversationId, eventName: 'curator:interrupt_resumed' } });
-    assert.equal(logged.length, 1);
-    assert.equal(logged[0].payload.value, 'blue');
+    // Only what nothing else holds is stored: prompt and choices are described from the prompt's own keys
+    const parked = await env.prisma.request.findUnique({ where: { id: requestId } });
+    assert.deepEqual(Object.keys(parked.context.__interrupt ?? {}).sort(), [], 'the envelope is cleared once resumed');
   } finally {
     await env.cleanup();
   }

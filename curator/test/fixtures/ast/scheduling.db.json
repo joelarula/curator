@@ -24,6 +24,7 @@
         "type": "Curator_Sequential"
       },
       "context": null,
+      "createdBy": null,
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -49,12 +50,12 @@
         "type": "Curator_Agent"
       },
       "context": {
-        "__createdBy": 1,
         "$last": "Successfully scheduled my_test_task. ID: 7",
         "$response": "Successfully scheduled my_test_task. ID: 7",
         "decision": "Successfully scheduled my_test_task. ID: 7",
         "input": "{}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -79,9 +80,8 @@
         ],
         "type": "Curator_Agent"
       },
-      "context": {
-        "__createdBy": 1
-      },
+      "context": null,
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,

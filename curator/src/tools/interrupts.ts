@@ -1,13 +1,11 @@
 import { defineTool } from './CuratorTool.js';
 import { InterruptService, type InterruptKind } from '../engine/Interrupts.js';
-import { actorFromToolContext } from '../services/ManagementGuardService.js';
+import { requireHumanCaller, sessionProjects } from './sessionScope.js';
 
 /**
  * Structured pause/resume (src/engine/Interrupts.ts): list the waits a human or client must resolve, and resume one
  * with a typed value. Project scope comes from the calling session (`toolContext.projectId`), never from arguments.
  */
-
-const sessionProjects = (ctx: Record<string, any>): string[] => (ctx.projectId != null ? [String(ctx.projectId)] : []);
 
 const interruptApi = (ctx: Record<string, any>) => {
   const api = ctx.tryService?.(InterruptService);
@@ -48,10 +46,8 @@ export const conversation_resume = defineTool<{ interruptId: string; value?: unk
   },
   execute: async (args, ctx) => {
     // An agent must never answer a human prompt or approve a gated tool call (its own included)
-    const actor = actorFromToolContext(ctx);
-    if (actor.agentId) throw new Error(`conversation_resume is for human callers; agent '${actor.agentId}' cannot resume interrupts`);
-    if (!actor.userId) throw new Error('conversation_resume needs the calling user');
-    return interruptApi(ctx).resume({ interruptId: args.interruptId, value: args.value, userId: actor.userId, projectIds: sessionProjects(ctx) });
+    const userId = requireHumanCaller(ctx, 'conversation_resume');
+    return interruptApi(ctx).resume({ interruptId: args.interruptId, value: args.value, userId, projectIds: sessionProjects(ctx) });
   },
 });
 

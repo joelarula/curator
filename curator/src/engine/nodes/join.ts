@@ -1,8 +1,8 @@
 import type { NodeHandler } from './NodeHandler.js';
 import type { CuratorJoinNode } from '../CuratorAst.js';
 import { logger } from '../../utils/logger.js';
-import { BRANCH_KEY, branchConflicts, rulesOf, MERGE_RULES_KEY, type BranchWrite } from '../StateMerge.js';
-import { JOIN_BRANCHES_KEY, JOIN_SINCE_KEY, JOIN_SPEC_KEY } from './parallel.js';
+import { BRANCH_KEY, branchConflicts, rulesOf, type BranchWrite } from '../StateMerge.js';
+import { JOIN_SINCE_KEY } from './parallel.js';
 
 /** Join context flags set when the branches were closed early. */
 export const JOIN_TIMED_OUT_KEY = '__joinTimedOut';
@@ -24,8 +24,9 @@ export const joinNode: NodeHandler<CuratorJoinNode> = {
   async run(ast, req, ctx) {
     logger.debug(`[CuratorRequestProcessor] Executing Join Node for request ${req.id}`);
     const jctx = ctx.parseContext(req.context);
-    const spec = jctx[JOIN_SPEC_KEY] ?? {};
-    const declared: string[] = jctx[JOIN_BRANCHES_KEY] ?? [];
+    // The parallel's fan-in contract (absent on Joins created before it existed: the old behaviour)
+    const spec = ast.fanIn ?? {};
+    const declared: string[] = spec.branches ?? [];
 
     const arrived = await ctx.store.requests.find({ notifyId: req.id });
     const responses = await ctx.store.responses.latestFor(arrived.filter((c) => c.output == null).map((c) => c.id));
@@ -81,10 +82,8 @@ export const joinNode: NodeHandler<CuratorJoinNode> = {
     }
 
     // 3. Isolated branches merged back into shared state, in branch order, through the rules
-    if (buckets.length) {
-      req.context = { ...jctx, [MERGE_RULES_KEY]: rules };
-      for (const [, bucket] of buckets) if (Object.keys(bucket).length) await ctx.writeState(req.conversationId, null, bucket);
-      req.context = jctx;
+    for (const [, bucket] of buckets) {
+      if (Object.keys(bucket).length) await ctx.writeState(req.conversationId, null, bucket, { rules });
     }
 
     // 4. The branches' outcomes under `as`

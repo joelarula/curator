@@ -46,8 +46,8 @@ for (const [target, makeEnv] of TARGETS) {
       assert.equal(traced(setState.id).nodeType, 'Curator_SetState');
       assert.equal(traced(setState.id).status, 'COMPLETED');
       assert.match(traced(setState.id).output, /State updated/);
-      // A replayable history step also records its result (and node hash) in its trace row, for fork replay
-      assert.equal(traced(tool.id).output, '{"echoed":"hi"}');
+      assert.equal(traced(tool.id).output, null, 'a history step keeps its result in its Response only');
+      // A replayable step records its node hash (and final context) for fork replay
       assert.equal(typeof traced(tool.id).astHash, 'string');
       assert.ok(traced(tool.id).startedAt instanceof Date);
     } finally {

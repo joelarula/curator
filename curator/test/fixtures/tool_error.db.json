@@ -24,6 +24,7 @@
         "type": "Curator_Sequential"
       },
       "context": null,
+      "createdBy": null,
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -49,13 +50,13 @@
         "type": "Curator_Tool"
       },
       "context": {
-        "__createdBy": 1,
         "echo": {
           "echoed": "after"
         },
         "echoed": "after",
         "input": "{\"output\":\"[Tool Error] kaboom\"}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -80,9 +81,8 @@
         "toolName": "boom",
         "type": "Curator_Tool"
       },
-      "context": {
-        "__createdBy": 1
-      },
+      "context": null,
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,

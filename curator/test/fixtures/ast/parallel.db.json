@@ -25,6 +25,7 @@
         "type": "Curator_Parallel"
       },
       "context": null,
+      "createdBy": null,
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -43,26 +44,21 @@
       "agentId": null,
       "aiModelId": null,
       "ast": {
+        "fanIn": {
+          "branches": [
+            "branch0",
+            "branch1",
+            "branch2"
+          ]
+        },
         "name": "ParallelResearch_join",
         "type": "Curator_Join"
       },
       "context": {
-        "__createdBy": 1,
-        "__joinBranches": [
-          "branch0",
-          "branch1",
-          "branch2"
-        ],
         "__joinSince": 0,
-        "__joinSpec": {
-          "isolate": false,
-          "mergeBack": false,
-          "onBranchFailure": "continue",
-          "requires": "any",
-          "rules": null
-        },
         "input": "{\"section\":\"Environment\",\"content\":\"Green energy investments will double.\"}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -89,9 +85,9 @@
         "__branch": {
           "join": 2,
           "name": "branch0"
-        },
-        "__createdBy": 1
+        }
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -118,9 +114,9 @@
         "__branch": {
           "join": 2,
           "name": "branch1"
-        },
-        "__createdBy": 1
+        }
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -147,9 +143,9 @@
         "__branch": {
           "join": 2,
           "name": "branch2"
-        },
-        "__createdBy": 1
+        }
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,

@@ -84,6 +84,7 @@ export class MemoryStorageAdapter implements IStorageAdapter {
       oneOf(r.status, f.status) &&
       (f.notifyId === undefined || r.notifyId === f.notifyId) &&
       (f.parentId === undefined || r.parentId === f.parentId) &&
+      (f.createdBy === undefined || r.createdBy === f.createdBy) &&
       (f.lockedBy === undefined || r.lockedBy === f.lockedBy) &&
       (f.lockedBefore === undefined || (r.lockedAt != null && r.lockedAt.getTime() <= f.lockedBefore.getTime())) &&
       (f.scheduledAfter === undefined || (r.scheduledAt != null && r.scheduledAt.getTime() > f.scheduledAfter.getTime())) &&
@@ -128,6 +129,7 @@ export class MemoryStorageAdapter implements IStorageAdapter {
         priority: input.priority ?? 0,
         notifyId: input.notifyId ?? null,
         parentId: input.parentId ?? null,
+        createdBy: input.createdBy ?? null,
         pendingDependencies: input.pendingDependencies ?? 0,
         retryCount: 0,
         eventCursor: null,

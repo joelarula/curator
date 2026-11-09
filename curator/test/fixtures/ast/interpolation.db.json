@@ -56,6 +56,7 @@
         "type": "Curator_Sequential"
       },
       "context": null,
+      "createdBy": null,
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -108,9 +109,9 @@
         "type": "Curator_Agent"
       },
       "context": {
-        "__createdBy": 1,
         "input": "{\"userTarget\":\"Master Curator\",\"limit\":42,\"status\":\"State updated\",\"state\":{\"userTarget\":\"Master Curator\",\"limit\":42},\"name\":\"Testing Entity\"}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -134,9 +135,9 @@
         "type": "Curator_Script"
       },
       "context": {
-        "__createdBy": 1,
         "input": "{\"userTarget\":\"Master Curator\",\"limit\":42,\"status\":\"State updated\",\"state\":{\"userTarget\":\"Master Curator\",\"limit\":42}}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -161,9 +162,8 @@
         },
         "type": "Curator_SetState"
       },
-      "context": {
-        "__createdBy": 1
-      },
+      "context": null,
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,

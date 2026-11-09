@@ -37,6 +37,7 @@ function requestWhere(f: RequestFilter): Record<string, unknown> {
   if (f.status !== undefined) where.status = listOrOne(f.status);
   if (f.notifyId !== undefined) where.notifyId = f.notifyId;
   if (f.parentId !== undefined) where.parentId = f.parentId;
+  if (f.createdBy !== undefined) where.createdBy = f.createdBy;
   if (f.lockedBy !== undefined) where.lockedBy = f.lockedBy;
   if (f.lockedBefore !== undefined) where.lockedAt = { lte: f.lockedBefore };
   if (f.scheduledAfter !== undefined) where.scheduledAt = { gt: f.scheduledAfter };
@@ -92,6 +93,7 @@ const toRequest = (r: any): StoredRequest => ({
   priority: r.priority,
   notifyId: r.notifyId ?? null,
   parentId: r.parentId ?? null,
+  createdBy: r.createdBy ?? null,
   pendingDependencies: r.pendingDependencies,
   retryCount: r.retryCount,
   eventCursor: r.eventCursor ?? null,
@@ -102,7 +104,7 @@ const toRequest = (r: any): StoredRequest => ({
   updatedAt: r.updatedAt,
 });
 
-const INT_COLUMNS = ['id', 'scriptId', 'scriptVersion', 'aiModelId', 'conversationId', 'priority', 'retryCount', 'notifyId', 'pendingDependencies', 'eventCursor', 'parentId'] as const;
+const INT_COLUMNS = ['id', 'scriptId', 'scriptVersion', 'aiModelId', 'conversationId', 'priority', 'retryCount', 'notifyId', 'pendingDependencies', 'eventCursor', 'parentId', 'createdBy'] as const;
 
 /** A Request row read with raw SQL, shaped like a Prisma row (numbers, parsed Json; MariaDB returns Json as text). */
 const rawRequest = (r: any): any => {

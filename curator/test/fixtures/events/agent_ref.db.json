@@ -10,6 +10,7 @@
       "context": {
         "input": "{\"got\":\"from-agent\"}"
       },
+      "createdBy": null,
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -29,7 +30,6 @@
       "aiModelId": null,
       "ast": null,
       "context": {
-        "__createdBy": 1,
         "astPath": "",
         "callDepth": 1,
         "got": "from-agent",
@@ -40,6 +40,7 @@
         },
         "ref": "agent_script"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,

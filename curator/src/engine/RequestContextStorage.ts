@@ -7,6 +7,15 @@ import { shareStateProjectors } from './ConversationStateLog.js';
  */
 export const STATE_PATCH_KEY = '__statePatch';
 
+/**
+ * Context keys a node keeps for its own progress (loop position, a pending tool call, an open interrupt, ...).
+ * They belong to the request that set them: never carried to the next step, never copied by a fork.
+ */
+export const ENGINE_PROGRESS_KEYS: readonly string[] = [
+  'forEachIndex', 'forEachCollection', 'ifElseEvaluated', 'spawnedChild', 'routeDecided', 'pendingToolCall',
+  'waitDeadline', '__humanInputReceived__', '__interrupt', '__interruptSeq', 'loopIteration', 'loopRunning', 'loopCollection',
+];
+
 const REQUEST_WRITES = ['create', 'update', 'updateMany', 'upsert', 'createMany'] as const;
 
 function withoutState(context: any): any {

@@ -42,6 +42,8 @@ export interface StatePatchPayload {
   incoming?: Record<string, any>;
   /** The parallel branch that wrote it: `{ join, name }` (Join conflict checks). */
   branch?: { join: number; name: string };
+  /** The writer's result, merged into state when it handed over to the next step (fork replay re-derives it). */
+  output?: true;
 }
 
 export interface StateSnapshot {

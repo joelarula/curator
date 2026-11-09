@@ -304,9 +304,23 @@ export interface CuratorJoinTimeoutNode extends CuratorBaseNode {
   joinId: number;
 }
 
+/** Internal: a Parallel's fan-in contract, carried on the Join node it creates (see nodes/parallel.ts). */
+export interface CuratorJoinFanIn {
+  branches?: string[];
+  /** This parallel's own merge rules (enclosing parallels' and the module's apply under them). */
+  rules?: Record<string, CuratorStateSchema[string]['merge']>;
+  strict?: boolean;
+  isolate?: boolean;
+  mergeBack?: boolean;
+  as?: string;
+  requires?: CuratorJoinSpec['requires'];
+  onBranchFailure?: CuratorJoinSpec['onBranchFailure'];
+}
+
 export interface CuratorJoinNode extends CuratorBaseNode {
   type: typeof CuratorNodeType.Join;
   name?: string;
+  fanIn?: CuratorJoinFanIn;
   joinLogic?: string; // "concat", "array", etc.
   nextNode?: CuratorAstNode;
 }

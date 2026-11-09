@@ -6,7 +6,7 @@ import { GuardrailService } from '../../services/GuardrailService.js';
 import { AgentRoleService } from '../../services/AgentRoleService.js';
 import { logger } from '../../utils/logger.js';
 import { ToolExecutionError } from '../FaultPolicy.js';
-import { openInterrupt, APPROVAL_RESUME_SCHEMA } from '../Interrupts.js';
+import { INTERRUPT_OPENED, openInterrupt, APPROVAL_RESUME_SCHEMA } from '../Interrupts.js';
 
 export const toolNode: NodeHandler<CuratorToolNode> = {
   type: 'Curator_Tool',
@@ -63,7 +63,7 @@ export const toolNode: NodeHandler<CuratorToolNode> = {
             ...interruptKeys
           }
         });
-        ctx.emit('curator:interrupt', interrupt);
+        ctx.emit(INTERRUPT_OPENED, interrupt);
         // Audit record only: the poller never treats this Response as the approval (see pendingToolCall guard).
         await ctx.saveResponse(req, JSON.stringify({
           type: 'APPROVAL_REQUIRED', ok: false, tool: toolKey, reason: accessCheck.reason, expiresAt

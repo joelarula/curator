@@ -20,6 +20,7 @@
         "loopRunning": true,
         "tick": 3
       },
+      "createdBy": null,
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -45,10 +46,10 @@
         "type": "Curator_Tool"
       },
       "context": {
-        "__createdBy": 1,
         "iteration": 1,
         "tick": 1
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -74,11 +75,11 @@
         "type": "Curator_Tool"
       },
       "context": {
-        "__createdBy": 1,
         "input": "{\"output\":\"1\"}",
         "iteration": 2,
         "tick": 2
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -104,11 +105,11 @@
         "type": "Curator_Tool"
       },
       "context": {
-        "__createdBy": 1,
         "input": "{\"output\":\"2\"}",
         "iteration": 3,
         "tick": 3
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,

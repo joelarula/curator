@@ -365,6 +365,8 @@ model Request {
   updatedAt          DateTime      @updatedAt
   responses          Response[]
   parentId           Int?
+  /// Request that created this one (lineage: fork replay rebuilds the run's tree from it). Covers parentId (a subset with cancel semantics).
+  createdBy          Int?
   parent             Request?      @relation("Workflow", fields: [parentId], references: [id])
   children           Request[]     @relation("Workflow")
   existent           Boolean?      @default(true)
@@ -374,6 +376,7 @@ model Request {
   @@index([conversationId, status])
   @@index([conversationId, updatedAt])
   @@index([parentId])
+  @@index([conversationId, createdBy])
   @@index([notifyId])
 }
 
@@ -654,13 +657,10 @@ model StepTrace {
   nodeType       String?
   status         String
   output         String?  @db.LongText
-  /// Request that created this one (fork replay rebuilds the run's tree from it).
-  createdBy      Int?
-  /// Replayable steps (agent, tool, reducer, human input, event wait): hash of the node, the context it ended with
-  /// and the state patches it wrote, so a fork can return the recorded result instead of running it again.
+  /// Replayable steps (agent, tool, reducer, human input, event wait): node hash and the context the step ended with
+  /// (contexts are trimmed); a fork returns the recorded result instead of running the step again. Roots: context.
   astHash        String?
   context        Json?
-  statePatches   Json?
   startedAt      DateTime?
   worker         String?
 

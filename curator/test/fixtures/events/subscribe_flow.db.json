@@ -43,6 +43,7 @@
         "type": "Curator_Sequential"
       },
       "context": null,
+      "createdBy": null,
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -68,9 +69,9 @@
         "type": "Curator_EmitEvent"
       },
       "context": {
-        "__createdBy": 1,
         "input": "{}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -94,9 +95,9 @@
         "type": "Curator_Unsubscribe"
       },
       "context": {
-        "__createdBy": 1,
         "input": "{}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -122,9 +123,9 @@
         "type": "Curator_EmitEvent"
       },
       "context": {
-        "__createdBy": 1,
         "input": "{}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -150,9 +151,9 @@
         "type": "Curator_EmitEvent"
       },
       "context": {
-        "__createdBy": 1,
         "input": "{}"
       },
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -177,9 +178,8 @@
         "type": "Curator_Subscribe",
         "when": "evt.n > 1"
       },
-      "context": {
-        "__createdBy": 1
-      },
+      "context": null,
+      "createdBy": "<req:1>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,
@@ -199,7 +199,6 @@
       "aiModelId": null,
       "ast": null,
       "context": {
-        "__createdBy": 4,
         "astPath": "",
         "eventName": "ping",
         "got": 2,
@@ -220,6 +219,7 @@
           "got": 2
         }
       },
+      "createdBy": "<req:4>",
       "deletedAt": null,
       "executionScheduled": "<ts>",
       "existent": true,

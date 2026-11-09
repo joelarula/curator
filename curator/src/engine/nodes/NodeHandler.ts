@@ -166,7 +166,8 @@ export interface NodeContext extends ServiceAccess {
   getConversationState(conv: any): Record<string, any>;
   /** Conversation state; with `scope`, shared state overlaid with that private bucket. */
   readState(conversationId: any, scope?: string | null): Promise<Record<string, any>>;
-  writeState(conversationId: any, scope: string | null | undefined, updates: Record<string, any>): Promise<void>;
+  /** `opts.rules`: merge rules to apply instead of the writer's (see StateMerge.ts). */
+  writeState(conversationId: any, scope: string | null | undefined, updates: Record<string, any>, opts?: { rules?: Record<string, any> }): Promise<void>;
   /** Resolves a subscription handler ref ('script', 'script#sub', '#sub') to a stored script and entry. */
   resolveHandler(handler: string, req: any): Promise<{ scriptId: number; entry: string | null }>;
   /** Merge rules of `req`'s state writes: its module's `stateSchema`, then its parallel's (see StateMerge.ts). */

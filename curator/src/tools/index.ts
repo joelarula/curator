@@ -38,7 +38,7 @@ import {
   delete_relation,
 } from './resources.js';
 import { interruptTools, conversation_interrupts, conversation_resume } from './interrupts.js';
-import { timeTravelTools, conversation_checkpoints, conversation_state_at, conversation_fork } from './timeTravel.js';
+import { timeTravelTools, conversation_state_history, conversation_state_at, conversation_fork } from './timeTravel.js';
 import type { CuratorTool } from './CuratorTool.js';
 
 export {
@@ -79,8 +79,8 @@ export {
   // Interrupt tools
   conversation_interrupts,
   conversation_resume,
-  // Checkpoint / fork tools
-  conversation_checkpoints,
+  // State history / fork tools
+  conversation_state_history,
   conversation_state_at,
   conversation_fork,
 };
