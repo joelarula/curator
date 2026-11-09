@@ -54,7 +54,7 @@ Scope (agreed 2026-11-09):
 **Track B, engine and plugins**
 4. Phase 4: Guardrail filter hooks and message actions, done.
 5. Phase 5: Plugin config schemas, persisted values, settings tab, done.
-6. Phase 6: Agent presentation and capability flags (S–M, small schema change).
+6. Phase 6: Agent presentation and capability flags, done.
 7. Phase 7: Prompt-based tool calling in providers (M). Needs 6.
 
 **Track C, harness and miniapps**
@@ -216,16 +216,26 @@ Follow-ups: `server` module `db:push` for the new table (with the earlier pendin
 Tests: `curator/test/engine/plugin-config.test.ts` (precedence, validation, unset, describe, `$config` per project,
 tool authorization), `packages/curator-console/test/settings.test.ts`.
 
-## Phase 6: Agent presentation and capability flags
+## Phase 6: Agent presentation and capability flags (implemented 2026-11-10)
 
-- `CuratorAgentDefinition.presentation?: { title, description, icon?, starterPrompts? }`; DB-created agents get
-  `Agent.metadata Json?` holding the same shape. Starter prompts render as the same suggestion chips as
-  `<suggest>`.
-- Capabilities are per model: provider-level defaults (`ILlmProvider.capabilities?: { tools: 'native' | 'prompt' |
-  'none', vision, json, streaming, embeddings }`) overridden per model by `AIModel.capabilities Json?`.
-- No new catalog tool: the existing agents GraphQL query (behind `AgentsTab` / `harness.agents`) returns
-  `presentation` and resolved capabilities.
-- Harness agent picker shows title/description/starter prompts; controls hide what the model can't do.
+- `CuratorAgentDefinition.presentation: { title, description, icon, starterPrompts }`.
+- `ILlmProvider.capabilities` (+ optional `capabilitiesFor(model)`): `tools` (native | prompt | none), `vision`,
+  `json`, `streaming`, `embeddings`; `llmCapabilities(provider, model)` = defaults < provider < model (a provider with
+  `embedContent` has embeddings). Declared by the OpenAI-compatible, Anthropic and Gemini providers.
+- `agentCatalog.ts`: `describeAgent(name, def)` (title/description/icon/starter prompts with fallbacks, and the
+  capabilities of the agent's entry `Curator_Agent` node; `tools: 'none'` when it offers no tools; `dynamic` for
+  `$`-expression provider/model; null for workflows without a model step).
+- No new catalog tool: the existing `agents` query returns `title`, `icon`, `starterPrompts`, `capabilities`
+  (`packages/server`; gallery also for stored agents, merged with the plugin definition by name). The console falls
+  back to the old query on servers without them.
+- Console: the agent picker shows title, description, icon and capability icons (tools, vision, disabled); the
+  selected agent's starter prompts appear as chips in the empty output (same chips as `<suggest>`).
+
+Changed from the plan: per-model overrides come from the provider (`capabilitiesFor`) instead of a new
+`AIModel.capabilities` column, and presentation of agents created in the database (no plugin definition) waits for an
+`Agent.metadata` column; both avoided a schema change.
+
+Tests: `curator/test/engine/agent-catalog.test.ts`.
 
 ## Phase 7: Prompt-based tool calling in providers
 

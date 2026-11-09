@@ -4,6 +4,7 @@ import { GuardrailService } from '../../services/GuardrailService.js';
 
 export class AnthropicLlmProvider implements ILlmProvider {
   public readonly providerName = 'anthropic';
+  public readonly capabilities = { tools: 'native', vision: true, json: true, streaming: false, embeddings: false } as const;
 
   public async generateContent(req: LlmRequest): Promise<LlmResponse> {
     const apiKey = req.apiKey || process.env.ANTHROPIC_API_KEY;

@@ -136,6 +136,20 @@
           <div v-if="!outputText && historyList.length === 0" class="text-center py-6">
             <div class="text-h5 mb-1 opacity-30">⚡</div>
             <div class="text-body-2 text-medium-emphasis">OpPrompt feedback will stream here above your prompt.</div>
+            <!-- Starter prompts of the selected agent (same chips as <suggest>) -->
+            <div v-if="starterPrompts.length > 0" class="d-flex flex-wrap justify-center ga-1 mt-3">
+              <v-chip
+                v-for="(sp, idx) in starterPrompts"
+                :key="idx"
+                size="small"
+                variant="tonal"
+                color="primary"
+                class="cursor-pointer"
+                @click="applySuggestion(sp)"
+              >
+                {{ sp }}
+              </v-chip>
+            </div>
             <div class="text-caption text-disabled mt-1">
               Type <code>show app resources</code> or select an agent/tool below and press Ctrl + Enter.
             </div>
@@ -400,6 +414,11 @@ const isExecuting = computed(() => props.executing ?? harness?.executing.value ?
 const stepMsg = computed(() => props.liveStepMessage ?? harness?.liveStepMessage.value ?? null);
 const currentRun = computed(() => harness?.runTimeline?.value ?? null);
 const interruptCards = computed(() => harness?.interrupts?.cardInterrupts.value ?? []);
+const starterPrompts = computed<string[]>(() => {
+  const name = harness?.selectedAgent.value;
+  const agent = (harness?.agents.value ?? []).find((a: any) => a.name === name);
+  return Array.isArray(agent?.starterPrompts) ? agent.starterPrompts : [];
+});
 
 function openLatestTurnMenu(e: MouseEvent) {
   harness?.openTurnMenu(e, {

@@ -20,6 +20,12 @@ export const curatorGraphQLTypeDefs = /* GraphQL */ `
     description: String
     schedule: String
     enabled: Boolean!
+    "Display name (presentation.title, else the name)"
+    title: String
+    icon: String
+    starterPrompts: [String!]
+    "Entry model capabilities: tools (native|prompt|none), vision, json, streaming, embeddings, provider, model, dynamic"
+    capabilities: JSON
   }
 
   type CuratorResponseSummary {

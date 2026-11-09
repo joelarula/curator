@@ -12,6 +12,8 @@ import { GuardrailService } from '../../services/GuardrailService.js';
 
 export class OpenAiCompatibleLlmProvider implements ILlmProvider {
   public readonly providerName = 'openai-compatible';
+  // llama.cpp / Ollama / OpenAI-style servers: native `tools`, `response_format` JSON, no image input assumed
+  public readonly capabilities = { tools: 'native', vision: false, json: true, streaming: false, embeddings: true } as const;
 
   public async generateContent(req: LlmRequest): Promise<LlmResponse> {
     const baseUrl = req.baseUrl || process.env.LOCAL_LLM_URL || process.env.OPENAI_BASE_URL || 'http://localhost:8080';

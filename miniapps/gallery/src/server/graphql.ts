@@ -1,5 +1,5 @@
 import { buildSchema, graphql, type GraphQLSchema } from 'graphql';
-import { compileCoffeeScriptToAST } from '@curator/agent-server';
+import { compileCoffeeScriptToAST, describeAgent } from '@curator/agent-server';
 import { wrapResolversWithAuth } from '@curator/plugin-auth';
 import { galleryTypeDefs } from './schema.ts';
 import { authEngine } from './auth.ts';
@@ -404,15 +404,23 @@ export function resolvers({ host, user, projectId }: GraphqlContext) {
         where: { existent: true },
         include: { script: true },
       });
-      return rows.map((a: any) => ({
-        id: String(a.id),
-        name: a.name,
-        description: a.script?.description || `Gallery agent ${a.name}`,
-        schedule: a.schedule || '0 * * * *',
-        enabled: Boolean(a.enabled),
-        isActive: Boolean(a.enabled),
-        ast: typeof a.script?.ast === 'string' ? a.script.ast : JSON.stringify(a.script?.ast || {}),
-      }));
+      return rows.map((a: any) => {
+        const description = a.script?.description || `Gallery agent ${a.name}`;
+        const entry = describeAgent(a.name, { ...(host.engine.agents.get(a.name) ?? {}), description, ast: a.script?.ast });
+        return {
+          id: String(a.id),
+          name: a.name,
+          description: entry.description ?? description,
+          schedule: a.schedule || '0 * * * *',
+          enabled: Boolean(a.enabled),
+          isActive: Boolean(a.enabled),
+          ast: typeof a.script?.ast === 'string' ? a.script.ast : JSON.stringify(a.script?.ast || {}),
+          title: entry.title,
+          icon: entry.icon ?? null,
+          starterPrompts: entry.starterPrompts,
+          capabilities: entry.capabilities,
+        };
+      });
     },
 
     curatorAgents: async () => {

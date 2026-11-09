@@ -15,7 +15,19 @@
         hide-details
         class="flex-grow-1"
         style="min-width: 200px;"
-      />
+      >
+        <template #item="{ props: itemProps, item }">
+          <v-list-item v-bind="itemProps" :subtitle="item.raw.subtitle" :prepend-icon="item.raw.icon">
+            <template #append>
+              <span class="d-flex ga-1">
+                <v-icon v-if="item.raw.caps?.tools && item.raw.caps.tools !== 'none'" size="14" title="Uses tools">mdi-wrench-outline</v-icon>
+                <v-icon v-if="item.raw.caps?.vision" size="14" title="Understands images">mdi-eye-outline</v-icon>
+                <v-icon v-if="!item.raw.enabled" size="14" color="warning" title="Disabled">mdi-pause-circle-outline</v-icon>
+              </span>
+            </template>
+          </v-list-item>
+        </template>
+      </v-select>
 
       <!-- Tool Mode Target -->
       <v-select
@@ -369,7 +381,11 @@ const presetItems = computed(() => props.workflowPresetItems ?? harness?.workflo
 
 const agentSelectItems = computed(() => {
   return agentList.value.map((a: any) => ({
-    title: `🤖 ${a.name} (${a.enabled ? 'Active' : 'Disabled'})`,
+    title: a.title || a.name,
+    subtitle: a.description || (a.title && a.title !== a.name ? a.name : undefined),
+    icon: a.icon || 'mdi-robot-outline',
+    caps: a.capabilities ?? null,
+    enabled: a.enabled !== false,
     value: a.name,
   }));
 });

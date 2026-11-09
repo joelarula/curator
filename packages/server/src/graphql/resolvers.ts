@@ -1,4 +1,4 @@
-import { compileCoffeeScriptToAST } from '@curator/agent-server';
+import { compileCoffeeScriptToAST, describeAgent } from '@curator/agent-server';
 import type { CuratorHost } from '@curator/host';
 
 export function createCuratorResolvers(host: CuratorHost, customResolvers: Record<string, any> = {}) {
@@ -73,8 +73,7 @@ export function createCuratorResolvers(host: CuratorHost, customResolvers: Recor
 
     agents: () => {
       return Array.from(host.engine.agents.entries()).map(([name, agent]: [string, any]) => ({
-        name,
-        description: agent.description,
+        ...describeAgent(name, agent),
         schedule: agent.schedule || null,
         enabled: agent.enabled ?? true,
       }));
@@ -84,8 +83,7 @@ export function createCuratorResolvers(host: CuratorHost, customResolvers: Recor
       const agent = host.engine.agents.get(name);
       if (!agent) return null;
       return {
-        name,
-        description: agent.description,
+        ...describeAgent(name, agent),
         schedule: agent.schedule || null,
         enabled: agent.enabled ?? true,
       };

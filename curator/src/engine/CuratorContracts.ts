@@ -83,6 +83,8 @@ export interface CuratorRoleDefinition {
 
 export interface CuratorAgentDefinition {
   description?: string;
+  /** How pickers show the agent: title, description, icon, starter prompts (see agentCatalog.ts). */
+  presentation?: import('./agentCatalog.js').CuratorAgentPresentation;
   ast?: CuratorAstNode;
   sourceCode?: string;
   schedule?: string;

@@ -277,6 +277,10 @@ export const galleryTypeDefs = /* GraphQL */ `
     enabled: Boolean!
     isActive: Boolean
     ast: String
+    title: String
+    icon: String
+    starterPrompts: [String!]
+    capabilities: JSON
     episodesCount: Int
     tracksCount: Int
     lastRunAt: String

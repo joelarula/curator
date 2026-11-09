@@ -85,8 +85,41 @@ export interface LlmCacheInfo {
   };
 }
 
+/** What a provider (or one of its models) supports; clients hide what the model can't do. */
+export interface LlmCapabilities {
+  /** Tool calling: provider-native, through a prompt protocol, or not at all. */
+  tools: 'native' | 'prompt' | 'none';
+  vision: boolean;
+  json: boolean;
+  streaming: boolean;
+  embeddings: boolean;
+}
+
+/** Assumed for providers that declare nothing (the behaviour before capabilities existed). */
+export const DEFAULT_LLM_CAPABILITIES: Readonly<LlmCapabilities> = Object.freeze({
+  tools: 'native',
+  vision: false,
+  json: true,
+  streaming: false,
+  embeddings: false,
+});
+
+/** Capabilities of `model` on `provider`: defaults < provider `capabilities` < `capabilitiesFor(model)`. */
+export function llmCapabilities(provider: ILlmProvider | undefined, model?: string): LlmCapabilities {
+  return {
+    ...DEFAULT_LLM_CAPABILITIES,
+    ...(provider?.embedContent ? { embeddings: true } : {}),
+    ...(provider?.capabilities ?? {}),
+    ...(provider?.capabilitiesFor?.(model) ?? {}),
+  };
+}
+
 export interface ILlmProvider {
   readonly providerName: string;
+  /** Provider-wide capabilities (missing fields: DEFAULT_LLM_CAPABILITIES). */
+  readonly capabilities?: Partial<LlmCapabilities>;
+  /** Per-model differences (e.g. a text-only model of a vision provider). */
+  capabilitiesFor?(model?: string): Partial<LlmCapabilities> | undefined;
   generateContent(req: LlmRequest): Promise<LlmResponse>;
   embedContent?(req: LlmEmbeddingRequest): Promise<LlmEmbeddingResponse>;
   createContextCache?(req: LlmCreateCacheRequest): Promise<LlmCacheInfo>;

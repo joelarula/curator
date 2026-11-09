@@ -238,6 +238,7 @@ import {
   GET_AGENTS_QUERY,
   GET_TOOLS_QUERY,
   GET_TOOLS_QUERY_BASIC,
+  GET_AGENTS_QUERY_BASIC,
   GET_CURATOR_REQUESTS_QUERY,
   GET_DATABASE_HEALTH_QUERY,
   TRIGGER_AGENT_MUTATION,
@@ -841,7 +842,8 @@ function removePendingUploadFile(index: number) {
 // -----------------------------------------------------------------------------
 async function fetchAgents() {
   try {
-    const data = await executeGraphql(GET_AGENTS_QUERY);
+    // Servers without presentation/capability fields reject the full query: fall back
+    const data = await executeGraphql(GET_AGENTS_QUERY).catch(() => executeGraphql(GET_AGENTS_QUERY_BASIC));
     agents.value = data.agents || [];
     if (!selectedAgent.value && agents.value.length > 0) {
       selectedAgent.value = agents.value[0].name;

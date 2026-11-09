@@ -95,6 +95,7 @@ export interface ILlmProvider {
 
 export class GeminiLlmProvider implements ILlmProvider {
   public readonly providerName = 'gemini';
+  public readonly capabilities = { tools: 'native', vision: true, json: true, streaming: false, embeddings: true } as const;
 
   constructor(private defaultApiKey?: string, private defaultModel: string = 'gemini-2.5-flash') {}
 

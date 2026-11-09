@@ -10,6 +10,22 @@ export const GET_AGENTS_QUERY = /* GraphQL */ `
       description
       schedule
       enabled
+      title
+      icon
+      starterPrompts
+      capabilities
+    }
+  }
+`;
+
+/** For servers whose agent type has no presentation/capability fields yet. */
+export const GET_AGENTS_QUERY_BASIC = /* GraphQL */ `
+  query GetAgentsBasic {
+    agents {
+      name
+      description
+      schedule
+      enabled
     }
   }
 `;

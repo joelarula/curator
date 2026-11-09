@@ -303,3 +303,27 @@ export const riskPlugin: CuratorPlugin = {
   value; project scope needs the `config:project` role, system scope `config:system`.
 - Tools: `config_get`, `config_set`, `config_unset` (project and user always come from the session). The console's
   Settings tab renders a form from the schema.
+
+
+## Agent presentation and capabilities
+
+Give agents a face in pickers with `presentation`; capabilities are derived from the agent's first `Curator_Agent`
+node (provider and model) and returned by the `agents` GraphQL query:
+
+```typescript
+agents: {
+  risk_advisor: {
+    description: 'Scores portfolio risk and explains it',
+    presentation: {
+      title: 'Risk advisor',
+      icon: 'mdi-shield-search',
+      starterPrompts: ['Score my current portfolio', 'What drives the risk today?'],
+    },
+    ast: riskAdvisorFlow,
+  },
+},
+```
+
+Capabilities (`tools`: native | prompt | none, `vision`, `json`, `streaming`, `embeddings`) come from the provider's
+`capabilities` and `capabilitiesFor(model)` (`ILlmProvider`); `tools` is `none` when the agent node offers no tools,
+and `dynamic: true` marks a `$`-expression provider/model.
