@@ -3,4 +3,5 @@ export * from './tools.js';
 export * from './reducers.js';
 export * from './game.js';
 export * from './app.js';
+export * from './progress.js';
 

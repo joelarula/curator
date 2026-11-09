@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type { Server as HttpServer } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
+import { PROGRESS_EVENT, isProgressEvent, type ProgressEvent } from '@curator/agent-server';
 
 export type CuratorEventType =
   | 'request_start'
@@ -118,6 +119,18 @@ export class CuratorHostEvents extends EventEmitter {
     const handler = (payload: any, event: CuratorEvent) => callback(payload, event);
     this.on(type, handler);
     return () => this.off(type, handler);
+  }
+
+  /**
+   * Follows the typed progress stream (`curator:progress`, see ProgressEvent): step, wait, state and run events.
+   * `conversationId` limits it to one conversation. Returns an unsubscribe function.
+   */
+  public onProgress(callback: (event: ProgressEvent) => void, opts: { conversationId?: number } = {}): () => void {
+    return this.onType(PROGRESS_EVENT, (payload) => {
+      if (!isProgressEvent(payload)) return;
+      if (opts.conversationId != null && payload.conversationId !== opts.conversationId) return;
+      callback(payload);
+    });
   }
 
   public getRecentLogs(): CuratorLogEntry[] {

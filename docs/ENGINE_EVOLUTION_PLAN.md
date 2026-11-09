@@ -102,26 +102,41 @@ Not done in D (follow-ups):
 - Cancelling branches does not interrupt a step a worker is running (it finishes; its hand-over is dropped). Combined with Phase A `timeoutMs` on the step, long steps can be bounded.
 - The last step of a flow with nothing after it still does not merge its output into state (existing behaviour).
 
-## Phase E: Composition contracts
+## Phase E: Composition contracts → folded into "script contract hardening" (follow-up, not a phase)
 
-- Callee runs in its own scope (`call:<callerId>`): it still reads shared state, but only `returns`/`as` flows back. Opt-in first (`stateIsolation: 'scoped'`), since it changes existing behaviour.
-- Ajv validation of `params` types; optional `output` schema on modules.
-- Builder helper to run a module on its own with given params (isolation tests).
+Reusable graphs already exist as scripts: `Curator_Module` (`main`, `subroutines`, `params`), `Curator_Call`
+(`ref`, `args`, `returns`, `as`), immutable `ScriptVersion`s, and the callee runs as a child seeing only its params.
+Decided 2026-11-09: no new composition feature; three small gaps remain:
 
-## Phase F: Runtime context separate from workflow state
+1. Callee state leaks: the callee runs unscoped (`nodes/call.ts`), so its intermediate writes land in the caller's shared state. Fix: a `call:<callerId>` scope (reads shared, only `as` flows back), opt-in first (`stateIsolation: 'scoped'` on the module) since it changes existing behaviour.
+2. `params` types are declared but not checked (`bindParams` applies only `required` / `default`). Fix: Ajv check per declared type.
+3. No output contract: optional `output` JSON Schema on modules/subroutines, checked on `returns`.
+
+## Phase F: Runtime context separate from workflow state → mostly covered, skipped (2026-11-09)
+
+Already separated today: services (`ctx.service`, process-wide), credentials (`$secret:` placeholders hydrated at call
+time, outputs masked), per-call runtime values (`host.runTool` `runtimeArgs` / `runtimeContext`, memory only), traces
+(own tables). No infrastructure values were found in stored contexts. Remaining gap, not scheduled: a non-persisted
+input channel for whole workflows (`$runtime.x`) and a stripped reserved `__runtime` key as a backstop. Original notes:
 
 - Split request context into **persisted** (business state, step bookkeeping) and **runtime** (services, credentials, trace ids, session handles), the latter provided per execution via `NodeContext.runtime` and never written to `Request.context`, Responses or state events.
 - A `withoutStoredStateCopies`-style Prisma extension strips a reserved `__runtime` key on write, as a backstop.
 - Scripts read runtime values via `$runtime.x` in expressions; secrets resolve through `SecretService` handles, never values.
 - Audit current context keys (e.g. `sessionId`) and move the infrastructure ones over with a deprecation read path.
 
-## Phase G: Progress streaming as a stable API
+## Phase G: Progress streaming as a stable API (implemented 2026-11-09)
 
-- One typed, versioned event union published through `host.emitEvent` / `CuratorHostEvents`:
-  `step.started | step.completed | step.failed | step.retrying | token | wait.opened | wait.resumed | run.completed | state.changed`
-  each carrying `{ v: 1, conversationId, requestId, step, nodeType, ts, ... }`.
-- Sources: existing `onEvent` emits, StepTrace records, Phase A retries, Phase B interrupts, state projectors (`registerStateProjector`) for `state.changed`, LLM streaming for `token`.
-- Keep the current event names as aliases for one release; export the type from `@curator/host/contracts`.
+Reference: `curator/CURATOR_AST.md` §16; code: `src/engine/ProgressEvents.ts`, `CuratorHostEvents.onProgress`.
+
+- One event type, `curator:progress`, `{ v: 1, kind, seq, ts, conversationId, requestId? }`, on the existing channel (processor `onEvent` → host events → WebSocket). No new transport.
+- Kinds: `step.started`, `step.finished` (one kind with `status`, instead of separate completed/failed kinds), `step.retrying`, `step.replayed`, `wait.opened`, `wait.resumed`, `state.changed`, `run.finished`, `run.forked`.
+- Types live in the engine and are re-exported (types only) from `@curator/host/contracts`; `host.events.onProgress(cb, { conversationId })`.
+- Older event names stay as they are (no aliases needed: they are still emitted).
+
+Not done in G (follow-ups):
+- `token` events: LLM providers return whole responses; streaming needs provider support first.
+- `state.changed` covers writes made through workflow steps, not direct `appendStatePatch` calls (conversation managers).
+- `seq` is per worker; a global order would need a shared sequence.
 
 ## Decisions (2026-11-09)
 

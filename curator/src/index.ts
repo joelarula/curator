@@ -22,6 +22,12 @@ export {
   MERGE_RULE_NAMES, applyMergeRules, mergeValue, rulesOf, branchConflicts,
   type CuratorMergeRule, type CuratorStateSchema, type MergeRuleName, type MergeRules,
 } from './engine/StateMerge.js';
+export {
+  PROGRESS_EVENT, PROGRESS_EVENT_VERSION, isProgressEvent,
+  type ProgressEvent, type ProgressEventKind, type StepStatus, type StepStartedEvent, type StepFinishedEvent,
+  type StepRetryingEvent, type StepReplayedEvent, type WaitOpenedEvent, type WaitResumedEvent, type StateChangedEvent,
+  type RunFinishedEvent, type RunForkedEvent,
+} from './engine/ProgressEvents.js';
 export * from './engine/CuratorAst.js';
 export * from './engine/CuratorBuilder.js';
 export * from './engine/builder/index.js';

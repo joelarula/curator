@@ -21,6 +21,7 @@ import {
   type ApprovalResume, type CuratorInterrupt, type ListInterruptsFilter, type ResumeInterruptInput, type ResumeInterruptResult,
 } from './Interrupts.js';
 import { getReadableProjectIds } from '../services/ProjectScopeService.js';
+import { PROGRESS_EVENT, PROGRESS_EVENT_VERSION, type ProgressEventInput, type StepStatus } from './ProgressEvents.js';
 import { BRANCH_KEY, MERGE_RULES_KEY, rulesOf, type MergeRules } from './StateMerge.js';
 import { JOIN_SPEC_KEY } from './nodes/parallel.js';
 import { JOIN_FAIL_FAST_KEY } from './nodes/join.js';
@@ -315,6 +316,8 @@ export class CuratorRequestProcessor {
   /** Request id -> resolved node type and start time while this worker executes it (req.ast is null in reference mode). */
   /** Requests this worker is executing: node type, start, and the content of the Response it last saved for one. */
   private executing = new Map<number, { nodeType: string; startedAt: Date; lastResponse?: string; astHash?: string }>();
+  /** Sequence of this process's progress events. */
+  private progressSeq = 0;
   /** Fork specs by conversation (null: not a fork), the original runs' step index per fork, and forks past their fork point. */
   private forkSpecs = new Map<number, ForkSpec | null>();
   private forkIndexes = new Map<number, Promise<Map<string, OriginalStep>>>();
@@ -579,6 +582,15 @@ export class CuratorRequestProcessor {
     try {
       this.onEvent?.(type, payload);
     } catch (_) {}
+    // Interrupts are opened by node handlers (ctx.emit): announce them on the progress stream too
+    if (type === 'curator:interrupt' && payload?.requestId != null) {
+      this.progress({ kind: 'wait.opened', conversationId: payload.conversationId, requestId: payload.requestId, interrupt: payload });
+    }
+  }
+
+  /** Emits a typed progress event (`curator:progress`, see ProgressEvents.ts). */
+  private progress(event: ProgressEventInput) {
+    this.emit(PROGRESS_EVENT, { v: PROGRESS_EVENT_VERSION, seq: ++this.progressSeq, ts: this.clock(), ...event });
   }
 
   /** The attempt running in this async context, if any (see AttemptScope). */
@@ -705,11 +717,13 @@ export class CuratorRequestProcessor {
     const branch = scope == null && ctx[BRANCH_KEY] ? { branch: ctx[BRANCH_KEY] } : {};
     const rules = opts.raw || !req ? undefined : await this.mergeRulesFor(req);
     // Event-sourced: append a patch to the EventLog and refresh the materialized view (no read-modify-write race).
-    return appendStatePatch(this.prisma, conversationId, { scope: scope ?? null, set: updates, ...branch }, {
+    const written = await appendStatePatch(this.prisma, conversationId, { scope: scope ?? null, set: updates, ...branch }, {
       source: req?.id ?? null,
       rules,
       reducer: (name) => this.engine.reducers?.get(name),
     });
+    this.progress({ kind: 'state.changed', conversationId: Number(conversationId), requestId: req?.id ?? undefined, stateSeq: written.seq, scope: scope ?? null, keys: Object.keys(updates) });
+    return written;
   }
 
   /** Merge rules of a request's writes: its module's `stateSchema`, then its parallel's (`__mergeRules`). */
@@ -1633,6 +1647,7 @@ export class CuratorRequestProcessor {
           // Replayable steps record their node's hash in StepTrace (a fork matches steps by it)
           ...(REPLAYABLE_NODE_TYPES.has(ast.type) ? { astHash: nodeHash(ast) } : {}),
         });
+        this.progress({ kind: 'step.started', conversationId: req.conversationId, requestId: req.id, nodeType: ast.type, attempt: (req.retryCount ?? 0) + 1 });
         // In a fork, a step recorded before the fork point returns its recorded result instead of running
         if (await this.replayIfForked(req, ast)) return;
         const handler = this.nodes.get(ast.type) ?? this.engine.nodes?.get(ast.type);
@@ -2022,6 +2037,7 @@ export class CuratorRequestProcessor {
     logger.debug(`[CuratorRequestProcessor] Request ${req.id}: ${decision.errorClass}, retrying in ${Math.round(decision.delayMs / 1000)}s (attempt ${decision.attempt + 1}/${decision.maxAttempts})`);
     await this.store.requests.update(req.id, { status: 'NEW', lockedBy: null, lockedAt: null, retryCount: (req.retryCount ?? 0) + 1, scheduledAt });
     this.emit('request_retry', { requestId: req.id, attempt: decision.attempt, maxAttempts: decision.maxAttempts, errorClass: decision.errorClass, delayMs: decision.delayMs, error: msg });
+    this.progress({ kind: 'step.retrying', conversationId: req.conversationId, requestId: req.id, attempt: decision.attempt, maxAttempts: decision.maxAttempts, errorClass: decision.errorClass, delayMs: decision.delayMs, error: msg });
     this.trace?.record({
       conversationId: req.conversationId,
       requestId: req.id,
@@ -2230,6 +2246,7 @@ export class CuratorRequestProcessor {
 
     await this.logEvent(req.conversationId, 'curator:interrupt_resumed', { interruptId: id, kind: interrupt.kind, outcome, userId: input.userId, value: input.value ?? null }, null, req.id);
     this.emit('curator:interrupt_resumed', { interruptId: id, requestId: req.id, conversationId: req.conversationId, kind: interrupt.kind, outcome });
+    this.progress({ kind: 'wait.resumed', conversationId: req.conversationId, requestId: req.id, interruptId: id, waitKind: interrupt.kind, outcome });
     this.announce();
     return { interruptId: id, requestId: req.id, kind: interrupt.kind, outcome };
   }
@@ -2367,6 +2384,7 @@ export class CuratorRequestProcessor {
     }
     if (orig.result != null) await this.saveResponse(req, orig.result);
     this.emit('request_replayed', { requestId: req.id, conversationId: req.conversationId, originalRequestId: orig.requestId, path, boundary: decision.boundary });
+    this.progress({ kind: 'step.replayed', conversationId: req.conversationId, requestId: req.id, originalRequestId: orig.requestId, path, boundary: decision.boundary });
     await this.completeRequest(req.id, orig.status, false, { context: nextCtx });
     // Nothing downstream merged it (a root step): apply it now
     if (patch && (!req.notifyId || this.boundaryPatches.delete(req.id))) await this.writeState(req.conversationId, null, patch, req, { raw: true });
@@ -2474,6 +2492,7 @@ export class CuratorRequestProcessor {
       },
     });
     this.emit('conversation_forked', { conversationId: fork.id, from: conv.id, atRequestId, boundaryPath, rootRequestId: created.id });
+    this.progress({ kind: 'run.forked', conversationId: fork.id, from: conv.id, atRequestId, rootRequestId: created.id });
     this.announce();
     return { conversationId: fork.id, rootRequestId: created.id, boundaryPath };
   }
@@ -3153,6 +3172,15 @@ export class CuratorRequestProcessor {
       throw err;
     }
     this.emit('request_done', { requestId, success: status === 'COMPLETED', status });
+    const startedAt = this.executing.get(requestId)?.startedAt;
+    this.progress({
+      kind: 'step.finished', conversationId: req.conversationId, requestId, nodeType: this.nodeTypeOf(req),
+      status: status as StepStatus, durationMs: startedAt ? Math.max(0, this.clock() - startedAt.getTime()) : null,
+    });
+    // A flow ends at a step that hands over to nothing (hand-overs pass skipNotify; a failure with onError continues)
+    if (!skipNotify && !req.notifyId && TERMINAL_STATUSES.has(status) && !(status === 'FAILED' && this.parseAst(req.ast)?.onError)) {
+      this.progress({ kind: 'run.finished', conversationId: req.conversationId, requestId, status: status as StepStatus });
+    }
     const nodeType = this.nodeTypeOf(req);
     if (this.trace?.enabled) {
       this.trace.record({

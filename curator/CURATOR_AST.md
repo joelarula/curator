@@ -524,3 +524,26 @@ At the Join, keys without a rule that two or more branches wrote are conflicts. 
 * **`timeoutMs`**: branches not back in time are cancelled (reported `TIMEOUT`) and the Join decides by `requires` (an internal `Curator_JoinTimeout` request is scheduled for it).
 * Cancelling a branch cancels its waiting and pending steps, nested parallels included. A step a worker is running at that moment finishes, but nothing it hands over to runs.
 * The Join's own result stays the branches' joined text.
+
+## 16. Progress events
+
+The processor publishes one typed, versioned stream, `curator:progress` (`src/engine/ProgressEvents.ts`; types re-exported from `@curator/host/contracts`). The host broadcasts it to listeners and WebSocket clients (filtered by conversation); in code: `host.events.onProgress((e) => ..., { conversationId })`.
+
+Every event has `{ v: 1, kind, seq, ts, conversationId, requestId? }`:
+
+| kind | when | extra fields |
+|---|---|---|
+| `step.started` | a step's node resolved and it runs | `nodeType`, `attempt` |
+| `step.finished` | a step ended | `nodeType`, `status` (COMPLETED, FAILED, CANCELLED, SKIPPED), `durationMs` |
+| `step.retrying` | a failed attempt runs again later (`retry`) | `attempt`, `maxAttempts`, `errorClass`, `delayMs`, `error` |
+| `step.replayed` | a fork returned a recorded result | `originalRequestId`, `path`, `boundary` |
+| `wait.opened` | a step parked on an interrupt | `interrupt` (the §13 envelope) |
+| `wait.resumed` | an interrupt was resumed | `interruptId`, `waitKind`, `outcome` |
+| `state.changed` | a step wrote state | `stateSeq`, `scope`, `keys` |
+| `run.finished` | a flow's last step ended with nothing waiting on it | `status` |
+| `run.forked` | this conversation was forked from another | `from`, `atRequestId`, `rootRequestId` |
+
+* `seq` orders one worker's events (not global across workers); `ts` is the processor's clock.
+* New kinds and optional fields may appear within `v: 1`: ignore kinds you do not know. `v` changes only for breaking changes.
+* The older events (`request_start`, `request_done`, `curator:interrupt`, `request_retry`, ...) are still emitted.
+* Not on the stream yet: LLM token streaming (providers return whole responses) and state written outside workflow steps.
