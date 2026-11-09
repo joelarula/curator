@@ -8,7 +8,7 @@ import { buildContext } from '../llm/ConversationFold.js';
 import { traceLlmCall } from '../llm/LlmTrace.js';
 import { toCamelCase } from '../builder/CuratorCoreBuilder.js';
 import { SecretService } from '../../services/SecretService.js';
-import { GuardrailService } from '../../services/GuardrailService.js';
+import { GuardrailService, type GuardrailHookBlocked } from '../../services/GuardrailService.js';
 import { AgentRoleService } from '../../services/AgentRoleService.js';
 import {
   DEFAULT_SUMMARY_INSTRUCTION,
@@ -212,7 +212,21 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
         signal
       };
 
-      const response = await traceLlmCall({ ...traceKey, turn: iterations }, llmReq, () => provider.generateContent(llmReq), ctx.llm.recordCall, ctx.llm.recordTelemetry);
+      // Plugin guardrail hooks around the model call (built-in ingress checks already ran on the prompt)
+      const hookCtx = { requestId: req.id, conversationId: req.conversationId, agentName: ast.agentName, projectId: req.projectId, turn: iterations };
+      const inlet = await GuardrailService.runInlet(llmReq, hookCtx);
+      if (inlet.blocked) {
+        await saveGuardrailBlock(ctx, req, inlet.blocked);
+        return;
+      }
+      const sentReq = inlet.request;
+      const rawResponse = await traceLlmCall({ ...traceKey, turn: iterations }, sentReq, () => provider.generateContent(sentReq), ctx.llm.recordCall, ctx.llm.recordTelemetry);
+      const outlet = await GuardrailService.runOutlet(rawResponse, hookCtx);
+      if (outlet.blocked) {
+        await saveGuardrailBlock(ctx, req, outlet.blocked);
+        return;
+      }
+      const response = outlet.response;
 
       // If model returned no tool calls, it's a final answer
       if (!response.toolCalls || response.toolCalls.length === 0) {
@@ -437,7 +451,8 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
     }
 
     // Egress sanitization: unified SecretService.mask applies hydrated secrets + pluggable redaction rules (PCI/PII/tokens)
-    finalOutput = SecretService.mask(finalOutput);
+    // Egress: plugin providers' sanitizeEgress, then the built-in masking last
+    finalOutput = await GuardrailService.sanitizeEgress(finalOutput, { requestId: req.id, conversationId: req.conversationId, agentName: ast.agentName, projectId: req.projectId });
 
     logger.debug(`[CuratorRequestProcessor] Agent '${ast.agentName}' completed in ${iterations} turn(s). Output length: ${finalOutput.length}`);
     const targetKey = agentOutputKey(ast);
@@ -455,6 +470,18 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
     await ctx.completeRequest(req.id, 'COMPLETED');
   },
 };
+
+/** Records a guardrail hook block as a GUARDRAIL_BLOCKED Response and ends the step (like the ingress check). */
+async function saveGuardrailBlock(ctx: any, req: any, blocked: GuardrailHookBlocked): Promise<void> {
+  await ctx.saveResponse(req, JSON.stringify({
+    type: 'GUARDRAIL_BLOCKED',
+    ok: false,
+    reason: blocked.reason,
+    atlasTag: blocked.atlasTag,
+    metadata: { provider: blocked.provider, stage: blocked.stage },
+  } satisfies CuratorStructuredResponse));
+  await ctx.completeRequest(req.id, 'COMPLETED');
+}
 
 /** Function names every provider accepts (Anthropic/OpenAI: [A-Za-z0-9_-]{1,64}; Gemini is a superset). */
 const LLM_TOOL_NAME = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;

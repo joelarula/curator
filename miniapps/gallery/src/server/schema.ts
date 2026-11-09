@@ -266,6 +266,7 @@ export const galleryTypeDefs = /* GraphQL */ `
     description: String
     accessLevel: String
     parameters: JSON
+    ui: JSON
   }
 
   type AgentInfo {

@@ -52,7 +52,7 @@ Scope (agreed 2026-11-09):
 3. ~~Phase 3: Branch navigation~~ deferred.
 
 **Track B, engine and plugins**
-4. Phase 4: Guardrail filter hooks and message actions (M).
+4. Phase 4: Guardrail filter hooks and message actions, done.
 5. Phase 5: Plugin config schemas, persisted values, settings tab (M–L, schema change).
 6. Phase 6: Agent presentation and capability flags (S–M, small schema change).
 7. Phase 7: Prompt-based tool calling in providers (M). Needs 6.
@@ -163,25 +163,33 @@ Only on top of a relational tree pattern for selecting forks (nested set or simi
 index with `existent`). Notes for later: fork lineage in that structure, `conversation_branches` tool,
 `conversation_fork({ resumeValue })` for "edit and rerun", `‹ 2/3 ›` switcher at the fork step.
 
-## Phase 4: Guardrail filter hooks and message actions
+## Phase 4: Guardrail filter hooks and message actions (implemented 2026-11-10)
 
-Filters: extend the existing guardrail plugin hook instead of adding a `filters` field.
-- `IGuardrailProvider` gains optional `priority`, `appliesTo` (agent names/globs), `inlet?(req: LlmRequest, ctx)`
-  and `outlet?(res: LlmResponse, ctx)`; existing `evaluateIngress` / `sanitizeEgress` keep working. Plugins register
-  through `guardrails.providers` as today.
-- `GuardrailService` runs providers in priority order around `generateContent` in `nodes/agent.ts`. Built-in checks
-  (`inspectPromptIngress`, truncation, `SecretService.mask`) always run first on ingress and last on egress.
-- Wire `sanitizeEgress` (no call site found today).
-- A provider can block (`GUARDRAIL_BLOCKED`) or transform text; it can't add tools or widen permissions. Its settings
-  come from Phase 5.
+Filters extend the existing guardrail plugin hook (`guardrails.providers` / `GuardrailService.registerProvider`); no
+new plugin field.
+- `IGuardrailProvider` gains `priority` (lower first, default 100), `appliesTo` (agent names/globs), `inlet(request,
+  ctx)` and `outlet(response, ctx)`. A hook returns a changed value, nothing, or `{ blocked: true, reason, atlasTag? }`.
+- `GuardrailService.runInlet` / `runOutlet` run them in `nodes/agent.ts` around every model call, after the built-in
+  ingress checks. Returned tools are cut to the original set; model, endpoint, API key, cached content and abort
+  signal are restored; tool calls the model did not make are dropped. A block, or a hook that throws (fail closed),
+  records `GUARDRAIL_BLOCKED` (`metadata: { provider, stage }`) and ends the step.
+- `GuardrailService.sanitizeEgress` replaces the final `SecretService.mask` call: providers' `sanitizeEgress` (the
+  hook had no call site before) in priority order, then the built-in masking last. A failing egress provider is
+  logged and skipped; the masking still runs.
+- `inspectPromptIngress` now also respects `priority` / `appliesTo` for `evaluateIngress`.
 
 Message actions: tool metadata, shown in the existing context menu.
-- Optional `ui?: { messageAction?: { label, icon?, appliesTo?: 'assistant' | 'user' | 'tool' } }` on
-  `CuratorToolContract` and `defineTool`.
-- Shown in `HarnessContextMenu` when it's opened on a turn (no new hover toolbar); runs the tool through the adapter
-  with `{ conversationId, requestId, text }`, same access/approval rules as any tool.
+- `ui.messageAction: { label, icon?, appliesTo? }` on `defineTool` / `CuratorTool` / `CuratorToolContract`.
+- The tools query returns `ui` (`packages/server`, gallery); the console falls back to the old query on servers
+  without it.
+- `useMessageActions` (console): tools per message role (default assistant); runs them through `executeTool`
+  (`host.runTool`) with the arguments the tool declares among `text`, `requestId`, `conversationId`. The result is
+  shown like a tool turn.
+- `HarnessContextMenu` lists them first when opened on a turn (⋮ next to Copy, or right-click on the output or a
+  Turns entry), plus Copy text.
 
-Tests: provider ordering, built-ins not bypassable, block path, egress masking; action dispatch.
+Tests: `curator/test/engine/guardrail-hooks.test.ts` (rewrite limits, block and fail-closed, outlet limits, egress
+order, priority/appliesTo), `packages/curator-console/test/messageActions.test.ts`.
 
 ## Phase 5: Plugin config schemas, persisted values, settings tab
 

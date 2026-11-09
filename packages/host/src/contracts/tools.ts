@@ -13,6 +13,10 @@ export interface CuratorToolContract<TArgs = Record<string, unknown>, TOutput = 
   readonly requiresHumanApproval?: boolean;
   readonly requiresConfirmation?: boolean;
   /** Presentation hints: `progressLabel` names the tool in progress events (plain text, no argument values). */
-  readonly ui?: { readonly progressLabel?: string };
+  readonly ui?: {
+    readonly progressLabel?: string;
+    /** Offered on conversation messages; called with the declared ones of `text`, `requestId`, `conversationId`. */
+    readonly messageAction?: { readonly label: string; readonly icon?: string; readonly appliesTo?: readonly ('assistant' | 'user' | 'tool')[] };
+  };
 }
 

@@ -17,6 +17,31 @@
     >
       <v-card elevation="8" rounded="lg" class="pa-1 border" color="surface">
         <v-list density="compact" nav class="py-1">
+          <!-- 0. Message actions (menu opened on a turn): tools with ui.messageAction -->
+          <template v-if="turn">
+            <v-list-subheader class="text-uppercase text-caption font-weight-bold text-primary px-2">
+              Message actions
+            </v-list-subheader>
+            <v-list-item
+              v-for="t in turnActions"
+              :key="`msg-${t.name}`"
+              :prepend-icon="t.ui?.messageAction?.icon || 'mdi-lightning-bolt-outline'"
+              rounded="md"
+              class="mb-1"
+              :disabled="!!harness?.messageActions.running.value"
+              @click="harness?.runMessageAction(t)"
+            >
+              <v-list-item-title>{{ t.ui.messageAction.label }}</v-list-item-title>
+            </v-list-item>
+            <v-list-item v-if="turnActions.length === 0" class="text-caption text-disabled">
+              No tools offer message actions.
+            </v-list-item>
+            <v-list-item prepend-icon="mdi-content-copy" rounded="md" class="mb-1" @click="copyTurn">
+              <v-list-item-title>Copy text</v-list-item-title>
+            </v-list-item>
+            <v-divider class="my-1" />
+          </template>
+
           <!-- 1. Active AST Workflow Choices (if any) -->
           <template v-if="choiceItems.length > 0">
             <v-list-subheader class="text-uppercase text-caption font-weight-bold text-primary px-2">
@@ -181,6 +206,13 @@ const toolItems = computed(() => props.tools ?? harness?.tools.value ?? []);
 const agentItems = computed(() => props.agents ?? harness?.agents.value ?? []);
 const selectedAgentName = computed(() => props.selectedAgent ?? harness?.selectedAgent.value ?? '');
 const paused = computed(() => props.isPaused ?? harness?.isPaused.value ?? false);
+const turn = computed(() => harness?.contextMenuTurn?.value ?? null);
+const turnActions = computed(() => (turn.value ? harness?.messageActions.actionsFor(turn.value.role ?? 'assistant') ?? [] : []));
+
+function copyTurn() {
+  if (turn.value) navigator.clipboard?.writeText(turn.value.text).catch(() => {});
+  isVisible.value = false;
+}
 
 const anchorRef = ref<HTMLElement | null>(null);
 

@@ -21,6 +21,19 @@ export const GET_TOOLS_QUERY = /* GraphQL */ `
       description
       accessLevel
       parameters
+      ui
+    }
+  }
+`;
+
+/** For servers whose tool type has no `ui` field yet (no message actions then). */
+export const GET_TOOLS_QUERY_BASIC = /* GraphQL */ `
+  query GetToolsBasic {
+    tools {
+      name
+      description
+      accessLevel
+      parameters
     }
   }
 `;

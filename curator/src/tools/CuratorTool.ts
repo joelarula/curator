@@ -58,6 +58,20 @@ export interface McpToolExposure {
 export interface CuratorToolUi {
   /** Label in progress events and status lines (e.g. "Searching the knowledge base"); default: the tool name. */
   progressLabel?: string;
+  /**
+   * Offer this tool as an action on conversation messages (console context menu on a turn). The client calls it with
+   * the arguments it declares among `text` (the message), `requestId` and `conversationId`; same access rules as
+   * any tool call.
+   */
+  messageAction?: CuratorMessageAction;
+}
+
+export interface CuratorMessageAction {
+  label: string;
+  /** Material Design icon name, e.g. `mdi-content-save`. */
+  icon?: string;
+  /** Message roles it applies to (default: assistant). */
+  appliesTo?: ('assistant' | 'user' | 'tool')[];
 }
 
 export interface CuratorTool<TArgs = Record<string, unknown>, TOutput = CuratorToolOutput> {

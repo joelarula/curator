@@ -23,3 +23,10 @@ export {
 } from './composables/useRunTimeline';
 export { useInterrupts, type InterruptsHandle, type HarnessToolRunner } from './composables/useInterrupts';
 export { useChoices, type ChoicesHandle, type ChoiceSource, type SetChoicesOptions } from './composables/useChoices';
+export {
+  useMessageActions,
+  messageActionArgs,
+  type MessageActionsHandle,
+  type HarnessMessageRef,
+  type MessageActionTool,
+} from './composables/useMessageActions';

@@ -226,9 +226,11 @@ import { provideHarnessContext } from './context';
 import { useRunTimeline } from './composables/useRunTimeline';
 import { useChoices } from './composables/useChoices';
 import { useInterrupts } from './composables/useInterrupts';
+import { useMessageActions, type HarnessMessageRef } from './composables/useMessageActions';
 import {
   GET_AGENTS_QUERY,
   GET_TOOLS_QUERY,
+  GET_TOOLS_QUERY_BASIC,
   GET_CURATOR_REQUESTS_QUERY,
   GET_DATABASE_HEALTH_QUERY,
   TRIGGER_AGENT_MUTATION,
@@ -367,6 +369,9 @@ async function runHostTool(name: string, args: Record<string, unknown>): Promise
   return res.result;
 }
 const interrupts = useInterrupts(props.adapter?.onProgress?.bind(props.adapter), runHostTool);
+// Tools offered on messages (ui.messageAction), opened from the context menu on a turn
+const messageActions = useMessageActions(tools, runHostTool);
+const contextMenuTurn = ref<HarnessMessageRef | null>(null);
 // A prompt interrupt with choices drives the choice bar; resolving it clears them
 watch(interrupts.choiceInterrupt, (interrupt) => {
   if (!interrupt) {
@@ -837,7 +842,8 @@ async function fetchAgents() {
 
 async function fetchTools() {
   try {
-    const data = await executeGraphql(GET_TOOLS_QUERY);
+    // Servers without the `ui` field on tools reject the full query: fall back (no message actions then)
+    const data = await executeGraphql(GET_TOOLS_QUERY).catch(() => executeGraphql(GET_TOOLS_QUERY_BASIC));
     tools.value = data.tools || [];
     if (!selectedTool.value && tools.value.length > 0) {
       selectedTool.value = tools.value[0].name;
@@ -1272,6 +1278,7 @@ function focusPromptInput() {
 // Context Menu Handlers
 // -----------------------------------------------------------------------------
 function openContextMenu(e: MouseEvent) {
+  contextMenuTurn.value = null;
   const target = (e.currentTarget || e.target) as HTMLElement;
   if (e.clientX && e.clientY && e.button === 2) {
     contextMenuX.value = e.clientX;
@@ -1285,6 +1292,42 @@ function openContextMenu(e: MouseEvent) {
     contextMenuY.value = e.clientY || 100;
   }
   contextMenuVisible.value = true;
+}
+
+/** Opens the context menu on a message: its message actions are listed first. */
+function openTurnMenu(e: MouseEvent, message: HarnessMessageRef) {
+  openContextMenu(e);
+  contextMenuTurn.value = message;
+}
+
+/** Runs a message action on the turn the menu was opened on and shows its result like a tool turn. */
+async function runMessageAction(tool: any) {
+  const message = contextMenuTurn.value;
+  contextMenuVisible.value = false;
+  if (!message) return;
+  const startTime = Date.now();
+  const out = await messageActions.run(tool, message);
+  lastExecMode.value = 'tool';
+  lastExecTarget.value = tool.name;
+  lastExecDuration.value = Date.now() - startTime;
+  if (!out.ok) {
+    lastExecStatus.value = 'FAILED';
+    lastExecError.value = messageActions.error.value;
+    return;
+  }
+  lastExecError.value = null;
+  lastExecStatus.value = 'COMPLETED';
+  lastExecRaw.value = out.result;
+  lastExecOutput.value = typeof out.result === 'string' ? out.result : JSON.stringify(out.result, null, 2);
+  if (!applySurfaceIfPresent(out.result)) outputTab.value = 'formatted';
+  turnHistory.value.unshift({
+    id: String(Date.now()),
+    target: tool.name,
+    mode: 'tool',
+    prompt: `${tool.ui?.messageAction?.label ?? tool.name}: ${message.text.slice(0, 60)}`,
+    output: lastExecOutput.value || '',
+    timestamp: Date.now(),
+  });
 }
 
 function selectChoiceFromMenu(val: string) {
@@ -1428,6 +1471,10 @@ provideHarnessContext({
   navigateHistory,
   loadTurn: loadTurnIntoOutput,
   openContextMenu,
+  openTurnMenu,
+  contextMenuTurn,
+  messageActions,
+  runMessageAction,
   selectChoiceFromMenu,
   switchAgentFromMenu,
   insertToolCommand,

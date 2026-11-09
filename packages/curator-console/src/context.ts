@@ -3,6 +3,7 @@ import type { ChoiceItem } from './components/harness/HarnessChoices.vue';
 import type { TurnHistoryEntry } from './components/harness/HarnessOutput.vue';
 import type { RunTimeline } from './composables/useRunTimeline';
 import type { InterruptsHandle } from './composables/useInterrupts';
+import type { HarnessMessageRef, MessageActionsHandle } from './composables/useMessageActions';
 import type {
   HarnessLayoutMode,
   HarnessResourceViewMode,
@@ -97,6 +98,12 @@ export interface CuratorHarnessContext {
   navigateHistory: (direction: number) => void;
   loadTurn: (turn: TurnHistoryEntry) => void;
   openContextMenu: (e: MouseEvent) => void;
+  /** Opens the context menu on a message (its message actions first). */
+  openTurnMenu: (e: MouseEvent, message: HarnessMessageRef) => void;
+  /** The message the context menu was opened on (null for the Commands menu). */
+  contextMenuTurn: Ref<HarnessMessageRef | null>;
+  messageActions: MessageActionsHandle;
+  runMessageAction: (tool: any) => Promise<void>;
   selectChoiceFromMenu: (val: string) => void;
   switchAgentFromMenu: (agentName: string) => void;
   insertToolCommand: (tool: any) => void;

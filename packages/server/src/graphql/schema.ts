@@ -11,6 +11,8 @@ export const curatorGraphQLTypeDefs = /* GraphQL */ `
     description: String
     accessLevel: String
     parameters: JSON
+    "Presentation hints: progressLabel, messageAction"
+    ui: JSON
   }
 
   type AgentDefinition {

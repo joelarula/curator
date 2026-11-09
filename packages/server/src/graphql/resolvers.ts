@@ -56,6 +56,7 @@ export function createCuratorResolvers(host: CuratorHost, customResolvers: Recor
         description: tool.description,
         accessLevel: tool.accessLevel || 'domain',
         parameters: tool.parameters || null,
+        ui: tool.ui ?? null,
       }));
     },
 

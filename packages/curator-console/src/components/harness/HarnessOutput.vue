@@ -176,6 +176,13 @@
                   title="Copy Output"
                   @click="copyToClipboard(outputText || '')"
                 />
+                <v-btn
+                  size="x-small"
+                  variant="text"
+                  icon="mdi-dots-vertical"
+                  title="Message actions"
+                  @click="openLatestTurnMenu($event)"
+                />
               </div>
             </div>
 
@@ -197,7 +204,7 @@
             </div>
 
             <!-- Text / Markdown Output Container -->
-            <div class="mb-3">
+            <div class="mb-3" @contextmenu.prevent="openLatestTurnMenu($event)">
               <pre class="font-monospace text-caption pa-3 rounded bg-surface-variant text-primary overflow-auto text-wrap">{{ displayCleanText || 'Turn completed with no text output.' }}</pre>
             </div>
 
@@ -278,6 +285,7 @@
               hover
               class="pa-2 cursor-pointer transition-swing border rounded-lg"
               @click="loadTurnAction(turn)"
+              @contextmenu.prevent="harness?.openTurnMenu($event, { text: turn.output, role: 'assistant', requestId: turn.run?.rootRequestId ?? null, conversationId: turn.run?.conversationId ?? null })"
             >
               <div class="d-flex align-center justify-space-between text-caption mb-1">
                 <div class="d-flex align-center ga-2">
@@ -392,6 +400,15 @@ const isExecuting = computed(() => props.executing ?? harness?.executing.value ?
 const stepMsg = computed(() => props.liveStepMessage ?? harness?.liveStepMessage.value ?? null);
 const currentRun = computed(() => harness?.runTimeline?.value ?? null);
 const interruptCards = computed(() => harness?.interrupts?.cardInterrupts.value ?? []);
+
+function openLatestTurnMenu(e: MouseEvent) {
+  harness?.openTurnMenu(e, {
+    text: displayCleanText.value || outputText.value || '',
+    role: 'assistant',
+    requestId: reqId.value,
+    conversationId: currentRun.value?.conversationId ?? null,
+  });
+}
 const status = computed(() => props.lastExecStatus ?? harness?.lastExecStatus.value ?? null);
 const duration = computed(() => props.lastExecDuration ?? harness?.lastExecDuration.value ?? null);
 const reqId = computed(() => props.lastExecRequestId ?? harness?.lastExecRequestId.value ?? null);

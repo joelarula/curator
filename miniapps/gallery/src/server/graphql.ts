@@ -395,6 +395,7 @@ export function resolvers({ host, user, projectId }: GraphqlContext) {
         description: t.description || '',
         accessLevel: t.accessLevel || 'safe_read',
         parameters: t.parameters || null,
+        ui: t.ui ?? null,
       }));
     },
 

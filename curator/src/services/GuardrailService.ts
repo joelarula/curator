@@ -8,6 +8,7 @@ import {
   escapeSqlIdentifier,
 } from '../engine/output/OutputFormats.js';
 import { logger } from '../utils/logger.js';
+import type { LlmRequest, LlmResponse } from '../engine/llm/ILlmProvider.js';
 
 const Ajv = (AjvModule as any).default || AjvModule;
 const sharedAjv = new Ajv({ allErrors: true, strict: false });
@@ -127,9 +128,47 @@ export interface EgressSanitizationConfig {
  */
 export interface IGuardrailProvider {
   readonly name: string;
+  /** Order among providers: lower runs first (default 100). Built-in checks always run before (ingress) / after (egress). */
+  readonly priority?: number;
+  /** Agent names or `*` globs this provider applies to (default: every agent). */
+  readonly appliesTo?: readonly string[];
   evaluateIngress?(prompt: string, context?: Record<string, unknown>): Promise<{ allowed: boolean; reason?: string; atlasTag?: MitreAtlasTag }>;
+  /** Rewrites an agent's final output before it is stored (runs before the built-in secret/PII masking). */
   sanitizeEgress?(output: string, context?: Record<string, unknown>): Promise<string>;
+  /**
+   * Sees each model request of an agent turn after the built-in ingress checks: return a changed request, nothing to
+   * keep it, or `{ blocked: true, reason }`. It cannot add tools or change the model/endpoint (those are restored).
+   */
+  inlet?(request: LlmRequest, context: GuardrailHookContext): Promise<GuardrailHookOutcome<LlmRequest>> | GuardrailHookOutcome<LlmRequest>;
+  /** Sees each model response: return a changed response, nothing, or a block. It cannot add tool calls. */
+  outlet?(response: LlmResponse, context: GuardrailHookContext): Promise<GuardrailHookOutcome<LlmResponse>> | GuardrailHookOutcome<LlmResponse>;
 }
+
+/** What an inlet/outlet hook knows about the call. */
+export interface GuardrailHookContext {
+  requestId: number;
+  conversationId: number;
+  agentName?: string;
+  projectId?: string | null;
+  /** Model turn within the agent step (1-based). */
+  turn: number;
+}
+
+export interface GuardrailBlock {
+  blocked: true;
+  reason: string;
+  atlasTag?: MitreAtlasTag;
+}
+
+export type GuardrailHookOutcome<T> = void | undefined | T | GuardrailBlock;
+
+/** A hook blocked the call (or failed: hooks fail closed). */
+export interface GuardrailHookBlocked extends GuardrailBlock {
+  provider: string;
+  stage: 'inlet' | 'outlet';
+}
+
+const isBlock = (v: unknown): v is GuardrailBlock => !!v && typeof v === 'object' && (v as any).blocked === true;
 
 /**
  * Declarative guardrail contributions a `CuratorPlugin` may register.
@@ -384,7 +423,7 @@ export class GuardrailService {
       }
     }
 
-    for (const provider of this.providers) {
+    for (const provider of this.providersFor(typeof context?.agentName === 'string' ? context.agentName : undefined)) {
       if (provider.evaluateIngress) {
         const res = await provider.evaluateIngress(syncResult.sanitizedPrompt, context);
         if (!res.allowed) {
@@ -536,6 +575,99 @@ export class GuardrailService {
     if (!output || typeof output !== 'string') return output;
     const masked = SecretService.mask(output, secretsMap);
     return config ? this.redactPiiAndPci(masked, config) : masked;
+  }
+
+  // ── Provider hooks around model calls (inlet / outlet / egress) ─────────────
+
+  /** Providers that apply to `agentName`, by priority (stable for equal priorities). */
+  static providersFor(agentName?: string): IGuardrailProvider[] {
+    return this.providers
+      .map((p, i) => ({ p, i }))
+      .filter(({ p }) => !p.appliesTo?.length || (!!agentName && p.appliesTo.some((g) => globToRegExp(g.toLowerCase()).test(agentName.toLowerCase()))))
+      .sort((a, b) => (a.p.priority ?? 100) - (b.p.priority ?? 100) || a.i - b.i)
+      .map(({ p }) => p);
+  }
+
+  /**
+   * Runs the providers' `inlet` hooks on a model request. A hook may change prompts, messages and sampling, but the
+   * tools it returns are cut to the original set and model/endpoint/credentials/signal are restored.
+   */
+  static async runInlet(
+    request: LlmRequest,
+    context: GuardrailHookContext
+  ): Promise<{ request: LlmRequest; blocked?: undefined } | { blocked: GuardrailHookBlocked; request?: undefined }> {
+    let current = request;
+    for (const provider of this.providersFor(context.agentName)) {
+      if (!provider.inlet) continue;
+      let out: GuardrailHookOutcome<LlmRequest>;
+      try {
+        out = await provider.inlet(current, context);
+      } catch (err: any) {
+        return { blocked: { blocked: true, reason: `Guardrail provider '${provider.name}' failed: ${err?.message ?? err}`, provider: provider.name, stage: 'inlet' } };
+      }
+      if (isBlock(out)) return { blocked: { ...out, provider: provider.name, stage: 'inlet' } };
+      if (out && typeof out === 'object') {
+        const allowed = new Set((request.tools ?? []).map((t) => t.name));
+        const tools = (out.tools ?? []).filter((t) => allowed.has(t.name));
+        current = {
+          ...out,
+          tools: request.tools ? tools : undefined,
+          model: request.model,
+          baseUrl: request.baseUrl,
+          apiKey: request.apiKey,
+          cachedContent: request.cachedContent,
+          signal: request.signal,
+        };
+      }
+    }
+    return { request: current };
+  }
+
+  /** Runs the providers' `outlet` hooks on a model response; tool calls the model did not make are dropped. */
+  static async runOutlet(
+    response: LlmResponse,
+    context: GuardrailHookContext
+  ): Promise<{ response: LlmResponse; blocked?: undefined } | { blocked: GuardrailHookBlocked; response?: undefined }> {
+    let current = response;
+    for (const provider of this.providersFor(context.agentName)) {
+      if (!provider.outlet) continue;
+      let out: GuardrailHookOutcome<LlmResponse>;
+      try {
+        out = await provider.outlet(current, context);
+      } catch (err: any) {
+        return { blocked: { blocked: true, reason: `Guardrail provider '${provider.name}' failed: ${err?.message ?? err}`, provider: provider.name, stage: 'outlet' } };
+      }
+      if (isBlock(out)) return { blocked: { ...out, provider: provider.name, stage: 'outlet' } };
+      if (out && typeof out === 'object') {
+        const made = new Set((response.toolCalls ?? []).map((c) => `${c.id ?? ''}|${c.name}`));
+        const toolCalls = (out.toolCalls ?? []).filter((c) => made.has(`${c.id ?? ''}|${c.name}`));
+        current = { ...out, text: typeof out.text === 'string' ? out.text : '', toolCalls: toolCalls.length ? toolCalls : undefined };
+      }
+    }
+    return { response: current };
+  }
+
+  /**
+   * Egress for an agent's final output: the providers' `sanitizeEgress` in priority order, then the built-in masking
+   * (`SecretService.mask`: hydrated secrets and redaction rules) last, so a provider can't undo it.
+   */
+  static async sanitizeEgress(
+    output: string,
+    context: Partial<GuardrailHookContext> = {},
+    secretsMap?: Map<string, string>
+  ): Promise<string> {
+    let text = output;
+    if (typeof text !== 'string') return text;
+    for (const provider of this.providersFor(context.agentName)) {
+      if (!provider.sanitizeEgress) continue;
+      try {
+        const next = await provider.sanitizeEgress(text, context as Record<string, unknown>);
+        if (typeof next === 'string') text = next;
+      } catch (err: any) {
+        logger.warn(`[GuardrailService] sanitizeEgress of '${provider.name}' failed: ${err?.message ?? err}`);
+      }
+    }
+    return SecretService.mask(text, secretsMap);
   }
 
   static escapeHtml = escapeHtml;
