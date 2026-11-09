@@ -86,6 +86,7 @@
       },
       "context": {
         "__humanInputReceived__": true,
+        "__interruptSeq": 1,
         "input": "{\"phase\":1,\"status\":\"State updated\",\"state\":{\"phase\":1}}",
         "payload": {
           "msg": "hi"

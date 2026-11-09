@@ -90,6 +90,7 @@
       },
       "context": {
         "__humanInputReceived__": true,
+        "__interruptSeq": 1,
         "activeChoices": [],
         "as": "code",
         "choiceAs": "code",

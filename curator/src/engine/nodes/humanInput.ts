@@ -1,5 +1,6 @@
 import type { NodeHandler } from './NodeHandler.js';
 import { logger } from '../../utils/logger.js';
+import { openInterrupt } from '../Interrupts.js';
 
 export const humanInputNode: NodeHandler<any> = {
   type: 'Curator_HumanInput',
@@ -92,6 +93,15 @@ export const humanInputNode: NodeHandler<any> = {
     if (ast.timeoutSeconds > 0) {
       (updatedContext as any).waitDeadline = new Date(ctx.now() + ast.timeoutSeconds * 1000).toISOString();
     }
-    await ctx.store.requests.update(req.id, { status: 'WAITING_FOR_USER', context: updatedContext });
+    const { interrupt, context: interruptKeys } = openInterrupt(req, {
+      kind: 'human_input',
+      prompt: typeof prompt === 'string' ? prompt : undefined,
+      payload: { inputType: choicePayload.inputType, choices: choicePayload.choices },
+      resumeSchema: ast.resume?.schema,
+      targetUserId: ast.targetUserId ?? null,
+      deadline: (updatedContext as any).waitDeadline,
+    }, ctx.now());
+    await ctx.store.requests.update(req.id, { status: 'WAITING_FOR_USER', context: { ...updatedContext, ...interruptKeys } });
+    ctx.emit('curator:interrupt', interrupt);
   },
 };

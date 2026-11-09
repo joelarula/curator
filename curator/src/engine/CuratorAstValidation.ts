@@ -45,6 +45,8 @@ const REF_RE = new RegExp(REF_PATTERN);
 /** Output format pipeline: 'name', 'name:arg', { use, args }, or a list of these (see OutputFormats). */
 const FORMAT_STEP = { anyOf: [{ type: 'string', minLength: 1 }, { type: 'object', properties: { use: { type: 'string', minLength: 1 }, args: {} }, required: ['use'], additionalProperties: false }] };
 const FORMAT_SPEC = { anyOf: [FORMAT_STEP, { type: 'array', items: FORMAT_STEP }] };
+/** Typed resume of a wait: `{ schema }`, a JSON Schema the resume value must satisfy (see Interrupts.ts). */
+const RESUME_SPEC = { type: 'object', properties: { schema: { type: 'object' } }, additionalProperties: false };
 const TOOL_OUTPUT_RULES = { type: 'object', additionalProperties: { type: 'object', properties: { llm: FORMAT_SPEC, display: FORMAT_SPEC }, additionalProperties: false } };
 
 export interface CuratorRef {
@@ -151,7 +153,8 @@ const schema: Record<string, any> = {
         targetUserId: { type: ['string', 'integer'] },
         as: { type: 'string' },
         blocking: { type: 'boolean' },
-        timeoutSeconds: { type: 'number' }
+        timeoutSeconds: { type: 'number' },
+        resume: RESUME_SPEC
       },
       required: ['type', 'prompt'],
       additionalProperties: false,
@@ -188,7 +191,7 @@ const schema: Record<string, any> = {
     },
     {
       type: 'object',
-      properties: { ...baseProperties, type: { const: 'Curator_WaitEvent' }, eventName: { type: 'string', minLength: 1 }, eventNames: { type: 'array', items: { type: 'string', minLength: 1 } }, payloadAlias: { type: 'string' }, timeoutSeconds: { anyOf: [{ type: 'number' }, { type: 'string', minLength: 1 }] }, replay: { type: 'boolean' } },
+      properties: { ...baseProperties, type: { const: 'Curator_WaitEvent' }, eventName: { type: 'string', minLength: 1 }, eventNames: { type: 'array', items: { type: 'string', minLength: 1 } }, payloadAlias: { type: 'string' }, timeoutSeconds: { anyOf: [{ type: 'number' }, { type: 'string', minLength: 1 }] }, replay: { type: 'boolean' }, resume: RESUME_SPEC },
       required: ['type', 'eventName'],
       additionalProperties: false,
     },

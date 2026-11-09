@@ -6,6 +6,7 @@ import { GuardrailService } from '../../services/GuardrailService.js';
 import { AgentRoleService } from '../../services/AgentRoleService.js';
 import { logger } from '../../utils/logger.js';
 import { ToolExecutionError } from '../FaultPolicy.js';
+import { openInterrupt, APPROVAL_RESUME_SCHEMA } from '../Interrupts.js';
 
 export const toolNode: NodeHandler<CuratorToolNode> = {
   type: 'Curator_Tool',
@@ -38,6 +39,13 @@ export const toolNode: NodeHandler<CuratorToolNode> = {
         logger.debug(`[CuratorRequestProcessor] Request ${req.id} pausing on WAITING_FOR_USER for tool '${toolKey}'.`);
         const ttlMs = ast.approvalTtlMs ?? (tool as any).approvalTtlMs ?? ctx.tools.approvalTtlMs;
         const expiresAt = ttlMs > 0 ? new Date(ctx.now() + ttlMs).toISOString() : undefined;
+        const { interrupt, context: interruptKeys } = openInterrupt(req, {
+          kind: 'approval',
+          prompt: `Approve tool '${toolKey}'?`,
+          payload: { tool: toolKey, args: SecretService.sanitizeContext(evaluatedArgs), reason: accessCheck.reason },
+          resumeSchema: APPROVAL_RESUME_SCHEMA,
+          deadline: expiresAt,
+        }, ctx.now());
         await ctx.store.requests.update(req.id, {
           status: 'WAITING_FOR_USER',
           lockedBy: null,
@@ -51,9 +59,11 @@ export const toolNode: NodeHandler<CuratorToolNode> = {
               expiresAt,
               onExpired: ast.onApprovalExpired ?? 'fail'
             },
-            reason: accessCheck.reason
+            reason: accessCheck.reason,
+            ...interruptKeys
           }
         });
+        ctx.emit('curator:interrupt', interrupt);
         // Audit record only: the poller never treats this Response as the approval (see pendingToolCall guard).
         await ctx.saveResponse(req, JSON.stringify({
           type: 'APPROVAL_REQUIRED', ok: false, tool: toolKey, reason: accessCheck.reason, expiresAt

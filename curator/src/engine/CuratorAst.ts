@@ -215,6 +215,13 @@ export interface CuratorWaitEventNode extends CuratorBaseNode {
   timeoutSeconds?: number | string;
   /** A flow's first wait also receives events logged before the flow was created (late joiner catches up). */
   replay?: boolean;
+  /** Typed resume: a value given through `conversation_resume` must match `schema` (JSON Schema). */
+  resume?: CuratorResumeSpec;
+}
+
+/** Contract for the value that resumes a wait (see Interrupts.ts). */
+export interface CuratorResumeSpec {
+  schema?: Record<string, any>;
 }
 
 export interface CuratorAssignNode extends CuratorBaseNode {
@@ -409,6 +416,8 @@ export interface CuratorHumanInputNode extends CuratorBaseNode {
   as?: string;
   blocking?: boolean;
   timeoutSeconds?: number;
+  /** Typed resume: a value given through `conversation_resume` must match `schema` (JSON Schema). */
+  resume?: CuratorResumeSpec;
 }
 
 export interface CuratorAgentRefNode extends CuratorBaseNode {

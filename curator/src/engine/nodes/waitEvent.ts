@@ -1,5 +1,6 @@
 import type { NodeHandler } from './NodeHandler.js';
 import { logger } from '../../utils/logger.js';
+import { openInterrupt } from '../Interrupts.js';
 
 export const waitEventNode: NodeHandler<any> = {
   type: 'Curator_WaitEvent',
@@ -62,6 +63,13 @@ export const waitEventNode: NodeHandler<any> = {
     };
     delete updatedContext.waitDeadline;
     if (timeoutSeconds > 0) updatedContext.waitDeadline = new Date(ctx.now() + timeoutSeconds * 1000).toISOString();
-    await ctx.store.requests.update(req.id, { status: 'WAITING_FOR_EVENT', context: updatedContext });
+    const { interrupt, context: interruptKeys } = openInterrupt(req, {
+      kind: 'event',
+      payload: { eventNames: allEvents },
+      resumeSchema: ast.resume?.schema,
+      deadline: updatedContext.waitDeadline,
+    }, ctx.now());
+    await ctx.store.requests.update(req.id, { status: 'WAITING_FOR_EVENT', context: { ...updatedContext, ...interruptKeys } });
+    ctx.emit('curator:interrupt', interrupt);
   },
 };

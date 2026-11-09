@@ -19,6 +19,7 @@ import {
   type HistoryTurn,
 } from '../history/HistoryCompaction.js';
 import { logger } from '../../utils/logger.js';
+import { openInterrupt, APPROVAL_RESUME_SCHEMA } from '../Interrupts.js';
 
 const Ajv = (AjvModule as any).default || AjvModule;
 
@@ -255,6 +256,13 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
               logger.debug(`[CuratorRequestProcessor] Request ${req.id} pausing on WAITING_FOR_USER for tool '${toolKey}'.`);
               const ttlMs = (tool as any).approvalTtlMs ?? ctx.tools.approvalTtlMs;
               const expiresAt = ttlMs > 0 ? new Date(ctx.now() + ttlMs).toISOString() : undefined;
+              const { interrupt, context: interruptKeys } = openInterrupt(req, {
+                kind: 'approval',
+                prompt: `Approve tool '${toolKey}'?`,
+                payload: { tool: toolKey, args: SecretService.sanitizeContext(tc.args), reason: accessCheck.reason, agentName: ast.agentName },
+                resumeSchema: APPROVAL_RESUME_SCHEMA,
+                deadline: expiresAt,
+              }, ctx.now());
               await ctx.store.requests.update(req.id, {
                 status: 'WAITING_FOR_USER',
                 lockedBy: null,
@@ -263,9 +271,11 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
                   ...req.context,
                   // Approvals are granted for the resolved key; llmName is what the model called.
                   pendingToolCall: { ...tc, name: toolKey, llmName: tc.name, expiresAt, onExpired: 'fail' },
-                  reason: accessCheck.reason
+                  reason: accessCheck.reason,
+                  ...interruptKeys
                 }
               });
+              ctx.emit('curator:interrupt', interrupt);
               await ctx.saveResponse(req, JSON.stringify({
                 type: 'APPROVAL_REQUIRED', ok: false, tool: toolKey, reason: accessCheck.reason, expiresAt
               } satisfies CuratorStructuredResponse));

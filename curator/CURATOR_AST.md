@@ -439,3 +439,31 @@ Builder: `CuratorCoreBuilder.withRetry(node, { maxAttempts: 4 }, { timeoutMs: 20
 * **Exhausted or not retryable**: the node ends `FAILED` and normal failure handling runs: `onError` if set, otherwise dead letter, downstream poisoning, or the Join's tolerance of failed branches.
 * **Tools**: without `retry`, a throwing tool still completes the node with `[Tool Error] ...` (unchanged). With `retry`, the throw fails the attempt; it keeps its cause's class (a tool hitting a rate limit is `rate_limit`), otherwise `tool_error`.
 * **`timeoutMs`** limits one attempt of the node's own execution, not time parked waiting on children, humans or events (waits use `timeoutSeconds` / `onTimeout`). Past it, the attempt's abort signal fires (agents pass it to the LLM provider, tools get `toolContext.signal`), its later engine writes are discarded, and it fails as `timeout`. Gemini cancels client-side only, so the call may still be billed. Side effects a tool already made outside the engine are not undone.
+
+## 13. Interrupts: structured pause/resume
+
+Every wait a person or client resolves parks with one envelope, `context.__interrupt` (`src/engine/Interrupts.ts`), and is resumed through one entry point, the `conversation_resume` tool (`host.runTool('conversation_resume', { interruptId, value })`). `conversation_interrupts` lists the open ones.
+
+```json
+{
+  "v": 1, "id": "42.1", "kind": "human_input", "requestId": 42, "conversationId": 7, "projectId": "p1",
+  "prompt": "Pick one", "payload": { "inputType": "choices", "choices": [{ "id": "red", "label": "red", "value": "red" }] },
+  "resumeSchema": { "enum": ["red", "blue"] }, "targetUserId": null, "deadline": "2026-11-09T12:00:00.000Z", "createdAt": "..."
+}
+```
+
+| kind | parked by | resume value | effect |
+|---|---|---|---|
+| `human_input` | `Curator_HumanInput` (blocking) | matches `resume.schema` if declared | bound to `as` (context + state), else the step's result |
+| `event` | `Curator_WaitEvent` | matches `resume.schema` if declared | bound to `payloadAlias`, like the event arriving; the event itself is not published (no subscriptions run) |
+| `approval` | a gated `Curator_Tool`, or a gated tool call of a `Curator_Agent` | `{ approved: boolean, scope?: 'ONETIME' \| 'CONVERSATION' \| 'PERMANENT', reason?: string }` | approved: the approval is granted and the step runs again; denied: an `APPROVAL_DENIED` record, then the tool node's `onApprovalExpired` decides ('fail' fails the step, 'continue' completes it with `{ ok: false, denied: true }` under `as`) |
+
+Declare a typed resume on a wait: `{ "type": "Curator_HumanInput", "prompt": "Amount?", "as": "amount", "resume": { "schema": { "type": "number", "minimum": 1 } } }`.
+
+### How it is handled
+* **Ids** are `<requestId>.<n>`; `n` counts the interrupts a request opened (`__interruptSeq`), so an answer to an older wait of the same request is refused.
+* **Checks**: the interrupt must be open and visible to the caller's project (from the host session: the request's project, or `'system'`; requests without a project only for callers without one), `targetUserId` must match the resuming user, and the value must match `resumeSchema` (Ajv). A failed resume leaves the interrupt open.
+* **Humans only**: `conversation_resume` refuses when an agent is the actor, so a model can never answer a prompt or approve its own gated tool call.
+* **Events**: parking emits `curator:interrupt` (the envelope); a resume emits `curator:interrupt_resumed` and logs a `curator:interrupt_resumed` bus event with the value (for replay).
+* Expiry (`APPROVAL_EXPIRED`) and timeouts (`HUMAN_TIMEOUT` / `WAIT_TIMEOUT`) close the interrupt as before. The older ways to answer (an event named `curator:choice` / the awaited event, a Response row on the parked request, the server's `approveRequest`) still work.
+* A one-time approval needs no table (it rides on the request); `CONVERSATION` / `PERMANENT` scopes need the `ToolApproval` table (server schema).

@@ -54,26 +54,20 @@ Not done in A (follow-ups):
 - Writes through `ctx.prisma` (outside the engine's store/state/response methods) are not blocked for abandoned attempts.
 - CoffeeScript DSL verb and Mermaid annotation for policies.
 
-## Phase B: Structured pause/resume
+## Phase B: Structured pause/resume (implemented in curator core 2026-11-09)
 
-One envelope for every wait (human input, approval, event wait, interrupt pause):
+Reference: `curator/CURATOR_AST.md` §13; code: `src/engine/Interrupts.ts`, `src/tools/interrupts.ts`.
 
-```ts
-interface CuratorInterrupt {
-  id: string;                      // stable: requestId + step key
-  kind: 'human_input' | 'approval' | 'event' | 'pause';
-  prompt?: string;
-  payload?: any;                   // what the client should show
-  resumeSchema?: JSONSchema;       // typed resume value, Ajv-validated
-  deadline?: string;
-}
-```
+- Envelope `CuratorInterrupt` (`v`, `id` = `<requestId>.<n>`, `kind` = `human_input | approval | event`, `prompt`, `payload`, `resumeSchema`, `targetUserId`, `deadline`) stored in `context.__interrupt` by HumanInput, WaitEvent, gated Tool nodes and gated agent tool calls. The handler-specific keys stay as they are (internal, not public symbols), so nothing needed deprecating.
+- Tools `conversation_interrupts` / `conversation_resume` (repo naming, not `conversation.*`), backed by the processor's `InterruptService`; project scope from the session; resume refused for agent actors.
+- AST: `resume: { schema }` on HumanInput / WaitEvent (`as` / `payloadAlias` already exist). Approvals use a fixed schema `{ approved, scope?: ONETIME|CONVERSATION|PERMANENT, reason? }`.
+- New: denying an approval (`APPROVAL_DENIED`, governed by `onApprovalExpired`). Event-wait resume binds the value without publishing the event.
+- Resume values are logged as `curator:interrupt_resumed` bus events for Phase C replay. Bus events are retired by age (30 days), so replay of older runs needs them copied with the fork data.
 
-- Stored in `context.__interrupt` on the parked request; existing keys become derived from it (kept as `@deprecated` readers for one release).
-- One entry point: `host.runTool('conversation.resume', { interruptId, value })`. It validates `value` against `resumeSchema` and routes to the existing handler-specific resume code.
-- `conversation.interrupts` lists open interrupts for a conversation/project (replaces scanning for WAITING requests).
-- AST: `resume?: { schema?: JSONSchema; as?: string }` on `HumanInput` / `WaitEvent`; approvals get a fixed schema (`{ approved: boolean, scope?: 'ONETIME'|'ALWAYS' }`).
-- Resume values are recorded as events so Phase C replays them instead of re-asking.
+Not done in B (follow-ups):
+- `pause` kind: `Curator_Interrupt` pause/play suspends other requests and resumes them itself; no human resolves it, so it has no interrupt yet.
+- Migrate clients to `conversation_resume`: the server `approveRequest` resolver (and a deny mutation), both CLIs (they write Response rows directly), frontend.
+- Agent tool-call denial fails the agent step; feeding the denial back to the model as a tool error would let it continue.
 
 ## Phase C: Checkpoints, fork & replay
 

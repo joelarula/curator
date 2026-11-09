@@ -37,6 +37,7 @@ import {
   upsert_relation,
   delete_relation,
 } from './resources.js';
+import { interruptTools, conversation_interrupts, conversation_resume } from './interrupts.js';
 import type { CuratorTool } from './CuratorTool.js';
 
 export {
@@ -74,6 +75,9 @@ export {
   delete_text,
   upsert_relation,
   delete_relation,
+  // Interrupt tools
+  conversation_interrupts,
+  conversation_resume,
 };
 
 export const toolRegistry: Record<string, CuratorTool> = {
@@ -86,4 +90,5 @@ export const toolRegistry: Record<string, CuratorTool> = {
   ...(managementTools as Record<string, CuratorTool>),
   ...(shapeTools as Record<string, CuratorTool>),
   ...(resourceTools as Record<string, CuratorTool>),
+  ...(interruptTools as Record<string, CuratorTool>),
 };

@@ -177,6 +177,7 @@ export type CuratorResponseRecordType =
   | 'GUARDRAIL_BLOCKED'
   | 'APPROVAL_REQUIRED'
   | 'APPROVAL_EXPIRED'
+  | 'APPROVAL_DENIED'
   | 'EVENT_EMITTED'
   | 'EVENTS_EMITTED'
   | 'CHOICE_PROMPT'

@@ -16,6 +16,11 @@ import { appendStatePatch, STATE_SEQ_KEY } from './ConversationStateLog.js';
 import { STATE_PATCH_KEY, withoutStoredStateCopies } from './RequestContextStorage.js';
 import { recordDeadLetter, TERMINAL_STATUSES } from './DeadLetters.js';
 import { AbandonedAttemptError, NodeTimeoutError, decideRetry, messageOf, type RetryDecision } from './FaultPolicy.js';
+import {
+  INTERRUPT_KEY, INTERRUPT_SEQ_KEY, InterruptService, interruptRequestId, validateResumeValue,
+  type ApprovalResume, type CuratorInterrupt, type ListInterruptsFilter, type ResumeInterruptInput, type ResumeInterruptResult,
+} from './Interrupts.js';
+import { getReadableProjectIds } from '../services/ProjectScopeService.js';
 import { clearRequestContexts, completedChildrenWithContext, sweepCompletedContexts, retireByAge } from './Retention.js';
 import { PrismaStorageAdapter } from '../storage/PrismaStorageAdapter.js';
 import type { IStorageAdapter, RequestFilter, RequestPatch, RequestStatus } from '../storage/IStorageAdapter.js';
@@ -380,6 +385,11 @@ export class CuratorRequestProcessor {
     this.maxConcurrency = explicitConcurrency ?? defaultConcurrency;
     logger.debug(`[CuratorRequestProcessor] Concurrency limit initialized to ${this.maxConcurrency} (DB Pool: ${this.poolLimit}, Reserved for Web: ${this.reserveWebConnections})`);
 
+    // Built-in: the interrupt API behind conversation_interrupts / conversation_resume (options may replace it)
+    this.services.set(InterruptService, {
+      list: (filter: ListInterruptsFilter) => this.listInterrupts(filter),
+      resume: (input: ResumeInterruptInput) => this.resumeInterrupt(input),
+    });
     for (const { key, value } of options.services ?? []) this.services.set(key, value);
     this.initNodes(options.nodeHandlers ?? []);
     this.initMaintenance(options.disabledMaintenance ?? []);
@@ -1656,39 +1666,7 @@ export class CuratorRequestProcessor {
       if (matches && target && this.identityOf(waitReq) !== target) continue;
       if (matches) {
         logger.debug(`[CuratorRequestProcessor] Waking up request ${waitReq.id} waiting for event ${eventName}`);
-        let value = opts.waitValue ? opts.waitValue(payload) : payload;
-        const isMultiWait = Array.isArray(ctx?.waitEvents) && ctx.waitEvents.length > 1;
-        if (isMultiWait && value && typeof value === 'object' && !Array.isArray(value) && value._eventName === undefined) {
-          value = { ...value, _eventName: eventName };
-        }
-
-        const aliasKey = ctx.payloadAlias || ctx.choiceAs || ctx.as;
-        let newState: Record<string, any> = isMultiWait ? { lastWokenEvent: eventName } : {};
-        if (aliasKey) {
-           newState = { ...newState, [aliasKey]: value };
-        }
-
-        const updatedContext = { ...ctx };
-        delete updatedContext.waitEvent;
-        delete updatedContext.waitEvents;
-        delete updatedContext.payloadAlias;
-        updatedContext.__humanInputReceived__ = true;
-        if (isMultiWait) {
-          updatedContext.lastWokenEvent = eventName;
-        }
-        if (aliasKey || isMultiWait) {
-           if (aliasKey) updatedContext[aliasKey] = value;
-           updatedContext.state = { ...(updatedContext.state || {}), ...newState };
-
-           await this.writeState(waitReq.conversationId, ctx?.__scope, newState);
-        }
-        if (opts.contextPatch) {
-          Object.assign(updatedContext, opts.contextPatch);
-          // Request-only state keys: context.state is not stored, so they ride along under their own key
-          updatedContext[STATE_PATCH_KEY] = { ...(updatedContext[STATE_PATCH_KEY] || {}), ...opts.contextPatch };
-        }
-
-        await this.store.requests.update(waitReq.id, { status: 'NEW', context: updatedContext });
+        await this.wakeWaitingRequest(waitReq, eventName, opts.waitValue ? opts.waitValue(payload) : payload, { contextPatch: opts.contextPatch });
         woken.push(waitReq.id);
         if (eventSeq !== null) await this.advanceEventCursor(waitReq.id, eventSeq);
       }
@@ -1699,6 +1677,55 @@ export class CuratorRequestProcessor {
   }
 
   /** Appends to the conversation's bus events; returns its sequence id (null if the DB has no BusEvent table). */
+  /**
+   * Resumes a parked wait (event wait or human prompt) with `value`: binds it to the wait's alias (context and
+   * state), marks the wait answered and makes the request runnable. `bindInput` also sets `context.input` when
+   * there is no alias (a resumed prompt without `as` reads its answer from there).
+   */
+  private async wakeWaitingRequest(
+    waitReq: any,
+    eventName: string,
+    rawValue: any,
+    opts: { contextPatch?: Record<string, any>; bindInput?: boolean } = {}
+  ) {
+    const ctx = this.parseContext(waitReq.context);
+    let value = rawValue;
+    const isMultiWait = Array.isArray(ctx?.waitEvents) && ctx.waitEvents.length > 1;
+    if (isMultiWait && value && typeof value === 'object' && !Array.isArray(value) && value._eventName === undefined) {
+      value = { ...value, _eventName: eventName };
+    }
+
+    const aliasKey = ctx.payloadAlias || ctx.choiceAs || ctx.as;
+    let newState: Record<string, any> = isMultiWait ? { lastWokenEvent: eventName } : {};
+    if (aliasKey) {
+      newState = { ...newState, [aliasKey]: value };
+    }
+
+    const updatedContext = { ...ctx };
+    delete updatedContext.waitEvent;
+    delete updatedContext.waitEvents;
+    delete updatedContext.payloadAlias;
+    delete updatedContext[INTERRUPT_KEY];
+    updatedContext.__humanInputReceived__ = true;
+    if (isMultiWait) {
+      updatedContext.lastWokenEvent = eventName;
+    }
+    if (!aliasKey && opts.bindInput) updatedContext.input = value;
+    if (aliasKey || isMultiWait) {
+      if (aliasKey) updatedContext[aliasKey] = value;
+      updatedContext.state = { ...(updatedContext.state || {}), ...newState };
+
+      await this.writeState(waitReq.conversationId, ctx?.__scope, newState);
+    }
+    if (opts.contextPatch) {
+      Object.assign(updatedContext, opts.contextPatch);
+      // Request-only state keys: context.state is not stored, so they ride along under their own key
+      updatedContext[STATE_PATCH_KEY] = { ...(updatedContext[STATE_PATCH_KEY] || {}), ...opts.contextPatch };
+    }
+
+    await this.store.requests.update(waitReq.id, { status: 'NEW', lockedBy: null, lockedAt: null, context: updatedContext });
+  }
+
   private async logEvent(conversationId: number, eventName: string, payload: any, target: string | null = null, source: number | null = null): Promise<number | null> {
     if (!this.prisma.busEvent || conversationId == null) return null;
     const row = await this.store.events.append({ conversationId, eventName, payload: payload === undefined ? null : payload, target, source });
@@ -1993,6 +2020,110 @@ export class CuratorRequestProcessor {
     }
   }
 
+  /**
+   * A request is visible to a caller when its project is one the caller may read (`projectIds` + 'system'). Requests
+   * without a project belong to unscoped sessions: only a caller without an active project sees them.
+   */
+  private canAccessRequestProject(projectId: string | null | undefined, projectIds: string[]): boolean {
+    const active = projectIds.filter(Boolean);
+    if (projectId == null) return active.length === 0;
+    return getReadableProjectIds(active).includes(projectId);
+  }
+
+  /** Open interrupts (parked waits a human or client resolves), oldest first. See Interrupts.ts. */
+  public async listInterrupts(filter: ListInterruptsFilter): Promise<CuratorInterrupt[]> {
+    const parked = await this.store.requests.find(
+      { status: ['WAITING_FOR_USER', 'WAITING_FOR_EVENT'], ...this.scopeFilter(filter.conversationId) },
+      { orderBy: 'updatedAt', take: 200 }
+    );
+    const open: CuratorInterrupt[] = [];
+    for (const req of parked) {
+      const interrupt: CuratorInterrupt | undefined = this.parseContext(req.context)[INTERRUPT_KEY];
+      if (!interrupt || interrupt.requestId !== req.id) continue;
+      if (!this.canAccessRequestProject(req.projectId, filter.projectIds)) continue;
+      if (filter.kind && interrupt.kind !== filter.kind) continue;
+      open.push(interrupt);
+    }
+    return open;
+  }
+
+  /**
+   * Resumes an open interrupt with `value` (validated against its `resumeSchema`): a prompt or event wait gets the
+   * value bound to its alias; an approval is granted (`{ approved: true, scope? }`) or denied, which ends the step
+   * like an expired approval (`onApprovalExpired`). The resume is logged as a `curator:interrupt_resumed` bus event.
+   * Throws when the interrupt is unknown, not visible to the caller, no longer open, for another user, or the
+   * value is invalid.
+   */
+  public async resumeInterrupt(input: ResumeInterruptInput): Promise<ResumeInterruptResult> {
+    const id = String(input.interruptId ?? '');
+    const requestId = interruptRequestId(id);
+    if (requestId == null) throw new Error(`Malformed interrupt id '${id}' (expected '<requestId>.<n>')`);
+    const req = await this.store.requests.get(requestId);
+    const ctx = req ? this.parseContext(req.context) : {};
+    const interrupt: CuratorInterrupt | undefined = ctx[INTERRUPT_KEY];
+    if (!req || !this.canAccessRequestProject(req.projectId, input.projectIds)) {
+      throw new Error(`Interrupt ${id} not found`);
+    }
+    if (!interrupt || interrupt.id !== id || (req.status !== 'WAITING_FOR_USER' && req.status !== 'WAITING_FOR_EVENT')) {
+      throw new Error(`Interrupt ${id} is no longer open`);
+    }
+    if (interrupt.targetUserId != null && String(interrupt.targetUserId) !== String(input.userId)) {
+      throw new Error(`Interrupt ${id} is addressed to another user`);
+    }
+    const errors = validateResumeValue(interrupt, input.value);
+    if (errors.length) throw new Error(`Invalid resume value for interrupt ${id}: ${errors.join('; ')}`);
+
+    // Claim it so a concurrent resume, expiry or timeout cannot also close it
+    const claimed = await this.store.requests.updateWhere(
+      { ids: [req.id], status: req.status },
+      { status: 'WAITING', lockedBy: this.workerId, lockedAt: new Date() }
+    );
+    if (claimed === 0) throw new Error(`Interrupt ${id} is no longer open`);
+
+    let outcome: ResumeInterruptResult['outcome'] = 'resumed';
+    try {
+      if (interrupt.kind === 'approval') {
+        const answer = input.value as ApprovalResume;
+        const pending = ctx.pendingToolCall;
+        if (!pending) throw new Error(`Interrupt ${id} has no pending tool call`);
+        if (answer.approved) {
+          const scope = answer.scope ?? 'ONETIME';
+          // A one-time approval rides on the request (__humanApproved__); wider scopes need the ToolApproval table
+          if (this.prisma.toolApproval?.create) {
+            await ApprovalService.grantApproval(this.prisma, {
+              toolName: pending.name, scope, approvedBy: input.userId, agentId: req.agentId,
+              conversationId: req.conversationId, requestId: req.id, userId: input.userId,
+            });
+          } else if (scope !== 'ONETIME') {
+            throw new Error(`Approval scope ${scope} needs the ToolApproval table, which this database does not have`);
+          }
+          // Same resume the server's approveRequest performs: the step runs again and passes the access check
+          const nextCtx: any = { ...ctx, __humanApproved__: true, __approvalScope__: scope };
+          delete nextCtx[INTERRUPT_KEY];
+          delete nextCtx.__paused__;
+          await this.store.requests.update(req.id, { status: 'NEW', lockedBy: null, lockedAt: null, context: nextCtx });
+        } else {
+          outcome = 'denied';
+          await this.closeApprovalWait(req, ctx, {
+            type: 'APPROVAL_DENIED', ok: false, tool: pending.name, reason: answer.reason ?? `Denied by ${input.userId}`,
+          });
+        }
+      } else {
+        const eventName = interrupt.kind === 'event' ? String(interrupt.payload?.eventNames?.[0] ?? ctx.waitEvent ?? '') : 'curator:choice';
+        await this.wakeWaitingRequest(req, eventName, input.value, { bindInput: interrupt.kind === 'human_input' });
+      }
+    } catch (err) {
+      // Not resumed: park it again so it can still be answered (or expire)
+      await this.store.requests.updateWhere({ ids: [req.id], status: 'WAITING', lockedBy: this.workerId }, { status: req.status, lockedBy: null, lockedAt: null });
+      throw err;
+    }
+
+    await this.logEvent(req.conversationId, 'curator:interrupt_resumed', { interruptId: id, kind: interrupt.kind, outcome, userId: input.userId, value: input.value ?? null }, null, req.id);
+    this.emit('curator:interrupt_resumed', { interruptId: id, requestId: req.id, conversationId: req.conversationId, kind: interrupt.kind, outcome });
+    this.announce();
+    return { interruptId: id, requestId: req.id, kind: interrupt.kind, outcome };
+  }
+
   /** Resolves a handler ref to its Script row id and entry (local refs use the executing script). */
   private async resolveHandler(handler: string, req: any): Promise<{ scriptId: number; entry: string | null }> {
     const parsed = parseCuratorRef(handler);
@@ -2176,21 +2307,31 @@ export class CuratorRequestProcessor {
       if (claimed === 0) continue;
 
       logger.debug(`[CuratorRequestProcessor] Approval wait for '${pending.name}' on request ${req.id} expired.`);
-      const record: CuratorStructuredResponse = {
+      await this.closeApprovalWait(req, ctx, {
         type: 'APPROVAL_EXPIRED', ok: false, tool: pending.name, expiresAt: pending.expiresAt, reason: ctx.reason
-      };
-      const nextCtx: any = { ...ctx };
-      delete nextCtx.pendingToolCall;
-      const proceed = pending.onExpired === 'continue';
-      if (proceed) {
-        const outcome = { ok: false, expired: true, type: 'APPROVAL_EXPIRED', tool: pending.name };
-        nextCtx[pending.name] = outcome;
-        if (pending.as) nextCtx[pending.as] = outcome;
-      }
-      req.context = nextCtx;
-      await this.saveResponse(req, JSON.stringify(record));
-      await this.completeRequest(req.id, proceed ? 'COMPLETED' : 'FAILED', false, { context: nextCtx });
+      });
     }
+  }
+
+  /**
+   * Ends an approval wait without approval (expired or denied): records `record`, then follows the tool node's
+   * `onApprovalExpired` ('fail' fails the step, 'continue' completes it with `{ ok: false, expired|denied: true }`
+   * under `as` / the tool name so the flow can branch). `req` must be claimed by this worker.
+   */
+  private async closeApprovalWait(req: any, ctx: any, record: CuratorStructuredResponse) {
+    const pending = ctx.pendingToolCall;
+    const nextCtx: any = { ...ctx };
+    delete nextCtx.pendingToolCall;
+    delete nextCtx[INTERRUPT_KEY];
+    const proceed = pending.onExpired === 'continue';
+    if (proceed) {
+      const outcome = { ok: false, ...(record.type === 'APPROVAL_DENIED' ? { denied: true } : { expired: true }), type: record.type, tool: pending.name };
+      nextCtx[pending.name] = outcome;
+      if (pending.as) nextCtx[pending.as] = outcome;
+    }
+    req.context = nextCtx;
+    await this.saveResponse(req, JSON.stringify(record));
+    await this.completeRequest(req.id, proceed ? 'COMPLETED' : 'FAILED', false, { context: nextCtx });
   }
 
   /**
@@ -2220,6 +2361,7 @@ export class CuratorRequestProcessor {
       delete nextCtx.waitEvents;
       delete nextCtx.waitDeadline;
       delete nextCtx.payloadAlias;
+      delete nextCtx[INTERRUPT_KEY];
       req.context = nextCtx;
       const record: CuratorStructuredResponse = { type: isEventWait ? 'WAIT_TIMEOUT' : 'HUMAN_TIMEOUT', ok: false, deadline: ctx.waitDeadline, reason: isEventWait ? ctx.waitEvent : ctx.choicePrompt };
       await this.saveResponse(req, JSON.stringify(record));
@@ -2411,7 +2553,7 @@ export class CuratorRequestProcessor {
   }
 
   private static readonly STRUCTURED_RECORD_TYPES = new Set([
-    'TOOL_BLOCKED', 'GUARDRAIL_BLOCKED', 'APPROVAL_REQUIRED', 'APPROVAL_EXPIRED', 'HUMAN_TIMEOUT', 'WAIT_TIMEOUT', 'EVENT_EMITTED', 'EVENTS_EMITTED', 'CHOICE_PROMPT', 'CHOICE_RECEIVED',
+    'TOOL_BLOCKED', 'GUARDRAIL_BLOCKED', 'APPROVAL_REQUIRED', 'APPROVAL_EXPIRED', 'APPROVAL_DENIED', 'HUMAN_TIMEOUT', 'WAIT_TIMEOUT', 'EVENT_EMITTED', 'EVENTS_EMITTED', 'CHOICE_PROMPT', 'CHOICE_RECEIVED',
     'SUBSCRIBED', 'UNSUBSCRIBED', 'MODEL_CHANGED', 'TOOL_CALLS', 'HISTORY_SUMMARY'
   ]);
 
@@ -2687,7 +2829,7 @@ export class CuratorRequestProcessor {
           }
           const skipKeys = new Set(['forEachIndex', 'forEachCollection', 'ifElseEvaluated',
             'spawnedChild', 'routeDecided', 'pendingToolCall', 'waitEvent', 'payloadAlias', 'astPath',
-            '__humanInputReceived__', '__joinScope', 'waitDeadline',
+            '__humanInputReceived__', '__joinScope', 'waitDeadline', INTERRUPT_KEY, INTERRUPT_SEQ_KEY,
             'loopIteration', 'loopRunning', 'loopCollection', 'iteration', 'index']);
           // A parked Curator_Call caller is isolated from its callee: the result flows back only via `as`.
           if (!targetContext.callPending && !(targetIsJoin && sourceScope != null)) {
