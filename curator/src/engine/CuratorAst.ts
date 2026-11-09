@@ -1,9 +1,12 @@
 import type { FormatSpec, ToolOutputRules } from './output/OutputFormats.js';
 import type { HistoryCompactionSpec } from './history/HistoryCompaction.js';
+import type { CuratorStateSchema } from './StateMerge.js';
 
 export interface CuratorBaseNode {
   /** Runtime AST contract version. Version 1 is the current format. */
   astVersion?: 1;
+  /** Optional label; a Curator_Parallel names its branches after it (`branch<i>` otherwise). */
+  name?: string;
   exclude_from_history?: boolean;
   /**
    * Delay execution of this node until a specific time.
@@ -76,6 +79,8 @@ export const CuratorNodeType = {
   Sequential: 'Curator_Sequential',
   Parallel: 'Curator_Parallel',
   Join: 'Curator_Join',
+  /** Internal: closes a Parallel's Join at `join.timeoutMs`. */
+  JoinTimeout: 'Curator_JoinTimeout',
   Route: 'Curator_Route',
   Loop: 'Curator_Loop',
   Tool: 'Curator_Tool',
@@ -107,6 +112,7 @@ export type CuratorAstNode =
   | CuratorSequentialNode 
   | CuratorParallelNode 
   | CuratorJoinNode 
+  | CuratorJoinTimeoutNode
   | CuratorRouteNode 
   | CuratorLoopNode
   | CuratorToolNode
@@ -264,6 +270,38 @@ export interface CuratorParallelNode extends CuratorBaseNode {
   /** Each branch runs in a private state scope named after the branch; events can be addressed to it via `targetAgentId`. */
   isolate?: boolean;
   subAgents: CuratorAstNode[];
+  /** How the branches' writes to a key combine (over the module's `stateSchema`); see StateMerge.ts. */
+  stateSchema?: CuratorStateSchema;
+  /**
+   * Fail the Join when two branches wrote the same key without a merge rule. Default: on when a `stateSchema`
+   * applies (module or parallel), otherwise a warning (it becomes the default everywhere in a later release).
+   */
+  strict?: boolean;
+  /** With `isolate`: at the Join, merge each finished branch's private scope into shared state through the rules. */
+  mergeBack?: boolean;
+  /** What the Join returns and when it closes. */
+  join?: CuratorJoinSpec;
+}
+
+/** Fan-in contract of a Curator_Parallel. */
+export interface CuratorJoinSpec {
+  /** Context and state key receiving `{ [branchName]: { status, output } }` (status COMPLETED, FAILED, CANCELLED, TIMEOUT). */
+  as?: string;
+  /** Branches that must succeed: 'any' (default, at least one), 'all', or `{ min }`. */
+  requires?: 'any' | 'all' | { min: number };
+  /**
+   * When a branch fails: 'continue' (default) waits for the others; 'cancel_siblings' cancels the others and the Join
+   * decides by `requires`; 'fail_fast' cancels the others and fails the Join.
+   */
+  onBranchFailure?: 'continue' | 'cancel_siblings' | 'fail_fast';
+  /** Branches not back by then are cancelled (reported as TIMEOUT) and the Join decides by `requires`. */
+  timeoutMs?: number;
+}
+
+/** Internal: scheduled by a Curator_Parallel with `join.timeoutMs` to close its Join. */
+export interface CuratorJoinTimeoutNode extends CuratorBaseNode {
+  type: typeof CuratorNodeType.JoinTimeout;
+  joinId: number;
 }
 
 export interface CuratorJoinNode extends CuratorBaseNode {
@@ -526,6 +564,8 @@ export interface CuratorModuleNode extends CuratorBaseNode {
    * Registered plugins contribute them to `$config` below plugin and host settings.
    */
   config?: Record<string, any>;
+  /** How writes to a state key combine (`{ items: { merge: 'append' } }`); see StateMerge.ts. Applies to every step of this module. */
+  stateSchema?: CuratorStateSchema;
 }
 
 /**

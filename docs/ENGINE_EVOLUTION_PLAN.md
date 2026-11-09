@@ -87,31 +87,20 @@ Not done in C (follow-ups):
 - Script nodes and plugin node types re-run in forks (scripts may spawn subtrees; their VM has no network by default).
 - Agent tool calls made inside an agent step are not separate steps; the agent step replays as a whole.
 
-## Phase D: Merge rules + fan-out/fan-in semantics
+## Phase D: Merge rules + fan-out/fan-in semantics (implemented in curator core 2026-11-09)
 
-State schema (on `Curator_Module`, overridable per `Curator_Parallel`):
+Reference: `curator/CURATOR_AST.md` §15; code: `src/engine/StateMerge.ts`, `nodes/parallel.ts`, `nodes/join.ts`, `nodes/joinTimeout.ts`.
 
-```ts
-stateSchema?: Record<string, { merge: 'replace'|'append'|'concat'|'sum'|'max'|'min'|'deepMerge'|'union' | { reducer: string } }>;
-strict?: boolean;                  // default true: fail when two branches write the same undeclared key
-```
+- `stateSchema` on `Curator_Module` and `Curator_Parallel` (branch rules over the module's, nested parallels over their parent's). Rules: `replace`, `append`, `union`, `sum`, `max`, `min`, `deepMerge`, `{ reducer }` (`concat` dropped: `append` covers lists).
+- Applied in `appendStatePatch` under the state lock; events store resolved `set`, `merge` (rule per key) and `incoming` (as written, for replay). Fold/rewind/compaction unchanged.
+- Writes carry their branch (`payload.branch = { join, name }`); conflicts are detected **at the Join** from the events written while the branches ran (failing a branch mid-completion would have stranded its Join). `strict` defaults on when a schema applies, else a warning, per the decision.
+- `mergeBack` for isolated branches; `join` contract (`as`, `requires`, `onBranchFailure`, `timeoutMs`) as planned. `poisonDownstream` reads the policy; timeouts use a scheduled internal `Curator_JoinTimeout` request.
+- `name` is now a base property of every node (branch names).
 
-- Applied inside `appendStateEvent` (already holds the row lock and has the previous state). The event stores the resolved `set` plus the rule names used, so fold/rewind/compaction stay unchanged and deterministic.
-- `isolate` branches: `mergeBack: true` merges the private scope into shared state through the schema at the Join.
-
-Fan-out/fan-in contract on `Curator_Parallel`:
-
-```ts
-join?: {
-  as?: string;                                   // structured result: { [branchName]: { status, output, error? } }
-  requires?: 'all' | 'any' | { min: number };    // default 'any' (today's behaviour)
-  onBranchFailure?: 'continue' | 'cancel_siblings' | 'fail_fast';
-  timeoutMs?: number;                            // unfinished branches are cancelled, reported as 'timeout'
-};
-```
-
-- Text concatenation stays the default Join output for compatibility; `join.as` adds the structured form.
-- `poisonDownstream` reads the policy instead of the hardcoded "≥1 success" rule.
+Not done in D (follow-ups):
+- Make `strict` the default for modules without a schema (one release of warnings first).
+- Cancelling branches does not interrupt a step a worker is running (it finishes; its hand-over is dropped). Combined with Phase A `timeoutMs` on the step, long steps can be bounded.
+- The last step of a flow with nothing after it still does not merge its output into state (existing behaviour).
 
 ## Phase E: Composition contracts
 

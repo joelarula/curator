@@ -6,6 +6,7 @@ export { assignNode } from './assign.js';
 export { ifElseNode } from './ifElse.js';
 export { parallelNode } from './parallel.js';
 export { joinNode } from './join.js';
+export { joinTimeoutNode } from './joinTimeout.js';
 export { routeNode } from './route.js';
 export { scriptNode } from './script.js';
 export { whileNode } from './while.js';

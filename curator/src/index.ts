@@ -18,6 +18,10 @@ export {
   TimeTravelService, REPLAYABLE_NODE_TYPES, decideReplay, indexRun,
   type Checkpoint, type ForkInput, type ForkResult, type ForkSpec, type TimeTravelApi,
 } from './engine/TimeTravel.js';
+export {
+  MERGE_RULE_NAMES, applyMergeRules, mergeValue, rulesOf, branchConflicts,
+  type CuratorMergeRule, type CuratorStateSchema, type MergeRuleName, type MergeRules,
+} from './engine/StateMerge.js';
 export * from './engine/CuratorAst.js';
 export * from './engine/CuratorBuilder.js';
 export * from './engine/builder/index.js';

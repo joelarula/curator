@@ -169,6 +169,13 @@ export interface NodeContext extends ServiceAccess {
   writeState(conversationId: any, scope: string | null | undefined, updates: Record<string, any>): Promise<void>;
   /** Resolves a subscription handler ref ('script', 'script#sub', '#sub') to a stored script and entry. */
   resolveHandler(handler: string, req: any): Promise<{ scriptId: number; entry: string | null }>;
+  /** Merge rules of `req`'s state writes: its module's `stateSchema`, then its parallel's (see StateMerge.ts). */
+  mergeRules?(req: any): Promise<Record<string, any> | undefined>;
+  /**
+   * Closes a Join early: cancels its branches' unfinished, unclaimed requests and makes the Join runnable with
+   * `flags` merged into its context. False when the Join was no longer waiting.
+   */
+  closeJoin(joinId: number, flags: Record<string, any>, reason: string): Promise<boolean>;
 }
 
 export interface NodeHandler<N = any> {

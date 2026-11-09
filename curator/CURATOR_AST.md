@@ -485,3 +485,42 @@ Declare a typed resume on a wait: `{ "type": "Curator_HumanInput", "prompt": "Am
 * **Records**: `StepTrace` keeps, per finished replayable step, its node hash, final context (secrets masked), result (`output`) and the state patches it wrote; roots keep their context. Request contexts are trimmed and finished conversations' event logs compacted, so StepTrace is the source: **a run can be forked while its StepTrace rows exist** (`stepTrace.ttlMs`, default 7 days). StepTrace is written in batches; a row lost with a crashed process makes a fork through that step diverge (it stops, it does not re-run).
 * **Order**: "before the fork point" is by finish time (StepTrace time, then row id), not creation order.
 * Runs recorded before this feature have no lineage and cannot be forked.
+
+## 15. State merge rules and the fan-in contract
+
+### Merge rules (`stateSchema`)
+A `Curator_Module` (all its steps) or a `Curator_Parallel` (its branches, over the module's) declares how writes to a key combine (`src/engine/StateMerge.ts`):
+
+```json
+{ "type": "Curator_Parallel", "subAgents": [ ... ],
+  "stateSchema": { "findings": { "merge": "append" }, "cost": { "merge": "sum" }, "best": { "merge": { "reducer": "pickBest" } } } }
+```
+
+| rule | result |
+|---|---|
+| `replace` | the written value (the default for keys without a rule) |
+| `append` | list: current items, then the written item(s) |
+| `union` | list: like append, skipping items already present (deep equality) |
+| `sum` / `max` / `min` | numbers |
+| `deepMerge` | objects, merged recursively |
+| `{ reducer }` | a registered reducer called with `{ key, current, incoming }`, returning `{ value }` |
+
+Rules are applied when the write is appended, under the conversation's state lock, so concurrent branches never lose a write. The state event stores the resulting values plus `merge` (rule per key) and `incoming` (the values as written); folding, rewind and compaction are unchanged, and fork replay re-applies the rules to `incoming`.
+
+### Conflicts (`strict`)
+At the Join, keys without a rule that two or more branches wrote are conflicts. With `strict` (default **on when a `stateSchema` applies**, module or parallel) the Join fails, naming the keys and branches; without any schema it logs a warning and the last write wins (as before). `strict: false` turns it off.
+
+`isolate: true` branches write to private scopes; with `mergeBack: true` the Join merges each finished branch's scope into shared state, in branch order, through the rules (conflicting undeclared keys count as above).
+
+### Fan-in contract (`join`)
+```json
+{ "type": "Curator_Parallel", "subAgents": [ ... ],
+  "join": { "as": "outcome", "requires": { "min": 2 }, "onBranchFailure": "cancel_siblings", "timeoutMs": 60000 } }
+```
+* **Branch names**: a branch is named after its node's `name` (every node may have one), else `branch<i>`.
+* **`as`**: `{ [branch]: { status, output } }` (status `COMPLETED`, `FAILED`, `CANCELLED` or `TIMEOUT`) in the Join's context and in state.
+* **`requires`**: `'any'` (default: at least one branch succeeded, as before), `'all'`, or `{ min: n }`. Otherwise the Join fails (`onError` / downstream failure handling apply).
+* **`onBranchFailure`**: `'continue'` (default) waits for every branch; `'cancel_siblings'` cancels the other branches and the Join decides by `requires`; `'fail_fast'` cancels them and fails the Join.
+* **`timeoutMs`**: branches not back in time are cancelled (reported `TIMEOUT`) and the Join decides by `requires` (an internal `Curator_JoinTimeout` request is scheduled for it).
+* Cancelling a branch cancels its waiting and pending steps, nested parallels included. A step a worker is running at that moment finishes, but nothing it hands over to runs.
+* The Join's own result stays the branches' joined text.

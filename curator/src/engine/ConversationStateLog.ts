@@ -13,6 +13,8 @@
  */
 
 import { sqlDialect, sqlTag, type SqlDialect } from '../db/sqlDialect.js';
+import { applyMergeRules, type MergeRules } from './StateMerge.js';
+import type { CuratorReducer } from './CuratorContracts.js';
 
 export const STATE_PATCH = '__state.patch';
 export const STATE_REWIND = '__state.rewind';
@@ -32,7 +34,14 @@ export interface StateEventRow {
 
 export interface StatePatchPayload {
   scope?: string | null;
+  /** The values stored (after merge rules). */
   set: Record<string, any>;
+  /** Merge rule applied per key (see StateMerge.ts); absent when every key was replaced. */
+  merge?: Record<string, string>;
+  /** The values as written, before merge rules (present when `merge` is): replay re-applies the rules to these. */
+  incoming?: Record<string, any>;
+  /** The parallel branch that wrote it: `{ join, name }` (Join conflict checks). */
+  branch?: { join: number; name: string };
 }
 
 export interface StateSnapshot {
@@ -200,11 +209,14 @@ async function appendStateEvent(
   eventName: string,
   payload: any,
   source: number | null = null,
+  /** Builds the payload from the locked current state (merge rules need the value they merge with). */
+  prepare?: (state: ConversationStateData) => any,
 ): Promise<{ seq: number; state: ConversationStateData }> {
   const projectors = projectorsByClient.get(prisma);
   const dialect = dialectOf(prisma);
   return atomically(prisma, async (db) => {
     if (!db.eventLog?.create) {
+      if (prepare) payload = prepare(readSnapshot((await db.conversation.findUnique({ where: { id: conversationId } }))?.metadata).state);
       const conv = await db.conversation.findUnique({ where: { id: conversationId } });
       const snap = readSnapshot(conv?.metadata);
       const next = foldState([{ id: snap.seq + 1, eventName, payload }], { from: snap });
@@ -216,6 +228,7 @@ async function appendStateEvent(
     }
     // Lock first, then append: the event gets its id after every earlier writer's (see lockedSnapshot)
     const before = await materializeIn(db, conversationId, dialect);
+    if (prepare) payload = prepare(before.state);
     const event: StateEventRow = { id: 0, eventName, payload, source };
     event.id = (await db.eventLog.create({ data: { conversationId, eventName, payload, ...(source != null ? { source } : {}) } })).id;
     const { state } = needsFullRefold([event], before)
@@ -240,9 +253,22 @@ export async function appendStatePatch(
   prisma: any,
   conversationId: number,
   patch: StatePatchPayload,
-  opts: { source?: number | null } = {},
+  opts: {
+    source?: number | null;
+    /** Merge rules for the written keys (StateMerge.ts), applied against the state under the lock. */
+    rules?: MergeRules;
+    reducer?: (name: string) => CuratorReducer | undefined;
+  } = {},
 ): Promise<{ seq: number; state: ConversationStateData }> {
-  return appendStateEvent(prisma, conversationId, STATE_PATCH, patch, opts.source ?? null);
+  const rules = opts.rules;
+  const prepare = rules && Object.keys(rules).length
+    ? (state: ConversationStateData) => {
+        const current = patch.scope != null ? (state.__scopes?.[patch.scope] ?? {}) : state;
+        const { set, merge } = applyMergeRules(current, patch.set ?? {}, rules, opts.reducer);
+        return merge ? { ...patch, set, merge, incoming: patch.set } : patch;
+      }
+    : undefined;
+  return appendStateEvent(prisma, conversationId, STATE_PATCH, patch, opts.source ?? null, prepare);
 }
 
 /** Zero-loss rollback: appends a compensating event; the abandoned events stay in the log for debugging. */

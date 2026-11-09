@@ -14,6 +14,7 @@ export const CONTROL_NODE_TYPES: ReadonlySet<string> = new Set([
   'Curator_Sequential',
   'Curator_Parallel',
   'Curator_Join',
+  'Curator_JoinTimeout',
   'Curator_IfElse',
   'Curator_Route',
   'Curator_ForEach',

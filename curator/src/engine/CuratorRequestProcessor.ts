@@ -21,6 +21,9 @@ import {
   type ApprovalResume, type CuratorInterrupt, type ListInterruptsFilter, type ResumeInterruptInput, type ResumeInterruptResult,
 } from './Interrupts.js';
 import { getReadableProjectIds } from '../services/ProjectScopeService.js';
+import { BRANCH_KEY, MERGE_RULES_KEY, rulesOf, type MergeRules } from './StateMerge.js';
+import { JOIN_SPEC_KEY } from './nodes/parallel.js';
+import { JOIN_FAIL_FAST_KEY } from './nodes/join.js';
 import {
   CREATED_BY_KEY, FORK_PATH_KEY, FORK_EVENT, FORK_SPAWN_EVENT, FORK_BOUNDARY_EVENT, ROOT_PATH, REPLAYABLE_NODE_TYPES,
   TimeTravelService, decideReplay, indexRun, nodeHash, rootOf, withoutBookkeeping,
@@ -42,7 +45,7 @@ import { ApprovalService } from '../services/ApprovalService.js';
 import { defaultOutputFormats, type OutputFormats } from './output/OutputFormats.js';
 import { defaultHistoryCompactors, type HistoryCompactors } from './history/HistoryCompaction.js';
 import {
-  NodeRegistry, sequentialNode, parallelNode, joinNode, routeNode, scriptNode, setStateNode, assignNode, ifElseNode, whileNode, loopNode, forEachNode,
+  NodeRegistry, sequentialNode, parallelNode, joinNode, joinTimeoutNode, routeNode, scriptNode, setStateNode, assignNode, ifElseNode, whileNode, loopNode, forEachNode,
   interruptNode, emitEventNode, emitEventsNode, subscribeNode, unsubscribeNode, waitEventNode, humanInputNode, toolNode, reduceNode,
   graphNode, callNode, agentRefNode, actorRefNode,
   agentNode, agentOutputKey,
@@ -60,6 +63,8 @@ const LIVE_STATUSES: RequestStatus[] = ['NEW', 'WAITING', 'WAITING_FOR_USER', 'W
  */
 interface AttemptScope {
   requestId: number;
+  /** The request being run (its module and context decide merge rules of its state writes). */
+  req: any;
   /** The resolved node: its `retry` / `timeoutMs` apply to this attempt. */
   node: CuratorAstNode;
   controller: AbortController;
@@ -488,11 +493,13 @@ export class CuratorRequestProcessor {
       },
       writeState: async (conversationId, scope, updates) => { await this.writeState(conversationId, scope, updates); },
       resolveHandler: (handler, req) => this.resolveHandler(handler, req),
+      mergeRules: (req) => this.mergeRulesFor(req),
+      closeJoin: (joinId, flags, reason) => this.closeJoin(joinId, flags, reason),
     };
 
     // Built-in node types; plugin types registered on the engine are looked up after these (see processRequest).
     const builtins: NodeHandler[] = [
-      sequentialNode, parallelNode, joinNode, routeNode, scriptNode, setStateNode, assignNode, ifElseNode, whileNode, loopNode, forEachNode,
+      sequentialNode, parallelNode, joinNode, joinTimeoutNode, routeNode, scriptNode, setStateNode, assignNode, ifElseNode, whileNode, loopNode, forEachNode,
       interruptNode, emitEventNode, emitEventsNode, subscribeNode, unsubscribeNode, waitEventNode, humanInputNode, toolNode, reduceNode,
       graphNode, callNode, agentRefNode, actorRefNode, agentNode,
     ];
@@ -686,11 +693,37 @@ export class CuratorRequestProcessor {
     return scope != null ? { ...shared, ...((__scopes || {})[scope] || {}) } : shared;
   }
 
-  /** `source`: the request whose step writes (default: the attempt running in this async context). */
-  private async writeState(conversationId: any, scope: string | null | undefined, updates: Record<string, any>, source?: number | null) {
+  /**
+   * Appends a state patch. `writer` is the request whose step writes (default: the attempt running in this async
+   * context): it is recorded as the event's source, and its module's and parallel's `stateSchema` decide how the
+   * keys merge (StateMerge.ts). `raw` writes the values as given (no merge rules: overrides, replays of results).
+   */
+  private async writeState(conversationId: any, scope: string | null | undefined, updates: Record<string, any>, writer?: any, opts: { raw?: boolean } = {}) {
     this.assertLive();
+    const req = writer ?? this.currentAttempt()?.req;
+    const ctx = req ? this.parseContext(req.context) : {};
+    const branch = scope == null && ctx[BRANCH_KEY] ? { branch: ctx[BRANCH_KEY] } : {};
+    const rules = opts.raw || !req ? undefined : await this.mergeRulesFor(req);
     // Event-sourced: append a patch to the EventLog and refresh the materialized view (no read-modify-write race).
-    return appendStatePatch(this.prisma, conversationId, { scope: scope ?? null, set: updates }, { source: source ?? this.currentAttempt()?.requestId ?? null });
+    return appendStatePatch(this.prisma, conversationId, { scope: scope ?? null, set: updates, ...branch }, {
+      source: req?.id ?? null,
+      rules,
+      reducer: (name) => this.engine.reducers?.get(name),
+    });
+  }
+
+  /** Merge rules of a request's writes: its module's `stateSchema`, then its parallel's (`__mergeRules`). */
+  private async mergeRulesFor(req: any): Promise<MergeRules | undefined> {
+    const ctx = this.parseContext(req.context);
+    let moduleRules: MergeRules | undefined;
+    if (req.scriptId != null && req.scriptVersion != null) {
+      try {
+        const { ast } = await getScriptVersionAst(this.prisma, req.scriptId, req.scriptVersion);
+        if (ast?.type === 'Curator_Module' && (ast as any).stateSchema) moduleRules = rulesOf((ast as any).stateSchema);
+      } catch { /* not a stored version: no module rules */ }
+    }
+    const rules = rulesOf(moduleRules, ctx[MERGE_RULES_KEY]);
+    return Object.keys(rules).length ? rules : undefined;
   }
 
   private parseContext(ctx: any): any {
@@ -1567,7 +1600,7 @@ export class CuratorRequestProcessor {
       }
       const ast: CuratorAstNode = validation.node!;
       policyNode = ast;
-      attempt = { requestId: req.id, node: ast, controller: new AbortController(), abandoned: false, spawned: 0 };
+      attempt = { requestId: req.id, req, node: ast, controller: new AbortController(), abandoned: false, spawned: 0 };
 
       await this.execScope.run({ scriptId: req.scriptId, scriptVersion: req.scriptVersion, priority: req.priority ?? undefined, attempt }, () => curatorContext.run({
         userId: req.userId,
@@ -1792,7 +1825,7 @@ export class CuratorRequestProcessor {
       if (aliasKey) updatedContext[aliasKey] = value;
       updatedContext.state = { ...(updatedContext.state || {}), ...newState };
 
-      await this.writeState(waitReq.conversationId, ctx?.__scope, newState, waitReq.id);
+      await this.writeState(waitReq.conversationId, ctx?.__scope, newState, waitReq);
     }
     if (opts.contextPatch) {
       Object.assign(updatedContext, opts.contextPatch);
@@ -2220,7 +2253,7 @@ export class CuratorRequestProcessor {
           astHash,
           output: result,
           context: SecretService.sanitizeContext(withoutBookkeeping(ctx)),
-          statePatches: patches.map((p: any) => ({ scope: p.payload?.scope ?? null, set: p.payload?.set ?? {} })),
+          statePatches: patches.map((p: any) => ({ scope: p.payload?.scope ?? null, set: p.payload?.incoming ?? p.payload?.set ?? {} })),
         };
       } catch (err: any) {
         logger.warn(`[CuratorRequestProcessor] Replay record of request ${req.id} skipped: ${err?.message ?? err}`);
@@ -2317,7 +2350,8 @@ export class CuratorRequestProcessor {
     }
 
     const orig = decision.original;
-    for (const patch of orig.statePatches) await this.writeState(req.conversationId, patch.scope ?? null, patch.set, req.id);
+    // Recorded as written (before merge rules): this fork's state is the original's here, so the rules give the same values
+    for (const patch of orig.statePatches) await this.writeState(req.conversationId, patch.scope ?? null, patch.set, req);
     const nextCtx: Record<string, any> = {
       ...withoutBookkeeping(orig.context ?? {}),
       [CREATED_BY_KEY]: ctx[CREATED_BY_KEY],
@@ -2335,7 +2369,7 @@ export class CuratorRequestProcessor {
     this.emit('request_replayed', { requestId: req.id, conversationId: req.conversationId, originalRequestId: orig.requestId, path, boundary: decision.boundary });
     await this.completeRequest(req.id, orig.status, false, { context: nextCtx });
     // Nothing downstream merged it (a root step): apply it now
-    if (patch && (!req.notifyId || this.boundaryPatches.delete(req.id))) await this.writeState(req.conversationId, null, patch, req.id);
+    if (patch && (!req.notifyId || this.boundaryPatches.delete(req.id))) await this.writeState(req.conversationId, null, patch, req, { raw: true });
     return true;
   }
 
@@ -2958,6 +2992,51 @@ export class CuratorRequestProcessor {
   }
 
   /**
+   * Closes a Join early (branch failure policy, join timeout): cancels the unfinished requests of its branches
+   * (nested parallels' branches too) that no worker is running, then makes the Join runnable with `flags` in its
+   * context. A step already running finishes, but nothing it notifies runs. False when the Join was not waiting.
+   */
+  private async closeJoin(joinId: number, flags: Record<string, any>, reason: string): Promise<boolean> {
+    const join = await this.store.requests.get(joinId);
+    if (!join || TERMINAL_STATUSES.has(join.status) || (join.pendingDependencies ?? 0) <= 0) return false;
+
+    const live = await this.store.requests.find({ conversationId: join.conversationId, status: LIVE_STATUSES });
+    const joins = [joinId];
+    const cancel: any[] = [];
+    while (joins.length) {
+      const j = joins.shift()!;
+      for (const r of live) {
+        // Running now: claimed (locked) and not parked. Parked waits keep the lock of the worker that parked them.
+        const running = r.lockedBy != null && (r.status === 'NEW' || r.status === 'WAITING');
+        if (r.id === joinId || running || cancel.includes(r)) continue;
+        if (this.parseContext(r.context)[BRANCH_KEY]?.join !== j) continue;
+        cancel.push(r);
+        if (this.parseAst(r.ast)?.type === 'Curator_Join') joins.push(r.id);
+      }
+    }
+    for (const r of cancel) {
+      await this.saveResponse(r, `ERROR: cancelled, parallel branch closed (${reason})`);
+      await this.completeRequest(r.id, 'CANCELLED', true);
+    }
+
+    // Wake the Join with the flags, as a compare-and-swap on its count (a branch may be arriving right now)
+    for (let attempt = 1; attempt <= 50; attempt++) {
+      const current = attempt === 1 ? join : await this.store.requests.get(joinId);
+      if (!current || TERMINAL_STATUSES.has(current.status)) return false;
+      const woke = await this.store.requests.updateWhere(
+        { ids: [joinId], pendingDependencies: current.pendingDependencies ?? 0, status: ['NEW', 'WAITING'] as RequestStatus[] },
+        { pendingDependencies: 0, status: 'NEW', lockedBy: null, lockedAt: null, context: { ...this.parseContext(current.context), ...flags } }
+      );
+      if (woke > 0) {
+        this.announce();
+        return true;
+      }
+    }
+    logger.error(`[CuratorRequestProcessor] closeJoin: could not wake join ${joinId}`);
+    return false;
+  }
+
+  /**
    * Tells the request waiting on a dead one:
    * In parallel flows (or any fan-in / Join barrier), one failing branch must not poison the entire flow
    * when other branches are successful or still running.
@@ -2984,6 +3063,14 @@ export class CuratorRequestProcessor {
       const data: RequestPatch = { pendingDependencies: pending };
       const counted = async () =>
         (await this.store.requests.updateWhere({ ids: [target.id], pendingDependencies: target.pendingDependencies }, data)) > 0;
+
+      // The parallel's failure policy: close the Join now instead of waiting for the other branches
+      const policy = targetAst?.type === 'Curator_Join' ? this.parseContext(target.context)[JOIN_SPEC_KEY]?.onBranchFailure : undefined;
+      if ((policy === 'cancel_siblings' || policy === 'fail_fast') && pending > 0) {
+        if (!(await counted())) return false;
+        await this.closeJoin(target.id, policy === 'fail_fast' ? { [JOIN_FAIL_FAST_KEY]: true } : {}, `branch failed (${policy})`);
+        return true;
+      }
 
       const otherBranches = siblings.filter((s: any) => s.id !== req.id);
       const hasLiveBranches = otherBranches.some((s: any) => !TERMINAL_STATUSES.has(s.status));
@@ -3133,13 +3220,13 @@ export class CuratorRequestProcessor {
           // The state the write produced; read only when nothing was written
           let written =
             shouldPersistInState && Object.keys(newUpdates).length > 0
-              ? await this.writeState(targetReq.conversationId, sourceScope, newUpdates, req.id)
+              ? await this.writeState(targetReq.conversationId, sourceScope, newUpdates, req)
               : null;
           // A fork's fork-point step: its statePatch lands after the step's own output, before anything reads it
           const boundaryPatch = this.boundaryPatches.get(req.id);
           if (boundaryPatch) {
             this.boundaryPatches.delete(req.id);
-            written = await this.writeState(targetReq.conversationId, null, boundaryPatch, req.id);
+            written = await this.writeState(targetReq.conversationId, null, boundaryPatch, req, { raw: true });
           }
           const stateNow = written
             ? written.state
@@ -3165,7 +3252,10 @@ export class CuratorRequestProcessor {
           // A parked Curator_Call caller is isolated from its callee: the result flows back only via `as`.
           if (!targetContext.callPending && !(targetIsJoin && sourceScope != null)) {
             for (const [k, v] of Object.entries(sourceContext)) {
-              if (!skipKeys.has(k)) targetContext[k] = v;
+              if (skipKeys.has(k)) continue;
+              // A Join keeps the branch tag and rules of the parallel's parent (set when the parallel started)
+              if (targetIsJoin && (k === BRANCH_KEY || k === MERGE_RULES_KEY)) continue;
+              targetContext[k] = v;
             }
           }
           // A scope follows its own chain only; the continuation after a Join gets the scope of the parallel's parent.

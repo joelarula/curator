@@ -14,6 +14,7 @@ export const AST_LIMITS = {
 
 const baseProperties = {
   astVersion: { type: 'integer', enum: [1] },
+  name: { type: 'string' },
   exclude_from_history: { type: 'boolean' },
   scheduledAt: { type: 'string', minLength: 1 },
   priority: { type: 'number' },
@@ -45,6 +46,7 @@ const REF_RE = new RegExp(REF_PATTERN);
 /** Output format pipeline: 'name', 'name:arg', { use, args }, or a list of these (see OutputFormats). */
 const FORMAT_STEP = { anyOf: [{ type: 'string', minLength: 1 }, { type: 'object', properties: { use: { type: 'string', minLength: 1 }, args: {} }, required: ['use'], additionalProperties: false }] };
 const FORMAT_SPEC = { anyOf: [FORMAT_STEP, { type: 'array', items: FORMAT_STEP }] };
+import { STATE_SCHEMA_JSON } from './StateMerge.js';
 /** Typed resume of a wait: `{ schema }`, a JSON Schema the resume value must satisfy (see Interrupts.ts). */
 const RESUME_SPEC = { type: 'object', properties: { schema: { type: 'object' } }, additionalProperties: false };
 const TOOL_OUTPUT_RULES = { type: 'object', additionalProperties: { type: 'object', properties: { llm: FORMAT_SPEC, display: FORMAT_SPEC }, additionalProperties: false } };
@@ -89,8 +91,34 @@ const schema: Record<string, any> = {
     },
     {
       type: 'object',
-      properties: { ...baseProperties, type: { enum: ['Curator_Sequential', 'Curator_Parallel'] }, name: { type: 'string' }, prompt: { type: 'string' }, isolate: { type: 'boolean' }, subAgents: { type: 'array', minItems: 1, items: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' } } },
+      properties: { ...baseProperties, type: { const: 'Curator_Sequential' }, name: { type: 'string' }, prompt: { type: 'string' }, isolate: { type: 'boolean' }, subAgents: { type: 'array', minItems: 1, items: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' } } },
       required: ['type', 'subAgents'],
+      additionalProperties: false,
+    },
+    {
+      type: 'object',
+      properties: {
+        ...baseProperties, type: { const: 'Curator_Parallel' }, name: { type: 'string' }, prompt: { type: 'string' }, isolate: { type: 'boolean' },
+        subAgents: { type: 'array', minItems: 1, items: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' } },
+        stateSchema: STATE_SCHEMA_JSON, strict: { type: 'boolean' }, mergeBack: { type: 'boolean' },
+        join: {
+          type: 'object',
+          properties: {
+            as: { type: 'string', minLength: 1 },
+            requires: { anyOf: [{ enum: ['any', 'all'] }, { type: 'object', properties: { min: { type: 'integer', minimum: 1 } }, required: ['min'], additionalProperties: false }] },
+            onBranchFailure: { enum: ['continue', 'cancel_siblings', 'fail_fast'] },
+            timeoutMs: { type: 'integer', minimum: 1 },
+          },
+          additionalProperties: false,
+        },
+      },
+      required: ['type', 'subAgents'],
+      additionalProperties: false,
+    },
+    {
+      type: 'object',
+      properties: { ...baseProperties, type: { const: 'Curator_JoinTimeout' }, joinId: { type: 'integer' } },
+      required: ['type', 'joinId'],
       additionalProperties: false,
     },
     {
@@ -234,6 +262,7 @@ const schema: Record<string, any> = {
         description: { type: 'string' },
         params: { type: 'object' },
         config: { type: 'object' },
+        stateSchema: STATE_SCHEMA_JSON,
         main: { $ref: 'https://curator.local/schemas/curator-ast-v1.json' },
         subroutines: {
           type: 'object',
