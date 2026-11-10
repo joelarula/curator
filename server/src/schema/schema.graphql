@@ -541,18 +541,7 @@
     id: ID!
     name: String!
     description: String
-    permissions: [Permission!]! @deprecated(reason: "RolePermission is no longer used for access; tools are granted by ToolRole, requiredRole or tool:<name> roles. Removed next release.")
     createdAt: String!
-  }
-
-  "Granular permission mapping to a specific tool or action."
-  type Permission {
-    id: ID!
-    name: String!
-    description: String
-    toolName: String
-    accessLevel: String
-    requiresConfirmation: Boolean!
   }
 
   "Immutable audit log record tracking agent and tool activities."

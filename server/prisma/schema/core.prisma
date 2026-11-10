@@ -59,7 +59,6 @@ model Tool {
   requiredRole         String?      // Exact role required to whitelist this tool
   requiresConfirmation Boolean      @default(false)
   requiresHumanApproval Boolean     @default(false)
-  permissions          Permission[]
   roles                ToolRole[]
   enabled              Boolean      @default(true)
   origin               String       @default("local") // local | remote

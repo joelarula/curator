@@ -34,7 +34,6 @@ model Role {
   users       UserRole[]
   agents      AgentRole[]
   projects    ProjectRole[]
-  permissions RolePermission[]
   parentRoles RoleInheritance[] @relation("SubRole")
   subRoles    RoleInheritance[] @relation("ParentRole")
 
@@ -73,36 +72,6 @@ model RoleInheritance {
   updatedAt DateTime  @updatedAt
 
   @@id([parentId, subRoleId])
-}
-
-/// @deprecated Redundant with role names (tool:<name>, ToolRole); no longer read or written. Dropped next release.
-model Permission {
-  id                   String           @id @default(cuid())
-  name                 String           @unique
-  description          String?          @db.Text
-  toolName             String?
-  tool                 Tool?            @relation(fields: [toolName], references: [name], onDelete: Cascade)
-  accessLevel          String?
-  requiresConfirmation Boolean          @default(false)
-  roles                RolePermission[]
-
-  deletedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-/// @deprecated Redundant with role names (tool:<name>, ToolRole); no longer read or written. Dropped next release.
-model RolePermission {
-  roleId       String
-  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permissionId String
-  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
-
-  deletedAt DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-
-  @@id([roleId, permissionId])
 }
 
 model ProjectRole {

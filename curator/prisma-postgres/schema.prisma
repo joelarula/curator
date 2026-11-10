@@ -84,7 +84,6 @@ model Tool {
   requiresConfirmation Boolean      @default(false)
   enabled              Boolean      @default(true)
   existent             Boolean?     @default(true)
-  permissions          Permission[]
   roles                ToolRole[]
   origin               String       @default("local") // local | remote
   mcpServerId          Int?
@@ -540,27 +539,12 @@ model Agent {
   @@index([parentAgentId])
 }
 
-/// @deprecated Redundant with role names (tool:<name>, ToolRole); no longer read or written. Dropped next release.
-model Permission {
-  id                   String           @id @default(cuid())
-  name                 String           @unique
-  description          String?
-  toolName             String?
-  tool                 Tool?            @relation(fields: [toolName], references: [name], onDelete: Cascade)
-  accessLevel          String?
-  requiresConfirmation Boolean          @default(false)
-  roles                RolePermission[]
-  createdAt            DateTime         @default(now())
-  updatedAt            DateTime         @updatedAt
-}
-
 model Role {
   id          String            @id
   name        String
   description String?
   projectId   String?
   project     Project?          @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  permissions RolePermission[]
   tools       ToolRole[]
   users       UserRole[]
   agents      AgentRole[]
@@ -594,16 +578,6 @@ model RoleInheritance {
   subRole   Role   @relation("SubRole", fields: [subRoleId], references: [id], onDelete: Cascade)
 
   @@id([parentId, subRoleId])
-}
-
-/// @deprecated Redundant with role names (tool:<name>, ToolRole); no longer read or written. Dropped next release.
-model RolePermission {
-  roleId       String
-  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permissionId String
-  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
-
-  @@id([roleId, permissionId])
 }
 
 model ProjectRole {

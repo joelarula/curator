@@ -81,7 +81,7 @@ Prefer this change order for feature work:
 
 - Database entities (Resources, Relations, Texts, Agents, Scripts, Conversations, Requests, Responses) must always be queried and updated within the scope of the **active project IDs** plus the global `'system'` project.
 - Active project IDs are resolved dynamically on the backend (passed as a header list `x-project-id` or loaded from the user's session record `Session.activeProjectId`).
-- Access is granted to roles only (never to a user directly) and is allow-list only: `AccessService.canUse(actor, 'tool' | 'agent' | 'secret', name)` for calls and listings. A role given in a project counts in its sub-projects unless a `ProjectRole` list narrows it; an agent acting for a user gets only what both may do. Errors deny. `Permission` / `RolePermission` are deprecated (unused).
+- Access is granted to roles only (never to a user directly) and is allow-list only: `AccessService.canUse(actor, 'tool' | 'agent' | 'secret', name)` for calls and listings. A role given in a project counts in its sub-projects unless a `ProjectRole` list narrows it; an agent acting for a user gets only what both may do. Errors deny. There is no `Permission` / `RolePermission` table (dropped).
 - In GraphQL resolvers, utilize `buildProjectScopeWhere(context.activeProjectIds || context.activeProjectId)` inside Prisma `where` blocks. Do not expose active project context in query signatures.
 - For local SQLite WASM environments (e.g. Chrome Extension), multiple project databases are abstracted as standard GQL projects. The background worker maps standard GQL queries directly to the correct SQLite database file.
 

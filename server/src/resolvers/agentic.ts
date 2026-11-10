@@ -227,10 +227,7 @@ export const agenticResolvers = {
         roles: async (_parent: any, _args: any, context: any) => {
             if (!context.user) throw new Error('Unauthorized');
             await AgentRoleService.ensureDefaultRoles(context.prisma);
-            return await context.prisma.role.findMany({
-                orderBy: { name: 'asc' },
-                include: { permissions: { include: { permission: true } } }
-            });
+            return await context.prisma.role.findMany({ orderBy: { name: 'asc' } });
         },
 
         auditLogs: async (_parent: any, args: any, context: any) => {
@@ -1110,7 +1107,7 @@ export const agenticResolvers = {
         roles: async (agent: any, _args: any, context: any) => {
             const agentRoles = await context.prisma.agentRole.findMany({
                 where: { agentId: agent.id },
-                include: { role: { include: { permissions: { include: { permission: true } } } } }
+                include: { role: true }
             });
             return agentRoles.map((ar: any) => ar.role).filter(Boolean);
         },
@@ -1142,16 +1139,4 @@ export const agenticResolvers = {
         requiredRole: (tool: any) => tool.requiredRole || 'agent:writer',
     },
 
-    Role: {
-        permissions: async (role: any, _args: any, context: any) => {
-            if (role.permissions && Array.isArray(role.permissions) && role.permissions[0]?.name) {
-                return role.permissions;
-            }
-            const rolePerms = await context.prisma.rolePermission.findMany({
-                where: { roleId: role.id },
-                include: { permission: true }
-            });
-            return rolePerms.map((rp: any) => rp.permission).filter(Boolean);
-        }
-    },
 };
