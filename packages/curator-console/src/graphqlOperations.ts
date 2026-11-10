@@ -5,7 +5,7 @@
 
 export const GET_AGENTS_QUERY = /* GraphQL */ `
   query GetAgents {
-    agents {
+    agents(usable: true) {
       name
       description
       schedule

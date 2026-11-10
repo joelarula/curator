@@ -423,7 +423,8 @@ export const galleryTypeDefs = /* GraphQL */ `
     metrics: CuratorMetrics!
     curatorDatabaseHealth: CuratorDatabaseHealth!
     tools: [ToolInfo!]!
-    agents: [AgentInfo!]!
+    "All agents (management); with usable: true only those the signed-in user may address (pickers, composer)."
+    agents(usable: Boolean): [AgentInfo!]!
     curatorAgents: [AgentInfo!]!
     curatorRequests(limit: Int): [CuratorRequestItem!]!
     curatorRequest(id: ID!): CuratorRequestItem

@@ -155,7 +155,8 @@ export const curatorGraphQLTypeDefs = /* GraphQL */ `
     tool(name: String!): ToolDefinition
 
     # Agents
-    agents: [AgentDefinition!]!
+    "Agents the caller may address (always filtered here; usable is accepted for clients that ask explicitly)."
+    agents(usable: Boolean): [AgentDefinition!]!
     agent(name: String!): AgentDefinition
     curatorAgents: [CuratorAgentSummary!]!
 

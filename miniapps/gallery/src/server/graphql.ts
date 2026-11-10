@@ -407,11 +407,21 @@ export function resolvers({ host, user, projectId }: GraphqlContext) {
       }));
     },
 
-    agents: async () => {
-      const rows = await defPrisma.agent.findMany({
+    agents: async (args: { usable?: boolean } = {}) => {
+      let rows = await defPrisma.agent.findMany({
         where: { existent: true },
         include: { script: true },
       });
+      if (args?.usable) {
+        // Pickers and the composer: only agents the signed-in user may address in the active project
+        rows = await AccessService.filterUsable(
+          defPrisma,
+          { userId: user?.id ?? null, projectId: activeProjectId },
+          'agent',
+          rows,
+          (a: any) => ({ name: a.name, policy: { requiredRole: host.engine.agents.get(a.name)?.requiredRole } }),
+        );
+      }
       return rows.map((a: any) => {
         const description = a.script?.description || `Gallery agent ${a.name}`;
         const entry = describeAgent(a.name, { ...(host.engine.agents.get(a.name) ?? {}), description, ast: a.script?.ast });
