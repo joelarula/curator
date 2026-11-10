@@ -118,3 +118,11 @@ suggests agents; `#` searches project resources (`search_resources`) and attache
 (`attach_resource` links them to the conversation and the prompt gets their excerpts). `/tool args` runs a tool (missing required arguments open a form from its schema), `/1` answers a
 choice, `@agent message` sends the message to that agent. The list (`useCommandCatalog`) and the parsing
 (`parseComposerInput` in `@curator/host/contracts`) are the same ones the CLI shell uses.
+
+---
+
+## Source chips
+
+Under the latest answer, chips list what the run used: each tool call (coloured by outcome) and each resource
+attached with `#`. Clicking a tool chip shows the stored result the model read; clicking a resource chip shows its text
+(`useSources`).

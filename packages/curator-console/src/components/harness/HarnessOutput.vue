@@ -222,6 +222,26 @@
               >
                 {{ describeSurface(latestSurface.surface) }}
               </v-chip>
+              <!-- Sources: what the run used (tool calls, attached resources); a click shows it in the panel -->
+              <div v-if="sourceList.length > 0" class="d-flex align-center flex-wrap ga-1 mt-2">
+                <span class="text-caption text-medium-emphasis me-1">Sources:</span>
+                <v-chip
+                  v-for="src in sourceList"
+                  :key="src.key"
+                  size="x-small"
+                  variant="tonal"
+                  :color="src.state === 'FAILED' ? 'error' : src.kind === 'resource' ? 'secondary' : 'primary'"
+                  :prepend-icon="src.kind === 'resource' ? 'mdi-paperclip' : 'mdi-wrench-outline'"
+                  :disabled="src.state === 'running'"
+                  :loading="harness?.sources.opening.value === src.key"
+                  class="cursor-pointer"
+                  :title="src.uri ?? src.toolName"
+                  @click="harness?.sources.open(src)"
+                >
+                  {{ src.label }}
+                </v-chip>
+              </div>
+              <div v-if="sourceError" class="text-caption text-error mt-1">{{ sourceError }}</div>
             </div>
 
             <!-- Suggestion Chips if parsed from conversational speech acts -->
@@ -436,6 +456,8 @@ const starterPrompts = computed<string[]>(() => {
 });
 
 const latestSurface = computed(() => harness?.surfaces?.entryFor(reqId.value) ?? null);
+const sourceList = computed(() => harness?.sources?.sources.value ?? []);
+const sourceError = computed(() => harness?.sources?.error.value ?? null);
 const surfaceById = (id: string) => harness?.surfaces?.entries.value.find((e) => e.id === id) ?? null;
 
 /** Shows a surface: in the stack layout the output switches to its UI Surface tab; the worktable shows it anyway. */

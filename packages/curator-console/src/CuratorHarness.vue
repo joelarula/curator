@@ -241,6 +241,7 @@ import {
   GET_TOOLS_QUERY_BASIC,
   GET_AGENTS_QUERY_BASIC,
   ALLOWED_ACTIONS_QUERY,
+  GET_CURATOR_REQUEST_BY_ID_QUERY,
   GET_CURATOR_REQUESTS_QUERY,
   GET_DATABASE_HEALTH_QUERY,
   TRIGGER_AGENT_MUTATION,
@@ -270,7 +271,8 @@ import SettingsTab from './components/tabs/SettingsTab.vue';
 import { usePluginConfig } from './composables/usePluginConfig';
 import { useSurfaces } from './composables/useSurfaces';
 import { useCommandCatalog, isCommandAllowed } from './composables/useCommandCatalog';
-import { useAttachments, promptWithAttachments } from './composables/useAttachments';
+import { useAttachments, promptWithAttachments, type AttachedResource } from './composables/useAttachments';
+import { useSources } from './composables/useSources';
 
 interface Props {
   adapter?: CuratorConsoleAdapter;
@@ -396,6 +398,21 @@ const allowedActions = ref<string[]>([]);
 // # attachments: resource suggestions and the chips sent with the next turn
 const attachments = useAttachments(tools, runHostTool);
 const commandCatalog = useCommandCatalog({ tools, agents, choices: availableChoices, allowedActions, resources: attachments.hits });
+// Source chips under the latest answer: the run's tool calls and the resources attached to that turn
+const lastAttached = ref<AttachedResource[]>([]);
+const sources = useSources({
+  run: runTimeline.current,
+  attached: lastAttached,
+  loadResponses: async (requestId) => {
+    const data = await executeGraphql(GET_CURATOR_REQUEST_BY_ID_QUERY, { id: String(requestId) });
+    return (data?.curatorRequest?.responses ?? []).map((r: any) => String(r?.content ?? ''));
+  },
+  runTool: runHostTool,
+  show: (surface) => {
+    surfaces.show(surface);
+    outputTab.value = 'surface';
+  },
+});
 // Tool picked in the composer whose required arguments are missing: asked for with a generated form
 const toolFormTarget = ref<any | null>(null);
 const toolFormArgs = ref<Record<string, unknown>>({});
@@ -916,6 +933,7 @@ async function executeOpPrompt() {
   const startTime = Date.now();
   executing.value = true;
   runTimeline.reset();
+  lastAttached.value = [];
   lastExecError.value = null;
   lastExecStatus.value = 'RUNNING';
   lastExecOutput.value = null;
@@ -1018,6 +1036,7 @@ async function executeOpPrompt() {
 
       // # attachments: each chip is attached to the conversation; the model gets their excerpts with the prompt
       const attachedResources = attachments.attachments.value.length > 0 ? await attachments.attachAll() : [];
+      lastAttached.value = attachedResources;
       const promptBody = promptWithAttachments(prompt, attachedResources);
       let combinedPromptText = promptBody;
       if (hasChoice) {
@@ -1541,6 +1560,7 @@ provideHarnessContext({
   runMessageAction,
   commandCatalog,
   attachments,
+  sources,
   toolFormTarget,
   toolFormArgs,
   submitToolForm,

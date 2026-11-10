@@ -7,6 +7,7 @@ import type { HarnessMessageRef, MessageActionsHandle } from './composables/useM
 import type { SurfacesHandle } from './composables/useSurfaces';
 import type { CommandCatalogHandle } from './composables/useCommandCatalog';
 import type { AttachmentsHandle } from './composables/useAttachments';
+import type { SourcesHandle } from './composables/useSources';
 import type {
   HarnessLayoutMode,
   HarnessResourceViewMode,
@@ -113,6 +114,8 @@ export interface CuratorHarnessContext {
   commandCatalog: CommandCatalogHandle;
   /** `#` attachments: resource suggestions and the chips sent with the next turn. */
   attachments: AttachmentsHandle;
+  /** Source chips of the latest answer (tool calls of its run, attached resources). */
+  sources: SourcesHandle;
   /** Tool waiting for its required arguments (composer form), and the form's values. */
   toolFormTarget: Ref<any | null>;
   toolFormArgs: Ref<Record<string, unknown>>;

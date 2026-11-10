@@ -334,6 +334,12 @@ shims, surface formatters. Not chosen now: conversation organisation, channels.
   conversation through `ConversationResources`; returns title and a 4000-character text excerpt), and the prompt gets an
   "Attached:" block (`promptWithAttachments`); the speech payload carries `resources: [{ uri, title }]`. Offered only
   when the user may run both tools. Not done: `#` in the CLI (no resource search in the shell yet).
+- Source chips (done): `useSources` lists the latest run's tool calls (`toolSourcesOfRun`, from `RunStep.calls`,
+  coloured by outcome) and the resources attached to that turn, as chips under the answer in `HarnessOutput`. A tool
+  chip opens the stored result the model read (the n-th `[Tool Result: …]` response of the agent step's request,
+  `toolResultAt`, via `curatorRequest(id)`): JSON as a json surface, else Markdown. A resource chip opens its text
+  (`get_resource`). Latest turn only (turn history entries keep no chips). Limit: `curatorRequest` itself is not
+  access-scoped yet (existing query).
 
 ## Cross-cutting
 
