@@ -49,7 +49,7 @@ const FORMAT_SPEC = { anyOf: [FORMAT_STEP, { type: 'array', items: FORMAT_STEP }
 import { STATE_SCHEMA_JSON } from './StateMerge.js';
 /** Typed resume of a wait: `{ schema }`, a JSON Schema the resume value must satisfy (see Interrupts.ts). */
 const RESUME_SPEC = { type: 'object', properties: { schema: { type: 'object' } }, additionalProperties: false };
-const TOOL_OUTPUT_RULES = { type: 'object', additionalProperties: { type: 'object', properties: { llm: FORMAT_SPEC, display: FORMAT_SPEC }, additionalProperties: false } };
+const TOOL_OUTPUT_RULES = { type: 'object', additionalProperties: { type: 'object', properties: { llm: FORMAT_SPEC, display: FORMAT_SPEC, surface: FORMAT_SPEC }, additionalProperties: false } };
 
 export interface CuratorRef {
   /** Script name; undefined for local ('#sub') refs. */

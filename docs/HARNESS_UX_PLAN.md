@@ -121,7 +121,7 @@ sub-steps of its run, in the console and the CLI.
   outcome, e.g. an approval pause); `describeProgressEvent` has lines for both kinds; `HarnessRunStatus` lists calls
   under their step; the CLI prints finished calls as lines and shows the latest call on the live line.
 
-Not done: agent presentation titles as labels (waits for Phase 6); argument-based label templates (not planned).
+Not done: argument-based label templates (not planned). Agent presentation titles as labels: Phase 11.
 
 Tests: `curator/test/engine/progress-events.test.ts` (labels, no argument values, tool events),
 `packages/host/test/run_timeline.test.ts` (sub-step fold, CLI lines).
@@ -273,11 +273,11 @@ run in prompt mode).
   - Agent text renders as Markdown (`HarnessMarkdown`: `marked` with raw HTML dropped, DOMPurify, links in a new tab
     with `noopener`; plain text if the libraries aren't installed) with "Open …" chips for its diagrams, pages, JSON
     and tables. The latest turn and each Turns entry (`TurnHistoryEntry.surfaceId`) show a chip for their surface.
-  - The `items` / `galleryItems` / `resources` guess in `applySurfaceIfPresent` is `@deprecated` (kept one release).
+  - The `items` / `galleryItems` / `resources` guess in `applySurfaceIfPresent` was removed in Phase 11.
 - CLI: `ClientShell.printSurface(payload)` (used by `exec`): tables as aligned text, others as a one-line description.
 - Dependencies: `@curator/console` now lists `marked`, `dompurify` and `mermaid` (needs `pnpm install`).
 
-Not done: surface formatters through plugin `formatters` / `toolOutput` (tools return `uiSurface` directly for now).
+Surface formatters through plugin `formatters` / `toolOutput`: Phase 11.
 
 Tests: `packages/host/test/surfaces_contract.test.ts` (extraction, tables, text, panel blocks, CLI),
 `packages/curator-console/test/surfaces.test.ts` (`useSurfaces`, image sources, sandbox document).
@@ -301,14 +301,32 @@ Tests: `packages/host/test/surfaces_contract.test.ts` (extraction, tables, text,
     turn); missing required arguments open `HarnessToolArgsDialog` (form from the tool's schema); `/1` or
     `/<choice value>` answers the choice; `@agent message` sends the message to that agent; unknown names are errors.
   - Suggestion chips (`<suggest>`, starter prompts) starting with `/` or `@` go through the same parser.
-  - The Agent/Tool/AST mode toggle stays as a fallback for one release.
+  - The Agent/Tool/AST mode toggle was removed in Phase 11.
 
-Not done: removing the old mode toggle (next release); `#` attachments (deferred).
+Not done: `#` attachments (Phase 11).
 
 Tests: `packages/host/test/commands_contract.test.ts` (triggers, suggestions, parsing, CLI catalog, completion,
 `@agent`), `packages/curator-console/test/commandCatalog.test.ts`.
 
 ---
+
+## Phase 11: Smaller deferred items (in progress, 2026-11-10)
+
+Chosen: `#` attachments, source chips, prompt library; cleanups: agent titles in labels, removal of the deprecated
+shims, surface formatters. Not chosen now: conversation organisation, channels.
+
+- Agent titles in labels (done): `stepProgressLabel(ast, resolveTool, resolveAgent?)` labels an agent step with its
+  definition's `presentation.title`, else its `agentName`; the processor passes `engine.agents`.
+- Deprecated shims removed (done): the Agent/Tool/AST toggle is gone. The prompt is the agent composer (`/tool args`
+  and the argument form replace tool mode; "use tool" from the Tools tab and the context menu opens that form, with
+  pending uploads filling `files` / `photo` / `photoUrl` when the schema declares them). The CoffeeScript editor is
+  opened from the workflow studio and left with "Back to prompt". Removed: `selectedTool` / `toolArgsInput` (context
+  and `HarnessOpPrompt` props), `HarnessDeck`'s `execMode`, the `items` / `galleryItems` / `resources` surface guess.
+- Surface formatters (done): output target `surface` (`ToolOutputSpec.surface`, also in AST `tool_output`), built-in
+  `surface` formatter (`surface:table`, `surface:resources`, `surface:markdown` / `code` / `json` / ...,
+  `{ use: 'surface', args: { component, title } }`), `OutputFormats.surfaceForToolResult`. A direct tool run
+  (`runToolRequest`, so `host.runTool`, GraphQL `executeTool`, MCP) whose object result has no `uiSurface` gets one
+  from the rules; other results are unchanged.
 
 ## Cross-cutting
 

@@ -1650,7 +1650,11 @@ export class CuratorRequestProcessor {
           return;
         }
 
-        const label = stepProgressLabel(ast as any, (name) => this.engine.resolveTool?.(name, { projectId: req.projectId ?? undefined }) ?? this.engine.tools.get(name));
+        const label = stepProgressLabel(
+          ast as any,
+          (name) => this.engine.resolveTool?.(name, { projectId: req.projectId ?? undefined }) ?? this.engine.tools.get(name),
+          (name) => this.engine.agents?.get(name)
+        );
         this.executing.set(req.id, {
           nodeType: ast.type,
           startedAt: new Date(this.clock()),
@@ -2079,6 +2083,17 @@ export class CuratorRequestProcessor {
    * the same handler as AST tool nodes (RBAC, approval gate, secrets, Response). Throws on tool error
    * or when access is denied; returns status WAITING_FOR_USER when approval is required.
    */
+  /**
+   * A direct tool run's object result gets `uiSurface` from the `surface` output rules (plugin `toolOutput`, the
+   * tool's `output`) when it has none; other results are returned as they are.
+   */
+  private withSurface(result: unknown, toolName: string, tool: any): unknown {
+    if (!result || typeof result !== 'object' || Array.isArray(result) || 'uiSurface' in (result as any)) return result;
+    const output = this.engine.output ?? defaultOutputFormats;
+    const surface = output.surfaceForToolResult(result, { names: [toolName], tool });
+    return surface ? { ...(result as Record<string, unknown>), uiSurface: surface } : result;
+  }
+
   public async runToolRequest(input: RunToolRequestInput): Promise<RunToolRequestResult> {
     const resolved = this.engine.resolveTool?.(input.toolName, { projectId: input.projectId }) ?? this.engine.tools.get(input.toolName);
     if (!resolved) throw new Error(`Tool '${input.toolName}' not found`);
@@ -2111,10 +2126,11 @@ export class CuratorRequestProcessor {
       if (done?.status === 'FAILED') {
         throw new Error(record?.reason || (typeof content === 'string' ? content : `Tool '${input.toolName}' failed`));
       }
+      const result = record ? undefined : (flight?.raw !== undefined ? flight.raw : parsed);
       return {
         requestId: created.id,
         status: done?.status ?? 'UNKNOWN',
-        result: record ? undefined : (flight?.raw !== undefined ? flight.raw : parsed),
+        result: this.withSurface(result, input.toolName, resolved),
         record
       };
     } finally {

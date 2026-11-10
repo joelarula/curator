@@ -1,7 +1,10 @@
 import { logger } from '../../utils/logger.js';
 
-/** Who reads a formatted value: the model (tool message) or a person (REPL / UI). */
-export type OutputTarget = 'llm' | 'display';
+/**
+ * Who reads a formatted value: the model (tool message), a person (REPL line) or the output panel (`surface`: the
+ * pipeline yields a UI surface object `{ component, title?, data? }` attached to the result as `uiSurface`).
+ */
+export type OutputTarget = 'llm' | 'display' | 'surface';
 
 export interface FormatContext {
   target: OutputTarget;
@@ -24,6 +27,8 @@ export type FormatSpec = FormatStep | FormatStep[];
 export interface ToolOutputSpec {
   llm?: FormatSpec;
   display?: FormatSpec;
+  /** Builds the output-panel surface for a direct tool run (e.g. `surface:table` or a plugin formatter). */
+  surface?: FormatSpec;
 }
 
 /** Tool name or `*` pattern → output spec. */
@@ -140,6 +145,26 @@ export const BUILTIN_FORMATTERS: Record<string, CuratorFormatter> = {
   'escape-shell': (v) => mapStrings(v, escapeShellArg),
   /** Escapes a string or an object's string fields as SQL literals. */
   'escape-sql': (v) => mapStrings(v, escapeSqlLiteral),
+  /**
+   * A UI surface from the value: `surface:table` (an array of rows, or `{ rows }`), `surface:resources` (an array of
+   * items, or `{ items, total? }`), `surface:markdown` / `code` / `json` / `mermaid` / ... (the value as `data`).
+   * `{ use: 'surface', args: { component, title } }` sets a title. Use after `field:` to pick the part to show.
+   */
+  surface: (v, arg) => {
+    const opts = isPlainObject(arg) ? arg : { component: arg };
+    const component = typeof opts.component === 'string' && opts.component ? opts.component : 'json';
+    const title = typeof opts.title === 'string' ? opts.title : undefined;
+    if (component === 'table') {
+      const rows = Array.isArray(v) ? v : isPlainObject(v) && Array.isArray(v.rows) ? v.rows : [];
+      return { component, ...(title ? { title } : {}), data: { rows } };
+    }
+    if (component === 'resources' || component === 'resource-collection') {
+      const items = Array.isArray(v) ? v : isPlainObject(v) && Array.isArray(v.items) ? v.items : [];
+      const total = isPlainObject(v) && typeof v.total === 'number' ? v.total : items.length;
+      return { component: 'resource-collection', ...(title ? { title } : {}), items, total };
+    }
+    return { component, ...(title ? { title } : {}), data: v };
+  },
 };
 
 /**
@@ -206,6 +231,22 @@ export class OutputFormats {
    * A tool result for `target`, or undefined when no spec applies (callers keep their default form).
    * A failing formatter is logged and yields undefined, so a bad rule never fails the tool call.
    */
+  /**
+   * The UI surface for a tool result (`surface` rules), or undefined when no rule applies or the pipeline does not
+   * yield an object with a string `component`. Failures are logged, never thrown.
+   */
+  surfaceForToolResult(value: unknown, opts: Omit<ToolResultFormatOptions, 'target'>): Record<string, unknown> | undefined {
+    const spec = this.resolve({ ...opts, target: 'surface' });
+    if (spec === undefined) return undefined;
+    try {
+      const out = this.apply(value, spec, { target: 'surface', toolName: opts.names[0], toolKey: opts.names.at(-1), agentName: opts.agentName });
+      return isPlainObject(out) && typeof out.component === 'string' && out.component ? out : undefined;
+    } catch (err: any) {
+      logger.warn(`[OutputFormats] surface of '${opts.names[0]}' failed: ${err?.message || err}`);
+      return undefined;
+    }
+  }
+
   formatToolResult(value: unknown, opts: ToolResultFormatOptions): string | undefined {
     const spec = this.resolve(opts);
     if (spec === undefined) return undefined;

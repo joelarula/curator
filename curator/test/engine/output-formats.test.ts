@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createEnv, runAst, snapshotDb } from '../helpers/harness.ts';
 import { OutputFormats } from '../../src/engine/output/OutputFormats.js';
 import { CuratorEngine } from '../../src/engine/CuratorEngine.js';
+import { defineTool } from '../../src/tools/CuratorTool.ts';
 
 const page = {
   url: 'https://et.wikipedia.org/wiki/Orava',
@@ -79,4 +80,38 @@ test('output: an agent formats tool results for the model, broadcasts the displa
   } finally {
     await env.cleanup();
   }
+});
+
+test('output: surface formatter builds table, resource and data surfaces', () => {
+  const out = new OutputFormats();
+  const ctx = { target: 'surface' as const };
+  assert.deepEqual(out.apply([{ a: 1 }], 'surface:table', ctx), { component: 'table', data: { rows: [{ a: 1 }] } });
+  assert.deepEqual(out.apply({ items: [{ id: 1 }], total: 9 }, 'surface:resources', ctx), { component: 'resource-collection', items: [{ id: 1 }], total: 9 });
+  assert.deepEqual(out.apply({ text: '# Hi' }, ['field:text', { use: 'surface', args: { component: 'markdown', title: 'Note' } }], ctx), { component: 'markdown', title: 'Note', data: '# Hi' });
+  // No rule, or a pipeline that does not yield a surface: nothing
+  assert.equal(out.surfaceForToolResult({ a: 1 }, { names: ['t'] }), undefined);
+  out.registerToolOutput('t', { surface: 'field:a' });
+  assert.equal(out.surfaceForToolResult({ a: 1 }, { names: ['t'] }), undefined);
+});
+
+test('output: a direct tool run gets uiSurface from surface rules, unless it returns its own', async () => {
+  const env = await createEnv('output_surface');
+  try {
+    const output = new OutputFormats();
+    output.registerToolOutput('list_rows', { surface: ['field:rows', { use: 'surface', args: { component: 'table', title: 'Rows' } }] });
+    const engine = (env.processor as any).engine;
+    engine.output = output;
+    const run = async (toolName: string, result: any) => {
+      engine.tools.set(toolName, defineTool({ name: toolName, description: toolName, parameters: { type: 'object', properties: {} }, execute: async () => result } as any));
+      await env.prisma.tool.create({ data: { name: toolName } }).catch(() => null);
+      return (await env.processor.runToolRequest({ toolName, args: {}, conversationId: env.conversationId, userId: env.userId, origin: 'API' } as any)).result as any;
+    };
+    const plain = await run('list_rows', { rows: [{ n: 1 }, { n: 2 }] });
+    assert.deepEqual(plain.uiSurface, { component: 'table', title: 'Rows', data: { rows: [{ n: 1 }, { n: 2 }] } });
+    assert.deepEqual(plain.rows, [{ n: 1 }, { n: 2 }]);
+
+    output.registerToolOutput('own_surface', { surface: 'surface:json' });
+    const own = await run('own_surface', { uiSurface: { component: 'markdown', data: 'mine' } });
+    assert.deepEqual(own.uiSurface, { component: 'markdown', data: 'mine' });
+  } finally { await env.cleanup(); }
 });
