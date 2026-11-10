@@ -510,7 +510,8 @@ export class AgentRoleService {
             // Host actions (AccessService CURATOR_ACTION_ROLES)
             { name: 'curator:db:status', description: 'May view database health (row counts of requests, agents, users)' },
             { name: 'curator:db:export', description: 'May download the whole database file' },
-            { name: 'curator:db:import', description: 'May replace the database file' }
+            { name: 'curator:db:import', description: 'May replace the database file' },
+            { name: 'curator:requests:read', description: "May read other users' requests and responses in the project" }
         ];
 
         for (const r of defaultRoles) {

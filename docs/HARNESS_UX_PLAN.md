@@ -338,8 +338,12 @@ shims, surface formatters. Not chosen now: conversation organisation, channels.
   coloured by outcome) and the resources attached to that turn, as chips under the answer in `HarnessOutput`. A tool
   chip opens the stored result the model read (the n-th `[Tool Result: …]` response of the agent step's request,
   `toolResultAt`, via `curatorRequest(id)`): JSON as a json surface, else Markdown. A resource chip opens its text
-  (`get_resource`). Latest turn only (turn history entries keep no chips). Limit: `curatorRequest` itself is not
-  access-scoped yet (existing query).
+  (`get_resource`). Latest turn only (turn history entries keep no chips).
+- Request access (done): `curatorRequests` / `curatorRequest` (shared server and gallery) return only what
+  `AccessService.requestScopeWhere` allows: the caller's project, its sub-projects and `system`; only the caller's own
+  requests unless it may perform `requests.read_all` (role `curator:requests:read`, seeded; super-admins pass); no user,
+  nothing. `curatorRequest(id)` now converts the id (it failed before: string id on an integer column). Keeris already
+  limits its request list to `curator_manager`.
 
 ## Cross-cutting
 

@@ -477,6 +477,7 @@ export function resolvers({ host, user, projectId }: GraphqlContext) {
 
     curatorRequests: async ({ limit = 20 }: { limit?: number } = {}) => {
       const rows = await requestsOf(host).findMany({
+        where: await AccessService.requestScopeWhere(defPrisma, { userId: user?.id ?? null, projectId: activeProjectId }),
         orderBy: { createdAt: 'desc' },
         take: Math.min(Math.max(Number(limit) || 20, 1), 100),
         include: { responses: true, script: true },
@@ -538,8 +539,12 @@ export function resolvers({ host, user, projectId }: GraphqlContext) {
     },
 
     curatorRequest: async ({ id }: { id: string }) => {
+      const numericId = Number(id);
+      if (!Number.isInteger(numericId)) return null;
       const r = await requestsOf(host).findFirst({
-        where: { id: isNaN(Number(id)) ? id : Number(id) },
+        where: {
+          AND: [{ id: numericId }, await AccessService.requestScopeWhere(defPrisma, { userId: user?.id ?? null, projectId: activeProjectId })],
+        },
         include: { responses: true, script: true },
       });
       if (!r) return null;

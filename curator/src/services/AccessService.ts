@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import { AgentRoleService, type ActorIdentity } from './AgentRoleService.js';
+import { getProjectSubtreeIds, SYSTEM_PROJECT_ID } from './ProjectScopeService.js';
 
 /** What can be used: a tool (run), an agent (address), a secret (resolve), an action (perform, e.g. `db.export`). */
 export type AccessKind = 'tool' | 'agent' | 'secret' | 'action';
@@ -15,6 +16,8 @@ export const CURATOR_ACTION_ROLES: Readonly<Record<string, string>> = {
   'db.export': 'curator:db:export',
   /** Replace the database file. */
   'db.import': 'curator:db:import',
+  /** Read other users' requests and responses in the project (request inspectors); otherwise only one's own. */
+  'requests.read_all': 'curator:requests:read',
 };
 
 export interface AccessPolicy {
@@ -60,6 +63,23 @@ export class AccessService {
     } catch (err: any) {
       return { allowed: false, reason: `Access Denied: the ${kind} check for '${name}' failed: ${err?.message ?? err}` };
     }
+  }
+
+  /**
+   * Prisma `where` for the requests (and their responses) an actor may read: its project, the project's sub-projects
+   * and `system`; only its own requests unless it may perform `requests.read_all`. No user: nothing.
+   * `rolesPrisma` is the database holding the roles (definitions), the result filters the requests database.
+   */
+  static async requestScopeWhere(rolesPrisma: PrismaClient | any, actor: ActorIdentity): Promise<Record<string, any>> {
+    const userId = actor?.userId != null ? String(actor.userId) : null;
+    if (!userId) return { id: -1 };
+    const projectId = actor?.projectId != null ? String(actor.projectId) : null;
+    const projectIds = projectId ? [...new Set([...(await getProjectSubtreeIds(rolesPrisma, projectId)), SYSTEM_PROJECT_ID])] : null;
+    const all = (await AccessService.canUse(rolesPrisma, actor, 'action', 'requests.read_all')).allowed;
+    return {
+      ...(projectIds ? { projectId: { in: projectIds } } : {}),
+      ...(all ? {} : { userId }),
+    };
   }
 
   /** Which of `actions` the actor may perform (for showing or hiding commands). */

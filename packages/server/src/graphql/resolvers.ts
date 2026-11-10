@@ -130,7 +130,8 @@ export function createCuratorResolvers(host: CuratorHost, customResolvers: Recor
     },
 
     curatorRequests: async ({ limit = 50, status }: { limit?: number; status?: string }) => {
-      const where: any = {};
+      // Only requests the caller may read (project scope; own requests unless curator:requests:read)
+      const where: any = { ...(await AccessService.requestScopeWhere(host.definitionsPrisma, actor())) };
       if (status) where.status = status;
 
       const requests = await host.prisma.request.findMany({
@@ -164,8 +165,10 @@ export function createCuratorResolvers(host: CuratorHost, customResolvers: Recor
     },
 
     curatorRequest: async ({ id }: { id: string }) => {
-      const r = await host.prisma.request.findUnique({
-        where: { id },
+      const numericId = Number(id);
+      if (!Number.isInteger(numericId)) return null;
+      const r = await host.prisma.request.findFirst({
+        where: { AND: [{ id: numericId }, await AccessService.requestScopeWhere(host.definitionsPrisma, actor())] },
         include: { responses: true },
       });
       if (!r) return null;

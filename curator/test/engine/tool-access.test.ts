@@ -377,3 +377,23 @@ test('actions: db.status / db.export need their role (or a super-admin); unknown
     assert.equal((await AccessService.canUse(env.prisma, {}, 'action', 'db.status')).allowed, false);
   } finally { await env.cleanup(); }
 });
+
+test('requests: a user reads its own requests in its project; curator:requests:read reads everyone\'s there', async () => {
+  const { AccessService } = await import('../../src/services/AccessService.ts');
+  const { env } = await setup('request_scope');
+  try {
+    await mkProject(env, 'p1'); await mkProject(env, 'p2');
+    await mkRole(env, 'viewer'); await mkRole(env, 'curator:requests:read');
+    const alice = await mkUser(env, 'alice'); const bob = await mkUser(env, 'bob');
+    await env.prisma.userRole.create({ data: { userId: alice.id, roleId: 'viewer' } });
+    await env.prisma.userRole.create({ data: { userId: bob.id, roleId: 'curator:requests:read' } });
+    const mk = (userId: string, projectId: string) =>
+      env.prisma.request.create({ data: { userId, projectId, conversationId: env.conversationId, status: 'COMPLETED', toolName: 'x' } });
+    const a1 = await mk(alice.id, 'p1'); const b1 = await mk(bob.id, 'p1'); await mk(alice.id, 'p2');
+
+    const ids = async (who: any) => (await env.prisma.request.findMany({ where: await AccessService.requestScopeWhere(env.prisma, who), orderBy: { id: 'asc' } })).map((r: any) => r.id);
+    assert.deepEqual(await ids({ userId: alice.id, projectId: 'p1' }), [a1.id]);
+    assert.deepEqual(await ids({ userId: bob.id, projectId: 'p1' }), [a1.id, b1.id]);
+    assert.deepEqual(await ids({ projectId: 'p1' }), []);
+  } finally { await env.cleanup(); }
+});
