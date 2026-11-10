@@ -410,6 +410,7 @@ model Conversation {
   responses  Response[]
   resources  Resource[] @relation("ConversationResources")
   members    ConversationMember[]
+  invitations ConversationInvitation[]
   metadata   Json?
   /// Organisation (conversation_rename / _pin / _archive); a null title shows the first message
   title      String?
@@ -445,6 +446,26 @@ model ConversationMember {
 
   @@unique([conversationId, memberType, memberId, existent])
   @@index([memberType, memberId, existent])
+}
+
+/// Channel invitations, recorded by the invite step of the conversation's workflow (the inviter needs a role,
+/// e.g. `channels:invite`). Joining accepts it (`acceptedAt`); a withdrawn or accepted one has `existent` NULL.
+model ConversationInvitation {
+  id             Int          @id @default(autoincrement())
+  conversationId Int
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  /// user | agent
+  inviteeType    String
+  inviteeId      String
+  invitedByType  String
+  invitedById    String
+  acceptedAt     DateTime?
+  existent       Boolean?     @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([conversationId, inviteeType, inviteeId, existent])
+  @@index([inviteeType, inviteeId, existent])
 }
 
 model ResourceTree {

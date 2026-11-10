@@ -20,6 +20,10 @@ export {
   addMember,
   removeMember,
   memberOfWhere,
+  addInvitation,
+  isInvited,
+  acceptInvitation,
+  isMember,
   type MemberType,
   type ConversationMemberRef,
 } from './ConversationMembers.js';

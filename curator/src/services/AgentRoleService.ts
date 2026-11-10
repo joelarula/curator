@@ -514,7 +514,8 @@ export class AgentRoleService {
             { name: 'curator:requests:read', description: "May read other users' requests and responses in the project" },
             { name: 'prompts:write', description: 'May save and delete prompts of the project prompt library' },
             { name: 'conversations:own', description: 'May list, rename, pin, archive and delete their own conversations' },
-            { name: 'channels:join', description: 'May join channels of the project (default channel workflow)' }
+            { name: 'channels:join', description: 'May join channels of the project (default channel workflow)' },
+            { name: 'channels:invite', description: 'May invite users and agents to channels (default channel workflow)' }
         ];
 
         for (const r of defaultRoles) {

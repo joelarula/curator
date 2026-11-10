@@ -26,6 +26,7 @@ async function setup(name: string) {
   await saveScript(env, 'conversation_channel_workflow', channelWorkflowAst, { projectId: 'p1' });
   await env.prisma.role.create({ data: { id: 'channels:join', name: 'channels:join' } });
   await env.prisma.role.create({ data: { id: 'conversations:own', name: 'conversations:own' } });
+  await env.prisma.role.create({ data: { id: 'channels:invite', name: 'channels:invite' } });
   const user = async (n: string, roles: string[]) => {
     const u = await env.prisma.user.create({ data: { name: n, email: `${n}@example.com` } });
     for (const r of roles) await env.prisma.userRole.create({ data: { userId: u.id, roleId: r, projectId: 'p1' } });
@@ -128,7 +129,11 @@ test('channels: members post and read messages; the sender comes from the sessio
     await run(dan, 'channel_request', { conversationId: env.conversationId, action: 'join' });
     await env.processor.stepUntil({ conversationId: env.conversationId });
 
+    // Posts are never pushed to every connected client (the host stream has no per-user filter)
+    const broadcast: string[] = [];
+    (env.processor as any).onEvent = (type: string) => broadcast.push(type);
     await run(dan, 'channel_post', { conversationId: env.conversationId, text: ' Hello all ' });
+    assert.ok(!broadcast.includes('conversation:message'));
     await run(dan, 'channel_post', { conversationId: env.conversationId, text: 'Second' });
     const all: any = (await run(dan, 'channel_messages', { conversationId: env.conversationId })).result;
     assert.deepEqual(all.messages.map((m: any) => [m.text, m.sender.id, m.sender.name]), [['Hello all', dan.id, 'dan'], ['Second', dan.id, 'dan']]);
@@ -138,5 +143,52 @@ test('channels: members post and read messages; the sender comes from the sessio
     // Not a member: the channel looks unknown
     await assert.rejects(run(eve, 'channel_messages', { conversationId: env.conversationId }), /not found/);
     await assert.rejects(run(eve, 'channel_post', { conversationId: env.conversationId, text: 'hi' }), /not found/);
+  } finally { await env.cleanup(); }
+});
+
+test('channels: a user with channels:invite invites someone; the invitee joins a closed channel; others are refused', async () => {
+  const { env, user } = await setup('channels_invite');
+  try {
+    const frank = await user('frank', ['channels:invite', 'conversations:own']);
+    const gina = await user('gina', ['conversations:own']);
+    const hank = await user('hank', ['conversations:own']);
+    const run = (who: any, toolName: string, args: any) =>
+      env.processor.runToolRequest({ toolName, args, conversationId: env.conversationId, userId: who.id, projectId: 'p1', origin: 'API' } as any);
+    const events = async (name: string) =>
+      (await env.prisma.busEvent.findMany({ where: { eventName: name }, orderBy: { id: 'asc' } }))
+        .map((e: any) => ({ target: e.target, payload: typeof e.payload === 'string' ? JSON.parse(e.payload) : e.payload }));
+
+    // Without the role: refused, nothing recorded
+    await run(hank, 'channel_request', { conversationId: env.conversationId, action: 'invite', userId: gina.id });
+    await env.processor.stepUntil({ conversationId: env.conversationId });
+    assert.equal(await env.prisma.conversationInvitation.count(), 0);
+    assert.equal((await events('conversation:invite_denied')).length, 1);
+
+    // With the role: the invitation is recorded and the invitee is told (addressed event)
+    await run(frank, 'channel_request', { conversationId: env.conversationId, action: 'invite', userId: gina.id });
+    await env.processor.stepUntil({ conversationId: env.conversationId });
+    const inv = await env.prisma.conversationInvitation.findFirst({ where: { inviteeId: gina.id } });
+    assert.equal(inv.invitedById, frank.id);
+    const told = await events('conversation:invited');
+    assert.equal(told.length, 1);
+    assert.equal(told[0].target, `user:${gina.id}`);
+
+    // The channel is closed and gina has no channels:join, yet she sees it and can join as invitee
+    const listed = ((await run(gina, 'channel_list', {})).result as any).channels;
+    assert.deepEqual(listed.map((c: any) => [c.conversationId, c.invited, c.joined]), [[env.conversationId, true, false]]);
+    await run(gina, 'channel_request', { conversationId: env.conversationId, action: 'join' });
+    await env.processor.stepUntil({ conversationId: env.conversationId });
+    assert.deepEqual(await members(env), [`user:${gina.id}:member`]);
+    const accepted = await env.prisma.conversationInvitation.findFirst({ where: { inviteeId: gina.id } });
+    assert.equal(accepted.existent, null);
+    assert.ok(accepted.acceptedAt);
+
+    // hank is neither invited nor allowed: refused
+    await run(hank, 'channel_request', { conversationId: env.conversationId, action: 'join' });
+    await env.processor.stepUntil({ conversationId: env.conversationId });
+    assert.deepEqual(await members(env), [`user:${gina.id}:member`]);
+
+    // The invite step itself cannot be called directly (refused by the tool's role, or by the step's own guard)
+    await assert.rejects(run(frank, ConversationToolName.INVITE, { userId: hank.id }), /conversation workflow|not whitelisted/);
   } finally { await env.cleanup(); }
 });

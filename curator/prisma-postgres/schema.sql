@@ -320,6 +320,22 @@ CREATE TABLE "ConversationMember" (
 );
 
 -- CreateTable
+CREATE TABLE "ConversationInvitation" (
+    "id" SERIAL NOT NULL,
+    "conversationId" INTEGER NOT NULL,
+    "inviteeType" TEXT NOT NULL,
+    "inviteeId" TEXT NOT NULL,
+    "invitedByType" TEXT NOT NULL,
+    "invitedById" TEXT NOT NULL,
+    "acceptedAt" TIMESTAMP(3),
+    "existent" BOOLEAN DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "ConversationInvitation_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "ResourceTree" (
     "id" SERIAL NOT NULL,
     "treeName" TEXT NOT NULL,
@@ -748,6 +764,12 @@ CREATE INDEX "ConversationMember_memberType_memberId_existent_idx" ON "Conversat
 CREATE UNIQUE INDEX "ConversationMember_conversationId_memberType_memberId_exist_key" ON "ConversationMember"("conversationId", "memberType", "memberId", "existent");
 
 -- CreateIndex
+CREATE INDEX "ConversationInvitation_inviteeType_inviteeId_existent_idx" ON "ConversationInvitation"("inviteeType", "inviteeId", "existent");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ConversationInvitation_conversationId_inviteeType_inviteeId_key" ON "ConversationInvitation"("conversationId", "inviteeType", "inviteeId", "existent");
+
+-- CreateIndex
 CREATE INDEX "ResourceTree_treeName_treeStart_treeEnd_existent_idx" ON "ResourceTree"("treeName", "treeStart", "treeEnd", "existent");
 
 -- CreateIndex
@@ -959,6 +981,9 @@ ALTER TABLE "Conversation" ADD CONSTRAINT "Conversation_projectId_fkey" FOREIGN 
 
 -- AddForeignKey
 ALTER TABLE "ConversationMember" ADD CONSTRAINT "ConversationMember_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "Conversation"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ConversationInvitation" ADD CONSTRAINT "ConversationInvitation_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "Conversation"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "ResourceTree" ADD CONSTRAINT "ResourceTree_resourceId_fkey" FOREIGN KEY ("resourceId") REFERENCES "Resource"("id") ON DELETE CASCADE ON UPDATE CASCADE;

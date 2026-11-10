@@ -38,6 +38,9 @@ export const channel_list = defineTool<{ query?: string }>({
       include: prisma.conversationMember
         ? {
             members: { where: { memberType: 'user', memberId: userId, existent: true }, take: 1 },
+            ...(prisma.conversationInvitation
+              ? { invitations: { where: { inviteeType: 'user', inviteeId: userId, existent: true }, take: 1 } }
+              : {}),
             _count: { select: { members: { where: { existent: true } } } },
           }
         : undefined,
@@ -45,10 +48,11 @@ export const channel_list = defineTool<{ query?: string }>({
     const q = typeof args.query === 'string' ? args.query.toLowerCase() : '';
     const channels: any[] = [];
     for (const row of rows) {
-      // A channel is open while its workflow says so (conversation state)
+      // A channel is open while its workflow says so (conversation state); invited users see it anyway
       const state = await stateAt(prisma, row.id);
-      if (state?.channel?.open !== true) continue;
-      const title = row.title ?? (typeof state.channel.title === 'string' ? state.channel.title : `Channel ${row.id}`);
+      const invited = (row.invitations?.length ?? 0) > 0;
+      if (state?.channel?.open !== true && !invited) continue;
+      const title = row.title ?? (typeof state?.channel?.title === 'string' ? state.channel.title : `Channel ${row.id}`);
       if (q && !title.toLowerCase().includes(q)) continue;
       channels.push({
         conversationId: row.id,
@@ -56,6 +60,7 @@ export const channel_list = defineTool<{ query?: string }>({
         title,
         memberCount: row._count?.members ?? 0,
         joined: (row.members?.length ?? 0) > 0,
+        invited,
         owned: row.userId === userId,
       });
     }
@@ -63,23 +68,28 @@ export const channel_list = defineTool<{ query?: string }>({
   },
 });
 
-export const channel_request = defineTool<{ conversationId: number; action: ChannelRequestAction }>({
+export const channel_request = defineTool<{ conversationId: number; action: ChannelRequestAction; userId?: string; agentId?: string }>({
   name: 'channel_request',
-  description: "Asks a channel's workflow to let you join or leave it (sends the request event; the workflow decides).",
+  description:
+    "Asks a channel's workflow to let you join or leave it, or to invite a user (userId) or agent (agentId); sends the request event and the workflow decides.",
   accessLevel: 'safe_write',
   requiredRole: ROLE,
   parameters: {
     type: 'object',
     properties: {
       conversationId: { type: 'integer' },
-      action: { type: 'string', enum: ['join', 'leave'] },
+      action: { type: 'string', enum: ['join', 'leave', 'invite'] },
+      userId: { type: 'string', description: 'invite: the user to invite.' },
+      agentId: { type: 'string', description: 'invite: the agent to invite.' },
     },
     required: ['conversationId', 'action'],
   },
   execute: async (args, ctx: Ctx) => {
     const userId = requireHumanCaller(ctx, 'channel_request');
     const prisma = requirePrisma(ctx);
-    if (args.action !== 'join' && args.action !== 'leave') throw new Error("'action' is join or leave");
+    if (!['join', 'leave', 'invite'].includes(args.action)) throw new Error("'action' is join, leave or invite");
+    const invitee = args.action === 'invite' ? (args.agentId ? { agentId: String(args.agentId) } : args.userId ? { userId: String(args.userId) } : null) : {};
+    if (!invitee) throw new Error('invite needs a userId or an agentId');
     const id = Number(args.conversationId);
     const projectId = sessionProject(ctx);
     const row = Number.isInteger(id)
@@ -88,7 +98,7 @@ export const channel_request = defineTool<{ conversationId: number; action: Chan
     if (!row) throw new Error(`Conversation ${args.conversationId} not found`);
     const api = ctx.tryService?.(ChannelService);
     if (!api) throw new Error('Channel requests are only available inside a Curator processor');
-    const { requestId } = await api.request({ conversationId: row.id, action: args.action, userId, projectId });
+    const { requestId } = await api.request({ conversationId: row.id, action: args.action, userId, projectId, payload: invitee });
     return { requested: args.action, conversationId: row.id, requestId };
   },
 });

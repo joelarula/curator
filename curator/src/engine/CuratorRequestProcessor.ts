@@ -428,19 +428,22 @@ export class CuratorRequestProcessor {
     });
     // Built-in: join / leave requests into a conversation, sent as the caller (channel_request); the workflow decides
     this.services.set(ChannelService, {
-      request: async ({ conversationId, action, userId, projectId }: Parameters<ChannelApi['request']>[0]) => {
+      request: async ({ conversationId, action, userId, projectId, payload }: Parameters<ChannelApi['request']>[0]) => {
         const res = await this.emitEventRequest({
           eventName: CHANNEL_REQUEST_EVENTS[action],
-          payload: {},
+          payload: payload ?? {},
           conversationId,
           userId,
           projectId,
           origin: 'API',
+          // Not pushed to every connected client: the host stream has no per-user filter yet
+          broadcast: false,
         });
         return { requestId: res.requestId };
       },
       post: async ({ conversationId, userId, projectId, payload }: Parameters<ChannelApi['post']>[0]) => {
-        const res = await this.emitEventRequest({ eventName: CHANNEL_MESSAGE_EVENT, payload, conversationId, userId, projectId, origin: 'API' });
+        // Channel messages are read by members (channel_messages); never broadcast to every connected client
+        const res = await this.emitEventRequest({ eventName: CHANNEL_MESSAGE_EVENT, payload, conversationId, userId, projectId, origin: 'API', broadcast: false });
         return { requestId: res.requestId };
       },
     });

@@ -150,6 +150,12 @@ export const ConversationEvents = {
   LeaveRequested: defineEvent<{ conversationId?: string; reason?: string }>('conversation:leave_requested'),
   /** The workflow refused a join request. */
   JoinDenied: defineEvent<{ reason?: string | null }>('conversation:join_denied'),
+  /** Asks the workflow to invite a user (userId) or agent (agentId); the inviter is the sender. */
+  InviteRequested: defineEvent<{ conversationId?: string; userId?: string; agentId?: string }>('conversation:invite_requested'),
+  /** Sent to the invitee (addressed to their participant id) once the workflow recorded the invitation. */
+  Invited: defineEvent<{ conversationId?: number | string; inviteeType?: string; inviteeId?: string }>('conversation:invited'),
+  /** The workflow refused an invite request. */
+  InviteDenied: defineEvent<{ reason?: string | null }>('conversation:invite_denied'),
 } as const;
 
 const state = createContextProxy<Record<string, any>>('$state');
@@ -473,18 +479,21 @@ export const conversationSystemsAst: CuratorModuleNode = buildConversationSystem
 // ============================================================================
 
 const leaveReq = ConversationEvents.LeaveRequested.payload('leaveReq');
+const inviteReq = ConversationEvents.InviteRequested.payload('inviteReq');
 
 /**
- * Default join policy: the conversation must be an open channel (`$state.channel.open`, set by the workflow that
- * runs it) and the sender must be allowed `channels.join` (role `channels:join`); then the sender joins as `member`.
- * Otherwise `conversation:join_denied`. Apps replace this with their own policy (seats, invitations, approval).
+ * Default join policy: an invited sender joins; otherwise the conversation must be an open channel
+ * (`$state.channel.open`, set by the workflow that runs it) and the sender must be allowed `channels.join` (role
+ * `channels:join`). The sender joins as `member` (accepting the invitation), else `conversation:join_denied`. Apps
+ * replace this with their own policy (seats, approval).
  */
 export const onJoinRequestedSub = defineSubroutine(
   'on_join_requested',
   [
+    tool(ConversationToolName.MEMBERSHIP, {}, 'membership'),
     tool('access_check', { action: 'channels.join' }, 'joinAccess'),
     ifElse(
-      '$state.channel.open == true and $context.joinAccess.allowed == true',
+      '$context.membership.invited == true or ($state.channel.open == true and $context.joinAccess.allowed == true)',
       tool(ConversationToolName.JOIN, { conversationalRole: 'member' }, 'joinResult'),
       ConversationEvents.JoinDenied.emit({
         // Refused by role: the access reason; allowed but the channel is closed: no reason, so the default says so
@@ -493,6 +502,37 @@ export const onJoinRequestedSub = defineSubroutine(
     ),
   ],
   { params: { joinReq: { type: 'object' } } }
+);
+
+/**
+ * Default invite policy: the sender (user or agent) must be allowed `channels.invite` (role `channels:invite`); the
+ * invite step records the invitation and `conversation:invited` is addressed to the invitee. Else
+ * `conversation:invite_denied`.
+ */
+export const onInviteRequestedSub = defineSubroutine(
+  'on_invite_requested',
+  [
+    tool('access_check', { action: 'channels.invite' }, 'inviteAccess'),
+    ifElse(
+      '$context.inviteAccess.allowed == true',
+      [
+        tool(ConversationToolName.INVITE, { userId: String(inviteReq.userId), agentId: String(inviteReq.agentId) }, 'invitation'),
+        ifElse(
+          '$context.invitation.invited == true',
+          ConversationEvents.Invited.emit(
+            {
+              conversationId: '$context.invitation.conversationId',
+              inviteeType: '$context.invitation.invitee.memberType',
+              inviteeId: '$context.invitation.invitee.memberId',
+            },
+            '$context.invitation.participantId'
+          )
+        ),
+      ],
+      ConversationEvents.InviteDenied.emit({ reason: `$context.inviteAccess.reason || 'Not allowed to invite'` })
+    ),
+  ],
+  { params: { inviteReq: { type: 'object' } } }
 );
 
 /** Leaving is always allowed: the sender's membership ends. */
@@ -510,6 +550,7 @@ export function buildChannelWorkflowModule(): CuratorModuleNode {
     () => {
       system({ on: ConversationEvents.JoinRequested, run: onJoinRequestedSub, as: 'joinReq' });
       system({ on: ConversationEvents.LeaveRequested, run: onLeaveRequestedSub, as: 'leaveReq' });
+      system({ on: ConversationEvents.InviteRequested, run: onInviteRequestedSub, as: 'inviteReq' });
       return undefined;
     }
   );

@@ -8,7 +8,19 @@ import type {
   VoteChoice,
 } from './types.js';
 import type { ConversationRouter } from './ConversationRouter.js';
-import { isWorkflowCall, memberOf, participantId, findConversationRow, addMember, removeMember } from './ConversationMembers.js';
+import {
+  isWorkflowCall,
+  memberOf,
+  participantId,
+  findConversationRow,
+  addMember,
+  removeMember,
+  addInvitation,
+  isInvited,
+  acceptInvitation,
+  isMember,
+  type ConversationMemberRef,
+} from './ConversationMembers.js';
 
 // ============================================================================
 // 1. PURE DETERMINISTIC CONVERSATION REDUCERS & EVALUATORS
@@ -243,6 +255,8 @@ export const ConversationToolName = {
   START: 'conversation_start',
   JOIN: 'conversation_join',
   LEAVE: 'conversation_leave',
+  INVITE: 'conversation_invite',
+  MEMBERSHIP: 'conversation_membership',
   VOTE: 'conversation_vote',
   SYNC: 'conversation_sync',
   RESOLVE_ROLE: 'conversation_resolve_role',
@@ -317,6 +331,8 @@ export function createConversationTools(router: ConversationRouter): CuratorTool
       const row = await findConversationRow((ctx as any).prisma, convId, scope != null ? String(scope) : null);
       if (row && (ctx as any).prisma?.conversationMember) {
         await addMember((ctx as any).prisma, row.id, member, args.conversationalRole ?? null);
+        // Joining accepts an open invitation
+        await acceptInvitation((ctx as any).prisma, row.id, member);
       }
       const joined: any = await router.joinConversation(
         convId,
@@ -373,6 +389,61 @@ export function createConversationTools(router: ConversationRouter): CuratorTool
         graceful: args.graceful,
       });
       return { ...left, member: { ...member, recorded: !!row, wasMember } };
+    },
+  });
+
+  /**
+   * Workflow step: records an invitation to the conversation for a user or agent. The inviter is whoever sent the
+   * event being handled (the workflow checks their role first, e.g. `access_check(channels.invite)`).
+   */
+  const inviteTool = defineTool<{ conversationId?: string; userId?: string; agentId?: string }>({
+    name: ConversationToolName.INVITE,
+    description: 'Invites a user (userId) or agent (agentId) to the conversation; the inviter is the sender of the event being handled. A workflow step.',
+    accessLevel: CuratorAccessLevel.SAFE_WRITE,
+    parameters: {
+      type: 'object',
+      properties: { conversationId: { type: 'string' }, userId: { type: 'string' }, agentId: { type: 'string' } },
+    },
+    execute: async (args, ctx) => {
+      if (!isWorkflowCall(ctx)) throw new Error('Inviting goes through the conversation workflow: send conversation:invite_requested');
+      const prisma = (ctx as any).prisma;
+      if (!prisma?.conversationInvitation) throw new Error('Invitations need the ConversationInvitation table');
+      const invitee: ConversationMemberRef | null = args.agentId
+        ? { memberType: 'agent', memberId: String(args.agentId) }
+        : args.userId
+          ? { memberType: 'user', memberId: String(args.userId) }
+          : null;
+      if (!invitee) throw new Error('conversation_invite needs a userId or an agentId');
+      const inviter = memberOf(ctx);
+      if (!inviter) throw new Error('conversation_invite needs the sender of the event being handled');
+      const convId = args.conversationId || String(ctx.conversationId || '');
+      const scope = (ctx as any).context?.emittedBy?.projectId ?? ctx.projectId;
+      const row = await findConversationRow(prisma, convId, scope != null ? String(scope) : null);
+      if (!row) throw new Error(`Conversation ${convId} not found`);
+      if (await isMember(prisma, row.id, invitee)) return { invited: false, alreadyMember: true, participantId: participantId(invitee) };
+      await addInvitation(prisma, row.id, invitee, inviter);
+      return { invited: true, invitee, by: inviter, conversationId: row.id, participantId: participantId(invitee) };
+    },
+  });
+
+  /** Workflow step: what the sender of the event being handled is to the conversation (owner, member, invited). */
+  const membershipTool = defineTool<{ conversationId?: string }>({
+    name: ConversationToolName.MEMBERSHIP,
+    description: 'Whether the sender of the event being handled owns the conversation, is a member, or is invited; for workflow conditions.',
+    accessLevel: CuratorAccessLevel.READ_ONLY,
+    parameters: { type: 'object', properties: { conversationId: { type: 'string' } } },
+    execute: async (args, ctx) => {
+      const prisma = (ctx as any).prisma;
+      const member = memberOf(ctx);
+      const convId = args.conversationId || String(ctx.conversationId || '');
+      const scope = (ctx as any).context?.emittedBy?.projectId ?? ctx.projectId;
+      const row = member ? await findConversationRow(prisma, convId, scope != null ? String(scope) : null) : null;
+      if (!row || !member) return { owner: false, member: false, invited: false };
+      return {
+        owner: member.memberType === 'user' && row.userId === member.memberId,
+        member: await isMember(prisma, row.id, member),
+        invited: await isInvited(prisma, row.id, member),
+      };
     },
   });
 
@@ -498,6 +569,8 @@ export function createConversationTools(router: ConversationRouter): CuratorTool
     startTool,
     joinTool,
     leaveTool,
+    inviteTool,
+    membershipTool,
     voteTool,
     syncTool,
     resolveRoleTool,

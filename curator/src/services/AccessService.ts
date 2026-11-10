@@ -20,6 +20,8 @@ export const CURATOR_ACTION_ROLES: Readonly<Record<string, string>> = {
   'requests.read_all': 'curator:requests:read',
   /** Join channels of the project (checked by the default channel workflow, `access_check`). */
   'channels.join': 'channels:join',
+  /** Invite users or agents to channels (checked by the default channel workflow). */
+  'channels.invite': 'channels:invite',
 };
 
 export interface AccessPolicy {

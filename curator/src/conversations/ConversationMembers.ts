@@ -67,5 +67,42 @@ export async function removeMember(prisma: any, conversationId: number, member: 
   return count > 0;
 }
 
+/** Records an invitation (or keeps the open one). */
+export async function addInvitation(prisma: any, conversationId: number, invitee: ConversationMemberRef, inviter: ConversationMemberRef): Promise<any> {
+  const where = { conversationId, inviteeType: invitee.memberType, inviteeId: invitee.memberId, existent: true };
+  const open = await prisma.conversationInvitation.findFirst({ where });
+  if (open) return open;
+  return prisma.conversationInvitation.create({
+    data: { conversationId, inviteeType: invitee.memberType, inviteeId: invitee.memberId, invitedByType: inviter.memberType, invitedById: inviter.memberId },
+  });
+}
+
+/** Whether a member has an open invitation to the conversation. */
+export async function isInvited(prisma: any, conversationId: number, member: ConversationMemberRef): Promise<boolean> {
+  if (!prisma?.conversationInvitation) return false;
+  const row = await prisma.conversationInvitation.findFirst({
+    where: { conversationId, inviteeType: member.memberType, inviteeId: member.memberId, existent: true },
+    select: { id: true },
+  });
+  return !!row;
+}
+
+/** Joining accepts an open invitation (kept as history). */
+export async function acceptInvitation(prisma: any, conversationId: number, member: ConversationMemberRef): Promise<boolean> {
+  if (!prisma?.conversationInvitation) return false;
+  const { count } = await prisma.conversationInvitation.updateMany({
+    where: { conversationId, inviteeType: member.memberType, inviteeId: member.memberId, existent: true },
+    data: { existent: null, acceptedAt: new Date() },
+  });
+  return count > 0;
+}
+
+/** Whether a member currently belongs to the conversation. */
+export async function isMember(prisma: any, conversationId: number, member: ConversationMemberRef): Promise<boolean> {
+  if (!prisma?.conversationMember) return false;
+  const row = await prisma.conversationMember.findFirst({ where: { conversationId, ...member, existent: true }, select: { id: true } });
+  return !!row;
+}
+
 /** Prisma `where` on Conversation: the user's current memberships. */
 export const memberOfWhere = (userId: string) => ({ members: { some: { memberType: 'user', memberId: userId, existent: true } } });

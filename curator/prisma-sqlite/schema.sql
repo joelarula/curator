@@ -309,6 +309,21 @@ CREATE TABLE "ConversationMember" (
 );
 
 -- CreateTable
+CREATE TABLE "ConversationInvitation" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "conversationId" INTEGER NOT NULL,
+    "inviteeType" TEXT NOT NULL,
+    "inviteeId" TEXT NOT NULL,
+    "invitedByType" TEXT NOT NULL,
+    "invitedById" TEXT NOT NULL,
+    "acceptedAt" DATETIME,
+    "existent" BOOLEAN DEFAULT true,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "ConversationInvitation_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "Conversation" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+-- CreateTable
 CREATE TABLE "ResourceTree" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "treeName" TEXT NOT NULL,
@@ -723,6 +738,12 @@ CREATE INDEX "ConversationMember_memberType_memberId_existent_idx" ON "Conversat
 
 -- CreateIndex
 CREATE UNIQUE INDEX "ConversationMember_conversationId_memberType_memberId_existent_key" ON "ConversationMember"("conversationId", "memberType", "memberId", "existent");
+
+-- CreateIndex
+CREATE INDEX "ConversationInvitation_inviteeType_inviteeId_existent_idx" ON "ConversationInvitation"("inviteeType", "inviteeId", "existent");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ConversationInvitation_conversationId_inviteeType_inviteeId_existent_key" ON "ConversationInvitation"("conversationId", "inviteeType", "inviteeId", "existent");
 
 -- CreateIndex
 CREATE INDEX "ResourceTree_treeName_treeStart_treeEnd_existent_idx" ON "ResourceTree"("treeName", "treeStart", "treeEnd", "existent");

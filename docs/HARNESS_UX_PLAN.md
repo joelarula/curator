@@ -422,7 +422,29 @@ conversation's workflow decides; people and the console only send request events
   conversation is still continued in the prompt.
 - Limit: messages live in the event log (`BusEvent`), so its retention also retires old channel messages.
 
-Not done (next): CLI join / leave / post commands, invitations, live push instead of polling.
+### Channels: invitations (done 2026-11-11)
+
+- Who may invite: a user or agent holding `channels:invite` (action `channels.invite`, seeded); membership is not
+  required. Inviting is a workflow step: `conversation_invite` (refuses direct calls; the inviter is the event's
+  sender, the invitee `userId` or `agentId`) records a `ConversationInvitation` (all four schemas; accepted or withdrawn
+  ones have `existent` NULL). `conversation_membership` (workflow step) says whether the sender owns the conversation,
+  is a member, or is invited.
+- Default channel workflow: on `conversation:invite_requested`, `access_check(channels.invite)`, then the invite step
+  and `conversation:invited` addressed to the invitee's participant id, else `conversation:invite_denied`. The join
+  policy is now: invited, or (open channel and `channels:join`). Joining accepts the invitation.
+- `channel_request` takes `invite` with `userId` / `agentId`; `channel_list` also shows channels one is invited to
+  (`invited`), even when they are not open.
+
+### Found: the host event stream reaches every connected client (open)
+
+The emit step passes every event to the host's `onEvent` before addressing it, and `CuratorHostEvents` sends every
+event to every WebSocket client (the only filter is a conversation the client picks itself; sockets carry no signed-in
+user). So addressed events (e.g. `conversation:invited`, `conversation:join_denied`) and, until this fix, channel
+messages reach all connected clients. Fixed now: channel requests and posts are not broadcast (`broadcast: false`);
+members read messages with `channel_messages`. Open: live delivery needs sockets bound to the signed-in user and
+addressed events delivered only to their participant (and not broadcast before addressing).
+
+Not done (next): live delivery (needs the transport fix above), CLI join / leave / invite / post commands.
 
 ## Cross-cutting
 
