@@ -212,8 +212,13 @@ When writing agent scripts, **never confuse conversational roles with database R
    `tools/list`, the console composer) show only what the caller may use (`AccessService.canUse` / `filterUsable`).
 8. **Grants are roles only**:
    Grant tools with `requiredRole`, `ToolRole` or a `tool:<name>` role (a sub-role works: the federation provisioner
-   gives a peer role `tool:<name>` sub-roles for its `allowedTools`). `Permission` / `RolePermission` are deprecated,
-   no longer read or written.
+   gives a peer role `tool:<name>` sub-roles for its `allowedTools`). There are no `Permission` / `RolePermission`
+   tables any more.
+9. **Host actions**:
+   Database status, export and import need `curator:db:status`, `curator:db:export` or `curator:db:import` (or a
+   super-admin role): `AccessService.canUse(prisma, actor, 'action', 'db.export')`. The `allowedActions` query tells
+   clients which ones to offer; the console hides `/status` and `/export` without them. Routers take
+   `actorFor(req)` to name the signed-in user (default: the host session).
 
 ### Multi-Project Architecture & Database Model Relation Scoping
 

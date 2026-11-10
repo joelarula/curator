@@ -149,6 +149,8 @@ export const curatorGraphQLTypeDefs = /* GraphQL */ `
     # System & Metrics
     metrics: MetricStats!
     curatorDatabaseHealth: CuratorDatabaseHealth!
+    "Which of the given host actions (db.status, db.export, db.import; all when omitted) the caller may perform."
+    allowedActions(names: [String!]): [String!]!
 
     # Tools
     tools: [ToolDefinition!]!

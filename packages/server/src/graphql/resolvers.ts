@@ -1,4 +1,4 @@
-import { compileCoffeeScriptToAST, describeAgent, AccessService } from '@curator/agent-server';
+import { compileCoffeeScriptToAST, describeAgent, AccessService, CURATOR_ACTION_ROLES } from '@curator/agent-server';
 import type { CuratorHost } from '@curator/host';
 
 /** Who the listings are for: defaults to the host session's user and project. */
@@ -41,7 +41,13 @@ export function createCuratorResolvers(host: CuratorHost, customResolvers: Recor
       };
     },
 
+    /** Which of the given host actions (`db.status`, `db.export`, ...) the caller may perform. */
+    allowedActions: async ({ names }: { names?: string[] }) =>
+      AccessService.allowedActions(host.definitionsPrisma, actor(), names ?? Object.keys(CURATOR_ACTION_ROLES)),
+
     curatorDatabaseHealth: async () => {
+      const decision = await AccessService.canUse(host.definitionsPrisma, actor(), 'action', 'db.status');
+      if (!decision.allowed) throw new Error(decision.reason ?? 'Not allowed: db.status');
       const requestsTotal = await host.prisma.request.count();
       const requestsCompleted = await host.prisma.request.count({ where: { status: 'COMPLETED' } });
       const requestsFailed = await host.prisma.request.count({ where: { status: 'FAILED' } });

@@ -422,6 +422,8 @@ export const galleryTypeDefs = /* GraphQL */ `
 
     metrics: CuratorMetrics!
     curatorDatabaseHealth: CuratorDatabaseHealth!
+    "Which of the given host actions (db.status, db.export, db.import; all when omitted) the signed-in user may perform."
+    allowedActions(names: [String!]): [String!]!
     tools: [ToolInfo!]!
     "All agents (management); with usable: true only those the signed-in user may address (pickers, composer)."
     agents(usable: Boolean): [AgentInfo!]!

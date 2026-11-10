@@ -66,7 +66,7 @@ export * from './tools/index.js';
 export * from './services/SemanticSchemaEngine.js';
 export * from './services/BrowserRelayService.js';
 export * from './services/AgentRoleService.js';
-export { AccessService, type AccessKind, type AccessPolicy, type AccessDecision } from './services/AccessService.js';
+export { AccessService, CURATOR_ACTION_ROLES, type AccessKind, type AccessPolicy, type AccessDecision } from './services/AccessService.js';
 export * from './services/ApprovalService.js';
 export * from './services/PluginConfigService.js';
 export * from './services/AuditService.js';

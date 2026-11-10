@@ -357,3 +357,23 @@ test("agent access: a user needs agent:<name>, agent:* or the agent's requiredRo
     assert.equal(ran.length, 3);
   } finally { await env.cleanup(); }
 });
+
+test('actions: db.status / db.export need their role (or a super-admin); unknown actions are super-admin only', async () => {
+  const { AccessService } = await import('../../src/services/AccessService.ts');
+  const { env } = await setup('action_access');
+  try {
+    await mkRole(env, 'curator:db:export'); await mkRole(env, 'viewer');
+    const plain = await mkUser(env, 'plainuser');
+    await env.prisma.userRole.create({ data: { userId: plain.id, roleId: 'viewer' } });
+    const exporter = await mkUser(env, 'exporter');
+    await env.prisma.userRole.create({ data: { userId: exporter.id, roleId: 'curator:db:export' } });
+
+    assert.equal((await AccessService.canUse(env.prisma, { userId: plain.id }, 'action', 'db.export')).allowed, false);
+    assert.equal((await AccessService.canUse(env.prisma, { userId: exporter.id }, 'action', 'db.export')).allowed, true);
+    assert.equal((await AccessService.canUse(env.prisma, { userId: exporter.id }, 'action', 'db.status')).allowed, false);
+    assert.deepEqual(await AccessService.allowedActions(env.prisma, { userId: exporter.id }, ['db.status', 'db.export']), ['db.export']);
+    assert.equal((await AccessService.canUse(env.prisma, { userId: exporter.id }, 'action', 'something.else')).allowed, false);
+    assert.equal((await AccessService.canUse(env.prisma, { userId: env.userId }, 'action', 'something.else')).allowed, true);
+    assert.equal((await AccessService.canUse(env.prisma, {}, 'action', 'db.status')).allowed, false);
+  } finally { await env.cleanup(); }
+});

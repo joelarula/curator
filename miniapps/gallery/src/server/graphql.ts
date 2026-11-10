@@ -1,5 +1,5 @@
 import { buildSchema, graphql, type GraphQLSchema } from 'graphql';
-import { compileCoffeeScriptToAST, describeAgent, AccessService } from '@curator/agent-server';
+import { compileCoffeeScriptToAST, describeAgent, AccessService, CURATOR_ACTION_ROLES } from '@curator/agent-server';
 import { wrapResolversWithAuth } from '@curator/plugin-auth';
 import { galleryTypeDefs } from './schema.ts';
 import { authEngine } from './auth.ts';
@@ -335,7 +335,17 @@ export function resolvers({ host, user, projectId }: GraphqlContext) {
       };
     },
 
+    /** Which of the given host actions (`db.status`, `db.export`, ...) the signed-in user may perform. */
+    allowedActions: async ({ names }: { names?: string[] }) =>
+      AccessService.allowedActions(
+        defPrisma,
+        { userId: user?.id ?? null, projectId: activeProjectId },
+        names ?? Object.keys(CURATOR_ACTION_ROLES),
+      ),
+
     curatorDatabaseHealth: async () => {
+      const decision = await AccessService.canUse(defPrisma, { userId: user?.id ?? null, projectId: activeProjectId }, 'action', 'db.status');
+      if (!decision.allowed) throw new Error(decision.reason ?? 'Not allowed: db.status');
       const dbUrl = process.env.CURATOR_DATABASE_URL || process.env.DATABASE_URL || '';
       const storageEngine =
         dbUrl.startsWith('mysql://') || dbUrl.startsWith('mariadb://')

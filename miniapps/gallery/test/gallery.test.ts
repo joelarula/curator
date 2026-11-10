@@ -164,10 +164,6 @@ describe('Curator Gallery MiniApp Integration Suite', () => {
         galleryStats {
           totalItems publishedItems categoriesCount authorsCount attachmentsCount
         }
-        curatorDatabaseHealth {
-          storageEngine
-          tables { name rowCount }
-        }
       }`,
       {},
       { host, projectId: 'artmoments' }
@@ -184,7 +180,16 @@ describe('Curator Gallery MiniApp Integration Suite', () => {
     assert.equal(data.galleryItems[0].key, '101_a');
     assert.equal(data.galleryItem.name, '101 A');
     assert.equal(data.galleryStats.totalItems, 1);
-    assert.ok(data.curatorDatabaseHealth.tables.length >= 5);
+
+    // Database health needs the db.status action: refused anonymously, allowed for a manager (super-admin)
+    const healthQuery = `query Health { curatorDatabaseHealth { storageEngine tables { name rowCount } } }`;
+    const anonymous = await executeGraphql(healthQuery, {}, { host, projectId: 'artmoments' });
+    assert.match(String(anonymous.errors?.[0]?.message), /db\.status/);
+    const manager = await (host as any).definitionsPrisma.user.findFirst({ where: { email: 'joel.arula@gmail.com' } });
+    assert.ok(manager, 'Expected the seeded gallery manager');
+    const health = await executeGraphql(healthQuery, {}, { host, projectId: 'artmoments', user: { id: manager.id, email: manager.email } });
+    assert.equal(health.errors, undefined, `GraphQL errors: ${JSON.stringify(health.errors)}`);
+    assert.ok((health.data as any).curatorDatabaseHealth.tables.length >= 5);
   });
 
   it('4. exposes gallery, storage, and image tools over MCP Server and executes them durably', async () => {

@@ -47,5 +47,5 @@ export {
   type ConfigScope,
 } from './composables/usePluginConfig';
 export { useSurfaces, type SurfacesHandle, type SurfaceEntry, type ShowSurfaceOptions } from './composables/useSurfaces';
-export { useCommandCatalog, HARNESS_COMMANDS, type CommandCatalogHandle, type CommandCatalogSources } from './composables/useCommandCatalog';
+export { useCommandCatalog, HARNESS_COMMANDS, HARNESS_COMMAND_ACTIONS, isCommandAllowed, type CommandCatalogHandle, type CommandCatalogSources } from './composables/useCommandCatalog';
 export { renderMarkdown, renderMermaid, isAllowedImageSource, sandboxDocument } from './composables/richText';

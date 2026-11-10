@@ -12,10 +12,27 @@ export const HARNESS_COMMANDS: readonly CommandDescriptor[] = [
   { name: 'clear', source: 'command', description: 'Clear prompt and turn output', icon: 'mdi-eraser' },
 ];
 
+/**
+ * Harness verbs that need a role-controlled host action (server `allowedActions`). The others only change the
+ * viewer's screen or the engine state and need none.
+ */
+export const HARNESS_COMMAND_ACTIONS: Readonly<Record<string, string>> = {
+  status: 'db.status',
+  export: 'db.export',
+};
+
 export interface CommandCatalogSources {
   tools: Ref<any[]>;
   agents: Ref<any[]>;
   choices: Ref<Array<{ label: string; value: string; action?: string }>>;
+  /** Host actions the caller may perform; commands that need another one are left out (allow-list). */
+  allowedActions?: Ref<string[]>;
+}
+
+/** Whether a harness verb may be offered: no action needed, or its action is allowed. */
+export function isCommandAllowed(name: string, allowedActions: readonly string[]): boolean {
+  const action = HARNESS_COMMAND_ACTIONS[name];
+  return !action || allowedActions.includes(action);
 }
 
 /**
@@ -24,7 +41,7 @@ export interface CommandCatalogSources {
  */
 export function useCommandCatalog(sources: CommandCatalogSources) {
   const catalog = computed<CommandDescriptor[]>(() => [
-    ...HARNESS_COMMANDS,
+    ...HARNESS_COMMANDS.filter((c) => isCommandAllowed(c.name, sources.allowedActions?.value ?? [])),
     ...sources.tools.value.map((t: any) => ({
       name: t.name,
       source: 'tool' as const,

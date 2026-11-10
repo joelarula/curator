@@ -240,6 +240,7 @@ import {
   GET_TOOLS_QUERY,
   GET_TOOLS_QUERY_BASIC,
   GET_AGENTS_QUERY_BASIC,
+  ALLOWED_ACTIONS_QUERY,
   GET_CURATOR_REQUESTS_QUERY,
   GET_DATABASE_HEALTH_QUERY,
   TRIGGER_AGENT_MUTATION,
@@ -268,7 +269,7 @@ import EventStreamTab, { type EventLogEntry } from './components/tabs/EventStrea
 import SettingsTab from './components/tabs/SettingsTab.vue';
 import { usePluginConfig } from './composables/usePluginConfig';
 import { useSurfaces } from './composables/useSurfaces';
-import { useCommandCatalog } from './composables/useCommandCatalog';
+import { useCommandCatalog, isCommandAllowed } from './composables/useCommandCatalog';
 
 interface Props {
   adapter?: CuratorConsoleAdapter;
@@ -390,7 +391,9 @@ const messageActions = useMessageActions(tools, runHostTool);
 // Plugin settings (config_get / config_set / config_unset)
 const pluginConfig = usePluginConfig(runHostTool);
 // One command list for the composer (/ and @), the context menu and the CLI vocabulary
-const commandCatalog = useCommandCatalog({ tools, agents, choices: availableChoices });
+// Host actions the user may perform (db.status, db.export): commands needing others are hidden and refused
+const allowedActions = ref<string[]>([]);
+const commandCatalog = useCommandCatalog({ tools, agents, choices: availableChoices, allowedActions });
 // Tool picked in the composer whose required arguments are missing: asked for with a generated form
 const toolFormTarget = ref<any | null>(null);
 const toolFormArgs = ref<Record<string, unknown>>({});
@@ -851,6 +854,16 @@ function removePendingUploadFile(index: number) {
 // -----------------------------------------------------------------------------
 // Data Loaders
 // -----------------------------------------------------------------------------
+async function fetchAllowedActions() {
+  try {
+    const data = await executeGraphql(ALLOWED_ACTIONS_QUERY);
+    allowedActions.value = Array.isArray(data?.allowedActions) ? data.allowedActions : [];
+  } catch {
+    // Servers without the query: no role-controlled actions offered (allow-list)
+    allowedActions.value = [];
+  }
+}
+
 async function fetchAgents() {
   try {
     // Servers without presentation/capability fields reject the full query: fall back
@@ -913,11 +926,12 @@ async function fetchDbHealth() {
 
 async function loadAllData() {
   refreshing.value = true;
+  await fetchAllowedActions();
   await Promise.allSettled([
     fetchAgents(),
     fetchTools(),
     fetchRequests(),
-    fetchDbHealth(),
+    ...(allowedActions.value.includes('db.status') ? [fetchDbHealth()] : []),
   ]);
   refreshing.value = false;
 }
@@ -1468,6 +1482,11 @@ function switchAgentFromMenu(agentName: string) {
 
 async function executeCommand(cmd: string) {
   contextMenuVisible.value = false;
+  if (!isCommandAllowed(cmd.replace(/^\//, ''), allowedActions.value)) {
+    lastExecStatus.value = 'FAILED';
+    lastExecError.value = `You do not have the role for ${cmd}.`;
+    return;
+  }
   if (cmd === '/resources') {
     await showResourcesSurface();
   } else if (cmd === '/layout') {

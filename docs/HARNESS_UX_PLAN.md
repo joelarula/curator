@@ -389,11 +389,22 @@ closes its gaps instead of adding a grants system.
   console composer reads these lists, so it needs no change. Blueprint's `web_assistant` and `history_summarizer`
   get `requiredRole: blueprint_user`.
 - Step 4 (writes of 6, docs) done 2026-11-10: `Permission` / `RolePermission` are no longer written (processor tool
-  sync, `plugin-mcp-client`) and are marked `@deprecated` in the MariaDB, Postgres and server schemas (drop next
-  release); the server's GraphQL `Role.permissions` is `@deprecated` (display only). No row migration: the old tool
+  sync, `plugin-mcp-client`) and are dropped from the MariaDB, Postgres and server schemas (and `schema.sql`), as are
+  the server's GraphQL `Permission` type and `Role.permissions`. Existing databases keep the old tables (convergence
+  is additive) until they are dropped by hand. No row migration: the old tool
   check never loaded these rows (only the removed extra check could deny), so turning them into grants would widen
   access. Federation `allowedTools` now become `tool:<name>` sub-roles of the peer role (RoleInheritance). Docs:
   `MINIAPP_SETUP_GUIDE` (narrowing, agent access, roles-only grants, project inheritance), `AGENT_GUIDE` 4.4.
+
+- Step 5 (host actions) done 2026-11-10: `AccessService` kind `'action'` with `CURATOR_ACTION_ROLES`
+  (`db.status` → `curator:db:status`, `db.export` → `curator:db:export`, `db.import` → `curator:db:import`; unknown
+  actions super-admin only), roles seeded by `ensureDefaultRoles`, `allowedActions` query (shared server and
+  gallery). Checked: `curatorDatabaseHealth`, `GET /api/curator/db/export`, `POST /api/curator/db/import`
+  (`CuratorRouterOptions.actorFor(req)`, default host session). Console: `/status` and `/export` are offered only when
+  allowed (`HARNESS_COMMAND_ACTIONS`, `isCommandAllowed`) and refused otherwise; database health loads only with
+  `db.status`. Decided: `/pause`, `/clear`, `/layout`, `/workflow`, `/resources` need no role (they change the screen
+  or engine state, not data, and reveal nothing beyond the project). The in-browser export of a local WASM database
+  (keeris adapter) is the user's own file and is not role-controlled.
 
 ### Order
 

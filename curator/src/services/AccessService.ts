@@ -1,8 +1,21 @@
 import type { PrismaClient } from '@prisma/client';
 import { AgentRoleService, type ActorIdentity } from './AgentRoleService.js';
 
-/** What can be used: a tool (run), an agent (address), a secret (resolve). */
-export type AccessKind = 'tool' | 'agent' | 'secret';
+/** What can be used: a tool (run), an agent (address), a secret (resolve), an action (perform, e.g. `db.export`). */
+export type AccessKind = 'tool' | 'agent' | 'secret' | 'action';
+
+/**
+ * Host actions that need a role (besides super-admins). Harness commands that only change the viewer's screen or
+ * engine state (clear, layout, workflow editor, pause) need none.
+ */
+export const CURATOR_ACTION_ROLES: Readonly<Record<string, string>> = {
+  /** Database health: row counts of requests, agents, users, ... (`/status`). */
+  'db.status': 'curator:db:status',
+  /** Download the whole database file (`/export`). */
+  'db.export': 'curator:db:export',
+  /** Replace the database file. */
+  'db.import': 'curator:db:import',
+};
 
 export interface AccessPolicy {
   /** Role that grants use (tool or agent definition `requiredRole`). */
@@ -36,12 +49,22 @@ export class AccessService {
           return await AgentRoleService.validateAgentAddressAccess(prisma, actor, name, policy);
         case 'secret':
           return await AgentRoleService.validateAgentSecretAccess(prisma, actor?.agentId ?? null, name);
+        case 'action': {
+          const role = policy.requiredRole ?? CURATOR_ACTION_ROLES[name];
+          // Unknown actions are super-admin only
+          return await AgentRoleService.validateActionAccess(prisma, actor, name, role ? [role] : []);
+        }
         default:
           return { allowed: false, reason: `Access Denied: unknown access kind '${String(kind)}'.` };
       }
     } catch (err: any) {
       return { allowed: false, reason: `Access Denied: the ${kind} check for '${name}' failed: ${err?.message ?? err}` };
     }
+  }
+
+  /** Which of `actions` the actor may perform (for showing or hiding commands). */
+  static async allowedActions(prisma: PrismaClient | any, actor: ActorIdentity, actions: string[]): Promise<string[]> {
+    return AccessService.filterUsable(prisma, actor, 'action', actions, (name) => ({ name }));
   }
 
   /** The items the actor may use, in order (for listings: tools, agents). */

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import express, { Router, type Request, type Response } from 'express';
 import type { GraphQLSchema } from 'graphql';
-import { compileCoffeeScriptToAST } from '@curator/agent-server';
+import { compileCoffeeScriptToAST, AccessService } from '@curator/agent-server';
 import type { CuratorHost } from '@curator/host';
 import {
   curatorGraphQLSchema,
@@ -15,11 +15,24 @@ export interface CuratorRouterOptions {
   customGraphQLSchema?: GraphQLSchema;
   customGraphQLTypeDefs?: string;
   sqliteDbPath?: string;
+  /**
+   * Who a request acts as (signed-in user and project); default: the host session's user and project. Used for
+   * GraphQL listings and the role checks of database status / export / import.
+   */
+  actorFor?: (req: Request) => { userId?: string | null; agentId?: string | null; projectId?: string | null } | null;
 }
 
 export function createCuratorRouter(host: CuratorHost, options: CuratorRouterOptions = {}): Router {
   const router = Router();
   let enginePaused = false;
+  const actorOf = (req: Request) =>
+    options.actorFor?.(req) ?? { userId: host.user?.id ?? null, projectId: host.project?.id ?? null };
+  /** Role check for a host action (`CURATOR_ACTION_ROLES`); answers 403 and returns false when refused. */
+  const allowAction = async (req: Request, res: Response, action: string): Promise<boolean> => {
+    const decision = await AccessService.canUse(host.definitionsPrisma, actorOf(req), 'action', action);
+    if (!decision.allowed) res.status(403).json({ error: decision.reason ?? `Not allowed: ${action}` });
+    return decision.allowed;
+  };
 
   // 1. Status & Health
   router.get('/api/status', async (req: Request, res: Response) => {
@@ -161,7 +174,8 @@ export function createCuratorRouter(host: CuratorHost, options: CuratorRouterOpt
   });
 
   // 7. Database Export & Import
-  router.get('/api/curator/db/export', (req: Request, res: Response) => {
+  router.get('/api/curator/db/export', async (req: Request, res: Response) => {
+    if (!(await allowAction(req, res, 'db.export'))) return;
     const dbPath = options.sqliteDbPath || path.resolve(process.cwd(), 'data/state/curator.db');
     if (fs.existsSync(dbPath)) {
       res.download(dbPath, `${host.config?.name || 'curator'}.sqlite3`);
@@ -175,6 +189,7 @@ export function createCuratorRouter(host: CuratorHost, options: CuratorRouterOpt
     express.raw({ type: '*/*', limit: '50mb' }),
     async (req: Request, res: Response) => {
       try {
+        if (!(await allowAction(req, res, 'db.import'))) return;
         const buffer = req.body;
         if (!buffer || !Buffer.isBuffer(buffer) || buffer.length === 0) {
           return res.status(400).json({ error: 'No database content received' });
@@ -222,7 +237,8 @@ export function createCuratorRouter(host: CuratorHost, options: CuratorRouterOpt
         query,
         variables,
         activeSchema,
-        options.customGraphQLResolvers || {}
+        options.customGraphQLResolvers || {},
+        { actor: () => actorOf(req) }
       );
       res.json(result);
     } catch (err: any) {

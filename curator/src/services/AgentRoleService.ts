@@ -194,29 +194,60 @@ export class AgentRoleService {
         agentName: string,
         policy: { requiredRole?: string } = {}
     ): Promise<{ allowed: boolean; reason?: string; roleNames: string[] }> {
-        if (!prisma) return { allowed: false, roleNames: [], reason: `Access Denied: no role database to check agent '${agentName}' against.` };
+        const accepted = [`agent:${agentName}`, 'agent:*', ...(policy.requiredRole ? [policy.requiredRole] : [])];
+        const requiredText = policy.requiredRole ? `'${policy.requiredRole}' or 'agent:${agentName}'` : `'agent:${agentName}'`;
+        return AgentRoleService.validateRoleGrant(prisma, actor, accepted, {
+            subject: `address agent '${agentName}'`,
+            requiredText,
+        });
+    }
+
+    /**
+     * Whether an actor may perform a named action (e.g. `db.export`): super-admins, or holders of one of `roles`.
+     * Same project scoping and narrowing as tools and agents.
+     */
+    static async validateActionAccess(
+        prisma: PrismaClient | any,
+        actor: ActorIdentity,
+        action: string,
+        roles: string[]
+    ): Promise<{ allowed: boolean; reason?: string; roleNames: string[] }> {
+        return AgentRoleService.validateRoleGrant(prisma, actor, roles, {
+            subject: `perform '${action}'`,
+            requiredText: roles.map((r) => `'${r}'`).join(' or ') || 'a super-admin role',
+        });
+    }
+
+    /**
+     * Allowed when every actor in the chain (calling agent, user) is a super-admin or holds one of `accepted`
+     * (narrowing). Denied without a database or an actor.
+     */
+    private static async validateRoleGrant(
+        prisma: PrismaClient | any,
+        actor: ActorIdentity,
+        accepted: string[],
+        text: { subject: string; requiredText: string }
+    ): Promise<{ allowed: boolean; reason?: string; roleNames: string[] }> {
+        if (!prisma) return { allowed: false, roleNames: [], reason: `Access Denied: no role database to check whether to ${text.subject}.` };
         const projectId = actor?.projectId != null ? String(actor.projectId) : null;
         const subjects: Array<{ agentId?: string; userId?: string; projectId: string | null }> = [];
         if (actor?.agentId != null) subjects.push({ agentId: String(actor.agentId), projectId });
         if (actor?.userId != null) subjects.push({ userId: String(actor.userId), projectId });
         if (subjects.length === 0) {
-            return { allowed: false, roleNames: [], reason: `Access Denied: addressing agent '${agentName}' needs an authenticated user or agent.` };
+            return { allowed: false, roleNames: [], reason: `Access Denied: to ${text.subject} needs an authenticated user or agent.` };
         }
         let lastRoles: string[] = [];
-        // Narrowing: every actor in the chain (calling agent, user) must be allowed
         for (const subject of subjects) {
             const effective = await AgentRoleService.resolveEffectiveRoles(prisma, subject);
             if (!effective.ok) return { allowed: false, reason: effective.reason, roleNames: effective.roleNames };
             lastRoles = effective.roleNames;
             if (effective.superAdmin) continue;
             const names = effective.roleNames;
-            const ok = names.includes(`agent:${agentName}`) || names.includes('agent:*') || (!!policy.requiredRole && names.includes(policy.requiredRole));
-            if (!ok) {
-                const requiredText = policy.requiredRole ? `'${policy.requiredRole}' or 'agent:${agentName}'` : `'agent:${agentName}'`;
+            if (!accepted.some((r) => names.includes(r))) {
                 return {
                     allowed: false,
                     roleNames: names,
-                    reason: `Access Denied: ${effective.actorName} with roles [${names.join(', ')}] may not address agent '${agentName}'. Requires role ${requiredText}.`,
+                    reason: `Access Denied: ${effective.actorName} with roles [${names.join(', ')}] may not ${text.subject}. Requires role ${text.requiredText}.`,
                 };
             }
         }
@@ -475,7 +506,11 @@ export class AgentRoleService {
             { name: 'agent:browser', description: 'Permits browser automation and DOM interactions' },
             { name: 'agent:llm_user', description: 'Permits llama.cpp and local LLM endpoints' },
             { name: 'agent:manager', description: 'Permits managing sub-agents, sub-projects and role grants inside the actor\'s workspace (never its own records)' },
-            { name: 'agent:admin', description: 'Unrestricted access to all tools including destructive and elevated operations' }
+            { name: 'agent:admin', description: 'Unrestricted access to all tools including destructive and elevated operations' },
+            // Host actions (AccessService CURATOR_ACTION_ROLES)
+            { name: 'curator:db:status', description: 'May view database health (row counts of requests, agents, users)' },
+            { name: 'curator:db:export', description: 'May download the whole database file' },
+            { name: 'curator:db:import', description: 'May replace the database file' }
         ];
 
         for (const r of defaultRoles) {

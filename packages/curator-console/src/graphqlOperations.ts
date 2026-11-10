@@ -18,6 +18,13 @@ export const GET_AGENTS_QUERY = /* GraphQL */ `
   }
 `;
 
+/** Host actions the caller may perform (db.status, db.export, db.import): commands needing them are hidden otherwise. */
+export const ALLOWED_ACTIONS_QUERY = /* GraphQL */ `
+  query AllowedActions {
+    allowedActions
+  }
+`;
+
 /** For servers whose agent type has no presentation/capability fields yet. */
 export const GET_AGENTS_QUERY_BASIC = /* GraphQL */ `
   query GetAgentsBasic {
