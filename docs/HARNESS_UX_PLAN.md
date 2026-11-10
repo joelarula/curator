@@ -378,6 +378,14 @@ closes its gaps instead of adding a grants system.
   on a run's first request with an agent (no `parentId` / `createdBy`): refused runs fail with an `AGENT_BLOCKED`
   response. Allow-list: an agent without `requiredRole` is addressable only by super-admins and `agent:<name>` /
   `agent:*` holders.
+- Step 3 (5: listings) done 2026-11-10: `@curator/server` GraphQL `tools` / `tool` / `agents` / `agent` show only
+  what the actor may use (`createCuratorResolvers(host, custom, { actor })`, default: the host session's user and
+  project; roles read from `definitionsPrisma`). Gallery filters `tools` for the signed-in user; its `agents` query
+  stays unfiltered because it backs the agent management page (protected by the gallery auth wrapper). MCP:
+  `McpToolRegistry.setAccessCheck` / `listFor`; `tools/list` shows only tools the caller (or the host session) may
+  run, a failing check hides the tool; `tools/call` was already checked by the engine via `host.runTool`. The
+  console composer reads these lists, so it needs no change. Blueprint's `web_assistant` and `history_summarizer`
+  get `requiredRole: blueprint_user`.
 
 ### Order
 

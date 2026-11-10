@@ -1,8 +1,25 @@
-import { compileCoffeeScriptToAST, describeAgent } from '@curator/agent-server';
+import { compileCoffeeScriptToAST, describeAgent, AccessService } from '@curator/agent-server';
 import type { CuratorHost } from '@curator/host';
 
-export function createCuratorResolvers(host: CuratorHost, customResolvers: Record<string, any> = {}) {
+/** Who the listings are for: defaults to the host session's user and project. */
+export interface CuratorResolverOptions {
+  actor?: () => { userId?: string | null; agentId?: string | null; projectId?: string | null };
+}
+
+export function createCuratorResolvers(host: CuratorHost, customResolvers: Record<string, any> = {}, options: CuratorResolverOptions = {}) {
   let isPaused = false;
+  const actor = () => options.actor?.() ?? { userId: host.user?.id ?? null, projectId: host.project?.id ?? null };
+  // Listings show only what the actor may use (same allow-list check as running it)
+  const usableTools = () =>
+    AccessService.filterUsable(host.definitionsPrisma, actor(), 'tool', Array.from(host.engine.tools.entries()), ([name, tool]: [string, any]) => ({
+      name,
+      policy: { requiredRole: tool?.requiredRole, accessLevel: tool?.accessLevel },
+    }));
+  const usableAgents = () =>
+    AccessService.filterUsable(host.definitionsPrisma, actor(), 'agent', Array.from(host.engine.agents.entries()), ([name, agent]: [string, any]) => ({
+      name,
+      policy: { requiredRole: agent?.requiredRole },
+    }));
 
   const baseResolvers = {
     // ----------------------------------------------------
@@ -50,8 +67,8 @@ export function createCuratorResolvers(host: CuratorHost, customResolvers: Recor
       };
     },
 
-    tools: () => {
-      return Array.from(host.engine.tools.entries()).map(([name, tool]: [string, any]) => ({
+    tools: async () => {
+      return (await usableTools()).map(([name, tool]: [string, any]) => ({
         name,
         description: tool.description,
         accessLevel: tool.accessLevel || 'domain',
@@ -60,9 +77,10 @@ export function createCuratorResolvers(host: CuratorHost, customResolvers: Recor
       }));
     },
 
-    tool: ({ name }: { name: string }) => {
+    tool: async ({ name }: { name: string }) => {
       const tool = host.engine.tools.get(name);
       if (!tool) return null;
+      if (!(await AccessService.canUse(host.definitionsPrisma, actor(), 'tool', name, { requiredRole: tool.requiredRole, accessLevel: tool.accessLevel })).allowed) return null;
       return {
         name,
         description: tool.description,
@@ -71,17 +89,18 @@ export function createCuratorResolvers(host: CuratorHost, customResolvers: Recor
       };
     },
 
-    agents: () => {
-      return Array.from(host.engine.agents.entries()).map(([name, agent]: [string, any]) => ({
+    agents: async () => {
+      return (await usableAgents()).map(([name, agent]: [string, any]) => ({
         ...describeAgent(name, agent),
         schedule: agent.schedule || null,
         enabled: agent.enabled ?? true,
       }));
     },
 
-    agent: ({ name }: { name: string }) => {
+    agent: async ({ name }: { name: string }) => {
       const agent = host.engine.agents.get(name);
       if (!agent) return null;
+      if (!(await AccessService.canUse(host.definitionsPrisma, actor(), 'agent', name, { requiredRole: agent.requiredRole })).allowed) return null;
       return {
         ...describeAgent(name, agent),
         schedule: agent.schedule || null,

@@ -85,6 +85,13 @@ export class McpToolRegistry {
     return new McpToolRegistry(engine, execute, exposureController);
   }
 
+  /** Role check for listings (`tools/list` shows only tools the caller may run); calls are checked by the engine. */
+  private accessCheck?: (tool: CuratorTool, session?: PeerSessionContext) => Promise<boolean>;
+
+  public setAccessCheck(check: (tool: CuratorTool, session?: PeerSessionContext) => Promise<boolean>): void {
+    this.accessCheck = check;
+  }
+
   public getExposureController(): ExposurePolicyController | undefined {
     return this.exposureController;
   }
@@ -145,6 +152,18 @@ export class McpToolRegistry {
       list.push({ ...tool.toMcpDeclaration(), ...(annotations ? { annotations } : {}) });
     }
     return list;
+  }
+
+  /** `list` narrowed to the tools the caller may run (the access check, when set). */
+  public async listFor(session?: PeerSessionContext): Promise<McpToolDeclaration[]> {
+    const declarations = this.list(session);
+    if (!this.accessCheck) return declarations;
+    const out: McpToolDeclaration[] = [];
+    for (const declaration of declarations) {
+      const tool = this.exposedTools.get(declaration.name);
+      if (tool && (await this.accessCheck(tool, session).catch(() => false))) out.push(declaration);
+    }
+    return out;
   }
 
   public async call(

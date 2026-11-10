@@ -1,10 +1,10 @@
 import { buildSchema, graphql, type GraphQLSchema } from 'graphql';
 import type { CuratorHost } from '@curator/host';
 import { curatorGraphQLTypeDefs } from './schema.js';
-import { createCuratorResolvers } from './resolvers.js';
+import { createCuratorResolvers, type CuratorResolverOptions } from './resolvers.js';
 
 export { curatorGraphQLTypeDefs } from './schema.js';
-export { createCuratorResolvers } from './resolvers.js';
+export { createCuratorResolvers, type CuratorResolverOptions } from './resolvers.js';
 
 export const curatorGraphQLSchema: GraphQLSchema = buildSchema(curatorGraphQLTypeDefs);
 
@@ -13,9 +13,10 @@ export async function executeCuratorGraphql(
   query: string,
   variables?: any,
   schema: GraphQLSchema = curatorGraphQLSchema,
-  customResolvers: Record<string, any> = {}
+  customResolvers: Record<string, any> = {},
+  options: CuratorResolverOptions = {}
 ) {
-  const rootValue = createCuratorResolvers(host, customResolvers);
+  const rootValue = createCuratorResolvers(host, customResolvers, options);
   return graphql({
     schema,
     source: query,

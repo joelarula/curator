@@ -1,5 +1,5 @@
 import { buildSchema, graphql, type GraphQLSchema } from 'graphql';
-import { compileCoffeeScriptToAST, describeAgent } from '@curator/agent-server';
+import { compileCoffeeScriptToAST, describeAgent, AccessService } from '@curator/agent-server';
 import { wrapResolversWithAuth } from '@curator/plugin-auth';
 import { galleryTypeDefs } from './schema.ts';
 import { authEngine } from './auth.ts';
@@ -390,7 +390,15 @@ export function resolvers({ host, user, projectId }: GraphqlContext) {
     },
 
     tools: async () => {
-      return host.engine.getAllTools().map((t: any) => ({
+      // Only the tools the signed-in user may run in the active project (same allow-list check as running them)
+      const usable = await AccessService.filterUsable(
+        defPrisma,
+        { userId: user?.id ?? null, projectId: activeProjectId },
+        'tool',
+        host.engine.getAllTools(),
+        (t: any) => ({ name: t.name, policy: { requiredRole: t.requiredRole, accessLevel: t.accessLevel } }),
+      );
+      return usable.map((t: any) => ({
         name: t.name,
         description: t.description || '',
         accessLevel: t.accessLevel || 'safe_read',

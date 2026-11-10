@@ -11,6 +11,7 @@ import { mcpOrchestrationPlugin } from './plugins/mcp-orchestration-plugin.js';
 import { createMcpHttpHandler, type McpHttpHandler } from './httpTransport.js';
 import type { McpCallSession, McpServerConfig } from './types.js';
 import type { CuratorHost } from '@curator/host';
+import { AccessService } from '@curator/agent-server';
 
 export interface CuratorMcpInstance {
   /** The stdio server (HTTP builds one Server per request, bound to the caller's session). */
@@ -64,6 +65,18 @@ export async function createMcpServer(config: McpServerConfig): Promise<CuratorM
   // 2. Build MCP registry (listing from the engine, execution as Requests) with dynamic exposure controller
   const exposureController = config.exposureController || host?.conversations?.exposure;
   const registry = McpToolRegistry.fromEngine(engine, execute, exposureController);
+  if (host) {
+    // tools/list shows only what the caller (or, unauthenticated, the host session) may run
+    registry.setAccessCheck(async (tool: any, session) => {
+      const actor = (session as McpCallSession | undefined)?.actor;
+      const who = actor ? { userId: actor.userId, projectId: actor.projectId } : { userId: host.user?.id ?? null, projectId: host.project?.id ?? null };
+      const decision = await AccessService.canUse(host.definitionsPrisma ?? host.prisma, who, 'tool', tool.name, {
+        requiredRole: tool.requiredRole,
+        accessLevel: tool.accessLevel,
+      });
+      return decision.allowed;
+    });
+  }
 
   // 3. MCP Servers: tool listing with dynamic exposure gating, dispatch with lease accounting and
   //    trust tier validation. `session` comes from the transport (authenticated HTTP caller) or config.
@@ -74,7 +87,7 @@ export async function createMcpServer(config: McpServerConfig): Promise<CuratorM
       { capabilities: { tools: { listChanged: true } } }
     );
     server.setRequestHandler(ListToolsRequestSchema, async (_request, extra: any) => ({
-      tools: registry.list(session ?? extra?.session ?? config.session),
+      tools: await registry.listFor(session ?? extra?.session ?? config.session),
     }));
     server.setRequestHandler(CallToolRequestSchema, async (request, extra: any) => {
       const { name: toolName, arguments: args } = request.params;

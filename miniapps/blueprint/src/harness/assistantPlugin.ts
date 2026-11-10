@@ -1,4 +1,5 @@
 import { DEFAULT_SUMMARY_INSTRUCTION, type CuratorPluginDefinition } from '../../../../curator/dist/src/index.js';
+import { BLUEPRINT_USER_ROLE } from '../plugins/demo.js';
 
 export const ASSISTANT_AGENT = 'web_assistant';
 /** Writes the assistant's history summaries (`history_compaction` with `agent=history_summarizer`). */
@@ -41,6 +42,8 @@ export function assistantPlugin(
         description: 'Summarizes earlier parts of assistant chats (history compaction)',
         enabled: true,
         schedule: 'manual',
+        // Users who may chat with the assistant may also have their history summarized
+        requiredRole: BLUEPRINT_USER_ROLE,
         ast: {
           type: 'Curator_Agent',
           agentName: SUMMARIZER_AGENT,
@@ -56,6 +59,8 @@ export function assistantPlugin(
         // Chat turns only (triggerAgent with a message). Explicit so the seed also resets a stored schedule.
         schedule: 'manual',
         roles: [ASSISTANT_ROLE],
+        // Who may address it (allow-list): blueprint users
+        requiredRole: BLUEPRINT_USER_ROLE,
         ast: {
           type: 'Curator_Agent',
           agentName: ASSISTANT_AGENT,

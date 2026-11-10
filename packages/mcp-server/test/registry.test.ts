@@ -213,3 +213,23 @@ test('McpToolRegistry integrates ExposurePolicyController for dynamic gating and
   const postLeaseList = registry.list(contractorSession);
   assert.ok(!postLeaseList.map((t) => t.name).includes('delete_system_logs'), 'Leased tool should disappear after maxInvocations');
 });
+
+test('McpToolRegistry.listFor shows only tools the access check allows', async () => {
+  const engine = new CuratorEngine();
+  for (const name of ['mcp_open', 'mcp_guarded']) {
+    engine.registerTool(defineTool({ name, description: name, mcp: { expose: true }, parameters: { type: 'object', properties: {} }, execute: async () => ({}) }));
+  }
+  const registry = McpToolRegistry.fromEngine(engine, stubExecutor(engine));
+  assert.deepEqual((await registry.listFor()).map((t) => t.name).sort(), ['mcp_guarded', 'mcp_open']);
+
+  const seen: any[] = [];
+  registry.setAccessCheck(async (tool: any, session?: any) => {
+    seen.push(session?.actor?.userId);
+    if (tool.name === 'mcp_guarded') throw new Error('role lookup failed');
+    return true;
+  });
+  const session: any = { peerId: 'p', trustTier: 'cluster_admin', actor: { userId: 'u1', projectId: 'p1' } };
+  // A failing check hides the tool (fail closed)
+  assert.deepEqual((await registry.listFor(session)).map((t) => t.name), ['mcp_open']);
+  assert.ok(seen.every((u) => u === 'u1'));
+});
