@@ -487,9 +487,8 @@ export const onJoinRequestedSub = defineSubroutine(
       '$state.channel.open == true and $context.joinAccess.allowed == true',
       tool(ConversationToolName.JOIN, { conversationalRole: 'member' }, 'joinResult'),
       ConversationEvents.JoinDenied.emit({
-        // Refused by role: the access reason; allowed but the channel is closed: no reason, so the default says so.
-        // (Expressions add safe navigation themselves; the word n-o-t in a string literal is rewritten, so avoid it.)
-        reason: `$context.joinAccess.reason || 'This conversation is closed to joining (no open channel)'`,
+        // Refused by role: the access reason; allowed but the channel is closed: no reason, so the default says so
+        reason: `$context.joinAccess.reason || 'This conversation is not an open channel'`,
       })
     ),
   ],

@@ -396,8 +396,8 @@ conversation's workflow decides; people and the console only send request events
 - Organisation: `conversationAccess` = owned conversations or channels the user is a member of; the list shows
   `owned` and `memberCount`; a member pins / archives the channel for themselves (member row); renaming and deleting
   stay with the owner.
-- Found: the expression translator rewrites the word "not" inside string literals (and adds safe navigation itself,
-  so `?.` must not be written). Worth fixing separately.
+- Fixed along the way (`engine/expressionNormalize.ts`): workflow expressions no longer rewrite `not` / `and` / `or`
+  inside string literals, and a chain already written with `?.` is kept (it became `??.`).
 
 Not done (next): the console channel view (channels in the list with Join / Leave buttons sending the request
 events, the shared message stream), CLI join / leave commands, invitations.

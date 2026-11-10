@@ -49,7 +49,7 @@ test('channels: the workflow joins an allowed sender of an open channel, refuses
     // Not a channel yet: nobody joins
     await send(env, 'conversation:join_requested', ann.id);
     assert.deepEqual(await members(env), []);
-    assert.match(String((await denials(env))[0]), /closed to joining/);
+    assert.match(String((await denials(env))[0]), /not an open channel/);
 
     // The conversation's workflow opens it as a channel (state), then the role decides
     await appendStatePatch(env.prisma, env.conversationId, { set: { channel: { open: true } } });

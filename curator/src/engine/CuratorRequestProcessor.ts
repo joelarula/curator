@@ -43,6 +43,7 @@ import { PostgresWakeChannel } from './WakeChannel.js';
 import { sqlDialect, type SqlDialect } from '../db/sqlDialect.js';
 import { AgentRoleService } from '../services/AgentRoleService.js';
 import { AccessService } from '../services/AccessService.js';
+import { normalizeExpression } from './expressionNormalize.js';
 import { ApprovalService } from '../services/ApprovalService.js';
 import { PluginConfig, PluginConfigService } from '../services/PluginConfigService.js';
 import { defaultOutputFormats, type OutputFormats } from './output/OutputFormats.js';
@@ -3275,18 +3276,9 @@ export class CuratorRequestProcessor {
       cleanExpr = cleanExpr.slice(2, -2).trim();
     }
 
-    // Normalize natural CoffeeScript boolean operators into valid JS expressions
-    cleanExpr = cleanExpr
-      .replace(/\bnot\s+/g, '!')
-      .replace(/\s+and\s+/g, ' && ')
-      .replace(/\s+or\s+/g, ' || ');
-
-    // Make property chains on $state, $context, $params, $config, $actor, and __item null-safe (`?.`)
-    // so missing intermediate objects evaluate to `undefined` instead of throwing a TypeError in the VM.
-    cleanExpr = cleanExpr.replace(
-      /(\$(?:state|context|params|config|actor|last|response)\b|__item\d*\b)((?:\??\.[a-zA-Z_$][\w$]*|\[[^\]]+\])+)/g,
-      (_match, root, chain) => `${root}${chain.replace(/\.(?=[a-zA-Z_$])/g, '?.')}`
-    );
+    // `not` / `and` / `or` become operators and chains on $state, $context, ... become null-safe (`?.`), so missing
+    // intermediate objects evaluate to `undefined`; text inside string literals is left as written.
+    cleanExpr = normalizeExpression(cleanExpr);
 
     // Build sandbox: start with state keys at top level, then add well-known aliases,
     // then spread the full req.context so any named tool output (e.g. `discovery`) is accessible.
