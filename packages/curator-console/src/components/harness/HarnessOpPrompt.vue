@@ -29,21 +29,6 @@
         </template>
       </v-select>
 
-      <!-- Tool Mode Target -->
-      <v-select
-        v-if="currentMode === 'tool'"
-        v-model="currentTool"
-        :items="toolSelectItems"
-        item-title="title"
-        item-value="value"
-        label="Target Tool"
-        density="compact"
-        variant="outlined"
-        hide-details
-        class="flex-grow-1"
-        style="min-width: 200px;"
-      />
-
       <!-- Workflow Mode Target -->
       <v-select
         v-if="currentMode === 'workflow'"
@@ -56,6 +41,16 @@
         class="flex-grow-1"
         style="min-width: 200px;"
       />
+      <v-btn
+        v-if="currentMode === 'workflow'"
+        size="small"
+        variant="text"
+        prepend-icon="mdi-arrow-left"
+        title="Back to the agent prompt"
+        @click="currentMode = 'agent'"
+      >
+        Back to prompt
+      </v-btn>
 
       <!-- File Upload Trigger -->
       <v-btn
@@ -186,19 +181,6 @@
         </v-list>
       </v-card>
 
-      <!-- Tool Mode Arguments -->
-      <v-textarea
-        v-else-if="currentMode === 'tool'"
-        v-model="toolArgs"
-        label="Tool Arguments (JSON)"
-        placeholder="{\n  &quot;search&quot;: &quot;&quot;\n}"
-        rows="5"
-        variant="outlined"
-        class="code-input"
-        hide-details
-        @keydown.ctrl.enter.prevent="runExecution"
-      />
-
       <!-- Workflow Mode Code -->
       <v-textarea
         v-else
@@ -272,12 +254,10 @@ import { useHarnessContext } from '../../context';
 import HarnessChoices, { type ChoiceItem } from './HarnessChoices.vue';
 
 interface Props {
-  execMode?: 'agent' | 'tool' | 'workflow';
+  execMode?: 'agent' | 'workflow';
   selectedAgent?: string;
-  selectedTool?: string;
   selectedWorkflowPreset?: string;
   promptInput?: string;
-  toolArgsInput?: string;
   workflowInput?: string;
   userContextName?: string;
   conversationContextId?: string;
@@ -298,10 +278,8 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {
   execMode: undefined,
   selectedAgent: undefined,
-  selectedTool: undefined,
   selectedWorkflowPreset: undefined,
   promptInput: undefined,
-  toolArgsInput: undefined,
   workflowInput: undefined,
   userContextName: undefined,
   conversationContextId: undefined,
@@ -320,12 +298,10 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const emit = defineEmits<{
-  (e: 'update:execMode', mode: 'agent' | 'tool' | 'workflow'): void;
+  (e: 'update:execMode', mode: 'agent' | 'workflow'): void;
   (e: 'update:selectedAgent', val: string): void;
-  (e: 'update:selectedTool', val: string): void;
   (e: 'update:selectedWorkflowPreset', val: string): void;
   (e: 'update:promptInput', val: string): void;
-  (e: 'update:toolArgsInput', val: string): void;
   (e: 'update:workflowInput', val: string): void;
   (e: 'update:userContextName', val: string): void;
   (e: 'update:conversationContextId', val: string): void;
@@ -362,14 +338,6 @@ const currentAgent = computed({
   },
 });
 
-const currentTool = computed({
-  get: () => props.selectedTool ?? harness?.selectedTool.value ?? '',
-  set: (val) => {
-    if (harness) harness.selectedTool.value = val;
-    emit('update:selectedTool', val);
-  },
-});
-
 const currentWorkflowPreset = computed({
   get: () => props.selectedWorkflowPreset ?? harness?.selectedWorkflowPreset.value ?? 'pingpong',
   set: (val) => {
@@ -383,14 +351,6 @@ const agentPrompt = computed({
   set: (val) => {
     if (harness) harness.promptInput.value = val;
     emit('update:promptInput', val);
-  },
-});
-
-const toolArgs = computed({
-  get: () => props.toolArgsInput ?? harness?.toolArgsInput.value ?? '{}',
-  set: (val) => {
-    if (harness) harness.toolArgsInput.value = val;
-    emit('update:toolArgsInput', val);
   },
 });
 
@@ -412,7 +372,6 @@ const actorName = computed({
 
 // Catalogs
 const agentList = computed(() => props.agents ?? harness?.agents.value ?? []);
-const toolList = computed(() => props.tools ?? harness?.tools.value ?? []);
 const presetItems = computed(() => props.workflowPresetItems ?? harness?.workflowPresetItems ?? []);
 
 const agentSelectItems = computed(() => {
@@ -423,13 +382,6 @@ const agentSelectItems = computed(() => {
     caps: a.capabilities ?? null,
     enabled: a.enabled !== false,
     value: a.name,
-  }));
-});
-
-const toolSelectItems = computed(() => {
-  return toolList.value.map((t: any) => ({
-    title: `🛠️ ${t.name}`,
-    value: t.name,
   }));
 });
 

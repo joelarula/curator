@@ -31,27 +31,6 @@
           </v-btn>
         </v-btn-toggle>
 
-        <!-- Mode Selector -->
-        <v-btn-toggle
-          :model-value="mode"
-          mandatory
-          density="compact"
-          color="primary"
-          variant="outlined"
-          rounded="lg"
-          @update:model-value="setMode"
-        >
-          <v-btn value="agent" size="x-small">
-            <span class="me-1">🤖</span> Agent
-          </v-btn>
-          <v-btn value="tool" size="x-small">
-            <span class="me-1">🛠️</span> Tool
-          </v-btn>
-          <v-btn value="workflow" size="x-small">
-            <span class="me-1">☕</span> AST
-          </v-btn>
-        </v-btn-toggle>
-
         <!-- Program Commands Context Menu Activator -->
         <v-btn
           size="small"
@@ -120,34 +99,20 @@ import HarnessOutput from './HarnessOutput.vue';
 import HarnessWorktable from './HarnessWorktable.vue';
 
 const props = defineProps<{
-  execMode?: 'agent' | 'tool' | 'workflow';
   layoutMode?: HarnessLayoutMode;
 }>();
 
 const emit = defineEmits<{
-  (e: 'update:execMode', mode: 'agent' | 'tool' | 'workflow'): void;
   (e: 'update:layoutMode', layout: HarnessLayoutMode): void;
   (e: 'openContextMenu', event: MouseEvent): void;
 }>();
 
 const harness = useHarnessContext();
 
-const mode = computed(() => {
-  if (props.execMode !== undefined) return props.execMode;
-  return harness?.execMode.value ?? 'agent';
-});
-
 const layout = computed<HarnessLayoutMode>(() => {
   if (props.layoutMode !== undefined) return props.layoutMode;
   return harness?.layoutMode.value ?? 'stack';
 });
-
-function setMode(newMode: 'agent' | 'tool' | 'workflow') {
-  if (harness) {
-    harness.execMode.value = newMode;
-  }
-  emit('update:execMode', newMode);
-}
 
 function setLayout(newLayout: HarnessLayoutMode) {
   if (harness) {

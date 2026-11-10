@@ -39,12 +39,12 @@ export interface CuratorHarnessContext {
   uploadingFiles: Ref<boolean>;
 
   // OpPrompt State
-  execMode: Ref<'agent' | 'tool' | 'workflow'>;
+  /** The agent prompt, or the CoffeeScript editor opened from the workflow studio. */
+  execMode: Ref<'agent' | 'workflow'>;
+  closeWorkflowEditor: () => void;
   selectedAgent: Ref<string>;
-  selectedTool: Ref<string>;
   selectedWorkflowPreset: Ref<string>;
   promptInput: Ref<string>;
-  toolArgsInput: Ref<string>;
   workflowInput: Ref<string>;
   userContextName: Ref<string>;
   conversationContextId: Ref<string>;

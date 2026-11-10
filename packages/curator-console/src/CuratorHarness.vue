@@ -322,13 +322,12 @@ const requests = ref<any[]>([]);
 const eventLogs = ref<EventLogEntry[]>([]);
 
 // OpPrompt State
-const execMode = ref<'agent' | 'tool' | 'workflow'>('agent');
+// The agent prompt, or the CoffeeScript editor opened from the workflow studio
+const execMode = ref<'agent' | 'workflow'>('agent');
 const selectedAgent = ref('');
-const selectedTool = ref('');
 const selectedWorkflowPreset = ref('pingpong');
 
 const promptInput = ref('');
-const toolArgsInput = ref('{\n  "search": ""\n}');
 const workflowInput = ref(`# Natural CoffeeScript Verbs AST Workflow
 while_loop "$context.turn <= 5",
   seq [
@@ -466,9 +465,6 @@ watch(selectedWorkflowPreset, (val) => {
   }
 });
 
-watch(selectedTool, (toolName) => {
-  onToolSelected(toolName);
-});
 
 const clearChoiceSelection = choices.clearSelection;
 
@@ -536,28 +532,6 @@ function applySurfaceIfPresent(payload: any, requestId?: string | number | null)
     if (candidate.viewMode) {
       resourceViewMode.value = candidate.viewMode;
     }
-    outputTab.value = 'surface';
-    return true;
-  }
-  // @deprecated (one release): guessing a resource grid from `items` / `galleryItems` / `resources`. Return
-  // `uiSurface: { component: 'resource-collection', items }` from the tool instead.
-  const itemsArray = payload.items || payload.galleryItems || payload.resources;
-  if (Array.isArray(itemsArray)) {
-    const built: HarnessUiSurface = {
-      component: 'resource-collection',
-      title: payload.title || 'App Resources',
-      viewMode: resourceViewMode.value,
-      items: itemsArray.map((it: any) => ({
-        ...it,
-        id: it.id ?? it.key,
-        key: it.key ?? String(it.id),
-        title: it.title || it.name || it.key,
-      })),
-      total: payload.total ?? itemsArray.length,
-      categories: payload.categories,
-      authors: payload.authors,
-    };
-    surfaces.show(built, { requestId });
     outputTab.value = 'surface';
     return true;
   }
@@ -820,19 +794,6 @@ async function uploadFilesToStorage(
 
     pendingUploadFiles.value.push(...uploaded);
 
-    // If tool mode is active, inject uploaded files into toolArgsInput JSON
-    if (execMode.value === 'tool') {
-      try {
-        const currentArgs = JSON.parse(toolArgsInput.value || '{}');
-        currentArgs.files = uploaded;
-        if (uploaded[0]) {
-          currentArgs.photo = uploaded[0].filename;
-          currentArgs.photoUrl = uploaded[0].url;
-        }
-        toolArgsInput.value = JSON.stringify(currentArgs, null, 2);
-      } catch {}
-    }
-
     // Refresh resource surface if open
     if (uiSurface.value) {
       await showResourcesSurface();
@@ -882,9 +843,6 @@ async function fetchTools() {
     // Servers without the `ui` field on tools reject the full query: fall back (no message actions then)
     const data = await executeGraphql(GET_TOOLS_QUERY).catch(() => executeGraphql(GET_TOOLS_QUERY_BASIC));
     tools.value = data.tools || [];
-    if (!selectedTool.value && tools.value.length > 0) {
-      selectedTool.value = tools.value[0].name;
-    }
   } catch (err) {
     console.warn('[Harness] fetchTools failed:', err);
   }
@@ -1217,36 +1175,6 @@ async function executeOpPrompt() {
           { prompt: parsedActs.choiceGroups[0]?.prompt || 'Select an option to proceed' }
         );
       }
-    } else if (execMode.value === 'tool') {
-      lastExecTarget.value = selectedTool.value;
-      const parsedArgs = JSON.parse(toolArgsInput.value || '{}');
-
-      if (props.adapter?.send) {
-        await props.adapter.send('curator:tool_call', {
-          tool: selectedTool.value,
-          args: parsedArgs,
-        });
-      }
-
-      const result = await executeGraphql(EXECUTE_TOOL_MUTATION, {
-        name: selectedTool.value,
-        args: parsedArgs,
-      });
-
-      const toolRes = result.executeTool;
-      if (!toolRes.success) throw new Error(toolRes.error || 'Tool execution failed');
-      if (toolRes.requestId) {
-        lastExecRequestId.value = String(toolRes.requestId);
-        // The call ran during the mutation: its events are already buffered and replay into the run
-        runTimeline.begin(toolRes.requestId);
-      }
-
-      lastExecStatus.value = toolRes.status === 'WAITING_FOR_USER' ? 'WAITING_FOR_USER' : 'COMPLETED';
-      lastExecRaw.value = toolRes.result;
-      lastExecOutput.value = JSON.stringify(toolRes.result, null, 2);
-      if (!applySurfaceIfPresent(toolRes.result, toolRes.requestId)) {
-        outputTab.value = 'formatted';
-      }
     } else if (execMode.value === 'workflow') {
       lastExecTarget.value = 'CoffeeScript Workflow';
       const result = await executeGraphql(COMPILE_COFFEESCRIPT_MUTATION, {
@@ -1303,24 +1231,27 @@ function loadAgentIntoOpPrompt(agentName: string) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-function loadToolIntoOpPrompt(tool: any) {
-  execMode.value = 'tool';
-  selectedTool.value = tool.name;
-  onToolSelected(tool.name);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+/** Opens a tool's argument form (the composer's `/tool` form); pending uploads fill file fields it declares. */
+function openToolForm(tool: any) {
+  const props: Record<string, any> = tool?.parameters?.properties ?? {};
+  const args: Record<string, unknown> = {};
+  const uploaded = pendingUploadFiles.value;
+  if (uploaded.length > 0) {
+    if ('files' in props) args.files = uploaded;
+    if ('photo' in props) args.photo = uploaded[0].filename;
+    if ('photoUrl' in props) args.photoUrl = uploaded[0].url;
+  }
+  toolFormArgs.value = args;
+  toolFormTarget.value = tool;
 }
 
-function onToolSelected(toolName: string) {
-  const tool = tools.value.find((t) => t.name === toolName);
-  if (tool?.parameters?.properties) {
-    const template: Record<string, any> = {};
-    for (const [k, v] of Object.entries<any>(tool.parameters.properties)) {
-      template[k] = v.default !== undefined ? v.default : v.type === 'number' ? 0 : '';
-    }
-    toolArgsInput.value = JSON.stringify(template, null, 2);
-  } else {
-    toolArgsInput.value = '{}';
-  }
+function loadToolIntoOpPrompt(tool: any) {
+  openToolForm(tool);
+}
+
+/** Leaves the CoffeeScript editor (opened from the workflow studio) for the agent prompt. */
+function closeWorkflowEditor() {
+  execMode.value = 'agent';
 }
 
 function loadWorkflowIntoOpPrompt(code?: string) {
@@ -1333,7 +1264,6 @@ function loadWorkflowIntoOpPrompt(code?: string) {
 
 function clearPromptInput() {
   if (execMode.value === 'agent') promptInput.value = '';
-  else if (execMode.value === 'tool') toolArgsInput.value = '{}';
   else workflowInput.value = '';
 }
 
@@ -1468,10 +1398,8 @@ function selectChoiceFromMenu(val: string) {
 }
 
 function insertToolCommand(tool: any) {
-  execMode.value = 'tool';
-  selectedTool.value = tool.name;
-  onToolSelected(tool.name);
   contextMenuVisible.value = false;
+  openToolForm(tool);
 }
 
 function switchAgentFromMenu(agentName: string) {
@@ -1552,11 +1480,10 @@ provideHarnessContext({
   pendingUploadFiles,
   uploadingFiles,
   execMode,
+  closeWorkflowEditor,
   selectedAgent,
-  selectedTool,
   selectedWorkflowPreset,
   promptInput,
-  toolArgsInput,
   workflowInput,
   userContextName,
   conversationContextId,
