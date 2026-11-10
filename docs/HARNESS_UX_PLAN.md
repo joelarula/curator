@@ -344,9 +344,9 @@ closes its gaps instead of adding a grants system.
 1. **Fail closed.** `checkToolRoleAccess` returns allowed on an error or without a database; deny instead (reason in
    the `TOOL_BLOCKED` response). Tests that run without a database get an explicit test-only actor, not a default.
 2. **Narrowing along the chain.** When a user or a parent agent drives an agent, the effective rights are the
-   agent's rights ∩ the caller's rights (tool allowed only when both are allowed). The caller is recorded on the
-   request (`context.callerUserId` / caller agent, set by the host from the session, never from the payload).
-   Scheduled agents with no human caller keep their own roles.
+   agent's rights ∩ the caller's rights (tool allowed only when both are allowed). The caller is the request's
+   `userId` (set by the host from the session, never from the payload; it propagates to child requests).
+   Scheduled agent runs carry the agent's owner as `userId`, so they are narrowed by the owner's rights.
 3. **Project inheritance downward.** A `UserRole` / `AgentRole` given in project P also counts in P's sub-projects
    (`getProjectAncestorIds`). A sub-project narrows by listing its allowed roles in `ProjectRole` (existing rule:
    when a project lists roles, only those count there). A sub-project can never add a role its user does not hold.
@@ -362,6 +362,16 @@ closes its gaps instead of adding a grants system.
    `plugin-mcp-client` (`McpRemoteRegistry`), `federation` (`PeerSessionResolver`) and `server` (`agentic.ts`);
    existing rows become role names (`tool:<name>`) in a one-time migration. Keep the tables one release
    (`@deprecated`), then drop them from the MariaDB, Postgres and server schemas.
+
+### Progress
+
+- Step 1 (engine: 1, 2, 3, reads of 6) done 2026-11-10: `AgentRoleService.validateActorToolAccess` denies without a
+  database, checks an agent and the user it acts for separately (both must allow), counts project roles in
+  sub-projects (`getProjectAncestorIds`), applies every `ProjectRole` list up the chain (nearest first), no longer
+  reads `RolePermission`; `SUPER_ADMIN_ROLES` constant. `validateAgentSecretAccess` fails closed and no longer reads
+  permissions. The processor's role check denies on error; its `Permission` check and `resolveActorPermissions` are
+  removed (tool sync still writes `Permission` rows until the write side of 6). Tests: `tool-access.test.ts`
+  (narrowing, downward inheritance, sub-project narrowing).
 
 ### Order
 

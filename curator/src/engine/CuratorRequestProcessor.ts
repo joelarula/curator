@@ -2528,66 +2528,9 @@ export class CuratorRequestProcessor {
     return { scriptId: script.id, entry: parsed.entry ?? null };
   }
 
-  private async resolveActorPermissions(actor: { userId?: string; agentId?: string }): Promise<Set<string>> {
-    const permissions = new Set<string>();
-    const visitedRoles = new Set<string>();
-    const roleQueue: string[] = [];
-
-    try {
-      if (actor.userId) {
-        const userRoles = await this.prisma.userRole.findMany({
-          where: { userId: actor.userId },
-          select: { roleId: true }
-        });
-        for (const ur of userRoles) roleQueue.push(ur.roleId);
-      }
-
-      if (actor.agentId) {
-        const agentRoles = await this.prisma.agentRole.findMany({
-          where: { agentId: actor.agentId },
-          select: { roleId: true }
-        });
-        for (const ar of agentRoles) roleQueue.push(ar.roleId);
-      }
-
-      // Recursively traverse role inheritance graph (nested subroles)
-      while (roleQueue.length > 0) {
-        const roleId = roleQueue.shift()!;
-        if (visitedRoles.has(roleId)) continue;
-        visitedRoles.add(roleId);
-
-        // Fetch role's permissions
-        const rolePerms = await this.prisma.rolePermission.findMany({
-          where: { roleId },
-          include: { permission: true }
-        });
-        for (const rp of rolePerms) {
-          if (rp.permission?.name) {
-            permissions.add(rp.permission.name);
-            if (rp.permission.toolName) permissions.add(`tool:${rp.permission.toolName}:execute`);
-          }
-        }
-
-        // Fetch inherited subroles
-        const inherited = await this.prisma.roleInheritance.findMany({
-          where: { parentId: roleId },
-          select: { subRoleId: true }
-        });
-        for (const inh of inherited) {
-          if (!visitedRoles.has(inh.subRoleId)) {
-            roleQueue.push(inh.subRoleId);
-          }
-        }
-      }
-    } catch (err) {
-      logger.error('[CuratorRequestProcessor] Error resolving actor permissions:', err);
-    }
-
-    return permissions;
-  }
-
   private async checkToolRoleAccess(req: any, toolName: string, tool: any): Promise<ToolRoleAccessResult> {
-    if (!this.prisma) return { allowed: true };
+    // Allow-list only: no role database, no error, nothing grants access by default
+    if (!this.prisma) return { allowed: false, reason: `Access Denied: no role database to check tool '${toolName}' against.` };
     const accessLevel = (tool as any).accessLevel || 'safe_write';
     const requiresConfirmation = (tool as any).requiresConfirmation || (tool as any).requiresHumanApproval || accessLevel === 'destructive' || accessLevel === 'elevated';
     const effectiveAgentId = AgentRoleService.actorAgentId(req);
@@ -2603,9 +2546,9 @@ export class CuratorRequestProcessor {
       return await this.definition(`access:${JSON.stringify([actor, policy])}`, () =>
         AgentRoleService.validateActorToolAccess(this.prisma, actor, toolName, policy)
       );
-    } catch (roleErr) {
+    } catch (roleErr: any) {
       logger.warn('[CuratorRequestProcessor] AgentRoleService check failed:', roleErr);
-      return { allowed: true };
+      return { allowed: false, reason: `Access Denied: the role check for tool '${toolName}' failed: ${roleErr?.message ?? roleErr}` };
     }
   }
 
@@ -2613,8 +2556,8 @@ export class CuratorRequestProcessor {
     const accessLevel = (tool as any).accessLevel || 'safe_write';
     const requiresConfirmation = (tool as any).requiresConfirmation || (tool as any).requiresHumanApproval || accessLevel === 'destructive' || accessLevel === 'elevated';
 
-    // 1. Actor Role Whitelisting (Agent or Human User)
-    if (this.prisma) {
+    // 1. Actor Role Whitelisting (Agent or Human User; an agent acting for a user is narrowed to both)
+    {
       const roleCheck = await this.checkToolRoleAccess(req, toolName, tool);
       if (!roleCheck.allowed) {
         // Recorded by the caller as a TOOL_BLOCKED Response.
@@ -2647,29 +2590,7 @@ export class CuratorRequestProcessor {
       }
     }
 
-    // 3. Check granular actor permissions in database if present
-    try {
-      const totalPermissionsCount = (await this.definition('permissions:count', async () => (await this.prisma.permission?.count?.()) || 0)) as number;
-      if (totalPermissionsCount > 0) {
-        const actorPerms = await this.definition(`permissions:${req.userId ?? ''}:${req.agentId ?? ''}`, () =>
-          this.resolveActorPermissions({ userId: req.userId, agentId: req.agentId })
-        );
-        if (actorPerms.size > 0) {
-          const hasDirectPerm = actorPerms.has(`tool:${toolName}:execute`) || actorPerms.has('*') || actorPerms.has('admin');
-          if (!hasDirectPerm) {
-            return {
-              allowed: false,
-              requiresConfirmation: false,
-              reason: `Actor lacks required permission 'tool:${toolName}:execute'.`
-            };
-          }
-        }
-      }
-    } catch (err) {
-      logger.warn('[CuratorRequestProcessor] Permission check encountered error, defaulting to safe allow:', err);
-    }
-
-    return { 
+    return {
       allowed: true, 
       requiresConfirmation: false, 
       approvalScope: approvalResult.scope 

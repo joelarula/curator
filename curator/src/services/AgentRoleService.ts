@@ -1,5 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
-import { isProjectWithin } from './ProjectScopeService.js';
+import { isProjectWithin, getProjectAncestorIds } from './ProjectScopeService.js';
 
 export interface ToolSecurityConfig {
     name: string;
@@ -92,12 +92,13 @@ export class AgentRoleService {
         toolConfig?: ToolSecurityConfig
     ): Promise<{ allowed: boolean; reason?: string; roleNames: string[] }> {
         if (!prisma) {
-            return { allowed: true, roleNames: [] };
+            // Allow-list only: without the role tables nothing can be allowed
+            return { allowed: false, roleNames: [], reason: `Access Denied: no role database to check tool '${toolName}' against.` };
         }
 
         const agentId = actor?.agentId != null ? String(actor.agentId) : null;
         const userId = actor?.userId != null ? String(actor.userId) : null;
-        const targetProjectId = actor?.projectId != null ? String(actor.projectId) : null;
+        const projectId = actor?.projectId != null ? String(actor.projectId) : null;
 
         if (!agentId && !userId) {
             return {
@@ -107,24 +108,63 @@ export class AgentRoleService {
             };
         }
 
+        if (!agentId) {
+            return AgentRoleService.evaluateSingleActor(prisma, { userId, projectId }, toolName, toolConfig);
+        }
+
+        // Narrowing: an agent acting for a user may only do what both are allowed (rights never grow down the chain)
+        const agentResult = await AgentRoleService.evaluateSingleActor(prisma, { agentId, projectId }, toolName, toolConfig);
+        if (!agentResult.allowed || !userId) return agentResult;
+        const userResult = await AgentRoleService.evaluateSingleActor(prisma, { userId, projectId }, toolName, toolConfig);
+        if (!userResult.allowed) {
+            return {
+                allowed: false,
+                roleNames: agentResult.roleNames,
+                reason: `Access Denied: the agent acts for a user who may not use tool '${toolName}'. ${userResult.reason ?? ''}`.trim(),
+            };
+        }
+        return agentResult;
+    }
+
+    /** Role names that bypass tool and project checks. */
+    static readonly SUPER_ADMIN_ROLES: readonly string[] = ['admin', 'agent:admin', 'system:admin', 'curator_admin', 'curator_manager'];
+
+    /** The project and its ancestors, nearest first: roles given in a parent project count in its sub-projects. */
+    private static async projectChain(prisma: PrismaClient | any, projectId: string | null): Promise<string[]> {
+        if (!projectId) return [];
+        return [projectId, ...(await getProjectAncestorIds(prisma, projectId))];
+    }
+
+    /** Checks one actor (an agent or a user, not both) against a tool. */
+    private static async evaluateSingleActor(
+        prisma: PrismaClient | any,
+        actor: { agentId?: string | null; userId?: string | null; projectId: string | null },
+        toolName: string,
+        toolConfig?: ToolSecurityConfig
+    ): Promise<{ allowed: boolean; reason?: string; roleNames: string[] }> {
+        const agentId = actor.agentId ?? null;
+        const userId = actor.userId ?? null;
+        const targetProjectId = actor.projectId;
+        const chain = await AgentRoleService.projectChain(prisma, targetProjectId);
+
         let actorName = '';
         const initialRoleKeys: string[] = [];
-        const attachedPermissions: any[] = [];
 
-        // Check project-assigned roles via ProjectRole database relation (project has 0 - n roles)
-        let projectAssignedRoles: Set<string> | null = null;
-        if (targetProjectId && prisma.projectRole?.findMany) {
-            try {
-                const pRoles = await prisma.projectRole.findMany({
-                    where: { projectId: targetProjectId },
-                    include: { role: true },
-                });
-                if (pRoles.length > 0) {
-                    projectAssignedRoles = new Set(
-                        pRoles.map((pr: any) => pr.role?.name).filter(Boolean)
-                    );
-                }
-            } catch {}
+        // Project role lists (ProjectRole, project has 0 - n roles): each project in the chain that lists roles narrows
+        // the valid roles, so a sub-project can only narrow what its parents allow
+        const projectRoleLists: Array<{ projectId: string; roles: Set<string> }> = [];
+        if (prisma.projectRole?.findMany) {
+            for (const pid of chain) {
+                try {
+                    const pRoles = await prisma.projectRole.findMany({
+                        where: { projectId: pid },
+                        include: { role: true },
+                    });
+                    if (pRoles.length > 0) {
+                        projectRoleLists.push({ projectId: pid, roles: new Set(pRoles.map((pr: any) => pr.role?.name).filter(Boolean)) });
+                    }
+                } catch {}
+            }
         }
 
         if (agentId && prisma.agent?.findFirst) {
@@ -173,7 +213,6 @@ export class AgentRoleService {
                 } else if (ar.roleId) {
                     initialRoleKeys.push(ar.roleId);
                 }
-                if (ar.role?.permissions) attachedPermissions.push(...ar.role.permissions);
             }
         } else if (userId && prisma.user?.findFirst) {
             const user = await prisma.user.findFirst({
@@ -197,13 +236,9 @@ export class AgentRoleService {
 
             actorName = `User '${user.name || user.email || userId}'`;
             for (const ur of (user.roles || [])) {
-                // Database model relation project scoping:
-                // If userRole is scoped to a specific project, it only applies when targetProjectId matches
-                if (targetProjectId && ur.projectId && ur.projectId !== targetProjectId) {
-                    continue;
-                }
-                // If executing in a global context (no targetProjectId), project-specific roles do not apply globally
-                if (!targetProjectId && ur.projectId) {
+                // A role given in a project applies there and in its sub-projects (inherited downward), never in
+                // other projects or globally
+                if (ur.projectId && !chain.includes(String(ur.projectId))) {
                     continue;
                 }
 
@@ -214,7 +249,6 @@ export class AgentRoleService {
                 } else if (ur.roleId) {
                     initialRoleKeys.push(ur.roleId);
                 }
-                if (ur.role?.permissions) attachedPermissions.push(...ur.role.permissions);
             }
         }
 
@@ -232,23 +266,20 @@ export class AgentRoleService {
         }
 
         // 2. Universal / admin wildcard roles (super-admins bypass project constraints)
-        const isSuperAdmin = roleNames.some((r: string) =>
-            r === 'admin' || r === 'agent:admin' || r === 'system:admin' || r === 'curator_admin' || r === 'curator_manager'
-        );
+        const isSuperAdmin = roleNames.some((r: string) => AgentRoleService.SUPER_ADMIN_ROLES.includes(r));
         if (isSuperAdmin) {
             return { allowed: true, roleNames };
         }
 
-        // 3. Project-Assigned Roles Filter (via ProjectRole model relation):
-        // If the project explicitly defines 0-n roles in ProjectRole, the user's role must be
-        // assigned to that project to be valid within this project context.
-        if (projectAssignedRoles && projectAssignedRoles.size > 0) {
-            const projectScopedNames = roleNames.filter((r) => projectAssignedRoles!.has(r));
+        // 3. Project role lists (ProjectRole): every project in the chain that lists roles must list the role,
+        // nearest project first, so a sub-project narrows and never widens.
+        for (const list of projectRoleLists) {
+            const projectScopedNames = roleNames.filter((r) => list.roles.has(r));
             if (projectScopedNames.length === 0) {
                 return {
                     allowed: false,
                     roleNames,
-                    reason: `Access Denied: Roles held by ${actorName} [${roleNames.join(', ')}] are not assigned to project '${targetProjectId}' (active project roles: [${Array.from(projectAssignedRoles).join(', ')}]).`
+                    reason: `Access Denied: Roles held by ${actorName} [${roleNames.join(', ')}] are not assigned to project '${list.projectId}' (active project roles: [${Array.from(list.roles).join(', ')}]).`
                 };
             }
             roleNames = projectScopedNames;
@@ -281,18 +312,6 @@ export class AgentRoleService {
             return { allowed: true, roleNames };
         }
 
-        // 5. Granular permissions attached to roles
-        for (const rp of attachedPermissions) {
-            const p = rp.permission;
-            if (!p) continue;
-            if (p.name === '*' || p.name === 'all_tools' || p.toolName === '*') {
-                return { allowed: true, roleNames };
-            }
-            if (p.toolName === toolName || p.name === toolName || p.name === `tool:${toolName}`) {
-                return { allowed: true, roleNames };
-            }
-        }
-
         // Access denied if not explicitly whitelisted
         const requiredText = requiredRole ? `'${requiredRole}' or 'tool:${toolName}'` : `'tool:${toolName}'`;
         return {
@@ -318,7 +337,7 @@ export class AgentRoleService {
     /**
      * Validates whether an agent is permitted to resolve a specific secret.
      * Denied by default if the agent has no roles.
-     * Allowed if the agent has admin role, wildcard permission, or explicit secret permission (e.g. `secret:read:<name>` or `secret:<name>`).
+     * Allowed if the agent has an admin role or a secret role (e.g. `secret:read:<name>` or `secret:<name>`).
      */
     static async validateAgentSecretAccess(
         prisma: PrismaClient | any,
@@ -337,24 +356,11 @@ export class AgentRoleService {
         try {
             agent = await (prisma as any).agent.findUnique({
                 where: whereClause,
-                include: {
-                    roles: {
-                        include: {
-                            role: {
-                                include: {
-                                    permissions: {
-                                        include: {
-                                            permission: true
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                include: { roles: { include: { role: true } } }
             });
-        } catch (_) {
-            return { allowed: true };
+        } catch (err: any) {
+            // Fail closed: an error never grants a secret
+            return { allowed: false, reason: `Access Denied: could not check secret access for agent '${agentId}': ${err?.message ?? err}` };
         }
 
         if (!agent) {
@@ -388,23 +394,10 @@ export class AgentRoleService {
             return { allowed: true, roleNames };
         }
 
-        // Permissions attached to roles
-        for (const ar of agentRoles) {
-            const perms = ar.role?.permissions || [];
-            for (const rp of perms) {
-                const p = rp.permission;
-                if (!p) continue;
-
-                if (p.name === '*' || p.name === 'secret:*' || p.name === `secret:${secretName}` || p.name === `secret:read:${secretName}` || p.name === `secret:read:*`) {
-                    return { allowed: true, roleNames };
-                }
-            }
-        }
-
         return {
             allowed: false,
             roleNames,
-            reason: `Access Denied: Agent '${agent.name}' with roles [${roleNames.join(', ')}] is not permitted to access secret '${secretName}'. Requires permission 'secret:${secretName}' or 'secret:*'.`
+            reason: `Access Denied: Agent '${agent.name}' with roles [${roleNames.join(', ')}] is not permitted to access secret '${secretName}'. Requires role 'secret:${secretName}' or 'secret:*'.`
         };
     }
 

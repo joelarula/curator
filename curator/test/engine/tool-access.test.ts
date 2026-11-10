@@ -232,3 +232,78 @@ test('agent: an LLM turn runs the tool for a permitted project member and refuse
     assert.equal(ran.length, 1);
   } finally { await env.cleanup(); }
 });
+
+test('narrowing: an agent acting for a user may only use tools both are allowed', async () => {
+  const { env, ran, toolId } = await setup('narrow_agent_user');
+  try {
+    await mkRole(env, 'operator'); await mkRole(env, 'viewer');
+    await env.prisma.toolRole.create({ data: { toolId, roleId: 'operator' } });
+    const agent = await env.prisma.agent.create({ data: { id: 'ag-op', name: 'opagent', userId: env.userId } });
+    await env.prisma.agentRole.create({ data: { agentId: agent.id, roleId: 'operator' } });
+    const viewer = await mkUser(env, 'viewer1');
+    await env.prisma.userRole.create({ data: { userId: viewer.id, roleId: 'viewer' } });
+    const operator = await mkUser(env, 'operator1');
+    await env.prisma.userRole.create({ data: { userId: operator.id, roleId: 'operator' } });
+
+    const run = async (userId: any) => {
+      const req = await env.prisma.request.create({
+        data: { userId, agentId: agent.id, conversationId: env.conversationId, status: 'NEW', toolName: 'Curator_Workflow', ast: await guarded() },
+      });
+      await env.processor.stepUntil({ conversationId: env.conversationId });
+      return (await env.prisma.request.findUnique({ where: { id: req.id } })).status as string;
+    };
+
+    assert.equal(await run(viewer.id), 'FAILED');
+    assert.equal(ran.length, 0);
+    assert.equal(await run(operator.id), 'COMPLETED');
+    assert.equal(ran.length, 1);
+  } finally { await env.cleanup(); }
+});
+
+test('project inheritance: a role given in a parent project applies in its sub-projects, not the other way', async () => {
+  const { env, ran, toolId } = await setup('proj_inherit');
+  try {
+    await mkProject(env, 'parent');
+    await env.prisma.project.create({ data: { id: 'child', name: 'child', userId: String(env.userId), parentId: 'parent' } });
+    await mkRole(env, 'operator');
+    await env.prisma.toolRole.create({ data: { toolId, roleId: 'operator' } });
+    const up = await mkUser(env, 'parentop');
+    await env.prisma.userRole.create({ data: { userId: up.id, roleId: 'operator', projectId: 'parent' } });
+    const down = await mkUser(env, 'childop');
+    await env.prisma.userRole.create({ data: { userId: down.id, roleId: 'operator', projectId: 'child' } });
+
+    assert.equal((await submit(env, await guarded(), { userId: up.id, projectId: 'child' })).status, 'COMPLETED');
+    assert.equal(ran.length, 1);
+    const upward = await submit(env, await guarded(), { userId: down.id, projectId: 'parent' });
+    assert.equal(upward.status, 'FAILED');
+    assert.equal(ran.length, 1);
+  } finally { await env.cleanup(); }
+});
+
+test('project inheritance: a sub-project narrows with its own role list and cannot widen the parent\'s', async () => {
+  const { env, ran, toolId } = await setup('proj_narrow');
+  try {
+    await mkProject(env, 'parent');
+    await env.prisma.project.create({ data: { id: 'child', name: 'child', userId: String(env.userId), parentId: 'parent' } });
+    await mkRole(env, 'operator'); await mkRole(env, 'guest');
+    await env.prisma.toolRole.create({ data: { toolId, roleId: 'operator' } });
+    const u = await mkUser(env, 'inheritor');
+    await env.prisma.userRole.create({ data: { userId: u.id, roleId: 'operator', projectId: 'parent' } });
+
+    // The sub-project lists only 'guest': the inherited 'operator' is not valid there
+    await env.prisma.projectRole.create({ data: { projectId: 'child', roleId: 'guest' } });
+    const narrowed = await submit(env, await guarded(), { userId: u.id, projectId: 'child' });
+    assert.equal(narrowed.status, 'FAILED');
+    assert.match(narrowed.blocked.reason, /not assigned to project 'child'/);
+
+    // The parent lists only 'guest' while the child lists 'operator': the child cannot widen the parent
+    await env.prisma.projectRole.deleteMany({ where: { projectId: 'child' } });
+    await env.prisma.projectRole.create({ data: { projectId: 'child', roleId: 'operator' } });
+    await env.prisma.projectRole.create({ data: { projectId: 'parent', roleId: 'guest' } });
+    env.processor.invalidateDefinitions();
+    const widened = await submit(env, await guarded(), { userId: u.id, projectId: 'child' });
+    assert.equal(widened.status, 'FAILED');
+    assert.match(widened.blocked.reason, /not assigned to project 'parent'/);
+    assert.equal(ran.length, 0);
+  } finally { await env.cleanup(); }
+});
