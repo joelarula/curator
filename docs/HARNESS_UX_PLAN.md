@@ -318,16 +318,61 @@ Tests: `packages/host/test/commands_contract.test.ts` (triggers, suggestions, pa
 - Docs per phase: `packages/curator-console/README.md`, `curator/CURATOR_AST.md`, `docs/SCRIPTING_REFERENCE.md`,
   plugin authoring docs (guardrail hooks, `configSchema`, `presentation`, `ui` tool field, surface formatters).
 
-## Discussion: resource access control (not scheduled)
+## Phase 10: Resource access on the existing role model (planned)
 
-Open WebUI gives models, knowledge, tools and prompts private / group / public access with read/write grants.
-Questions before planning it for Curator:
-1. Grants inside a project only, or across projects? (Today: project or `'system'`.)
-2. `visibility` field per entity vs. a shared grants table (subject = user/role, permission = read/write/use)?
-3. Relation to plugin roles (`roles`, `defaultUserRoles`) and tool `requiredRole` / `accessLevel`.
-4. Which entities first: agents, knowledge, plugin config?
-5. Should grants also filter MCP `tools/list` per caller?
-6. Default for existing rows.
+Open WebUI's per-item private/group/public grants are not adopted. Curator already has the model we want; this phase
+closes its gaps instead of adding a grants system.
+
+### Rules (decided 2026-11-10)
+
+- Scope is the project. Access is given to roles only, never to a user directly.
+- Allow-list only: nothing is allowed until a role allows it. No "no rule means allowed" defaults, no fail-open.
+- Bottom to top = narrowing: rights can only shrink as work is passed down a chain (user → agent → sub-agent, parent
+  project → sub-project), never grow.
+- A role given in a parent project is inherited by its sub-projects, unless the sub-project narrows it.
+
+### What exists (kept)
+
+- `Role` (global or per project), `UserRole` (optionally per project), `AgentRole`, `RoleInheritance` (a role
+  includes sub-roles), `ProjectRole` (a project's allowed roles), `ToolRole`, tool `requiredRole` / `accessLevel`.
+- `AgentRoleService.validateActorToolAccess`: no roles = denied; allowed by `requiredRole`, `ToolRole` or a
+  `tool:<name>` role name. Secrets the same way (`secret:<name>`, `secret:read:<name>`, `secret:*`).
+- The agent node offers the model only tools its actor may call.
+
+### Changes
+
+1. **Fail closed.** `checkToolRoleAccess` returns allowed on an error or without a database; deny instead (reason in
+   the `TOOL_BLOCKED` response). Tests that run without a database get an explicit test-only actor, not a default.
+2. **Narrowing along the chain.** When a user or a parent agent drives an agent, the effective rights are the
+   agent's rights ∩ the caller's rights (tool allowed only when both are allowed). The caller is recorded on the
+   request (`context.callerUserId` / caller agent, set by the host from the session, never from the payload).
+   Scheduled agents with no human caller keep their own roles.
+3. **Project inheritance downward.** A `UserRole` / `AgentRole` given in project P also counts in P's sub-projects
+   (`getProjectAncestorIds`). A sub-project narrows by listing its allowed roles in `ProjectRole` (existing rule:
+   when a project lists roles, only those count there). A sub-project can never add a role its user does not hold.
+4. **Agents are role-controlled.** `agent:<name>` role name (and optional `requiredRole` on the agent definition,
+   like tools) decides who may address an agent. Checked when a request targets an agent (speech, `@agent`,
+   `runAgent`, sub-agent spawn).
+5. **One check for lists and calls.** A shared `AccessService.canUse(actor, kind, name)` (tool / agent / secret, later
+   `mcp:<server>` and resource kinds) used by `host.runTool`, the engine, GraphQL `tools` / `agents`, MCP
+   `tools/list` and `tools/call` (from the roles `actorMapper` already resolves) and the console composer list. Users
+   only see what they may use.
+6. **Remove `Permission` / `RolePermission`** (redundant with role names). Stop reading them in
+   `validateActorToolAccess` / `resolveActorPermissions` and stop writing them in tool sync,
+   `plugin-mcp-client` (`McpRemoteRegistry`), `federation` (`PeerSessionResolver`) and `server` (`agentic.ts`);
+   existing rows become role names (`tool:<name>`) in a one-time migration. Keep the tables one release
+   (`@deprecated`), then drop them from the MariaDB, Postgres and server schemas.
+
+### Order
+
+Engine (1, 2, 3, 6 reads) → `AccessService` + engine/host use (4, 5) → server/GraphQL and MCP lists → console →
+consumers of `RolePermission` (6 writes) → docs (`AGENT_GUIDE`, plugin authoring: roles and `agent:<name>`).
+
+### Open points
+
+- Super-admin role names are a hard-coded list (`admin`, `system:admin`, `curator_admin`, ...); move to one
+  constant, keep the behaviour.
+- Plugin-declared roles (`roles`, `defaultUserRoles`) stay as they are; they only seed `Role` / `UserRole` rows.
 
 ## Decisions (2026-11-09)
 
@@ -335,3 +380,5 @@ Questions before planning it for Curator:
 - `@curator/console` may add `marked` + `dompurify` and a lazy-loaded `mermaid` (Phase 8).
 - Arena/leaderboard and the auxiliary task model are not adopted; branch navigation waits for a relational tree
   pattern.
+- (2026-11-10) Resource access: project scope, roles only (no direct user grants), allow-list only, narrowing down
+  the chain, parent-project roles inherited by sub-projects unless narrowed; `RolePermission` is removed (Phase 10).
