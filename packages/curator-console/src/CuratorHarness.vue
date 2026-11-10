@@ -273,6 +273,7 @@ import { useSurfaces } from './composables/useSurfaces';
 import { useCommandCatalog, isCommandAllowed } from './composables/useCommandCatalog';
 import { useAttachments, promptWithAttachments, type AttachedResource } from './composables/useAttachments';
 import { useSources } from './composables/useSources';
+import { usePromptLibrary } from './composables/usePromptLibrary';
 
 interface Props {
   adapter?: CuratorConsoleAdapter;
@@ -397,7 +398,12 @@ const pluginConfig = usePluginConfig(runHostTool);
 const allowedActions = ref<string[]>([]);
 // # attachments: resource suggestions and the chips sent with the next turn
 const attachments = useAttachments(tools, runHostTool);
-const commandCatalog = useCommandCatalog({ tools, agents, choices: availableChoices, allowedActions, resources: attachments.hits });
+// Prompt library: saved project prompts and MCP prompts, offered after / (reloaded with the tool list)
+const promptLibrary = usePromptLibrary(tools, runHostTool);
+watch(tools, () => {
+  promptLibrary.load();
+});
+const commandCatalog = useCommandCatalog({ tools, agents, choices: availableChoices, allowedActions, resources: attachments.hits, prompts: promptLibrary.entries });
 // Source chips under the latest answer: the run's tool calls and the resources attached to that turn
 const lastAttached = ref<AttachedResource[]>([]);
 const sources = useSources({
@@ -985,6 +991,18 @@ async function executeOpPrompt() {
           await runToolTurn(parsed.entry, parsed.args, startTime);
           return;
         }
+        if (parsed.kind === 'prompt') {
+          // A library prompt fills the prompt box for review; missing arguments are asked for with a form
+          promptInput.value = '';
+          lastExecStatus.value = null;
+          if (parsed.missing.length > 0) {
+            toolFormTarget.value = { ...parsed.entry, kind: 'prompt' };
+            toolFormArgs.value = { ...parsed.args };
+            return;
+          }
+          promptInput.value = await promptLibrary.render(parsed.entry, parsed.args);
+          return;
+        }
         if (parsed.kind === 'agent') {
           if (!parsed.message) throw new Error(`Type a message after @${parsed.name}`);
           selectedAgent.value = parsed.name;
@@ -1384,7 +1402,17 @@ async function submitToolForm() {
   if (!tool) return;
   const args = { ...toolFormArgs.value };
   toolFormTarget.value = null;
+  if (tool.kind === 'prompt') {
+    try {
+      promptInput.value = await promptLibrary.render(tool, args);
+    } catch (err: any) {
+      lastExecStatus.value = 'FAILED';
+      lastExecError.value = err?.message ?? String(err);
+    }
+    return;
+  }
   await runToolTurn(tool, args);
+  if (tool.name === 'prompt_save' || tool.name === 'prompt_delete') await promptLibrary.load();
 }
 
 /** Opens the context menu on a message: its message actions are listed first. */
@@ -1436,7 +1464,7 @@ function switchAgentFromMenu(agentName: string) {
 
 async function executeCommand(cmd: string) {
   contextMenuVisible.value = false;
-  if (!isCommandAllowed(cmd.replace(/^\//, ''), allowedActions.value)) {
+  if (!isCommandAllowed(cmd.replace(/^\//, ''), allowedActions.value, tools.value.map((t: any) => t?.name))) {
     lastExecStatus.value = 'FAILED';
     lastExecError.value = `You do not have the role for ${cmd}.`;
     return;
@@ -1459,6 +1487,13 @@ async function executeCommand(cmd: string) {
     clearPromptInput();
     lastExecOutput.value = null;
     lastExecRaw.value = null;
+  } else if (cmd === '/save-prompt') {
+    // The prompt_save form, prefilled with the prompt text (or the last sent prompt)
+    const tool = tools.value.find((t: any) => t?.name === 'prompt_save');
+    if (!tool) return;
+    const text = promptInput.value.trim() || promptHistory.value[promptHistory.value.length - 1] || '';
+    toolFormArgs.value = text ? { text } : {};
+    toolFormTarget.value = tool;
   }
 }
 
@@ -1561,6 +1596,7 @@ provideHarnessContext({
   commandCatalog,
   attachments,
   sources,
+  promptLibrary,
   toolFormTarget,
   toolFormArgs,
   submitToolForm,

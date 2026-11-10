@@ -8,7 +8,7 @@
 export interface CommandDescriptor {
   name: string;
   /** `resource`: a `#` attachment suggestion (found by search, not part of a static catalog). */
-  source: 'command' | 'tool' | 'choice' | 'agent' | 'resource';
+  source: 'command' | 'tool' | 'choice' | 'agent' | 'resource' | 'prompt';
   title?: string;
   description?: string;
   aliases?: readonly string[];
@@ -19,6 +19,23 @@ export interface CommandDescriptor {
   icon?: string;
   /** Choice value / agent name the entry stands for, when it differs from `name`. */
   value?: unknown;
+}
+
+/** A saved prompt's argument (`prompt_list`, MCP prompts). */
+export interface PromptArgumentInfo {
+  name: string;
+  description?: string;
+  required?: boolean;
+}
+
+/** JSON Schema of a prompt's arguments (all strings), so prompts parse and fill forms like tools. */
+export function promptParameters(args: readonly PromptArgumentInfo[] | null | undefined): Record<string, any> {
+  const list = Array.isArray(args) ? args.filter((a) => a && typeof a.name === 'string' && a.name) : [];
+  return {
+    type: 'object',
+    properties: Object.fromEntries(list.map((a) => [a.name, { type: 'string', ...(a.description ? { description: a.description } : {}) }])),
+    required: list.filter((a) => a.required !== false).map((a) => a.name),
+  };
 }
 
 /** Words of a command line; double or single quotes keep spaces together. */
@@ -95,7 +112,7 @@ export function missingToolArgs(schema: any, args: Record<string, unknown>): str
   return positionalParams(schema).filter((p) => p.required && args[p.name] === undefined).map((p) => p.name);
 }
 
-const SLASH_SOURCES = new Set(['command', 'tool', 'choice']);
+const SLASH_SOURCES = new Set(['command', 'tool', 'prompt', 'choice']);
 
 function names(entry: CommandDescriptor): string[] {
   return [entry.name, ...(entry.aliases ?? [])].map((n) => n.toLowerCase());
@@ -104,7 +121,7 @@ function names(entry: CommandDescriptor): string[] {
 /** The entry `name` refers to (name or alias, case-insensitive); commands win over tools, tools over choices. */
 export function findCommand(catalog: readonly CommandDescriptor[], name: string, sources: ReadonlySet<string> = SLASH_SOURCES): CommandDescriptor | undefined {
   const n = name.toLowerCase();
-  for (const source of ['command', 'tool', 'choice', 'agent']) {
+  for (const source of ['command', 'tool', 'prompt', 'choice', 'agent']) {
     if (!sources.has(source)) continue;
     const hit = catalog.find((e) => e.source === source && names(e).includes(n));
     if (hit) return hit;
@@ -149,7 +166,7 @@ export type ComposerInput =
   | { kind: 'text'; text: string }
   | { kind: 'agent'; name: string; entry: CommandDescriptor; message: string }
   | { kind: 'command' | 'choice'; name: string; entry: CommandDescriptor; tokens: string[] }
-  | { kind: 'tool'; name: string; entry: CommandDescriptor; tokens: string[]; args: Record<string, any>; missing: string[] }
+  | { kind: 'tool' | 'prompt'; name: string; entry: CommandDescriptor; tokens: string[]; args: Record<string, any>; missing: string[] }
   | { kind: 'unknown'; trigger: '/' | '@'; name: string };
 
 /** What a submitted line means: a command/tool/choice (`/name ...`), a message to an agent (`@agent ...`), or text. */
@@ -159,9 +176,10 @@ export function parseComposerInput(text: string, catalog: readonly CommandDescri
     const [name, ...tokens] = parseCommandLine(trimmed.slice(1));
     const entry = name ? findCommand(catalog, name) : undefined;
     if (!entry || !name) return { kind: 'unknown', trigger: '/', name: name ?? '' };
-    if (entry.source === 'tool') {
+    if (entry.source === 'tool' || entry.source === 'prompt') {
+      // A saved prompt's arguments are described by `parameters` like a tool's
       const args = toolArgsFromTokens(tokens, entry.parameters);
-      return { kind: 'tool', name: entry.name, entry, tokens, args, missing: missingToolArgs(entry.parameters, args) };
+      return { kind: entry.source, name: entry.name, entry, tokens, args, missing: missingToolArgs(entry.parameters, args) };
     }
     return { kind: entry.source as 'command' | 'choice', name: entry.name, entry, tokens };
   }

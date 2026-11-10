@@ -720,3 +720,23 @@ model PluginConfigValue {
   @@unique([namespace, key, scope, projectId, userId, existent])
   @@index([projectId, userId, existent])
 }
+
+/// Prompt library: prompts saved per project (composer `/`, CLI), with `{name}` placeholders for arguments.
+/// Deleted rows have `existent` NULL (outside the unique key).
+model SavedPrompt {
+  id          Int      @id @default(autoincrement())
+  projectId   String   @default("system")
+  name        String
+  title       String?
+  description String?
+  text        String
+  /// [{ name, description?, required? }]; derived from the placeholders when not given
+  arguments   Json?
+  createdBy   String?
+  existent    Boolean? @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([projectId, name, existent])
+  @@index([projectId, existent])
+}

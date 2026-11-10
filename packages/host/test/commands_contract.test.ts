@@ -79,3 +79,23 @@ test('composer: # opens a resource trigger at a word start and suggests only res
   assert.deepEqual(matchCommands(catalog, '#', 'doc').map((e) => e.name), ['Doc A']);
   assert.deepEqual(matchCommands(catalog, '/', 'doc').map((e) => e.name), ['doc_tool']);
 });
+
+test('prompts: /name parses like a tool with string arguments; the CLI fills and sends it', async () => {
+  const { promptParameters } = await import('../dist/contracts/commands.js');
+  const params = promptParameters([{ name: 'topic', required: true }, { name: 'tone', required: false }]);
+  assert.deepEqual(params.required, ['topic']);
+  const catalog = [{ name: 'summary', source: 'prompt' as const, parameters: params }];
+  const parsed: any = parseComposerInput('/summary roles', catalog);
+  assert.equal(parsed.kind, 'prompt');
+  assert.deepEqual(parsed.args, { topic: 'roles' });
+  assert.deepEqual((parseComposerInput('/summary', catalog) as any).missing, ['topic']);
+
+  const sent: string[] = [];
+  const shell: any = createClientShell({
+    prompts: () => [{ name: 'summary', parameters: params }],
+    renderPrompt: async (name: string, args: any) => `Summarize ${args.topic}`,
+    onSpeech: async (text: string) => { sent.push(text); },
+  } as any);
+  await shell.handleLine('/summary roles');
+  assert.deepEqual(sent, ['Summarize roles']);
+});

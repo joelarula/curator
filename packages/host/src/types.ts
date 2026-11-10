@@ -253,6 +253,15 @@ export interface RemoteToolInfo {
   parameters?: any;
 }
 
+/** A saved prompt offered as `/name` (prompt library). */
+export interface PromptInfo {
+  name: string;
+  title?: string;
+  description?: string;
+  /** JSON Schema of the arguments (`promptParameters`). */
+  parameters?: any;
+}
+
 export interface ClientShellConfig<TState = any, _TAction = any> {
   actorName?: string;
   conversationId?: string;
@@ -272,6 +281,10 @@ export interface ClientShellConfig<TState = any, _TAction = any> {
   getWallet?: () => string | number | Promise<string | number | undefined> | undefined;
   /** Host-side tools beyond the shell whitelist (e.g. remote MCP tools), listed by `tools`. */
   remoteTools?: () => RemoteToolInfo[] | Promise<RemoteToolInfo[]>;
+  /** Saved prompts offered as `/name [args]` (e.g. from `prompt_list`); refreshed before each line. */
+  prompts?: () => PromptInfo[] | Promise<PromptInfo[]>;
+  /** Fills a prompt's arguments (e.g. `prompt_get`); the text is then sent like a typed message. */
+  renderPrompt?: (name: string, args: Record<string, any>) => Promise<string>;
   redrawView?: () => void;
   onToolCall?: (toolName: string, args: Record<string, any>, ctx?: ClientShellConfig<TState, _TAction>) => Promise<any>;
   onSpeech?: (text: string, speechAct?: string, targetId?: string) => Promise<any>;

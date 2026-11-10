@@ -344,6 +344,18 @@ shims, surface formatters. Not chosen now: conversation organisation, channels.
   requests unless it may perform `requests.read_all` (role `curator:requests:read`, seeded; super-admins pass); no user,
   nothing. `curatorRequest(id)` now converts the id (it failed before: string id on an integer column). Keeris already
   limits its request list to `curator_manager`.
+- Prompt library (done): table `SavedPrompt` (all four schemas: `projectId` default `system`, `name`, `title`,
+  `description`, `text` with `{name}` placeholders, `arguments` Json, `createdBy`, `existent`; unique
+  `[projectId, name, existent]`, deleted rows `existent` NULL). Core tools `prompt_list` / `prompt_get`
+  (`agent:reader`) and `prompt_save` / `prompt_delete` (role `prompts:write`, seeded); the project comes from the
+  session, parent-project prompts are visible in sub-projects (nearest of a name wins), `system` prompts everywhere.
+  Contract: `CommandDescriptor.source` `'prompt'` (after `/`, parsed like a tool), `promptParameters(arguments)`.
+  Console `usePromptLibrary`: saved prompts and MCP prompts (`mcp_prompts_list` / `mcp_prompt_get`, a clashing
+  name gets `<server>.<name>`) as `/` entries, each source only when its tools are allowed; `/name args` fills the
+  prompt box for review (missing arguments open the form); `/save-prompt` opens the `prompt_save` form with the
+  prompt text (offered only with `prompt_save`, `HARNESS_COMMAND_TOOLS`). CLI: `ClientShell` config `prompts()` and
+  `renderPrompt(name, args)`; `/name args` is filled and sent like a typed message. Needs: the server module's
+  `db:push`, and apps wiring `prompts` / `renderPrompt` in their shells.
 
 ## Cross-cutting
 

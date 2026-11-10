@@ -11,6 +11,7 @@ import type {
   ChatToolDefinition,
   ShellContext,
   RemoteToolInfo,
+  PromptInfo,
 } from '../types.js';
 import { ShellAuthController, isAuthRequiredError } from './shellAuth.js';
 import {
@@ -58,6 +59,8 @@ export class ClientShell<TState = any, TAction = ToolAction> {
   private tools: Map<string, CuratorToolDefinition> = new Map();
   /** `config.remoteTools`, refreshed before each line (commands are built synchronously). */
   private remoteTools: RemoteToolInfo[] = [];
+  /** `config.prompts`, refreshed before each line. */
+  private prompts: PromptInfo[] = [];
   private activeChoices: ActiveChoice[] = [];
   public activePromptContext?: Record<string, any>;
   private isBlockingStep: boolean = false;
@@ -121,6 +124,15 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       this.tools.set(tool.name, tool);
     }
     return this;
+  }
+
+  private async refreshPrompts(): Promise<void> {
+    if (!this.config.prompts) return;
+    try {
+      this.prompts = await this.config.prompts();
+    } catch {
+      // keep the last known list
+    }
   }
 
   private async refreshRemoteTools(): Promise<void> {
@@ -376,6 +388,10 @@ export class ClientShell<TState = any, TAction = ToolAction> {
     this.activeChoices.forEach((c, i) => {
       out.push({ name: String(c.id || i + 1), source: 'choice', title: c.label, aliases: c.aliases, value: c.value });
     });
+    for (const p of this.prompts) {
+      if (!p?.name) continue;
+      out.push({ name: p.name, source: 'prompt', title: p.title, description: p.description, parameters: p.parameters, usage: toolUsage(p as any) });
+    }
     for (const name of this.agentNames()) out.push({ name, source: 'agent' });
     return out;
   }
@@ -943,6 +959,25 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       if (parsed.kind === 'agent') {
         if (this.config.onAgentMessage) return await this.config.onAgentMessage(parsed.name, parsed.message);
         return await this.spawnSpeechBranch(trimmed);
+      }
+    }
+
+    // 1d. `/prompt [args]` fills a saved prompt and sends it like a typed message
+    if (trimmed.startsWith('/') && this.config.prompts) {
+      await this.refreshPrompts();
+      const parsed = parseComposerInput(trimmed, this.commandCatalog());
+      if (parsed.kind === 'prompt') {
+        if (parsed.missing.length > 0) {
+          console.log(`\x1b[31mPrompt /${parsed.name} needs: ${parsed.missing.join(', ')}\x1b[0m  Usage: /${parsed.name} ${parsed.entry.usage ?? ''}`);
+          return;
+        }
+        if (!this.config.renderPrompt) {
+          console.log(`\x1b[31mThis shell cannot fill prompts (no renderPrompt).\x1b[0m`);
+          return;
+        }
+        const text = await this.config.renderPrompt(parsed.name, parsed.args);
+        console.log(`\x1b[2m> ${text.split('\n')[0]}${text.includes('\n') ? ' ...' : ''}\x1b[0m`);
+        return await this.spawnSpeechBranch(text);
       }
     }
 

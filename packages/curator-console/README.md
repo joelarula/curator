@@ -126,3 +126,11 @@ choice, `@agent message` sends the message to that agent. The list (`useCommandC
 Under the latest answer, chips list what the run used: each tool call (coloured by outcome) and each resource
 attached with `#`. Clicking a tool chip shows the stored result the model read; clicking a resource chip shows its text
 (`useSources`).
+
+---
+
+## Prompt library
+
+Saved project prompts (`prompt_list`) and MCP prompts (`mcp_prompts_list`) appear after `/`. `/name args` fills the
+prompt box with the prompt (missing arguments open a form); `/save-prompt` saves the current prompt text
+(`prompt_save`, role `prompts:write`). Use `{name}` placeholders in a prompt's text for arguments.

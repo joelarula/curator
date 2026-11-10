@@ -10,7 +10,9 @@ test('catalog merges harness verbs, tools, choices and agents; suggestions follo
   const choices = ref([{ label: 'Approve', value: 'yes' }]);
   const c = useCommandCatalog({ tools, agents, choices, allowedActions: ref(['db.status', 'db.export']) });
 
-  assert.equal(c.commands.value.length, HARNESS_COMMANDS.length);
+  // All verbs except those needing a tool the user may not run (save-prompt needs prompt_save)
+  assert.equal(c.commands.value.length, HARNESS_COMMANDS.length - 1);
+  assert.ok(!c.commands.value.some((e) => e.name === 'save-prompt'));
   assert.deepEqual(c.catalog.value.filter((e) => e.source !== 'command').map((e) => `${e.source}:${e.name}`), ['tool:search_knowledge', 'choice:1', 'agent:weather']);
   assert.equal(c.catalog.value.find((e) => e.name === 'search_knowledge')?.usage, '<query>');
 

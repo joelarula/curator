@@ -511,7 +511,8 @@ export class AgentRoleService {
             { name: 'curator:db:status', description: 'May view database health (row counts of requests, agents, users)' },
             { name: 'curator:db:export', description: 'May download the whole database file' },
             { name: 'curator:db:import', description: 'May replace the database file' },
-            { name: 'curator:requests:read', description: "May read other users' requests and responses in the project" }
+            { name: 'curator:requests:read', description: "May read other users' requests and responses in the project" },
+            { name: 'prompts:write', description: 'May save and delete prompts of the project prompt library' }
         ];
 
         for (const r of defaultRoles) {

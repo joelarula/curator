@@ -509,6 +509,21 @@ CREATE TABLE "PluginConfigValue" (
 );
 
 -- CreateTable
+CREATE TABLE "SavedPrompt" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "projectId" TEXT NOT NULL DEFAULT 'system',
+    "name" TEXT NOT NULL,
+    "title" TEXT,
+    "description" TEXT,
+    "text" TEXT NOT NULL,
+    "arguments" JSONB,
+    "createdBy" TEXT,
+    "existent" BOOLEAN DEFAULT true,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+
+-- CreateTable
 CREATE TABLE "_RequestResources" (
     "A" INTEGER NOT NULL,
     "B" INTEGER NOT NULL,
@@ -793,6 +808,12 @@ CREATE INDEX "PluginConfigValue_projectId_userId_existent_idx" ON "PluginConfigV
 
 -- CreateIndex
 CREATE UNIQUE INDEX "PluginConfigValue_namespace_key_scope_projectId_userId_existent_key" ON "PluginConfigValue"("namespace", "key", "scope", "projectId", "userId", "existent");
+
+-- CreateIndex
+CREATE INDEX "SavedPrompt_projectId_existent_idx" ON "SavedPrompt"("projectId", "existent");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "SavedPrompt_projectId_name_existent_key" ON "SavedPrompt"("projectId", "name", "existent");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "_RequestResources_AB_unique" ON "_RequestResources"("A", "B");

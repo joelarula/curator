@@ -10,6 +10,7 @@ export const HARNESS_COMMANDS: readonly CommandDescriptor[] = [
   { name: 'workflow', source: 'command', description: 'CoffeeScript workflow studio', icon: 'mdi-coffee' },
   { name: 'export', source: 'command', description: 'Export the SQLite database', icon: 'mdi-download' },
   { name: 'clear', source: 'command', description: 'Clear prompt and turn output', icon: 'mdi-eraser' },
+  { name: 'save-prompt', source: 'command', description: 'Save the prompt text to the project prompt library', icon: 'mdi-content-save-outline' },
 ];
 
 /**
@@ -21,6 +22,11 @@ export const HARNESS_COMMAND_ACTIONS: Readonly<Record<string, string>> = {
   export: 'db.export',
 };
 
+/** Harness verbs that run a tool: offered only when the user may run it (the tool list is filtered by role). */
+export const HARNESS_COMMAND_TOOLS: Readonly<Record<string, string>> = {
+  'save-prompt': 'prompt_save',
+};
+
 export interface CommandCatalogSources {
   tools: Ref<any[]>;
   agents: Ref<any[]>;
@@ -29,12 +35,19 @@ export interface CommandCatalogSources {
   allowedActions?: Ref<string[]>;
   /** `#` suggestions: resources found for the current query (`source: 'resource'`). */
   resources?: Ref<CommandDescriptor[]>;
+  /** Prompt library entries (`source: 'prompt'`), offered after `/`. */
+  prompts?: Ref<CommandDescriptor[]>;
 }
 
-/** Whether a harness verb may be offered: no action needed, or its action is allowed. */
-export function isCommandAllowed(name: string, allowedActions: readonly string[]): boolean {
+/**
+ * Whether a harness verb may be offered: its host action (if any) is allowed, and its tool (if any) is one the user
+ * may run (`toolNames`; omitted = not checked).
+ */
+export function isCommandAllowed(name: string, allowedActions: readonly string[], toolNames?: readonly string[]): boolean {
   const action = HARNESS_COMMAND_ACTIONS[name];
-  return !action || allowedActions.includes(action);
+  if (action && !allowedActions.includes(action)) return false;
+  const tool = HARNESS_COMMAND_TOOLS[name];
+  return !tool || !toolNames || toolNames.includes(tool);
 }
 
 /**
@@ -43,7 +56,9 @@ export function isCommandAllowed(name: string, allowedActions: readonly string[]
  */
 export function useCommandCatalog(sources: CommandCatalogSources) {
   const catalog = computed<CommandDescriptor[]>(() => [
-    ...HARNESS_COMMANDS.filter((c) => isCommandAllowed(c.name, sources.allowedActions?.value ?? [])),
+    ...HARNESS_COMMANDS.filter((c) =>
+      isCommandAllowed(c.name, sources.allowedActions?.value ?? [], sources.tools.value.map((t: any) => t?.name))
+    ),
     ...sources.tools.value.map((t: any) => ({
       name: t.name,
       source: 'tool' as const,
@@ -67,6 +82,7 @@ export function useCommandCatalog(sources: CommandCatalogSources) {
       description: a.description,
       icon: a.icon || 'mdi-robot-outline',
     })),
+    ...(sources.prompts?.value ?? []),
     ...(sources.resources?.value ?? []),
   ]);
 

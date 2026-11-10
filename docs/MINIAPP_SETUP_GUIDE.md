@@ -382,3 +382,19 @@ createClientShell({
   onAgentMessage: (agent, text) => channel.send('user:speech', { text, targetAgent: agent }),
 });
 ```
+
+
+## CLI: saved prompts
+
+Give the shell the prompt library to offer `/name [args]` (filled, then sent like a typed message):
+
+```typescript
+createClientShell({
+  channel,
+  prompts: async () =>
+    (await host.runTool('prompt_list', {})).result.prompts.map((p: any) => ({
+      name: p.name, title: p.title, description: p.description, parameters: promptParameters(p.arguments),
+    })),
+  renderPrompt: async (name, args) => (await host.runTool('prompt_get', { name, arguments: args })).result.text,
+});
+```

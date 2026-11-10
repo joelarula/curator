@@ -613,6 +613,25 @@ CREATE TABLE `PluginConfigValue` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
+CREATE TABLE `SavedPrompt` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `projectId` VARCHAR(191) NOT NULL DEFAULT 'system',
+    `name` VARCHAR(191) NOT NULL,
+    `title` VARCHAR(191) NULL,
+    `description` TEXT NULL,
+    `text` TEXT NOT NULL,
+    `arguments` JSON NULL,
+    `createdBy` VARCHAR(191) NULL,
+    `existent` BOOLEAN NULL DEFAULT true,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    INDEX `SavedPrompt_projectId_existent_idx`(`projectId`, `existent`),
+    UNIQUE INDEX `SavedPrompt_projectId_name_existent_key`(`projectId`, `name`, `existent`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
 CREATE TABLE `_RequestResources` (
     `A` INTEGER NOT NULL,
     `B` INTEGER NOT NULL,

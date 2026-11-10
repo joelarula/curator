@@ -47,7 +47,8 @@ export {
   type ConfigScope,
 } from './composables/usePluginConfig';
 export { useSurfaces, type SurfacesHandle, type SurfaceEntry, type ShowSurfaceOptions } from './composables/useSurfaces';
-export { useCommandCatalog, HARNESS_COMMANDS, HARNESS_COMMAND_ACTIONS, isCommandAllowed, type CommandCatalogHandle, type CommandCatalogSources } from './composables/useCommandCatalog';
+export { useCommandCatalog, HARNESS_COMMANDS, HARNESS_COMMAND_ACTIONS, HARNESS_COMMAND_TOOLS, isCommandAllowed, type CommandCatalogHandle, type CommandCatalogSources } from './composables/useCommandCatalog';
 export { useAttachments, promptWithAttachments, type AttachmentsHandle, type HarnessAttachment, type AttachedResource } from './composables/useAttachments';
 export { useSources, toolSourcesOfRun, toolResultAt, surfaceForToolResult, type SourcesHandle, type HarnessSource } from './composables/useSources';
+export { usePromptLibrary, mcpPromptText, type PromptLibraryHandle, type PromptOrigin } from './composables/usePromptLibrary';
 export { renderMarkdown, renderMermaid, isAllowedImageSource, sandboxDocument } from './composables/richText';

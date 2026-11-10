@@ -8,6 +8,7 @@ import type { SurfacesHandle } from './composables/useSurfaces';
 import type { CommandCatalogHandle } from './composables/useCommandCatalog';
 import type { AttachmentsHandle } from './composables/useAttachments';
 import type { SourcesHandle } from './composables/useSources';
+import type { PromptLibraryHandle } from './composables/usePromptLibrary';
 import type {
   HarnessLayoutMode,
   HarnessResourceViewMode,
@@ -116,6 +117,8 @@ export interface CuratorHarnessContext {
   attachments: AttachmentsHandle;
   /** Source chips of the latest answer (tool calls of its run, attached resources). */
   sources: SourcesHandle;
+  /** Prompt library entries offered after `/` (saved and MCP prompts). */
+  promptLibrary: PromptLibraryHandle;
   /** Tool waiting for its required arguments (composer form), and the form's values. */
   toolFormTarget: Ref<any | null>;
   toolFormArgs: Ref<Record<string, unknown>>;
