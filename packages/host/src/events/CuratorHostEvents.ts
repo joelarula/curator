@@ -22,6 +22,34 @@ export interface CuratorEvent<T = any> {
   sessionId?: string;
   tableId?: string;
   conversationId?: number;
+  /**
+   * Addressed to one participant (agent id or `user:<id>`): delivered only to sockets of that participant. In-process
+   * listeners that forward events to clients must honour it too.
+   */
+  target?: string;
+}
+
+/** Who a WebSocket connection belongs to (from the host's own sign-in, never from the client's claims). */
+export interface SocketIdentity {
+  userId?: string | null;
+  agentId?: string | null;
+}
+
+export interface AttachWebSocketOptions {
+  /**
+   * Binds a connection to the signed-in user (e.g. from a bearer token in the `Authorization` header or the `token`
+   * query parameter). Addressed events reach only identified sockets of their participant; without it no socket
+   * receives addressed events.
+   */
+  identify?: (req: any) => SocketIdentity | null | undefined | Promise<SocketIdentity | null | undefined>;
+}
+
+/** Participant ids of an identity (`user:<id>`, the agent id), as addressed events name them. */
+export function socketParticipants(identity: SocketIdentity | null | undefined): Set<string> {
+  const ids = new Set<string>();
+  if (identity?.userId) ids.add(`user:${identity.userId}`);
+  if (identity?.agentId) ids.add(String(identity.agentId));
+  return ids;
 }
 
 export interface CuratorLogEntry {
@@ -44,7 +72,7 @@ export class CuratorHostEvents extends EventEmitter {
     }
   }
 
-  public broadcast(type: CuratorEventType, payload: any): void {
+  public broadcast(type: CuratorEventType, payload: any, opts: { target?: string | null } = {}): void {
     const time = new Date().toLocaleTimeString();
 
     if (type === 'log') {
@@ -80,6 +108,7 @@ export class CuratorHostEvents extends EventEmitter {
       ...(sessionId ? { sessionId } : {}),
       ...(tableId ? { tableId } : {}),
       ...(conversationId ? { conversationId } : {}),
+      ...(opts.target ? { target: String(opts.target) } : {}),
     };
 
     // Emit typed event, wildcard event, and generic 'event'
@@ -92,6 +121,8 @@ export class CuratorHostEvents extends EventEmitter {
       const message = JSON.stringify(event);
       for (const client of this.clients) {
         if (client.readyState === WebSocket.OPEN) {
+          // Addressed: only the participant's own (identified) sockets
+          if (event.target && !((client as any).participants as Set<string> | undefined)?.has(event.target)) continue;
           const clientFilter = (client as any).tableFilter;
           if (clientFilter) {
             const eventTable = payload?.tableId !== undefined
@@ -137,7 +168,7 @@ export class CuratorHostEvents extends EventEmitter {
     return [...this.recentLogs];
   }
 
-  public attachWebSocketServer(server: HttpServer, wsPath: string = '/api/curator/ws'): WebSocketServer {
+  public attachWebSocketServer(server: HttpServer, wsPath: string = '/api/curator/ws', options: AttachWebSocketOptions = {}): WebSocketServer {
     if (this.wss) return this.wss;
 
     this.wss = new WebSocketServer({
@@ -148,6 +179,19 @@ export class CuratorHostEvents extends EventEmitter {
     this.wss.on('connection', (ws: WebSocket, req: any) => {
       this.clients.add(ws);
       (ws as any).isAlive = true;
+      // Identity from the host's sign-in; until it is known the socket gets no addressed events
+      (ws as any).participants = new Set<string>();
+      if (options.identify) {
+        Promise.resolve()
+          .then(() => options.identify!(req))
+          .then((identity) => {
+            (ws as any).identity = identity ?? null;
+            (ws as any).participants = socketParticipants(identity);
+          })
+          .catch(() => {
+            (ws as any).identity = null;
+          });
+      }
 
       let sessionId: string | undefined = undefined;
       if (req?.headers && req.headers['x-session-id']) {

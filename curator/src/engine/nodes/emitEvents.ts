@@ -23,7 +23,8 @@ export const emitEventsNode: NodeHandler<CuratorEmitEventsNode> = {
         ? { ...spec.payload }
         : spec.payload;
       ctx.events.addOrigin(payload, req);
-      ctx.emit(spec.name, payload);
+      const target = spec.targetAgentId != null && spec.targetAgentId !== '' ? String(spec.targetAgentId) : null;
+      ctx.emit(spec.name, payload, target ? { target } : undefined);
       events.push(await ctx.events.dispatch(spec.name, payload, req, spec.targetAgentId as any));
     }
     const record: CuratorStructuredResponse = { type: 'EVENTS_EMITTED', ok: true, events };

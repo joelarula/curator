@@ -85,3 +85,24 @@ test('channel stream: opens with the latest messages, polls after the last id, p
   s.close();
   assert.equal(s.conversationId.value, null);
 });
+
+test('channel stream: live deliveries for the open channel are added once (matched to stored messages by id)', async () => {
+  const { useChannelStream } = await import('../src/composables/useChannelStream.ts');
+  let emit: (type: string, payload: any) => void = () => {};
+  const subscribe = (cb: any) => { emit = cb; return () => {}; };
+  const stored = [{ id: 1, text: 'hi', sender: null, at: '' }];
+  const s = useChannelStream(tools(['channel_messages', 'channel_post']), async (_n: string, args: any) => ({ messages: stored.filter((m) => args.afterId === undefined || m.id > args.afterId) }), { subscribe });
+  await s.open(7, 'General');
+  emit('conversation:message_delivered', { conversationId: 7, id: 2, text: 'live', sender: { type: 'user', id: 'u2' } });
+  emit('conversation:message_delivered', { conversationId: 9, id: 3, text: 'other channel' });
+  emit('conversation:message_delivered', { conversationId: 7, id: 2, text: 'live' });
+  assert.deepEqual(s.messages.value.map((m) => [m.id, m.text]), [[1, 'hi'], [2, 'live']]);
+  await s.refresh();
+  assert.deepEqual(s.messages.value.map((m) => m.id), [1, 2]);
+
+  // A reconnect fetches what was missed (no timer with a live feed)
+  stored.push({ id: 5, text: 'missed while offline', sender: null, at: '' });
+  emit('connected', {});
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(s.messages.value.map((m) => m.id), [1, 2, 5]);
+});

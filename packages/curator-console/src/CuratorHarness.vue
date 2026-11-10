@@ -413,7 +413,7 @@ const promptLibrary = usePromptLibrary(tools, runHostTool);
 // Conversation organisation (conversation_list / _rename / _pin / _archive / _delete)
 const conversations = useConversations(tools, runHostTool);
 // The shared message stream of an open channel (channel_messages / channel_post)
-const channelStream = useChannelStream(tools, runHostTool);
+const channelStream = useChannelStream(tools, runHostTool, { subscribe: props.adapter?.onProgress?.bind(props.adapter) });
 watch(tools, () => {
   promptLibrary.load();
   if (activeWorkspaceTab.value === 'conversations') conversations.load();

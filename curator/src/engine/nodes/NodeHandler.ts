@@ -145,7 +145,11 @@ export interface NodeContext extends ServiceAccess {
   now(): number;
   /** Abort signal of the attempt running in this async context: aborts when the node's `timeoutMs` passes. */
   abortSignal?(): AbortSignal | undefined;
-  emit(type: string, payload: any): void;
+  /**
+   * Publishes an event to the host's listeners. `meta.target`: the participant it is addressed to (agent id or
+   * `user:<id>`); hosts deliver addressed events only to that participant.
+   */
+  emit(type: string, payload: any, meta?: EmitMeta): void;
   /** Publishes a typed progress event (`curator:progress`; `v`, `seq`, `ts` are stamped by the processor). */
   progress?(event: ProgressEventInput): void;
   saveResponse(req: any, content: string): Promise<void>;
@@ -194,7 +198,13 @@ export interface NodeHandler<N = any> {
 export interface MaintenanceContext extends ServiceAccess {
   prisma: any;
   now(): number;
-  emit(type: string, payload: any): void;
+  emit(type: string, payload: any, meta?: EmitMeta): void;
+}
+
+/** Delivery details of an emitted event. */
+export interface EmitMeta {
+  /** Addressed to this participant only (agent id or `user:<id>`). */
+  target?: string | null;
 }
 
 /** A pass run in order at the start of every poll tick (like a Bevy system in a fixed schedule). */

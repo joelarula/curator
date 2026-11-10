@@ -201,6 +201,7 @@
       "context": {
         "astPath": "",
         "emittedBy": "<sender>",
+        "eventId": 2,
         "eventName": "ping",
         "got": 2,
         "input": {

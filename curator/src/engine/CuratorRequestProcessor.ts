@@ -55,7 +55,7 @@ import {
   graphNode, callNode, agentRefNode, actorRefNode,
   agentNode, agentOutputKey,
 } from './nodes/index.js';
-import type { NodeContext, NodeHandler, MaintenanceContext, MaintenanceSystem, InflightToolCall, ToolAccessResult, ToolRoleAccessResult, ServiceBinding, ServiceKey } from './nodes/index.js';
+import type { NodeContext, NodeHandler, MaintenanceContext, MaintenanceSystem, InflightToolCall, ToolAccessResult, ToolRoleAccessResult, ServiceBinding, ServiceKey, EmitMeta } from './nodes/index.js';
 // Audit trail = Request/Response rows (see AuditService for the derived read view).
 
 /** Statuses of a request that has not ended. */
@@ -97,7 +97,8 @@ function guardedStore(store: IStorageAdapter, assertLive: () => void): IStorageA
 }
 
 export interface CuratorRequestProcessorOptions {
-  onEvent?: (type: string, payload: any) => void;
+  /** Host listeners; `meta.target` marks an event addressed to one participant (deliver it only there). */
+  onEvent?: (type: string, payload: any, meta?: EmitMeta) => void;
   maxConcurrency?: number;
   reserveWebConnections?: number;
   poolLimit?: number;
@@ -285,7 +286,7 @@ export class CuratorRequestProcessor {
   private conversationScope: Set<number> | null = null;
   private backoffUntil: number = 0;
   private workerId = `curator-worker-${Math.random().toString(36).substring(7)}`;
-  private onEvent?: (type: string, payload: any) => void;
+  private onEvent?: (type: string, payload: any, meta?: EmitMeta) => void;
   private poolLimit: number;
   private reserveWebConnections: number;
   private maxConcurrency: number;
@@ -511,7 +512,7 @@ export class CuratorRequestProcessor {
       prisma: this.prisma,
       now: () => this.clock(),
       abortSignal: () => this.currentAttempt()?.controller.signal,
-      emit: (type, payload) => this.emit(type, payload),
+      emit: (type, payload, meta) => this.emit(type, payload, meta),
       progress: (event) => this.progress(event),
       saveResponse: (req, content) => this.saveResponse(req, content),
       completeRequest: (id, status, skipNotify, data) => this.completeRequest(id, status, skipNotify, data),
@@ -554,7 +555,7 @@ export class CuratorRequestProcessor {
     this.maintenanceContext = {
       prisma: this.prisma,
       now: () => this.clock(),
-      emit: (type, payload) => this.emit(type, payload),
+      emit: (type, payload, meta) => this.emit(type, payload, meta),
       service: (key) => this.service(key),
       tryService: (key) => this.tryService(key),
     };
@@ -613,14 +614,14 @@ export class CuratorRequestProcessor {
     return this.scheduledMaintenance().map(s => s.name);
   }
 
-  private emit(type: string, payload: any) {
+  private emit(type: string, payload: any, meta?: EmitMeta) {
     // Node handlers announce an opened interrupt as `curator:interrupt`: it goes out as a progress event only
     if (type === INTERRUPT_OPENED) {
       if (payload?.requestId != null) this.progress({ kind: 'wait.opened', conversationId: payload.conversationId, requestId: payload.requestId, interrupt: payload });
       return;
     }
     try {
-      this.onEvent?.(type, payload);
+      this.onEvent?.(type, payload, meta);
     } catch (_) {}
   }
 
@@ -1819,6 +1820,8 @@ export class CuratorRequestProcessor {
             origin: 'AST',
             astPath,
             emittedBy: { userId: req.userId != null ? String(req.userId) : null, agentId: AgentRoleService.actorAgentId(req) ?? null, projectId: req.projectId ?? null },
+            // The logged event's id (e.g. a channel message id, so clients can match a live copy to the stored one)
+            eventId: eventSeq,
             ...(target ? { __scope: target } : {}),
           }
         }

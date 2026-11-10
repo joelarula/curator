@@ -131,12 +131,21 @@ test('channels: members post and read messages; the sender comes from the sessio
 
     // Posts are never pushed to every connected client (the host stream has no per-user filter)
     const broadcast: string[] = [];
-    (env.processor as any).onEvent = (type: string) => broadcast.push(type);
+    const delivered: any[] = [];
+    (env.processor as any).onEvent = (type: string, payload: any, meta?: any) => {
+      broadcast.push(type);
+      if (type === 'conversation:message_delivered') delivered.push({ target: meta?.target, id: payload.id, text: payload.text });
+    };
     await run(dan, 'channel_post', { conversationId: env.conversationId, text: ' Hello all ' });
     assert.ok(!broadcast.includes('conversation:message'));
+    // The channel workflow delivers it live to the owner and each member, addressed to each of them
+    await env.processor.stepUntil({ conversationId: env.conversationId });
+    assert.deepEqual(delivered.map((d) => d.target).sort(), [`user:${dan.id}`, `user:${env.userId}`].sort());
+    assert.ok(delivered.every((d) => d.text === 'Hello all' && typeof d.id === 'number'));
     await run(dan, 'channel_post', { conversationId: env.conversationId, text: 'Second' });
     const all: any = (await run(dan, 'channel_messages', { conversationId: env.conversationId })).result;
     assert.deepEqual(all.messages.map((m: any) => [m.text, m.sender.id, m.sender.name]), [['Hello all', dan.id, 'dan'], ['Second', dan.id, 'dan']]);
+    assert.equal(delivered[0].id, all.messages[0].id);
     const after: any = (await run(dan, 'channel_messages', { conversationId: env.conversationId, afterId: all.messages[0].id })).result;
     assert.deepEqual(after.messages.map((m: any) => m.text), ['Second']);
 

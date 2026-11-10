@@ -399,7 +399,19 @@ if (isServerEntry && process.env.NODE_ENV !== 'test' && process.env.GALLERY_NO_A
         console.log(`[Gallery Server] Listening on http://localhost:${port}`);
         console.log(`[Gallery Server] GraphQL API:  http://localhost:${port}/graphql`);
         console.log(`[Gallery Server] MCP Endpoint: http://localhost:${port}/mcp`);
-        host.events.attachWebSocketServer(server);
+        // Event-stream connections carry the signed-in user (bearer token or `token` query parameter): addressed
+        // events (channel deliveries, invitations) reach only that user
+        host.events.attachWebSocketServer(server, undefined, {
+          identify: async (req: any) => {
+            const header = req?.headers?.authorization;
+            const token = header?.startsWith('Bearer ')
+              ? header.slice(7)
+              : new URL(req?.url ?? '/', 'http://localhost').searchParams.get('token');
+            if (!token) return null;
+            const user = await getUserFromToken(token, (host as any).definitionsPrisma ?? host.prisma, host);
+            return user?.id ? { userId: String(user.id) } : null;
+          },
+        });
       });
 
       const shutdown = async () => {

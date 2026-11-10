@@ -134,8 +134,9 @@ export async function createCuratorHost(config: CuratorHostConfig): Promise<Cura
     approvalTtlMs: config.approvalTtlMs,
     engine: registeredEngine,
     toolContextExtras,
-    onEvent: (type: string, payload: any) => {
-      events.broadcast(type, payload);
+    onEvent: (type: string, payload: any, meta?: { target?: string | null }) => {
+      // An addressed event goes only to its participant (CuratorHostEvents delivers it to matching sockets)
+      events.broadcast(type, payload, meta?.target ? { target: meta.target } : undefined);
       if (type === 'request_done') {
         events.broadcast('database_change', {
           tables: ['requests', 'responses', 'agents'],

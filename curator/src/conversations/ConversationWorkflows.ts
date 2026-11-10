@@ -5,6 +5,7 @@ import {
   defineModule,
   defineStates,
   defineSubroutine,
+  emitEvents,
   ifElse,
   seq,
   setState,
@@ -156,6 +157,10 @@ export const ConversationEvents = {
   Invited: defineEvent<{ conversationId?: number | string; inviteeType?: string; inviteeId?: string }>('conversation:invited'),
   /** The workflow refused an invite request. */
   InviteDenied: defineEvent<{ reason?: string | null }>('conversation:invite_denied'),
+  /** A channel message (posted with channel_post or emitted by a workflow); `sender` is set by the poster. */
+  Message: defineEvent<{ text: string; sender?: { type: string; id: string; name?: string | null } }>('conversation:message'),
+  /** A channel message delivered to one participant (addressed event): live updates for members. */
+  MessageDelivered: defineEvent<{ conversationId?: number; id?: number; text: string; sender?: any }>('conversation:message_delivered'),
 } as const;
 
 const state = createContextProxy<Record<string, any>>('$state');
@@ -535,6 +540,23 @@ export const onInviteRequestedSub = defineSubroutine(
   { params: { inviteReq: { type: 'object' } } }
 );
 
+/**
+ * Live delivery: each channel message goes to the owner and every member, addressed to their participant id, so only
+ * they receive it (`conversation:message_delivered`, with the message id for matching the stored message).
+ */
+export const onChannelMessageSub = defineSubroutine(
+  'on_channel_message',
+  [
+    tool(ConversationToolName.MEMBERS, {}, 'channelMembers'),
+    emitEvents(
+      "($context.channelMembers.participants || []).map((p) => ({ name: 'conversation:message_delivered', " +
+        'payload: { conversationId: $context.channelMembers.conversationId, id: $context.eventId, ' +
+        'text: $params.channelMsg.text, sender: $params.channelMsg.sender }, targetAgentId: p }))'
+    ),
+  ],
+  { params: { channelMsg: { type: 'object' } } }
+);
+
 /** Leaving is always allowed: the sender's membership ends. */
 export const onLeaveRequestedSub = defineSubroutine(
   'on_leave_requested',
@@ -551,6 +573,7 @@ export function buildChannelWorkflowModule(): CuratorModuleNode {
       system({ on: ConversationEvents.JoinRequested, run: onJoinRequestedSub, as: 'joinReq' });
       system({ on: ConversationEvents.LeaveRequested, run: onLeaveRequestedSub, as: 'leaveReq' });
       system({ on: ConversationEvents.InviteRequested, run: onInviteRequestedSub, as: 'inviteReq' });
+      system({ on: ConversationEvents.Message, run: onChannelMessageSub, as: 'channelMsg' });
       return undefined;
     }
   );

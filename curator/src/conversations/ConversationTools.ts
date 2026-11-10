@@ -257,6 +257,7 @@ export const ConversationToolName = {
   LEAVE: 'conversation_leave',
   INVITE: 'conversation_invite',
   MEMBERSHIP: 'conversation_membership',
+  MEMBERS: 'conversation_members',
   VOTE: 'conversation_vote',
   SYNC: 'conversation_sync',
   RESOLVE_ROLE: 'conversation_resolve_role',
@@ -447,6 +448,27 @@ export function createConversationTools(router: ConversationRouter): CuratorTool
     },
   });
 
+  /** Workflow step: the conversation's owner and current members as participant ids (for addressed deliveries). */
+  const membersTool = defineTool<{ conversationId?: string }>({
+    name: ConversationToolName.MEMBERS,
+    description: "The conversation's owner and current members as participant ids (user:<id> or agent ids), for addressed deliveries. A workflow step.",
+    accessLevel: CuratorAccessLevel.READ_ONLY,
+    parameters: { type: 'object', properties: { conversationId: { type: 'string' } } },
+    execute: async (args, ctx) => {
+      const prisma = (ctx as any).prisma;
+      const convId = args.conversationId || String(ctx.conversationId || '');
+      const scope = (ctx as any).context?.emittedBy?.projectId ?? ctx.projectId;
+      const row = await findConversationRow(prisma, convId, scope != null ? String(scope) : null);
+      if (!row) return { conversationId: null, participants: [] };
+      const rows: any[] = prisma.conversationMember
+        ? await prisma.conversationMember.findMany({ where: { conversationId: row.id, existent: true }, orderBy: { id: 'asc' } })
+        : [];
+      const ids = new Set<string>([`user:${row.userId}`]);
+      for (const m of rows) ids.add(participantId({ memberType: m.memberType, memberId: m.memberId }));
+      return { conversationId: row.id, participants: [...ids] };
+    },
+  });
+
   const voteTool = defineTool<{
     conversationId?: string;
     agentId: string;
@@ -571,6 +593,7 @@ export function createConversationTools(router: ConversationRouter): CuratorTool
     leaveTool,
     inviteTool,
     membershipTool,
+    membersTool,
     voteTool,
     syncTool,
     resolveRoleTool,

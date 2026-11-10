@@ -441,10 +441,26 @@ The emit step passes every event to the host's `onEvent` before addressing it, a
 event to every WebSocket client (the only filter is a conversation the client picks itself; sockets carry no signed-in
 user). So addressed events (e.g. `conversation:invited`, `conversation:join_denied`) and, until this fix, channel
 messages reach all connected clients. Fixed now: channel requests and posts are not broadcast (`broadcast: false`);
-members read messages with `channel_messages`. Open: live delivery needs sockets bound to the signed-in user and
-addressed events delivered only to their participant (and not broadcast before addressing).
+members read messages with `channel_messages`. Fixed next: sockets bound to the signed-in user and addressed events
+delivered only to their participant (see live delivery).
 
-Not done (next): live delivery (needs the transport fix above), CLI join / leave / invite / post commands.
+### Channels: live delivery over the event stream (done 2026-11-11)
+
+- Engine: the emit steps resolve the address before publishing and pass it on (`ctx.emit(type, payload, { target })`,
+  `onEvent(type, payload, meta)`); handlers also get `context.eventId` (the logged event's id).
+- Host: `CuratorHostEvents.broadcast(type, payload, { target })` delivers an addressed event only to sockets of that
+  participant; `attachWebSocketServer(server, path, { identify })` binds a socket to the signed-in user (anonymous
+  sockets never receive addressed events; unaddressed events are unchanged). `createCuratorServer({ wsIdentify })` and
+  gallery (bearer token or `token` query parameter) pass the host's own sign-in. In-process forwarders of host events
+  must honour `event.target` too.
+- Workflow: the default channel workflow delivers each `conversation:message` to the owner and every member
+  (`conversation_members` step, `conversation:message_delivered` addressed to each participant, with the message id).
+- Console: `useChannelStream({ subscribe })` adds live deliveries for the open channel (deduplicated by id) and has no
+  timer with a live feed: it fetches once on open and on every (re)connect (`connected`). Polling only without a feed.
+  Adapters must send the user's token on the WebSocket (keeris already sends `?token=`); gallery's console has no
+  live-feed adapter yet, so it polls.
+
+Not done (next): CLI join / leave / invite / post commands.
 
 ## Cross-cutting
 

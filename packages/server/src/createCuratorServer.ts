@@ -11,6 +11,11 @@ export interface CuratorServerOptions {
   wsPath?: string;
   cors?: boolean;
   routerOptions?: CuratorRouterOptions;
+  /**
+   * Binds each event-stream connection to the signed-in user (from the request: bearer token, `token` query
+   * parameter, session). Addressed events (e.g. channel deliveries, invitations) reach only that participant.
+   */
+  wsIdentify?: (req: any) => { userId?: string | null; agentId?: string | null } | null | undefined | Promise<{ userId?: string | null; agentId?: string | null } | null | undefined>;
   autoStartProcessor?: boolean;
   /** Request processor poll interval; default: the host's `intervalMs`. */
   pollingIntervalMs?: number;
@@ -89,7 +94,7 @@ export async function createCuratorServer(
 
   // 7. Create HTTP Server & attach real-time WebSocket events
   const server = http.createServer(app);
-  host.events.attachWebSocketServer(server, wsPath);
+  host.events.attachWebSocketServer(server, wsPath, { identify: options.wsIdentify });
 
   let isStopping = false;
   const stop = async () => {
