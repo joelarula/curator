@@ -380,6 +380,13 @@ in memory, mostly agents); for channels it persists a member row, and `conversat
 (per-member pin/archive then move to the member row). Open: who may join (roles, invitations), how agents join, the
 shared message stream in the console.
 
+Decided (2026-11-10): joining and leaving are controlled by the AST. Workflows own membership, as the conversation
+workflows already do (`on_participant_join` / `on_participant_leave` subroutines react to `ParticipantJoined` /
+`ParticipantLeft` and run `conversation_join` / `conversation_leave`). People and the console only send a request
+event; the workflow decides (role checks, invitations, seats, conversational role) and the join step records the
+member. No free-standing join button or tool path outside a workflow. Name the AST construct apart from `Curator_Join`
+(the Parallel fan-in).
+
 ## Cross-cutting
 
 - Rebuild `packages/host` / `curator` before testing miniapps (blueprint, gallery, keeris).
