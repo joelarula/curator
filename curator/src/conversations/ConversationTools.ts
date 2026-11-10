@@ -8,6 +8,7 @@ import type {
   VoteChoice,
 } from './types.js';
 import type { ConversationRouter } from './ConversationRouter.js';
+import { isWorkflowCall, memberOf, participantId, findConversationRow, addMember, removeMember } from './ConversationMembers.js';
 
 // ============================================================================
 // 1. PURE DETERMINISTIC CONVERSATION REDUCERS & EVALUATORS
@@ -284,14 +285,16 @@ export function createConversationTools(router: ConversationRouter): CuratorTool
 
   const joinTool = defineTool<{
     conversationId?: string;
-    agentId: string;
+    agentId?: string;
     nodeId?: string;
     conversationalRole?: string;
     capabilities?: string[];
     leaseDurationMs?: number;
   }>({
     name: ConversationToolName.JOIN,
-    description: 'Deterministically joins an agent to a conversation with role binding, capability leases, and catchup snapshot.',
+    description:
+      'Joins a member to a conversation (a channel) with role binding, capability leases and catchup snapshot. A workflow step: ' +
+      'without agentId it joins whoever sent the event being handled. Stored conversations record the member.',
     accessLevel: CuratorAccessLevel.SAFE_WRITE,
     parameters: {
       type: 'object',
@@ -303,15 +306,23 @@ export function createConversationTools(router: ConversationRouter): CuratorTool
         capabilities: { type: 'array', items: { type: 'string' } },
         leaseDurationMs: { type: 'number' },
       },
-      required: ['agentId'],
     },
     execute: async (args, ctx) => {
+      // Membership is the workflow's decision: people send conversation:join_requested instead
+      if (!isWorkflowCall(ctx)) throw new Error('Joining goes through the conversation workflow: send conversation:join_requested');
+      const member = memberOf(ctx, args.agentId);
+      if (!member) throw new Error('conversation_join needs an agentId or an event sender to join');
       const convId = args.conversationId || String(ctx.conversationId || 'default');
-      return router.joinConversation(
+      const scope = (ctx as any).context?.emittedBy?.projectId ?? ctx.projectId;
+      const row = await findConversationRow((ctx as any).prisma, convId, scope != null ? String(scope) : null);
+      if (row && (ctx as any).prisma?.conversationMember) {
+        await addMember((ctx as any).prisma, row.id, member, args.conversationalRole ?? null);
+      }
+      const joined: any = await router.joinConversation(
         convId,
         {
           nodeId: args.nodeId || router.localNodeId,
-          agentId: args.agentId,
+          agentId: participantId(member),
           conversationalRole: args.conversationalRole,
           role: args.conversationalRole,
           projectId: ctx.projectId !== undefined ? String(ctx.projectId) : router.localProjectId,
@@ -322,18 +333,21 @@ export function createConversationTools(router: ConversationRouter): CuratorTool
           leaseDurationMs: args.leaseDurationMs,
         }
       );
+      return { ...joined, member: { ...member, recorded: !!row } };
     },
   });
 
   const leaveTool = defineTool<{
     conversationId?: string;
-    agentId: string;
+    agentId?: string;
     reason?: string;
     concede?: boolean;
     graceful?: boolean;
   }>({
     name: ConversationToolName.LEAVE,
-    description: 'Deterministically removes an agent from a conversation, releasing the floor, revoking leases, and recalibrating quorum.',
+    description:
+      'Removes a member from a conversation, releasing the floor, revoking leases and recalibrating quorum. A workflow step: ' +
+      'without agentId it removes whoever sent the event being handled. Stored conversations end the membership.',
     accessLevel: CuratorAccessLevel.SAFE_WRITE,
     parameters: {
       type: 'object',
@@ -344,15 +358,21 @@ export function createConversationTools(router: ConversationRouter): CuratorTool
         concede: { type: 'boolean' },
         graceful: { type: 'boolean' },
       },
-      required: ['agentId'],
     },
     execute: async (args, ctx) => {
+      if (!isWorkflowCall(ctx)) throw new Error('Leaving goes through the conversation workflow: send conversation:leave_requested');
+      const member = memberOf(ctx, args.agentId);
+      if (!member) throw new Error('conversation_leave needs an agentId or an event sender to remove');
       const convId = args.conversationId || String(ctx.conversationId || 'default');
-      return router.leaveConversation(convId, args.agentId, {
+      const scope = (ctx as any).context?.emittedBy?.projectId ?? ctx.projectId;
+      const row = await findConversationRow((ctx as any).prisma, convId, scope != null ? String(scope) : null);
+      const wasMember = row && (ctx as any).prisma?.conversationMember ? await removeMember((ctx as any).prisma, row.id, member) : false;
+      const left: any = await router.leaveConversation(convId, participantId(member), {
         reason: args.reason,
         concede: args.concede,
         graceful: args.graceful,
       });
+      return { ...left, member: { ...member, recorded: !!row, wasMember } };
     },
   });
 

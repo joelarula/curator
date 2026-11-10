@@ -141,6 +141,15 @@ export const ConversationEvents = {
     text: string;
     targetId?: string;
   }>('conversation:ambient_spoken'),
+
+  /**
+   * Channels: a person or agent asks to join / leave the conversation. Sent by clients; the conversation's workflow
+   * decides (the sender is `context.emittedBy`, never a payload field).
+   */
+  JoinRequested: defineEvent<{ conversationId?: string; note?: string }>('conversation:join_requested'),
+  LeaveRequested: defineEvent<{ conversationId?: string; reason?: string }>('conversation:leave_requested'),
+  /** The workflow refused a join request. */
+  JoinDenied: defineEvent<{ reason?: string | null }>('conversation:join_denied'),
 } as const;
 
 const state = createContextProxy<Record<string, any>>('$state');
@@ -459,11 +468,62 @@ export const qaWorkflowAst: CuratorModuleNode = defineModule(
 
 export const conversationSystemsAst: CuratorModuleNode = buildConversationSystemsModule();
 
+// ============================================================================
+// CHANNELS: membership decided by the workflow
+// ============================================================================
+
+const leaveReq = ConversationEvents.LeaveRequested.payload('leaveReq');
+
+/**
+ * Default join policy: the conversation must be an open channel (`$state.channel.open`, set by the workflow that
+ * runs it) and the sender must be allowed `channels.join` (role `channels:join`); then the sender joins as `member`.
+ * Otherwise `conversation:join_denied`. Apps replace this with their own policy (seats, invitations, approval).
+ */
+export const onJoinRequestedSub = defineSubroutine(
+  'on_join_requested',
+  [
+    tool('access_check', { action: 'channels.join' }, 'joinAccess'),
+    ifElse(
+      '$state.channel.open == true and $context.joinAccess.allowed == true',
+      tool(ConversationToolName.JOIN, { conversationalRole: 'member' }, 'joinResult'),
+      ConversationEvents.JoinDenied.emit({
+        // Refused by role: the access reason; allowed but the channel is closed: no reason, so the default says so.
+        // (Expressions add safe navigation themselves; the word n-o-t in a string literal is rewritten, so avoid it.)
+        reason: `$context.joinAccess.reason || 'This conversation is closed to joining (no open channel)'`,
+      })
+    ),
+  ],
+  { params: { joinReq: { type: 'object' } } }
+);
+
+/** Leaving is always allowed: the sender's membership ends. */
+export const onLeaveRequestedSub = defineSubroutine(
+  'on_leave_requested',
+  [tool(ConversationToolName.LEAVE, { reason: `${leaveReq.reason} || 'left'` }, 'leaveResult')],
+  { params: { leaveReq: { type: 'object' } } }
+);
+
+/** Default channel workflow: join and leave requests handled by the policy above. */
+export function buildChannelWorkflowModule(): CuratorModuleNode {
+  return defineModule(
+    'conversation_channel_workflow',
+    { description: 'Channels: join / leave requests decided by the workflow (open channel + channels:join role)' },
+    () => {
+      system({ on: ConversationEvents.JoinRequested, run: onJoinRequestedSub, as: 'joinReq' });
+      system({ on: ConversationEvents.LeaveRequested, run: onLeaveRequestedSub, as: 'leaveReq' });
+      return undefined;
+    }
+  );
+}
+
+export const channelWorkflowAst: CuratorModuleNode = buildChannelWorkflowModule();
+
 export const CONVERSATION_WORKFLOW_ASTS: Record<string, CuratorModuleNode> = {
   conversation_dialog_workflow: dialogWorkflowAst,
   conversation_forum_workflow: forumWorkflowAst,
   conversation_qa_workflow: qaWorkflowAst,
   conversation_systems: conversationSystemsAst,
+  conversation_channel_workflow: channelWorkflowAst,
 };
 
 /**

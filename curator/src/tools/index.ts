@@ -50,6 +50,7 @@ import {
   conversation_archive,
   conversation_delete,
 } from './conversations.js';
+import { accessCheckTools, access_check } from './accessCheck.js';
 import type { CuratorTool } from './CuratorTool.js';
 
 export {
@@ -110,6 +111,8 @@ export {
   conversation_pin,
   conversation_archive,
   conversation_delete,
+  // Workflow policy check
+  access_check,
 };
 
 export const toolRegistry: Record<string, CuratorTool> = {
@@ -127,4 +130,5 @@ export const toolRegistry: Record<string, CuratorTool> = {
   ...(pluginConfigTools as Record<string, CuratorTool>),
   ...(promptTools as Record<string, CuratorTool>),
   ...(conversationOrganisationTools as Record<string, CuratorTool>),
+  ...(accessCheckTools as Record<string, CuratorTool>),
 };

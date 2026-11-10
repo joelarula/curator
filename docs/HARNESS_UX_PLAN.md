@@ -372,20 +372,35 @@ shims, surface formatters. Not chosen now: conversation organisation, channels.
   conversation id for later turns.
 - Blueprint: `listChats` shows titles, leaves archived chats out and puts pinned ones first.
 
-### Channels (next, not started)
+### Channels: backend (done 2026-11-10)
 
-A channel is a conversation with many members, like a poker table. Joining (`conversation_join` or an equivalent
-construct) is what makes a conversation a channel. Today a join is a live session only (`ConversationSessionManager`,
-in memory, mostly agents); for channels it persists a member row, and `conversationAccess` grows to "owner or member"
-(per-member pin/archive then move to the member row). Open: who may join (roles, invitations), how agents join, the
-shared message stream in the console.
+A channel is a conversation with members, like a poker table. Joining and leaving are controlled by the AST: the
+conversation's workflow decides; people and the console only send request events.
 
-Decided (2026-11-10): joining and leaving are controlled by the AST. Workflows own membership, as the conversation
-workflows already do (`on_participant_join` / `on_participant_leave` subroutines react to `ParticipantJoined` /
-`ParticipantLeft` and run `conversation_join` / `conversation_leave`). People and the console only send a request
-event; the workflow decides (role checks, invitations, seats, conversational role) and the join step records the
-member. No free-standing join button or tool path outside a workflow. Name the AST construct apart from `Curator_Join`
-(the Parallel fan-in).
+- Schema (all four): `ConversationMember` (`memberType` user | agent, `memberId`, `conversationalRole`, per-member
+  `pinnedAt` / `archivedAt`, `joinedAt`, `leftAt`, `existent`; unique `[conversationId, memberType, memberId,
+  existent]`). Leaving sets `leftAt` and `existent` NULL (history kept; rejoining adds a row).
+- Engine: event handlers get `context.emittedBy` (`userId`, `agentId`, `projectId` of the event's sender), set by the
+  engine, never from the payload. Handlers still run as the script's owner.
+- `conversation_join` / `conversation_leave` (workflow steps): refuse direct runs (console, CLI, GraphQL, MCP:
+  `literalArgs`); without `agentId` they act on the event's sender; for a stored conversation in the sender's project
+  they add / end the member row; users join live sessions as `user:<id>`. `agentId` is optional now.
+- `access_check` (core tool, read-only): whether the event's sender (else the caller) holds a `role` or may perform an
+  `action`; returns `{ allowed, reason }` for workflow conditions. Action `channels.join` (role `channels:join`, seeded).
+- Events: `conversation:join_requested`, `conversation:leave_requested`, `conversation:join_denied`.
+- Default channel workflow `conversation_channel_workflow` (registered by the conversation plugin): on a join request,
+  `access_check(channels.join)` and the conversation must be an open channel (`$state.channel.open`, set by the
+  workflow that runs it); then the sender joins as `member`, else `conversation:join_denied` with the reason. On a
+  leave request, the sender's membership ends. Apps replace the policy with their own workflow (seats, invitations,
+  approval).
+- Organisation: `conversationAccess` = owned conversations or channels the user is a member of; the list shows
+  `owned` and `memberCount`; a member pins / archives the channel for themselves (member row); renaming and deleting
+  stay with the owner.
+- Found: the expression translator rewrites the word "not" inside string literals (and adds safe navigation itself,
+  so `?.` must not be written). Worth fixing separately.
+
+Not done (next): the console channel view (channels in the list with Join / Leave buttons sending the request
+events, the shared message stream), CLI join / leave commands, invitations.
 
 ## Cross-cutting
 

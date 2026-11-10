@@ -349,6 +349,26 @@ CREATE TABLE `Conversation` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
+CREATE TABLE `ConversationMember` (
+    `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `conversationId` INTEGER NOT NULL,
+    `memberType` VARCHAR(16) NOT NULL,
+    `memberId` VARCHAR(191) NOT NULL,
+    `conversationalRole` VARCHAR(100) NULL,
+    `pinnedAt` DATETIME(3) NULL,
+    `archivedAt` DATETIME(3) NULL,
+    `joinedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `leftAt` DATETIME(3) NULL,
+    `existent` BOOLEAN NULL DEFAULT true,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    INDEX `ConversationMember_memberType_memberId_existent_idx`(`memberType`, `memberId`, `existent`),
+    UNIQUE INDEX `ConversationMember_conversationId_memberType_memberId_existe_key`(`conversationId`, `memberType`, `memberId`, `existent`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- CreateTable
 CREATE TABLE `ResourceTree` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `treeName` VARCHAR(191) NOT NULL,
@@ -736,6 +756,9 @@ ALTER TABLE `Response` ADD CONSTRAINT `Response_projectId_fkey` FOREIGN KEY (`pr
 
 -- AddForeignKey
 ALTER TABLE `Conversation` ADD CONSTRAINT `Conversation_projectId_fkey` FOREIGN KEY (`projectId`) REFERENCES `Project`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `ConversationMember` ADD CONSTRAINT `ConversationMember_conversationId_fkey` FOREIGN KEY (`conversationId`) REFERENCES `Conversation`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `ResourceTree` ADD CONSTRAINT `ResourceTree_resourceId_fkey` FOREIGN KEY (`resourceId`) REFERENCES `Resource`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;

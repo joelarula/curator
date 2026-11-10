@@ -409,6 +409,7 @@ model Conversation {
   requests   Request[]
   responses  Response[]
   resources  Resource[] @relation("ConversationResources")
+  members    ConversationMember[]
   metadata   Json?
   /// Organisation (conversation_rename / _pin / _archive); a null title shows the first message
   title      String?
@@ -421,6 +422,29 @@ model Conversation {
   
   @@index([existent])
   @@index([projectId, userId, existent])
+}
+
+/// Channel membership: who joined a conversation (a user or an agent), recorded by the join/leave steps of the
+/// conversation's workflow. Leaving sets `leftAt` and `existent` NULL (outside the unique key), so rejoining adds a row.
+model ConversationMember {
+  id                 Int          @id @default(autoincrement())
+  conversationId     Int
+  conversation       Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  /// user | agent
+  memberType         String
+  memberId           String
+  conversationalRole String?
+  /// Per-member organisation (the owner's lives on Conversation)
+  pinnedAt           DateTime?
+  archivedAt         DateTime?
+  joinedAt           DateTime     @default(now())
+  leftAt             DateTime?
+  existent           Boolean?     @default(true)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  @@unique([conversationId, memberType, memberId, existent])
+  @@index([memberType, memberId, existent])
 }
 
 model ResourceTree {

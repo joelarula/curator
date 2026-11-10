@@ -301,6 +301,10 @@ export async function snapshotDb(env: TestEnv) {
           parentId: r.parentId == null ? null : reqIds.get(r.parentId) ?? '<req:?>',
           createdBy: r.createdBy == null ? null : reqIds.get(r.createdBy) ?? '<req:?>',
           notifyId: r.notifyId == null ? null : reqIds.get(r.notifyId) ?? '<req:?>',
+          // The event sender's ids differ per run (like userId); keep only whether one was recorded
+          ...(r.context && typeof r.context === 'object' && r.context.emittedBy
+            ? { context: { ...r.context, emittedBy: '<sender>' } }
+            : {}),
         },
         ['createdAt', 'updatedAt', 'lockedAt', 'lockedBy', 'scheduledAt', 'userId', 'conversationId', 'scriptId', 'scriptVersion', 'eventCursor'],
       ),

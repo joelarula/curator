@@ -292,6 +292,23 @@ CREATE TABLE "Conversation" (
 );
 
 -- CreateTable
+CREATE TABLE "ConversationMember" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "conversationId" INTEGER NOT NULL,
+    "memberType" TEXT NOT NULL,
+    "memberId" TEXT NOT NULL,
+    "conversationalRole" TEXT,
+    "pinnedAt" DATETIME,
+    "archivedAt" DATETIME,
+    "joinedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "leftAt" DATETIME,
+    "existent" BOOLEAN DEFAULT true,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "ConversationMember_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "Conversation" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+-- CreateTable
 CREATE TABLE "ResourceTree" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "treeName" TEXT NOT NULL,
@@ -700,6 +717,12 @@ CREATE INDEX "Conversation_existent_idx" ON "Conversation"("existent");
 
 -- CreateIndex
 CREATE INDEX "Conversation_projectId_userId_existent_idx" ON "Conversation"("projectId", "userId", "existent");
+
+-- CreateIndex
+CREATE INDEX "ConversationMember_memberType_memberId_existent_idx" ON "ConversationMember"("memberType", "memberId", "existent");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ConversationMember_conversationId_memberType_memberId_existent_key" ON "ConversationMember"("conversationId", "memberType", "memberId", "existent");
 
 -- CreateIndex
 CREATE INDEX "ResourceTree_treeName_treeStart_treeEnd_existent_idx" ON "ResourceTree"("treeName", "treeStart", "treeEnd", "existent");

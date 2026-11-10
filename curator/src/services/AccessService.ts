@@ -18,6 +18,8 @@ export const CURATOR_ACTION_ROLES: Readonly<Record<string, string>> = {
   'db.import': 'curator:db:import',
   /** Read other users' requests and responses in the project (request inspectors); otherwise only one's own. */
   'requests.read_all': 'curator:requests:read',
+  /** Join channels of the project (checked by the default channel workflow, `access_check`). */
+  'channels.join': 'channels:join',
 };
 
 export interface AccessPolicy {

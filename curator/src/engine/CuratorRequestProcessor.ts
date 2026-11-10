@@ -1788,7 +1788,16 @@ export class CuratorRequestProcessor {
           ast: astData,
           priority: priority ?? 0,
           // An addressed event spawns a private handler: it cannot read or write other flows' state.
-          context: { params: { [alias]: payload }, input: payload, eventName, origin: 'AST', astPath, ...(target ? { __scope: target } : {}) }
+          // `emittedBy`: who sent the event (set here, never from the payload), e.g. the person asking to join a channel
+          context: {
+            params: { [alias]: payload },
+            input: payload,
+            eventName,
+            origin: 'AST',
+            astPath,
+            emittedBy: { userId: req.userId != null ? String(req.userId) : null, agentId: AgentRoleService.actorAgentId(req) ?? null, projectId: req.projectId ?? null },
+            ...(target ? { __scope: target } : {}),
+          }
         }
       });
       spawned.push(child.id);
