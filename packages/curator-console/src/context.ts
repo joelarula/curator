@@ -6,6 +6,7 @@ import type { InterruptsHandle } from './composables/useInterrupts';
 import type { HarnessMessageRef, MessageActionsHandle } from './composables/useMessageActions';
 import type { SurfacesHandle } from './composables/useSurfaces';
 import type { CommandCatalogHandle } from './composables/useCommandCatalog';
+import type { AttachmentsHandle } from './composables/useAttachments';
 import type {
   HarnessLayoutMode,
   HarnessResourceViewMode,
@@ -110,6 +111,8 @@ export interface CuratorHarnessContext {
   runMessageAction: (tool: any) => Promise<void>;
   /** Commands, tools, choices and agents for `/` and `@` (and the context menu). */
   commandCatalog: CommandCatalogHandle;
+  /** `#` attachments: resource suggestions and the chips sent with the next turn. */
+  attachments: AttachmentsHandle;
   /** Tool waiting for its required arguments (composer form), and the form's values. */
   toolFormTarget: Ref<any | null>;
   toolFormArgs: Ref<Record<string, unknown>>;

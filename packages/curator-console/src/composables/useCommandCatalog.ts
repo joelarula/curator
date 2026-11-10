@@ -27,6 +27,8 @@ export interface CommandCatalogSources {
   choices: Ref<Array<{ label: string; value: string; action?: string }>>;
   /** Host actions the caller may perform; commands that need another one are left out (allow-list). */
   allowedActions?: Ref<string[]>;
+  /** `#` suggestions: resources found for the current query (`source: 'resource'`). */
+  resources?: Ref<CommandDescriptor[]>;
 }
 
 /** Whether a harness verb may be offered: no action needed, or its action is allowed. */
@@ -65,6 +67,7 @@ export function useCommandCatalog(sources: CommandCatalogSources) {
       description: a.description,
       icon: a.icon || 'mdi-robot-outline',
     })),
+    ...(sources.resources?.value ?? []),
   ]);
 
   /** The trigger at the cursor and its suggestions (empty when nothing is being typed after `/` or `@`). */

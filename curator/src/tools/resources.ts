@@ -615,10 +615,67 @@ export const delete_relation = defineTool({
   },
 });
 
+/** Characters of each attached resource's text given to the model. */
+const ATTACH_EXCERPT_CHARS = 4000;
+const NEWLINE = String.fromCharCode(10);
+const PARAGRAPH = NEWLINE + NEWLINE;
+
+export const attach_resource = defineTool({
+  name: 'attach_resource',
+  description: 'Attaches a readable resource (by URI or ID) to the current conversation and returns its title and a text excerpt, for use as context in the next turn (composer #).',
+  accessLevel: 'safe_write',
+  requiredRole: 'agent:reader',
+  parameters: {
+    type: 'object',
+    properties: {
+      uri: { type: 'string', description: 'Resource URI.' },
+      id: { type: 'number', description: 'Resource numeric ID (alternative to URI).' },
+    },
+  },
+  ui: { progressLabel: 'Attach resource' },
+  execute: async (args: Record<string, unknown>, ctx: Ctx) => {
+    const prisma = requirePrisma(ctx);
+    const actor = actorFromToolContext(ctx);
+    const uri = optString(args, 'uri');
+    const id = args.id !== undefined && !Number.isNaN(Number(args.id)) ? Number(args.id) : undefined;
+    if (!uri && id === undefined) throw new Error("Must provide either 'uri' or 'id'.");
+
+    const readableWhere = await Guard.readableWhere(prisma, actor);
+    const resource = await prisma.resource.findFirst({
+      where: { AND: [id !== undefined ? { id } : { uri }, { existent: true }, readableWhere] },
+      include: { texts: { where: { existent: true } } },
+    });
+    if (!resource) return { attached: false, message: `Resource '${uri ?? id}' not found in accessible scope.` };
+
+    // Link it to the conversation the tool runs in (only a conversation in the actor's readable scope)
+    let linked = false;
+    const conversationId = ctx.conversationId != null ? Number(ctx.conversationId) : NaN;
+    if (Number.isFinite(conversationId)) {
+      const conversation = await prisma.conversation.findFirst({ where: { AND: [{ id: conversationId }, readableWhere] }, select: { id: true } });
+      if (conversation) {
+        await prisma.conversation.update({ where: { id: conversation.id }, data: { resources: { connect: { id: resource.id } } } });
+        linked = true;
+      }
+    }
+
+    const text = resource.texts.map((t: any) => String(t.content ?? '')).filter(Boolean).join(PARAGRAPH);
+    const excerpt = text.length > ATTACH_EXCERPT_CHARS
+      ? `${text.slice(0, ATTACH_EXCERPT_CHARS)}${NEWLINE}… [truncated ${text.length - ATTACH_EXCERPT_CHARS} chars]`
+      : text;
+    return {
+      attached: true,
+      linked,
+      resource: { id: resource.id, uri: resource.uri, title: resource.title, description: resource.description },
+      excerpt: excerpt || resource.description || '',
+    };
+  },
+});
+
 export const resourceTools = {
   search_resources,
   upsert_resource,
   get_resource,
+  attach_resource,
   delete_resource,
   upsert_text,
   delete_text,

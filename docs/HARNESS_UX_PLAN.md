@@ -327,6 +327,13 @@ shims, surface formatters. Not chosen now: conversation organisation, channels.
   `{ use: 'surface', args: { component, title } }`), `OutputFormats.surfaceForToolResult`. A direct tool run
   (`runToolRequest`, so `host.runTool`, GraphQL `executeTool`, MCP) whose object result has no `uiSurface` gets one
   from the rules; other results are unchanged.
+- `#` attachments (done): composer trigger `#` (word start; `ComposerTrigger.trigger` `'#'`, `CommandDescriptor.source`
+  `'resource'`, `matchCommands` offers only resource entries for it). Console `useAttachments`: suggestions from
+  `search_resources` (debounced, latest query wins), picked resources become chips above the prompt (not inline
+  text); on send each chip runs the new core tool `attach_resource` (readable scope only; links it to the
+  conversation through `ConversationResources`; returns title and a 4000-character text excerpt), and the prompt gets an
+  "Attached:" block (`promptWithAttachments`); the speech payload carries `resources: [{ uri, title }]`. Offered only
+  when the user may run both tools. Not done: `#` in the CLI (no resource search in the shell yet).
 
 ## Cross-cutting
 

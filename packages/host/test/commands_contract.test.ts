@@ -68,3 +68,14 @@ test('CLI: catalog, tab completion and @agent routing', async () => {
   }
   assert.match(lines.join('\n'), /Unknown agent @nobody/);
 });
+
+test('composer: # opens a resource trigger at a word start and suggests only resource entries', () => {
+  assert.deepEqual(findComposerTrigger('read #doc', 9), { trigger: '#', query: 'doc', start: 5, end: 9 });
+  assert.equal(findComposerTrigger('issue#12', 8), null);
+  const catalog = [
+    { name: 'Doc A', source: 'resource' as const },
+    { name: 'doc_tool', source: 'tool' as const },
+  ];
+  assert.deepEqual(matchCommands(catalog, '#', 'doc').map((e) => e.name), ['Doc A']);
+  assert.deepEqual(matchCommands(catalog, '/', 'doc').map((e) => e.name), ['doc_tool']);
+});

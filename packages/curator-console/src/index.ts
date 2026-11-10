@@ -48,4 +48,5 @@ export {
 } from './composables/usePluginConfig';
 export { useSurfaces, type SurfacesHandle, type SurfaceEntry, type ShowSurfaceOptions } from './composables/useSurfaces';
 export { useCommandCatalog, HARNESS_COMMANDS, HARNESS_COMMAND_ACTIONS, isCommandAllowed, type CommandCatalogHandle, type CommandCatalogSources } from './composables/useCommandCatalog';
+export { useAttachments, promptWithAttachments, type AttachmentsHandle, type HarnessAttachment, type AttachedResource } from './composables/useAttachments';
 export { renderMarkdown, renderMermaid, isAllowedImageSource, sandboxDocument } from './composables/richText';

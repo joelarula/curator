@@ -114,6 +114,7 @@ diagrams, pages, JSON and tables can be opened in the panel. Requires `marked`, 
 ## Composer (`/` and `@`)
 
 In the agent prompt, `/` suggests harness commands (`/resources`, `/layout`, ...), tools and current choices; `@`
-suggests agents. `/tool args` runs a tool (missing required arguments open a form from its schema), `/1` answers a
+suggests agents; `#` searches project resources (`search_resources`) and attaches the picked ones to the next turn
+(`attach_resource` links them to the conversation and the prompt gets their excerpts). `/tool args` runs a tool (missing required arguments open a form from its schema), `/1` answers a
 choice, `@agent message` sends the message to that agent. The list (`useCommandCatalog`) and the parsing
 (`parseComposerInput` in `@curator/host/contracts`) are the same ones the CLI shell uses.

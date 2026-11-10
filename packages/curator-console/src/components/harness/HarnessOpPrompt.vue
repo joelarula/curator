@@ -108,6 +108,25 @@
       </v-chip>
     </div>
 
+    <!-- # attachments sent with the next turn -->
+    <div v-if="attachmentChips.length > 0" class="d-flex align-center flex-wrap ga-1 mb-2 px-2 py-1 rounded bg-surface-variant border">
+      <span class="text-caption font-weight-bold text-medium-emphasis me-1">Attached:</span>
+      <v-chip
+        v-for="(a, idx) in attachmentChips"
+        :key="a.uri"
+        size="x-small"
+        color="secondary"
+        variant="tonal"
+        closable
+        prepend-icon="mdi-paperclip"
+        :title="a.uri"
+        @click:close="harness?.attachments.remove(idx)"
+      >
+        {{ a.title }}
+      </v-chip>
+    </div>
+    <div v-if="attachmentError" class="text-caption text-error mb-2">{{ attachmentError }}</div>
+
     <!-- Dynamic AST Workflow Choices Bar (Above Prompt) -->
     <HarnessChoices
       v-if="currentMode === 'agent' && choicesList.length > 0"
@@ -137,8 +156,8 @@
         v-if="currentMode === 'agent'"
         ref="promptField"
         v-model="agentPrompt"
-        label="Instruction / Prompt (/ for commands and tools, @ for agents)"
-        placeholder="Ask a question, type / for commands and tools or @ to address an agent, or drop image files..."
+        label="Instruction / Prompt (/ commands and tools, @ agents, # attach resources)"
+        placeholder="Ask a question, type / for commands and tools, @ to address an agent, # to attach a resource, or drop image files..."
         rows="4"
         variant="outlined"
         auto-grow
@@ -248,7 +267,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue';
+import { ref, computed, nextTick, watch } from 'vue';
 import type { CommandDescriptor, ComposerTrigger } from '@curator/host/contracts';
 import { useHarnessContext } from '../../context';
 import HarnessChoices, { type ChoiceItem } from './HarnessChoices.vue';
@@ -449,6 +468,8 @@ function refreshComposer(e?: KeyboardEvent) {
   const result = harness?.commandCatalog.suggest(text, cursor) ?? { trigger: null, items: [] };
   composerTrigger.value = result.trigger;
   composerItems.value = result.items;
+  // # suggestions come from a resource search (results arrive later and refresh the list)
+  if (result.trigger?.trigger === '#') harness?.attachments.search(result.trigger.query);
   if (composerIndex.value >= result.items.length) composerIndex.value = 0;
 }
 
@@ -467,6 +488,13 @@ async function applyComposerItem(item: CommandDescriptor) {
   const trigger = composerTrigger.value;
   if (!trigger) return;
   const text = agentPrompt.value ?? '';
+  if (item.source === 'resource') {
+    harness?.attachments.add(item.value as any);
+    agentPrompt.value = (text.slice(0, trigger.start) + text.slice(trigger.end)).replace(/\s{2,}/g, ' ').trimStart();
+    harness?.attachments.resetSearch();
+    closeComposer();
+    return;
+  }
   if (item.source === 'choice') {
     harness?.selectChoiceFromMenu(String(item.value ?? item.name));
     agentPrompt.value = (text.slice(0, trigger.start) + text.slice(trigger.end)).trim();
@@ -484,6 +512,16 @@ async function applyComposerItem(item: CommandDescriptor) {
     el.setSelectionRange(pos, pos);
   }
 }
+
+const attachmentChips = computed(() => harness?.attachments.attachments.value ?? []);
+const attachmentError = computed(() => harness?.attachments.error.value ?? null);
+// Search results for # arrive after typing: show them when the # trigger is still open
+watch(
+  () => harness?.attachments.hits.value,
+  () => {
+    if (composerTrigger.value?.trigger === '#') refreshComposer();
+  }
+);
 
 function onComposerKeydown(e: KeyboardEvent) {
   if (composerItems.value.length === 0 || e.ctrlKey || e.metaKey) return;

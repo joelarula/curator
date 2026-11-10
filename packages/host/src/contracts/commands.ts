@@ -7,7 +7,8 @@
 /** An entry of the command list (tool-contract shaped, plus where it comes from). */
 export interface CommandDescriptor {
   name: string;
-  source: 'command' | 'tool' | 'choice' | 'agent';
+  /** `resource`: a `#` attachment suggestion (found by search, not part of a static catalog). */
+  source: 'command' | 'tool' | 'choice' | 'agent' | 'resource';
   title?: string;
   description?: string;
   aliases?: readonly string[];
@@ -113,7 +114,8 @@ export function findCommand(catalog: readonly CommandDescriptor[], name: string,
 
 /** A trigger being typed at the cursor: `/` at the start of the input, `@` at the start of a word. */
 export interface ComposerTrigger {
-  trigger: '/' | '@';
+  /** `/` commands and tools (line start), `@` agents and `#` resources to attach (word start). */
+  trigger: '/' | '@' | '#';
   query: string;
   /** Range of the trigger and its word in the text (replace it when a suggestion is picked). */
   start: number;
@@ -124,18 +126,20 @@ export function findComposerTrigger(text: string, cursor: number = text.length):
   const before = text.slice(0, cursor);
   const slash = /^\s*\/([^\s]*)$/.exec(before);
   if (slash) return { trigger: '/', query: slash[1], start: before.indexOf('/'), end: cursor };
-  const at = /(^|\s)@([^\s@]*)$/.exec(before);
-  if (at) {
-    const start = cursor - at[2].length - 1;
-    return { trigger: '@', query: at[2], start, end: cursor };
+  const word = /(^|\s)([@#])([^\s@#]*)$/.exec(before);
+  if (word) {
+    const start = cursor - word[3].length - 1;
+    return { trigger: word[2] as '@' | '#', query: word[3], start, end: cursor };
   }
   return null;
 }
 
 /** Suggestions for a trigger: names (and aliases) starting with the query first, then containing it. */
-export function matchCommands(catalog: readonly CommandDescriptor[], trigger: '/' | '@', query: string, limit = 8): CommandDescriptor[] {
+export function matchCommands(catalog: readonly CommandDescriptor[], trigger: '/' | '@' | '#', query: string, limit = 8): CommandDescriptor[] {
   const q = query.toLowerCase();
-  const pool = catalog.filter((e) => (trigger === '@' ? e.source === 'agent' : SLASH_SOURCES.has(e.source)));
+  const pool = catalog.filter((e) =>
+    trigger === '@' ? e.source === 'agent' : trigger === '#' ? e.source === 'resource' : SLASH_SOURCES.has(e.source)
+  );
   const starts = pool.filter((e) => names(e).some((n) => n.startsWith(q)) || (e.title ?? '').toLowerCase().startsWith(q));
   const contains = pool.filter((e) => !starts.includes(e) && (names(e).some((n) => n.includes(q)) || (e.title ?? '').toLowerCase().includes(q)));
   return [...starts, ...contains].slice(0, limit);

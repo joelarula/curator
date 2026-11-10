@@ -270,6 +270,7 @@ import SettingsTab from './components/tabs/SettingsTab.vue';
 import { usePluginConfig } from './composables/usePluginConfig';
 import { useSurfaces } from './composables/useSurfaces';
 import { useCommandCatalog, isCommandAllowed } from './composables/useCommandCatalog';
+import { useAttachments, promptWithAttachments } from './composables/useAttachments';
 
 interface Props {
   adapter?: CuratorConsoleAdapter;
@@ -392,7 +393,9 @@ const pluginConfig = usePluginConfig(runHostTool);
 // One command list for the composer (/ and @), the context menu and the CLI vocabulary
 // Host actions the user may perform (db.status, db.export): commands needing others are hidden and refused
 const allowedActions = ref<string[]>([]);
-const commandCatalog = useCommandCatalog({ tools, agents, choices: availableChoices, allowedActions });
+// # attachments: resource suggestions and the chips sent with the next turn
+const attachments = useAttachments(tools, runHostTool);
+const commandCatalog = useCommandCatalog({ tools, agents, choices: availableChoices, allowedActions, resources: attachments.hits });
 // Tool picked in the composer whose required arguments are missing: asked for with a generated form
 const toolFormTarget = ref<any | null>(null);
 const toolFormArgs = ref<Record<string, unknown>>({});
@@ -1013,10 +1016,13 @@ async function executeOpPrompt() {
       }
       promptHistoryIndex.value = promptHistory.value.length;
 
-      let combinedPromptText = prompt;
+      // # attachments: each chip is attached to the conversation; the model gets their excerpts with the prompt
+      const attachedResources = attachments.attachments.value.length > 0 ? await attachments.attachAll() : [];
+      const promptBody = promptWithAttachments(prompt, attachedResources);
+      let combinedPromptText = promptBody;
       if (hasChoice) {
         const choiceLabel = formatChoiceDisplay(chosen);
-        combinedPromptText = prompt ? `[Action: ${choiceLabel}] ${prompt}` : `[Action: ${choiceLabel}]`;
+        combinedPromptText = promptBody ? `[Action: ${choiceLabel}] ${promptBody}` : `[Action: ${choiceLabel}]`;
       }
 
       const contextPayload: Record<string, any> = {
@@ -1025,6 +1031,7 @@ async function executeOpPrompt() {
         user: userContextName.value || 'User',
         conversationId: conversationContextId.value || 'conv_default',
         ...(pendingUploadFiles.value.length > 0 ? { attachments: pendingUploadFiles.value } : {}),
+        ...(attachedResources.length > 0 ? { resources: attachedResources.map((r) => ({ uri: r.uri, title: r.title })) } : {}),
       };
 
       if (hasChoice) {
@@ -1533,6 +1540,7 @@ provideHarnessContext({
   messageActions,
   runMessageAction,
   commandCatalog,
+  attachments,
   toolFormTarget,
   toolFormArgs,
   submitToolForm,

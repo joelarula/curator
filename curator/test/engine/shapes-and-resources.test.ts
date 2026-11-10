@@ -11,6 +11,7 @@ import {
   search_resources,
   upsert_resource,
   get_resource,
+  attach_resource,
   delete_resource,
   upsert_text,
   delete_text,
@@ -363,4 +364,26 @@ test('resources: raw CRUD, text attachments, and search/filtering', async () => 
   } finally {
     await env.cleanup();
   }
+});
+
+test('resources: attach_resource links a readable resource to the conversation and returns an excerpt', async () => {
+  const { env, runTool } = await setupTest('resources_attach');
+  try {
+    const own = await env.prisma.resource.create({ data: { uri: 'doc:own', title: 'Own doc', userId: String(env.userId), projectId: 'test-proj' } });
+    await env.prisma.text.create({ data: { resourceId: own.id, content: 'Hello from the doc', userId: String(env.userId) } });
+    await env.prisma.project.create({ data: { id: 'other-proj', name: 'Other', userId: String(env.userId) } });
+    await env.prisma.resource.create({ data: { uri: 'doc:other', title: 'Other doc', userId: String(env.userId), projectId: 'other-proj' } });
+
+    const res = await runTool(attach_resource, { uri: 'doc:own' });
+    assert.equal(res.attached, true);
+    assert.equal(res.linked, true);
+    assert.equal(res.resource.title, 'Own doc');
+    assert.equal(res.excerpt, 'Hello from the doc');
+    const conv = await env.prisma.conversation.findUnique({ where: { id: env.conversationId }, include: { resources: true } });
+    assert.deepEqual(conv.resources.map((r: any) => r.uri), ['doc:own']);
+
+    // Another project's resource is not found from this project
+    const other = await runTool(attach_resource, { uri: 'doc:other' });
+    assert.equal(other.attached, false);
+  } finally { await env.cleanup(); }
 });
