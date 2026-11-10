@@ -21,6 +21,8 @@ import {
 import { logger } from '../../utils/logger.js';
 import { INTERRUPT_OPENED, openInterrupt, APPROVAL_RESUME_SCHEMA } from '../Interrupts.js';
 import { toolProgressLabel } from '../progressLabel.js';
+import { llmCapabilities } from '../llm/ILlmProvider.js';
+import { generateWithPromptTools, resolveToolCalling } from '../llm/promptToolCalling.js';
 
 const Ajv = (AjvModule as any).default || AjvModule;
 
@@ -82,6 +84,8 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
     };
     const provider = ctx.llm.provider(await resolveSetting(ast.provider), ast.baseUrl);
     const model = await resolveSetting(ast.model);
+    // Models without native tool calling get the tools through the prompt (same toolCalls come back)
+    const toolCalling = resolveToolCalling(ast.tool_calling, llmCapabilities(provider, typeof model === 'string' ? model : undefined).tools);
     const traceKey = { conversationId: req.conversationId, requestId: req.id, projectId: req.projectId, userId: req.userId, provider: provider.providerName };
 
     // `tools` is either a fixed list or an expression (e.g. "$state.options") re-evaluated on every agent turn,
@@ -220,7 +224,10 @@ export const agentNode: NodeHandler<CuratorAgentNode> = {
         return;
       }
       const sentReq = inlet.request;
-      const rawResponse = await traceLlmCall({ ...traceKey, turn: iterations }, sentReq, () => provider.generateContent(sentReq), ctx.llm.recordCall, ctx.llm.recordTelemetry);
+      const callModel = () => toolCalling === 'prompt'
+        ? generateWithPromptTools(sentReq, (r) => provider.generateContent(r), iterations)
+        : provider.generateContent(sentReq);
+      const rawResponse = await traceLlmCall({ ...traceKey, turn: iterations }, sentReq, callModel, ctx.llm.recordCall, ctx.llm.recordTelemetry);
       const outlet = await GuardrailService.runOutlet(rawResponse, hookCtx);
       if (outlet.blocked) {
         await saveGuardrailBlock(ctx, req, outlet.blocked);

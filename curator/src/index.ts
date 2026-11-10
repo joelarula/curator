@@ -30,6 +30,10 @@ export {
 } from './engine/ProgressEvents.js';
 export { stepProgressLabel, toolProgressLabel } from './engine/progressLabel.js';
 export {
+  generateWithPromptTools, parsePromptToolCalls, toPromptToolRequest, resolveToolCalling, promptToolInstructions,
+  type ToolCallingMode, type ParsedPromptToolCalls,
+} from './engine/llm/promptToolCalling.js';
+export {
   describeAgent, entryAgentNode, agentNodeCapabilities,
   type AgentCatalogEntry, type AgentCapabilities, type CuratorAgentPresentation,
 } from './engine/agentCatalog.js';

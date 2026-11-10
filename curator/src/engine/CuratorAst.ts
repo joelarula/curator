@@ -179,6 +179,11 @@ export interface CuratorAgentNode extends CuratorBaseNode {
   provider?: 'gemini' | 'local' | (string & {});
   /** Base URL for local provider, e.g. 'http://localhost:8080' */
   baseUrl?: string;
+  /**
+   * How tools are offered to the model: 'native' (provider tool calling), 'prompt' (schemas in the system prompt,
+   * `<tool_call>` blocks parsed back; for models without tool support), or 'auto' (default: the model's capability).
+   */
+  tool_calling?: 'auto' | 'native' | 'prompt';
   input_schema?: Record<string, any>;
   output_schema?: Record<string, any>;
   /** Key under which agent structured output is stored in context and state. Default: camelCase(agentName) or 'decision'. */

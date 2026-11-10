@@ -55,7 +55,7 @@ Scope (agreed 2026-11-09):
 4. Phase 4: Guardrail filter hooks and message actions, done.
 5. Phase 5: Plugin config schemas, persisted values, settings tab, done.
 6. Phase 6: Agent presentation and capability flags, done.
-7. Phase 7: Prompt-based tool calling in providers (M). Needs 6.
+7. Phase 7: Prompt-based tool calling, done.
 
 **Track C, harness and miniapps**
 8. Phase 8: Output panel (M). Independent.
@@ -237,15 +237,21 @@ Changed from the plan: per-model overrides come from the provider (`capabilities
 
 Tests: `curator/test/engine/agent-catalog.test.ts`.
 
-## Phase 7: Prompt-based tool calling in providers
+## Phase 7: Prompt-based tool calling (implemented 2026-11-10)
 
-- A provider concern, not an agent-node one: a shared helper (`curator/src/engine/llm/promptToolCalling.ts`) that
-  providers with `capabilities.tools === 'prompt'` use (OpenAI-compatible for llamacpp/curator-rust, llama plugin).
-- Renders tool schemas into the system prompt, parses JSON calls from the reply, validates them with Ajv, returns the
-  standard `LlmResponse.toolCalls`; the agent node and guardrails see no difference.
-- Invalid JSON → one corrective retry, then a visible tool error.
+- `src/engine/llm/promptToolCalling.ts`: `toPromptToolRequest` (tool schemas and the `<tool_call>` protocol into the
+  system prompt, `tools` removed, earlier calls and tool results rewritten as text turns), `parsePromptToolCalls`
+  (`<tool_call>` blocks, or fenced JSON naming an offered tool; Ajv-validated against the tool schema; unknown tools
+  rejected), `generateWithPromptTools` (one corrective retry, then the errors appended to the reply as text and no
+  calls), `resolveToolCalling`.
+- Agent option `tool_calling: 'auto' | 'native' | 'prompt'` (AST + validation). `auto` follows
+  `capabilities.tools`; the OpenAI-compatible provider reports `prompt` when `CURATOR_LOCAL_TOOL_CALLING=prompt`.
+- In `nodes/agent.ts` the mode only changes how the model is called (inside the traced call, after the inlet hooks):
+  the response carries standard `toolCalls`, so the tool loop, access checks, guardrails, progress events and history
+  are unchanged.
 
-Tests: parser (plain, fenced, malformed, multiple calls), Ajv rejection, parity with native on a fixture.
+Tests: `curator/test/engine/prompt-tool-calling.test.ts` (mode, parser incl. invalid calls, conversion, retry, an agent
+run in prompt mode).
 
 ## Phase 8: Output panel
 
