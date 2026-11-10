@@ -44,6 +44,7 @@ import { sqlDialect, type SqlDialect } from '../db/sqlDialect.js';
 import { AgentRoleService } from '../services/AgentRoleService.js';
 import { AccessService } from '../services/AccessService.js';
 import { normalizeExpression } from './expressionNormalize.js';
+import { ChannelService, CHANNEL_REQUEST_EVENTS, type ChannelApi } from '../conversations/ChannelService.js';
 import { ApprovalService } from '../services/ApprovalService.js';
 import { PluginConfig, PluginConfigService } from '../services/PluginConfigService.js';
 import { defaultOutputFormats, type OutputFormats } from './output/OutputFormats.js';
@@ -424,6 +425,20 @@ export class CuratorRequestProcessor {
     this.services.set(InterruptService, {
       list: (filter: ListInterruptsFilter) => this.listInterrupts(filter),
       resume: (input: ResumeInterruptInput) => this.resumeInterrupt(input),
+    });
+    // Built-in: join / leave requests into a conversation, sent as the caller (channel_request); the workflow decides
+    this.services.set(ChannelService, {
+      request: async ({ conversationId, action, userId, projectId }: Parameters<ChannelApi['request']>[0]) => {
+        const res = await this.emitEventRequest({
+          eventName: CHANNEL_REQUEST_EVENTS[action],
+          payload: {},
+          conversationId,
+          userId,
+          projectId,
+          origin: 'API',
+        });
+        return { requestId: res.requestId };
+      },
     });
     this.services.set(TimeTravelService, {
       history: (conversationId: number, projectIds: string[]) => this.listStateHistory(conversationId, projectIds),

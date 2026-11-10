@@ -61,10 +61,13 @@
         />
         <v-list-item-subtitle class="text-caption">
           #{{ c.conversationId }} · {{ when(c.lastActiveAt) }}
+          <v-chip v-if="c.owned === false || (c.memberCount ?? 0) > 0" size="x-small" variant="tonal" color="secondary" class="ms-1">
+            channel · {{ c.memberCount ?? 0 }} {{ (c.memberCount ?? 0) === 1 ? 'member' : 'members' }}
+          </v-chip>
         </v-list-item-subtitle>
         <template #append>
           <span class="d-flex ga-1" @click.stop>
-            <v-btn v-if="list.can('rename')" size="x-small" variant="text" icon="mdi-pencil-outline" title="Rename" :disabled="busy(c)" @click="startEdit(c)" />
+            <v-btn v-if="list.can('rename') && c.owned !== false" size="x-small" variant="text" icon="mdi-pencil-outline" title="Rename" :disabled="busy(c)" @click="startEdit(c)" />
             <v-btn
               v-if="list.can('pin') && !c.archived"
               size="x-small"
@@ -84,7 +87,16 @@
               @click="list.setArchived(c.conversationId, !c.archived)"
             />
             <v-btn
-              v-if="list.can('delete')"
+              v-if="list.channelsAvailable.value && c.owned === false"
+              size="x-small"
+              variant="text"
+              icon="mdi-exit-run"
+              title="Leave this channel (asks its workflow)"
+              :loading="list.requesting.value === c.conversationId"
+              @click="list.request(c.conversationId, 'leave')"
+            />
+            <v-btn
+              v-if="list.can('delete') && c.owned !== false"
               size="x-small"
               variant="text"
               color="error"
@@ -97,11 +109,40 @@
         </template>
       </v-list-item>
     </v-list>
+
+    <!-- Open channels of the project: joining asks the channel's workflow (it decides) -->
+    <template v-if="list.channelsAvailable.value && !list.showArchived.value">
+      <div class="d-flex align-center ga-2 mt-4 mb-2">
+        <span class="text-subtitle-2 font-weight-bold">Open channels</span>
+        <v-btn size="x-small" variant="text" icon="mdi-refresh" @click="list.loadChannels()" />
+      </div>
+      <div v-if="joinable.length === 0" class="text-caption text-medium-emphasis">No other open channels.</div>
+      <v-list density="compact" class="py-0">
+        <v-list-item v-for="ch in joinable" :key="ch.conversationId" rounded="md" class="mb-1 border">
+          <template #prepend><v-icon size="18">mdi-pound</v-icon></template>
+          <v-list-item-title>{{ ch.title }}</v-list-item-title>
+          <v-list-item-subtitle class="text-caption">
+            {{ ch.memberCount }} {{ ch.memberCount === 1 ? 'member' : 'members' }}
+          </v-list-item-subtitle>
+          <template #append>
+            <v-btn
+              size="small"
+              variant="tonal"
+              color="primary"
+              :loading="list.requesting.value === ch.conversationId"
+              @click="list.request(ch.conversationId, 'join')"
+            >
+              Join
+            </v-btn>
+          </template>
+        </v-list-item>
+      </v-list>
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import type { ConversationsHandle, ConversationView } from '../../composables/useConversations';
 
 /** The caller's conversations in the project: open one, rename, pin, archive or delete it (useConversations). */
@@ -112,6 +153,8 @@ const editingId = ref<number | null>(null);
 const editTitle = ref('');
 
 const busy = (c: ConversationView) => props.list.busyId.value === c.conversationId;
+/** Open channels the user is in neither as owner nor as member. */
+const joinable = computed(() => props.list.channels.value.filter((ch) => !ch.joined && !ch.owned));
 
 function open(c: ConversationView) {
   if (editingId.value === c.conversationId) return;
@@ -147,5 +190,6 @@ function when(iso: string): string {
 
 onMounted(() => {
   if (props.list.conversations.value.length === 0) props.list.load();
+  props.list.loadChannels();
 });
 </script>

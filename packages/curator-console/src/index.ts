@@ -51,5 +51,5 @@ export { useCommandCatalog, HARNESS_COMMANDS, HARNESS_COMMAND_ACTIONS, HARNESS_C
 export { useAttachments, promptWithAttachments, type AttachmentsHandle, type HarnessAttachment, type AttachedResource } from './composables/useAttachments';
 export { useSources, toolSourcesOfRun, toolResultAt, surfaceForToolResult, type SourcesHandle, type HarnessSource } from './composables/useSources';
 export { usePromptLibrary, mcpPromptText, type PromptLibraryHandle, type PromptOrigin } from './composables/usePromptLibrary';
-export { useConversations, type ConversationsHandle, type ConversationView } from './composables/useConversations';
+export { useConversations, CHANNEL_SETTLE_MS, type ConversationsHandle, type ConversationView, type ChannelView } from './composables/useConversations';
 export { renderMarkdown, renderMermaid, isAllowedImageSource, sandboxDocument } from './composables/richText';

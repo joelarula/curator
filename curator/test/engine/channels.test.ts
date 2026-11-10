@@ -6,6 +6,7 @@ import { createConversationTools, ConversationToolName } from '../../src/convers
 import { channelWorkflowAst } from '../../src/conversations/ConversationWorkflows.ts';
 import { access_check } from '../../src/tools/accessCheck.ts';
 import { conversation_list, conversation_pin, conversation_rename } from '../../src/tools/conversations.ts';
+import { channel_list, channel_request } from '../../src/tools/channels.ts';
 import { appendStatePatch } from '../../src/engine/ConversationStateLog.ts';
 
 // Channels: join / leave are decided by the conversation's workflow (default policy: open channel + channels:join).
@@ -18,6 +19,8 @@ async function setup(name: string) {
   const router = new ConversationRouter({ localNodeId: 'n1', localProjectId: 'p1', prisma: env.prisma });
   for (const t of createConversationTools(router)) tools.set(t.name, t);
   tools.set('access_check', access_check);
+  tools.set('channel_list', channel_list);
+  tools.set('channel_request', channel_request);
   await saveScript(env, 'conversation_channel_workflow', channelWorkflowAst, { projectId: 'p1' });
   await env.prisma.role.create({ data: { id: 'channels:join', name: 'channels:join' } });
   await env.prisma.role.create({ data: { id: 'conversations:own', name: 'conversations:own' } });
@@ -82,6 +85,31 @@ test('channels: joining directly (console, CLI, GraphQL, MCP) is refused; it goe
       env.processor.runToolRequest({ toolName: ConversationToolName.JOIN, args: {}, conversationId: env.conversationId, userId: env.userId, projectId: 'p1', origin: 'API' } as any),
       /conversation workflow/
     );
+    assert.deepEqual(await members(env), []);
+  } finally { await env.cleanup(); }
+});
+
+test('channels: people find open channels and ask to join or leave; the workflow decides', async () => {
+  const { env, user } = await setup('channels_request');
+  try {
+    const cara = await user('cara', ['channels:join', 'conversations:own']);
+    const run = (toolName: string, args: any) =>
+      env.processor.runToolRequest({ toolName, args, conversationId: env.conversationId, userId: cara.id, projectId: 'p1', origin: 'API' } as any);
+
+    assert.deepEqual(((await run('channel_list', {})).result as any).channels, []);
+    await appendStatePatch(env.prisma, env.conversationId, { set: { channel: { open: true, title: 'General' } } });
+    const open = ((await run('channel_list', {})).result as any).channels;
+    assert.deepEqual(open.map((c: any) => [c.conversationId, c.title, c.joined, c.memberCount]), [[env.conversationId, 'General', false, 0]]);
+
+    // Asking sends the request event as cara; the workflow joins her
+    const asked: any = (await run('channel_request', { conversationId: env.conversationId, action: 'join' })).result;
+    assert.equal(asked.requested, 'join');
+    await env.processor.stepUntil({ conversationId: env.conversationId });
+    assert.deepEqual(await members(env), [`user:${cara.id}:member`]);
+    assert.equal(((await run('channel_list', {})).result as any).channels[0].joined, true);
+
+    await run('channel_request', { conversationId: env.conversationId, action: 'leave' });
+    await env.processor.stepUntil({ conversationId: env.conversationId });
     assert.deepEqual(await members(env), []);
   } finally { await env.cleanup(); }
 });

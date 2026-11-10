@@ -51,6 +51,7 @@ import {
   conversation_delete,
 } from './conversations.js';
 import { accessCheckTools, access_check } from './accessCheck.js';
+import { channelTools, channel_list, channel_request } from './channels.js';
 import type { CuratorTool } from './CuratorTool.js';
 
 export {
@@ -113,6 +114,9 @@ export {
   conversation_delete,
   // Workflow policy check
   access_check,
+  // Channels for people
+  channel_list,
+  channel_request,
 };
 
 export const toolRegistry: Record<string, CuratorTool> = {
@@ -131,4 +135,5 @@ export const toolRegistry: Record<string, CuratorTool> = {
   ...(promptTools as Record<string, CuratorTool>),
   ...(conversationOrganisationTools as Record<string, CuratorTool>),
   ...(accessCheckTools as Record<string, CuratorTool>),
+  ...(channelTools as Record<string, CuratorTool>),
 };

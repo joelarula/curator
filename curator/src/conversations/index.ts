@@ -12,3 +12,15 @@ export * from './ConversationRouter.js';
 export * from './ConversationSessionManager.js';
 export * from './exposure/index.js';
 export * from './AgentInteractionContextManager.js';
+export {
+  isWorkflowCall,
+  memberOf,
+  participantId,
+  findConversationRow,
+  addMember,
+  removeMember,
+  memberOfWhere,
+  type MemberType,
+  type ConversationMemberRef,
+} from './ConversationMembers.js';
+export { ChannelService, CHANNEL_REQUEST_EVENTS, type ChannelApi, type ChannelRequestAction } from './ChannelService.js';

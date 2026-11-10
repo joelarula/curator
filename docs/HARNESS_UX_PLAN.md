@@ -399,8 +399,18 @@ conversation's workflow decides; people and the console only send request events
 - Fixed along the way (`engine/expressionNormalize.ts`): workflow expressions no longer rewrite `not` / `and` / `or`
   inside string literals, and a chain already written with `?.` is kept (it became `??.`).
 
-Not done (next): the console channel view (channels in the list with Join / Leave buttons sending the request
-events, the shared message stream), CLI join / leave commands, invitations.
+### Channels: finding and joining from the console (done 2026-11-11)
+
+- Processor service `ChannelService` (`curator.channels`): sends `conversation:join_requested` /
+  `conversation:leave_requested` into a conversation with the caller as sender; it never changes members itself.
+- Core tools (people, role `conversations:own`, project from the session): `channel_list` (conversations whose
+  state says `channel.open`, title from the conversation or `channel.title`, member count, joined, owned) and
+  `channel_request` (`join` | `leave` for one conversation of the project).
+- Console: the Conversations tab marks channels (member count), shows Leave for channels one is a member of (rename and
+  delete only for the owner), and an "Open channels" section with Join. Both lists reload after the workflow had time
+  to decide (`CHANNEL_SETTLE_MS`).
+
+Not done (next): the shared message stream of a channel, CLI join / leave commands, invitations.
 
 ## Cross-cutting
 

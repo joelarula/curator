@@ -36,3 +36,27 @@ test('conversations: a failing action is reported and nothing is reloaded', asyn
   assert.equal(await c.remove(3), false);
   assert.match(String(c.error.value), /you are in/);
 });
+
+test('channels: open channels are listed; join / leave send a request and reload both lists', async () => {
+  const calls: any[] = [];
+  let joined = false;
+  const run = async (name: string, args: any) => {
+    calls.push([name, args]);
+    if (name === 'channel_list') return { channels: [{ conversationId: 7, externalId: 'c7', title: 'General', memberCount: joined ? 1 : 0, joined, owned: false }] };
+    if (name === 'channel_request') { joined = args.action === 'join'; return { requested: args.action }; }
+    if (name === 'conversation_list') return { conversations: joined ? [{ conversationId: 7, externalId: 'c7', title: 'General', titled: true, pinned: false, archived: false, owned: false, memberCount: 1 }] : [] };
+    return {};
+  };
+  const c = useConversations(tools(['conversation_list', 'channel_list', 'channel_request']), run);
+  assert.equal(c.channelsAvailable.value, true);
+  await c.loadChannels();
+  assert.equal(c.channels.value[0].joined, false);
+
+  assert.equal(await c.request(7, 'join', 0), true);
+  assert.deepEqual(calls.find((x) => x[0] === 'channel_request'), ['channel_request', { conversationId: 7, action: 'join' }]);
+  assert.equal(c.channels.value[0].joined, true);
+  assert.equal(c.conversations.value[0].owned, false);
+
+  await c.request(7, 'leave', 0);
+  assert.deepEqual(c.conversations.value, []);
+});

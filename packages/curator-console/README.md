@@ -140,5 +140,7 @@ prompt box with the prompt (missing arguments open a form); `/save-prompt` saves
 ## Conversations
 
 The Conversations tab lists your conversations in the project (pinned first, then most recently active; untitled ones
-show their first message). Rename, pin, archive or delete them, or open one to continue it. It needs the
-`conversations:own` role (`conversation_list` and the other conversation tools).
+show their first message). Rename, pin, archive or delete them, or open one to continue it. Channels you are a member of show their member count
+and a Leave button; "Open channels" lists the project's channels to join. Joining and leaving only send a request: the
+channel's workflow decides. It needs the `conversations:own` role (`conversation_list`, `channel_list`,
+`channel_request`); the default channel workflow lets in holders of `channels:join`.
