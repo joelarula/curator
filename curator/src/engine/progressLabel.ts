@@ -17,11 +17,13 @@ export function toolProgressLabel(tool: { ui?: CuratorToolUi } | null | undefine
 
 /**
  * Label of a step, first match: the node's `name` (set by the workflow author); a tool node's tool label; an agent
- * node's `agentName`; a call node's `ref`. Undefined otherwise (clients show the node type).
+ * node's presentation title (`presentation.title` of its definition), else its `agentName`; a call node's `ref`.
+ * Undefined otherwise (clients show the node type).
  */
 export function stepProgressLabel(
   ast: { type?: string; name?: unknown; toolName?: unknown; agentName?: unknown; ref?: unknown } | null | undefined,
-  resolveTool: (name: string) => { ui?: CuratorToolUi } | null | undefined
+  resolveTool: (name: string) => { ui?: CuratorToolUi } | null | undefined,
+  resolveAgent?: (name: string) => { presentation?: { title?: unknown } } | null | undefined
 ): string | undefined {
   if (!ast) return undefined;
   const named = clean(ast.name);
@@ -30,7 +32,8 @@ export function stepProgressLabel(
     case 'Curator_Tool':
       return typeof ast.toolName === 'string' ? toolProgressLabel(resolveTool(ast.toolName), ast.toolName) : undefined;
     case 'Curator_Agent':
-      return clean(ast.agentName);
+      if (typeof ast.agentName !== 'string') return undefined;
+      return clean(resolveAgent?.(ast.agentName)?.presentation?.title) ?? clean(ast.agentName);
     case 'Curator_Call':
       return clean(ast.ref);
     default:

@@ -145,3 +145,13 @@ test('progress: tool calls inside an agent step report tool.started / tool.finis
     await env.cleanup();
   }
 });
+
+test('progress: an agent step is labelled with the agent presentation title, else its name', async () => {
+  const { stepProgressLabel } = await import('../../src/engine/progressLabel.ts');
+  const agents = new Map<string, any>([['weather', { presentation: { title: 'Weather assistant' } }], ['plain', {}]]);
+  const none = () => undefined;
+  assert.equal(stepProgressLabel({ type: 'Curator_Agent', agentName: 'weather' }, none, (n) => agents.get(n)), 'Weather assistant');
+  assert.equal(stepProgressLabel({ type: 'Curator_Agent', agentName: 'plain' }, none, (n) => agents.get(n)), 'plain');
+  assert.equal(stepProgressLabel({ type: 'Curator_Agent', agentName: 'weather' }, none), 'weather');
+  assert.equal(stepProgressLabel({ type: 'Curator_Agent', agentName: 'weather', name: 'Ask' }, none, (n) => agents.get(n)), 'Ask');
+});
