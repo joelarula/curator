@@ -14,6 +14,7 @@ export { default as HarnessSchemaForm } from './harness/HarnessSchemaForm.vue';
 export { default as SettingsTab } from './tabs/SettingsTab.vue';
 export { default as HarnessSurfacePanel } from './harness/HarnessSurfacePanel.vue';
 export { default as HarnessMarkdown } from './harness/HarnessMarkdown.vue';
+export { default as HarnessToolArgsDialog } from './harness/HarnessToolArgsDialog.vue';
 export { builtinSurfaceComponents } from './surfaces';
 
 export { default as AgentsTab } from './tabs/AgentsTab.vue';

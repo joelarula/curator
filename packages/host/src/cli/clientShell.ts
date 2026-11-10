@@ -22,6 +22,14 @@ import { describeProgressEvent, isProgressEventPayload, PROGRESS_EVENT_TYPE } fr
 import { ShellProgressRenderer } from './progressRenderer.js';
 import { interruptInputMode, interruptOptions, interruptTitle } from '../contracts/interrupts.js';
 import { extractSurface, surfaceToText } from '../contracts/surfaces.js';
+import {
+  completeLine,
+  parseCommandLine,
+  parseComposerInput,
+  toolArgsFromTokens,
+  toolUsage,
+  type CommandDescriptor,
+} from '../contracts/commands.js';
 import type { CuratorInterrupt } from '@curator/agent-server';
 
 export {
@@ -36,79 +44,8 @@ export {
   type ActiveChoice,
 };
 
-function parseCommandLine(text: string): string[] {
-  const matches = text.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g);
-  if (!matches) return [];
-  return matches.map((token) => {
-    if (
-      (token.startsWith('"') && token.endsWith('"')) ||
-      (token.startsWith("'") && token.endsWith("'"))
-    ) {
-      return token.slice(1, -1);
-    }
-    return token;
-  });
-}
-
-/** Positional parameters of a tool schema: required first, then optional, each in declaration order. */
-function positionalParams(schema: any): { name: string; type?: string; required: boolean }[] {
-  const props = schema?.properties && typeof schema.properties === 'object' ? schema.properties : {};
-  const required = new Set<string>(Array.isArray(schema?.required) ? schema.required : []);
-  const all = Object.keys(props).map((name) => ({ name, type: props[name]?.type, required: required.has(name) }));
-  return [...all.filter((p) => p.required), ...all.filter((p) => !p.required)];
-}
-
-/** Command usage of a tool: its own `usage`, else `<required> [optional]` from its schema. */
-export function toolUsage(tool: { usage?: string; parameters?: any }): string {
-  if (tool.usage) return tool.usage;
-  return positionalParams(tool.parameters)
-    .map((p) => (p.required ? `<${p.name}>` : `[${p.name}]`))
-    .join(' ');
-}
-
-function coerce(value: string, type?: string): any {
-  if (type === 'number' || type === 'integer') {
-    const n = Number(value);
-    return Number.isNaN(n) ? value : n;
-  }
-  if (type === 'boolean') return value === 'true' ? true : value === 'false' ? false : value;
-  if (type === 'object' || type === 'array') {
-    try {
-      return JSON.parse(value);
-    } catch {
-      return value;
-    }
-  }
-  return value;
-}
-
-/**
- * Tool arguments from command tokens: a JSON object (`{...}`), else positional by the schema
- * (extra words join into the last string parameter), else `{ input }` for schema-less tools.
- */
-export function toolArgsFromTokens(tokens: string[], schema: any): Record<string, any> {
-  const raw = tokens.join(' ').trim();
-  if (!raw) return {};
-  if (raw.startsWith('{')) {
-    try {
-      return JSON.parse(raw);
-    } catch {
-      try {
-        return JSON.parse(raw.replace(/([{,]\s*)([a-zA-Z0-9_]+)\s*:/g, '$1"$2":'));
-      } catch {}
-    }
-  }
-  const params = positionalParams(schema);
-  if (params.length === 0) return { input: raw };
-  const args: Record<string, any> = {};
-  params.forEach((p, i) => {
-    if (i >= tokens.length) return;
-    const isLast = i === params.length - 1;
-    const value = isLast && (!p.type || p.type === 'string') ? tokens.slice(i).join(' ') : tokens[i];
-    args[p.name] = coerce(value, p.type);
-  });
-  return args;
-}
+// Tokenizing and tool-argument coercion are shared with the web composer (contracts/commands.ts)
+export { toolUsage, toolArgsFromTokens };
 
 /**
  * Universal Asynchronous REPL and Interactive Shell for Curator host and games.
@@ -406,6 +343,41 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       this.pendingInputInterrupt = interrupt;
       this.printAsync(`\x1b[90m  (type your answer${mode === 'json' ? ' as JSON' : ''}; lines starting with / are still commands)\x1b[0m`);
     }
+  }
+
+  /** Agent names for `@agent` (config `agents`). */
+  private agentNames(): string[] {
+    const a = this.config.agents;
+    try {
+      return (typeof a === 'function' ? a() : a ?? []).filter((n) => typeof n === 'string' && n);
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * The shell's command list in the shared shape (same vocabulary as the web composer): registered commands,
+   * built-ins, tools (local and remote), current choices, and agents for `@`.
+   */
+  public commandCatalog(): CommandDescriptor[] {
+    const out: CommandDescriptor[] = [
+      { name: 'help', source: 'command', description: 'Show available commands and whitelisted tools' },
+      { name: 'exec', source: 'command', description: 'Execute a whitelisted Curator tool directly', usage: '<toolName> [args...]' },
+    ];
+    for (const c of this.commands as any[]) {
+      if (c?.name) out.push({ name: c.name, source: 'command', description: c.description, aliases: c.aliases, usage: c.usage });
+    }
+    const seen = new Set<string>();
+    for (const t of [...this.tools.values(), ...this.remoteTools] as any[]) {
+      if (!t?.name || seen.has(t.name)) continue;
+      seen.add(t.name);
+      out.push({ name: t.name, source: 'tool', description: t.description, parameters: t.parameters, usage: toolUsage(t), aliases: t.aliases });
+    }
+    this.activeChoices.forEach((c, i) => {
+      out.push({ name: String(c.id || i + 1), source: 'choice', title: c.label, aliases: c.aliases, value: c.value });
+    });
+    for (const name of this.agentNames()) out.push({ name, source: 'agent' });
+    return out;
   }
 
   /**
@@ -961,6 +933,19 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       return await this.dispatchTool('conversation_resume', { interruptId: interrupt.id, value });
     }
 
+    // 1c. `@agent message` addresses an agent (when the app lists agents); otherwise '@' is just text
+    if (trimmed.startsWith('@') && this.agentNames().length > 0) {
+      const parsed = parseComposerInput(trimmed, this.commandCatalog());
+      if (parsed.kind === 'unknown') {
+        console.log(`\x1b[31mUnknown agent @${parsed.name}.\x1b[0m Agents: ${this.agentNames().map((n) => `@${n}`).join(', ')}`);
+        return;
+      }
+      if (parsed.kind === 'agent') {
+        if (this.config.onAgentMessage) return await this.config.onAgentMessage(parsed.name, parsed.message);
+        return await this.spawnSpeechBranch(trimmed);
+      }
+    }
+
     // 2. Tokenize command for Commander program
     const isSlash = trimmed.startsWith('/');
     const clean = isSlash ? trimmed.slice(1) : trimmed;
@@ -1089,6 +1074,8 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       readline.createInterface({
         input: process.stdin,
         output: process.stdout,
+        // Tab completes /commands, tools, choices and @agents from the shared command list
+        completer: (line: string) => completeLine(this.commandCatalog(), line),
       });
 
     const promptStr =

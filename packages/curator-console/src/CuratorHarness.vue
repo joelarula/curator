@@ -214,12 +214,13 @@
     <!-- =================================================================== -->
     <HarnessContextMenu />
     <HarnessResourceContextMenu />
+    <HarnessToolArgsDialog />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { parseSpeechActs, interruptOptions, interruptTitle, PROGRESS_EVENT_TYPE, extractSurface } from '@curator/host/contracts';
+import { parseSpeechActs, interruptOptions, interruptTitle, PROGRESS_EVENT_TYPE, extractSurface, parseComposerInput } from '@curator/host/contracts';
 import type {
   CuratorConsoleAdapter,
   DatabaseHealth,
@@ -250,6 +251,7 @@ import {
 
 import HarnessDeck from './components/harness/HarnessDeck.vue';
 import HarnessContextMenu from './components/harness/HarnessContextMenu.vue';
+import HarnessToolArgsDialog from './components/harness/HarnessToolArgsDialog.vue';
 import HarnessResourceContextMenu from './components/harness/HarnessResourceContextMenu.vue';
 import HarnessResourceCollection from './components/harness/HarnessResourceCollection.vue';
 import HarnessResourceDetail from './components/harness/HarnessResourceDetail.vue';
@@ -266,6 +268,7 @@ import EventStreamTab, { type EventLogEntry } from './components/tabs/EventStrea
 import SettingsTab from './components/tabs/SettingsTab.vue';
 import { usePluginConfig } from './composables/usePluginConfig';
 import { useSurfaces } from './composables/useSurfaces';
+import { useCommandCatalog } from './composables/useCommandCatalog';
 
 interface Props {
   adapter?: CuratorConsoleAdapter;
@@ -386,6 +389,11 @@ const interrupts = useInterrupts(props.adapter?.onProgress?.bind(props.adapter),
 const messageActions = useMessageActions(tools, runHostTool);
 // Plugin settings (config_get / config_set / config_unset)
 const pluginConfig = usePluginConfig(runHostTool);
+// One command list for the composer (/ and @), the context menu and the CLI vocabulary
+const commandCatalog = useCommandCatalog({ tools, agents, choices: availableChoices });
+// Tool picked in the composer whose required arguments are missing: asked for with a generated form
+const toolFormTarget = ref<any | null>(null);
+const toolFormArgs = ref<Record<string, unknown>>({});
 const contextMenuTurn = ref<HarnessMessageRef | null>(null);
 // A prompt interrupt with choices drives the choice bar; resolving it clears them
 watch(interrupts.choiceInterrupt, (interrupt) => {
@@ -920,6 +928,16 @@ async function loadAllData() {
 async function executeOpPrompt() {
   if (executing.value) return;
 
+  // `/1` or `/<choice value>` picks that choice, then submits like picking it in the choice bar
+  const typed = promptInput.value.trim();
+  if (typed.startsWith('/')) {
+    const parsed = parseComposerInput(typed, commandCatalog.catalog.value);
+    if (parsed.kind === 'choice') {
+      selectChoiceFromMenu(String(parsed.entry.value ?? parsed.name));
+      promptInput.value = '';
+    }
+  }
+
   const startTime = Date.now();
   executing.value = true;
   runTimeline.reset();
@@ -946,7 +964,40 @@ async function executeOpPrompt() {
     }
 
     if (execMode.value === 'agent') {
-      const prompt = promptInput.value.trim();
+      let prompt = promptInput.value.trim();
+
+      // Composer: `/command`, `/tool args`, `@agent message` (same vocabulary as the CLI)
+      if (prompt.startsWith('/') || prompt.startsWith('@')) {
+        const parsed = parseComposerInput(prompt, commandCatalog.catalog.value);
+        if (parsed.kind === 'unknown') {
+          throw new Error(parsed.trigger === '/' ? `Unknown command /${parsed.name}` : `Unknown agent @${parsed.name}`);
+        }
+        if (parsed.kind === 'command') {
+          await executeCommand(`/${parsed.name}`);
+          lastExecTarget.value = `/${parsed.name}`;
+          lastExecStatus.value = 'COMPLETED';
+          lastExecOutput.value = lastExecOutput.value ?? `Ran /${parsed.name}`;
+          lastExecDuration.value = Date.now() - startTime;
+          return;
+        }
+        if (parsed.kind === 'tool') {
+          promptInput.value = '';
+          if (parsed.missing.length > 0) {
+            // Ask for the rest with the tool's schema form instead of failing validation
+            toolFormTarget.value = parsed.entry;
+            toolFormArgs.value = { ...parsed.args };
+            lastExecStatus.value = null;
+            return;
+          }
+          await runToolTurn(parsed.entry, parsed.args, startTime);
+          return;
+        }
+        if (parsed.kind === 'agent') {
+          if (!parsed.message) throw new Error(`Type a message after @${parsed.name}`);
+          selectedAgent.value = parsed.name;
+          prompt = parsed.message;
+        }
+      }
       const chosen = activeChoiceValue.value;
       const hasChoice = chosen && (!Array.isArray(chosen) || chosen.length > 0);
 
@@ -1311,6 +1362,61 @@ function openContextMenu(e: MouseEvent) {
   contextMenuVisible.value = true;
 }
 
+/** Shows a tool result like a tool turn: output, surface, history. */
+function showToolResult(toolName: string, result: any, opts: { requestId?: string | null; prompt?: string; startTime: number }) {
+  lastExecMode.value = 'tool';
+  lastExecTarget.value = toolName;
+  lastExecDuration.value = Date.now() - opts.startTime;
+  lastExecError.value = null;
+  lastExecStatus.value = 'COMPLETED';
+  lastExecRaw.value = result;
+  lastExecOutput.value = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+  const hasSurface = applySurfaceIfPresent(result, opts.requestId ?? null);
+  if (!hasSurface) outputTab.value = 'formatted';
+  turnHistory.value.unshift({
+    id: String(Date.now()),
+    target: toolName,
+    mode: 'tool',
+    prompt: opts.prompt ?? `/${toolName}`,
+    output: lastExecOutput.value || '',
+    timestamp: Date.now(),
+    surfaceId: hasSurface ? surfaces.activeId.value : null,
+  });
+}
+
+/** Runs a tool from the composer (`/tool args` or its argument form) through the host and shows the result. */
+async function runToolTurn(tool: any, args: Record<string, unknown>, startTime = Date.now()) {
+  const owns = !executing.value;
+  if (owns) executing.value = true;
+  try {
+    const data = await executeGraphql(EXECUTE_TOOL_MUTATION, { name: tool.name, args });
+    const res = data?.executeTool;
+    if (!res?.success) throw new Error(res?.error || `Tool '${tool.name}' failed`);
+    if (res.requestId) {
+      lastExecRequestId.value = String(res.requestId);
+      runTimeline.begin(res.requestId);
+    }
+    showToolResult(tool.name, res.result, { requestId: res.requestId ?? null, startTime, prompt: `/${tool.name} ${JSON.stringify(args)}` });
+  } catch (err: any) {
+    lastExecStatus.value = 'FAILED';
+    lastExecError.value = err?.message ?? String(err);
+  } finally {
+    if (owns) {
+      executing.value = false;
+      runTimeline.end();
+    }
+  }
+}
+
+/** Submits the composer's tool argument form. */
+async function submitToolForm() {
+  const tool = toolFormTarget.value;
+  if (!tool) return;
+  const args = { ...toolFormArgs.value };
+  toolFormTarget.value = null;
+  await runToolTurn(tool, args);
+}
+
 /** Opens the context menu on a message: its message actions are listed first. */
 function openTurnMenu(e: MouseEvent, message: HarnessMessageRef) {
   openContextMenu(e);
@@ -1324,29 +1430,14 @@ async function runMessageAction(tool: any) {
   if (!message) return;
   const startTime = Date.now();
   const out = await messageActions.run(tool, message);
-  lastExecMode.value = 'tool';
-  lastExecTarget.value = tool.name;
-  lastExecDuration.value = Date.now() - startTime;
   if (!out.ok) {
+    lastExecMode.value = 'tool';
+    lastExecTarget.value = tool.name;
     lastExecStatus.value = 'FAILED';
     lastExecError.value = messageActions.error.value;
     return;
   }
-  lastExecError.value = null;
-  lastExecStatus.value = 'COMPLETED';
-  lastExecRaw.value = out.result;
-  lastExecOutput.value = typeof out.result === 'string' ? out.result : JSON.stringify(out.result, null, 2);
-  const actionSurface = applySurfaceIfPresent(out.result, null);
-  if (!actionSurface) outputTab.value = 'formatted';
-  turnHistory.value.unshift({
-    id: String(Date.now()),
-    target: tool.name,
-    mode: 'tool',
-    prompt: `${tool.ui?.messageAction?.label ?? tool.name}: ${message.text.slice(0, 60)}`,
-    output: lastExecOutput.value || '',
-    timestamp: Date.now(),
-    surfaceId: actionSurface ? surfaces.activeId.value : null,
-  });
+  showToolResult(tool.name, out.result, { startTime, prompt: `${tool.ui?.messageAction?.label ?? tool.name}: ${message.text.slice(0, 60)}` });
 }
 
 function selectChoiceFromMenu(val: string) {
@@ -1495,6 +1586,10 @@ provideHarnessContext({
   contextMenuTurn,
   messageActions,
   runMessageAction,
+  commandCatalog,
+  toolFormTarget,
+  toolFormArgs,
+  submitToolForm,
   selectChoiceFromMenu,
   switchAgentFromMenu,
   insertToolCommand,

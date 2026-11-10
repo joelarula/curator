@@ -59,7 +59,7 @@ Scope (agreed 2026-11-09):
 
 **Track C, harness and miniapps**
 8. Phase 8: Output panel, done.
-9. Phase 9: Composer `/` and `@` on the shared command list (M). `@` needs 6; args form shares Phase 5's form.
+9. Phase 9: Composer `/` and `@` on the shared command list, done.
 
 Shared piece: `useSchemaForm` + `HarnessSchemaForm.vue`, built in Phase 5 (also used by interrupt cards; Phase 9
 reuses it for tool arguments).
@@ -282,21 +282,31 @@ Not done: surface formatters through plugin `formatters` / `toolOutput` (tools r
 Tests: `packages/host/test/surfaces_contract.test.ts` (extraction, tables, text, panel blocks, CLI),
 `packages/curator-console/test/surfaces.test.ts` (`useSurfaces`, image sources, sandbox document).
 
-## Phase 9: Composer `/` and `@` on the shared command list
+## Phase 9: Composer `/` and `@` on the shared command list (implemented 2026-11-10)
 
-- **One list, three consumers**: `useCommandCatalog()` merges tools (`harness.tools`), host commands and current
-  choices into `CuratorToolContract`-shaped entries plus `source: 'tool' | 'command' | 'choice' | 'agent'`. It feeds
-  `HarnessContextMenu`'s Commands menu (replacing its own lists), the composer popup, and, through the same contract
-  from `@curator/host`, `ClientShell`'s Commander program.
-- `/`: popup with keyboard navigation; `/name arg --flag` parsed by the existing `toolArgsFromTokens`; picking a tool
-  with parameters opens `HarnessSchemaForm`.
-- `@agent`: agents from Phase 6; the message goes to that agent.
-- Suggestion chips (`<suggest>`, starter prompts) whose prompt starts with `/` or `@` go through the same parser, so an
-  agent can suggest a command.
-- The Agent/Tool/AST toggle in `HarnessDeck` / `HarnessOpPrompt` stays one release as a fallback.
-- CLI: readline completion from the same list, plus `@agent`.
+- Host contract `contracts/commands.ts` (shared, browser-safe): `CommandDescriptor` (tool-contract shaped + `source`:
+  command | tool | choice | agent), the tokenizer and tool-argument coercion moved here from `clientShell.ts`
+  (`toolArgsFromTokens`, `toolUsage` still exported from the shell), `findComposerTrigger` (`/` at the start, `@` at a
+  word start), `matchCommands` (prefix matches first, then names/titles containing the query), `parseComposerInput`
+  (command / tool with args and missing required args / choice / agent message / text / unknown), `completeLine`.
+- CLI: `ClientShell.commandCatalog()` (registered commands, help/exec, local and remote tools, current choices,
+  config `agents`), Tab completion from it, `@agent message` routed to config `onAgentMessage` (or speech) when the
+  app lists agents; unknown agents are reported.
+- Console:
+  - `useCommandCatalog` (harness verbs `HARNESS_COMMANDS`, tools, choices, agents); the context menu's verbs come
+    from it.
+  - Composer popup in the agent prompt (`HarnessOpPrompt`): suggestions for `/` and `@` at the cursor, arrow keys,
+    Enter/Tab to pick, Escape to close; picking a choice selects it in the choice bar.
+  - Submitting: `/verb` runs the harness command; `/tool args` runs the tool through `executeTool` (shown as a tool
+    turn); missing required arguments open `HarnessToolArgsDialog` (form from the tool's schema); `/1` or
+    `/<choice value>` answers the choice; `@agent message` sends the message to that agent; unknown names are errors.
+  - Suggestion chips (`<suggest>`, starter prompts) starting with `/` or `@` go through the same parser.
+  - The Agent/Tool/AST mode toggle stays as a fallback for one release.
 
-Tests: list built from tools/commands/choices; identical parsing in CLI and composer.
+Not done: removing the old mode toggle (next release); `#` attachments (deferred).
+
+Tests: `packages/host/test/commands_contract.test.ts` (triggers, suggestions, parsing, CLI catalog, completion,
+`@agent`), `packages/curator-console/test/commandCatalog.test.ts`.
 
 ---
 

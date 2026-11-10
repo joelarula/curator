@@ -342,3 +342,17 @@ return {
 
 Components: `table`, `markdown`, `code`, `json`, `mermaid`, `html`, `svg`, `image`, `resource-collection`,
 `resource-detail`, or one your app registers in `customComponents`.
+
+
+## CLI: commands, completion and `@agent`
+
+`ClientShell` builds one command list (`commandCatalog()`: commands, tools, choices, agents) shared in shape with the
+web composer. Tab completes `/names` and `@agents`. Give the shell your agents to enable `@agent message`:
+
+```typescript
+createClientShell({
+  channel,
+  agents: () => ['weather', 'writer'],
+  onAgentMessage: (agent, text) => channel.send('user:speech', { text, targetAgent: agent }),
+});
+```

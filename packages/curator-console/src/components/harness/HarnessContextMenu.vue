@@ -111,39 +111,11 @@
             💻 REPL Verbs &amp; UI Surfaces
           </v-list-subheader>
           <v-list-item
-            title="/resources - Show App Resources (Grid | List)"
-            prepend-icon="mdi-view-grid-outline"
-            @click="runCmd('/resources')"
-          />
-          <v-list-item
-            title="/layout - Toggle Stack / 2-Column Worktable"
-            prepend-icon="mdi-view-split-vertical"
-            @click="runCmd('/layout')"
-          />
-          <v-list-item
-            title="/status - Inspect Engine & DB"
-            prepend-icon="mdi-information-outline"
-            @click="runCmd('/status')"
-          />
-          <v-list-item
-            :title="paused ? '/resume - Resume Engine' : '/pause - Pause Engine'"
-            :prepend-icon="paused ? 'mdi-play' : 'mdi-pause'"
-            @click="runCmd('/pause')"
-          />
-          <v-list-item
-            title="/workflow - CoffeeScript Studio"
-            prepend-icon="mdi-coffee"
-            @click="runCmd('/workflow')"
-          />
-          <v-list-item
-            title="/export - Export SQLite DB"
-            prepend-icon="mdi-download"
-            @click="runCmd('/export')"
-          />
-          <v-list-item
-            title="/clear - Clear Prompt & Turn Output"
-            prepend-icon="mdi-eraser"
-            @click="runCmd('/clear')"
+            v-for="c in commandItems"
+            :key="c.name"
+            :title="`/${c.name} - ${c.description ?? ''}`"
+            :prepend-icon="c.name === 'pause' ? (paused ? 'mdi-play' : 'mdi-pause') : c.icon"
+            @click="runCmd(`/${c.name}`)"
           />
         </v-list>
       </v-card>
@@ -207,6 +179,8 @@ const agentItems = computed(() => props.agents ?? harness?.agents.value ?? []);
 const selectedAgentName = computed(() => props.selectedAgent ?? harness?.selectedAgent.value ?? '');
 const paused = computed(() => props.isPaused ?? harness?.isPaused.value ?? false);
 const turn = computed(() => harness?.contextMenuTurn?.value ?? null);
+// Harness verbs come from the shared command list (also offered by / in the composer)
+const commandItems = computed(() => harness?.commandCatalog?.commands.value ?? []);
 const turnActions = computed(() => (turn.value ? harness?.messageActions.actionsFor(turn.value.role ?? 'assistant') ?? [] : []));
 
 function copyTurn() {

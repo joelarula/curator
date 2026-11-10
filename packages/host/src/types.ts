@@ -275,6 +275,10 @@ export interface ClientShellConfig<TState = any, _TAction = any> {
   redrawView?: () => void;
   onToolCall?: (toolName: string, args: Record<string, any>, ctx?: ClientShellConfig<TState, _TAction>) => Promise<any>;
   onSpeech?: (text: string, speechAct?: string, targetId?: string) => Promise<any>;
+  /** Agents `@name` can address (and Tab completes); a list or a function returning one. */
+  agents?: string[] | (() => string[]);
+  /** Handles `@agent message`; without it the line goes to `onSpeech` / userSpeech unchanged. */
+  onAgentMessage?: (agent: string, message: string) => Promise<any>;
   onAction?: (action: any, tokens?: string[], ctx?: ClientShellConfig<TState, _TAction>) => Promise<any>;
   onChoice?: (choice: any, ctx?: ClientShellConfig<TState, _TAction>) => Promise<any>;
   onCommand?: (command: string, args: string) => Promise<boolean | void>;

@@ -5,6 +5,7 @@ import type { RunTimeline } from './composables/useRunTimeline';
 import type { InterruptsHandle } from './composables/useInterrupts';
 import type { HarnessMessageRef, MessageActionsHandle } from './composables/useMessageActions';
 import type { SurfacesHandle } from './composables/useSurfaces';
+import type { CommandCatalogHandle } from './composables/useCommandCatalog';
 import type {
   HarnessLayoutMode,
   HarnessResourceViewMode,
@@ -107,6 +108,12 @@ export interface CuratorHarnessContext {
   contextMenuTurn: Ref<HarnessMessageRef | null>;
   messageActions: MessageActionsHandle;
   runMessageAction: (tool: any) => Promise<void>;
+  /** Commands, tools, choices and agents for `/` and `@` (and the context menu). */
+  commandCatalog: CommandCatalogHandle;
+  /** Tool waiting for its required arguments (composer form), and the form's values. */
+  toolFormTarget: Ref<any | null>;
+  toolFormArgs: Ref<Record<string, unknown>>;
+  submitToolForm: () => Promise<void>;
   selectChoiceFromMenu: (val: string) => void;
   switchAgentFromMenu: (agentName: string) => void;
   insertToolCommand: (tool: any) => void;

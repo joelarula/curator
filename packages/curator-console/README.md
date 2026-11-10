@@ -108,3 +108,12 @@ sandboxed iframe), `image` (`{ src }`, data URLs and same-origin only), and the 
 under the same name in `customComponents` to replace a built-in. Agent replies render as sanitized Markdown, and their
 diagrams, pages, JSON and tables can be opened in the panel. Requires `marked`, `dompurify` and `mermaid`
 (dependencies of this package; without them text stays plain and diagrams show their source).
+
+---
+
+## Composer (`/` and `@`)
+
+In the agent prompt, `/` suggests harness commands (`/resources`, `/layout`, ...), tools and current choices; `@`
+suggests agents. `/tool args` runs a tool (missing required arguments open a form from its schema), `/1` answers a
+choice, `@agent message` sends the message to that agent. The list (`useCommandCatalog`) and the parsing
+(`parseComposerInput` in `@curator/host/contracts`) are the same ones the CLI shell uses.

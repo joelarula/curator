@@ -140,16 +140,51 @@
       <!-- Agent Mode Prompt -->
       <v-textarea
         v-if="currentMode === 'agent'"
+        ref="promptField"
         v-model="agentPrompt"
-        label="Instruction / Prompt (e.g. 'show app resources' or right-click for Program Commands)"
-        placeholder="Type 'show app resources' to open the Grid | List view above, ask a question, or drop image files..."
+        label="Instruction / Prompt (/ for commands and tools, @ for agents)"
+        placeholder="Ask a question, type / for commands and tools or @ to address an agent, or drop image files..."
         rows="4"
         variant="outlined"
         auto-grow
         class="code-input"
         hide-details
         @keydown.ctrl.enter.prevent="runExecution"
+        @keydown="onComposerKeydown"
+        @keyup="refreshComposer"
+        @click="refreshComposer"
+        @blur="closeComposerSoon"
       />
+
+      <!-- Composer suggestions: /commands, tools and choices; @agents (same list as the CLI and the context menu) -->
+      <v-card
+        v-if="currentMode === 'agent' && composerItems.length > 0"
+        class="position-absolute border"
+        style="left: 0; right: 0; top: 100%; z-index: 20;"
+        elevation="8"
+        rounded="lg"
+      >
+        <v-list density="compact" class="py-1">
+          <v-list-item
+            v-for="(item, i) in composerItems"
+            :key="`${item.source}-${item.name}`"
+            :active="i === composerIndex"
+            :prepend-icon="item.icon"
+            rounded="md"
+            @mousedown.prevent="applyComposerItem(item)"
+          >
+            <v-list-item-title class="font-monospace text-caption">
+              {{ composerTrigger?.trigger }}{{ item.name }}
+              <span v-if="item.usage" class="text-medium-emphasis">{{ item.usage }}</span>
+              <span v-if="item.title" class="text-medium-emphasis"> · {{ item.title }}</span>
+            </v-list-item-title>
+            <v-list-item-subtitle v-if="item.description" class="text-caption">{{ item.description }}</v-list-item-subtitle>
+            <template #append>
+              <v-chip size="x-small" variant="text">{{ item.source }}</v-chip>
+            </template>
+          </v-list-item>
+        </v-list>
+      </v-card>
 
       <!-- Tool Mode Arguments -->
       <v-textarea
@@ -231,7 +266,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, nextTick } from 'vue';
+import type { CommandDescriptor, ComposerTrigger } from '@curator/host/contracts';
 import { useHarnessContext } from '../../context';
 import HarnessChoices, { type ChoiceItem } from './HarnessChoices.vue';
 
@@ -441,6 +477,76 @@ function clearChoicesAction() {
 
 // Execution
 const isExecuting = computed(() => props.executing ?? harness?.executing.value ?? false);
+
+// ── Composer: / and @ suggestions ───────────────────────────────────────────
+const promptField = ref<any>(null);
+const composerTrigger = ref<ComposerTrigger | null>(null);
+const composerItems = ref<CommandDescriptor[]>([]);
+const composerIndex = ref(0);
+
+function textareaEl(): HTMLTextAreaElement | null {
+  return promptField.value?.$el?.querySelector?.('textarea') ?? null;
+}
+
+/** Recomputes the trigger at the cursor and its suggestions. */
+function refreshComposer(e?: KeyboardEvent) {
+  if (e && ['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)) return;
+  const el = textareaEl();
+  const text = agentPrompt.value ?? '';
+  const cursor = el?.selectionStart ?? text.length;
+  const result = harness?.commandCatalog.suggest(text, cursor) ?? { trigger: null, items: [] };
+  composerTrigger.value = result.trigger;
+  composerItems.value = result.items;
+  if (composerIndex.value >= result.items.length) composerIndex.value = 0;
+}
+
+function closeComposer() {
+  composerItems.value = [];
+  composerTrigger.value = null;
+  composerIndex.value = 0;
+}
+
+function closeComposerSoon() {
+  setTimeout(closeComposer, 150);
+}
+
+/** Puts the picked entry into the prompt; a choice is selected in the choice bar instead. */
+async function applyComposerItem(item: CommandDescriptor) {
+  const trigger = composerTrigger.value;
+  if (!trigger) return;
+  const text = agentPrompt.value ?? '';
+  if (item.source === 'choice') {
+    harness?.selectChoiceFromMenu(String(item.value ?? item.name));
+    agentPrompt.value = (text.slice(0, trigger.start) + text.slice(trigger.end)).trim();
+    closeComposer();
+    return;
+  }
+  const insert = `${trigger.trigger}${item.name} `;
+  agentPrompt.value = text.slice(0, trigger.start) + insert + text.slice(trigger.end);
+  closeComposer();
+  await nextTick();
+  const el = textareaEl();
+  if (el) {
+    const pos = trigger.start + insert.length;
+    el.focus();
+    el.setSelectionRange(pos, pos);
+  }
+}
+
+function onComposerKeydown(e: KeyboardEvent) {
+  if (composerItems.value.length === 0 || e.ctrlKey || e.metaKey) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const n = composerItems.value.length;
+    composerIndex.value = (composerIndex.value + (e.key === 'ArrowDown' ? 1 : n - 1)) % n;
+  } else if (e.key === 'Enter' || e.key === 'Tab') {
+    e.preventDefault();
+    applyComposerItem(composerItems.value[composerIndex.value]);
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    closeComposer();
+  }
+}
 
 function runExecution() {
   if (harness?.executeOpPrompt) harness.executeOpPrompt();
