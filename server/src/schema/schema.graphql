@@ -541,7 +541,7 @@
     id: ID!
     name: String!
     description: String
-    permissions: [Permission!]!
+    permissions: [Permission!]! @deprecated(reason: "RolePermission is no longer used for access; tools are granted by ToolRole, requiredRole or tool:<name> roles. Removed next release.")
     createdAt: String!
   }
 

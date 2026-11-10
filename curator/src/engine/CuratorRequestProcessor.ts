@@ -883,7 +883,7 @@ export class CuratorRequestProcessor {
 
   private async syncToolsToDb() {
     try {
-      logger.debug(`[CuratorRequestProcessor] Syncing tools & permissions from CuratorEngine registry...`);
+      logger.debug(`[CuratorRequestProcessor] Syncing tools from CuratorEngine registry...`);
       let count = 0;
 
       // Seed baseline security roles
@@ -901,10 +901,6 @@ export class CuratorRequestProcessor {
         update: { description: 'Standard automated agent worker with safe execution permissions' },
         create: { id: 'AgentWorker', name: 'AgentWorker', description: 'Standard automated agent worker with safe execution permissions' }
       });
-      // Permission/RolePermission exist only in the MariaDB schema
-      const prismaAny = this.prisma as any;
-      const hasPermissions = !!prismaAny.permission && !!prismaAny.rolePermission;
-
       // Role inheritance: Admin includes subRole AgentWorker
       await this.prisma.roleInheritance.upsert({
         where: {
@@ -930,54 +926,9 @@ export class CuratorRequestProcessor {
           create: { name, description: (tool as any).description ?? '', version: '1.0.0', accessLevel, requiresConfirmation }
         });
 
-        if (!hasPermissions) {
-          count++;
-          continue;
-        }
-
-        // Upsert permission for tool
-        const permName = `tool:${name}:execute`;
-        const perm = await prismaAny.permission.upsert({
-          where: { name: permName },
-          update: { description: `Execute tool ${name}`, toolName: name, accessLevel, requiresConfirmation },
-          create: { name: permName, description: `Execute tool ${name}`, toolName: name, accessLevel, requiresConfirmation }
-        });
-
-        // Attach to Admin role
-        await prismaAny.rolePermission.upsert({
-          where: {
-            roleId_permissionId: {
-              roleId: adminRole.id,
-              permissionId: perm.id
-            }
-          },
-          update: {},
-          create: {
-            roleId: adminRole.id,
-            permissionId: perm.id
-          }
-        });
-
-        // If safe, attach to AgentWorker role
-        if (accessLevel === 'read_only' || accessLevel === 'safe_write') {
-          await prismaAny.rolePermission.upsert({
-            where: {
-              roleId_permissionId: {
-                roleId: workerRole.id,
-                permissionId: perm.id
-              }
-            },
-            update: {},
-            create: {
-              roleId: workerRole.id,
-              permissionId: perm.id
-            }
-          });
-        }
-
         count++;
       }
-      logger.debug(`[CuratorRequestProcessor] Synced ${count} tools with permissions & nested roles.`);
+      logger.debug(`[CuratorRequestProcessor] Synced ${count} tools and base roles.`);
     } catch (err) {
       logger.error('[CuratorRequestProcessor] Failed to sync tools to DB:', err);
     }

@@ -93,7 +93,7 @@ SQLite memory database (`provisionMemorySqliteDb`, ~30 ms; schema from a cached 
     (`stepInteractiveConversation` does it); polling scope: `host.setConversationScope(ids)`.
 - Limits: the move is one way (no rehydration); conversations linked to another memory conversation or to
   resources stay in memory; state projectors (e.g. poker's table resource) update their read model only once the
-  conversation is durable, since the resource lives there; MariaDB/Postgres `Permission`/`RolePermission` are not
+  conversation is durable, since the resource lives there; MariaDB/Postgres `Permission`/`RolePermission` (deprecated, unused since Phase 10 of HARNESS_UX_PLAN) are not
   mirrored (SQLite has no such tables). In a cluster, Phase 4 leases make one durable worker at a time run a
   moved conversation.
 - Only an explicit curator URL (`curatorDb.url` / `CURATOR_DATABASE_URL`) selects Postgres; a generic

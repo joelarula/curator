@@ -6,8 +6,7 @@ test('resolvePeerSession provisions peer user, role, and active session', async 
   const users: any[] = [];
   const roles: any[] = [];
   const userRoles: any[] = [];
-  const permissions: any[] = [];
-  const rolePermissions: any[] = [];
+  const inheritance: any[] = [];
   const sessions: any[] = [];
   const projects: any[] = [];
 
@@ -51,20 +50,15 @@ test('resolvePeerSession provisions peer user, role, and active session', async 
         return args.data;
       },
     },
-    permission: {
+    roleInheritance: {
       upsert: async (args: any) => {
-        let p = permissions.find((x) => x.name === args.where.name);
-        if (!p) {
-          p = { id: 'perm_' + (permissions.length + 1), ...args.create };
-          permissions.push(p);
+        const key = args.where.parentId_subRoleId;
+        let r = inheritance.find((x) => x.parentId === key.parentId && x.subRoleId === key.subRoleId);
+        if (!r) {
+          r = { ...args.create };
+          inheritance.push(r);
         }
-        return p;
-      },
-    },
-    rolePermission: {
-      upsert: async (args: any) => {
-        rolePermissions.push(args.create);
-        return args.create;
+        return r;
       },
     },
     session: {
@@ -99,8 +93,11 @@ test('resolvePeerSession provisions peer user, role, and active session', async 
   assert.equal(context.user.name, 'Facilitator Agent Harness');
   assert.equal(context.role.name, 'PeerWorker');
 
-  // Verify tool permissions provisioned
-  assert.equal(permissions.length, 2);
-  assert.ok(permissions.some((p) => p.name === 'tool:search_episodes:execute'));
-  assert.ok(permissions.some((p) => p.name === 'tool:calculate_metric:execute'));
+  // allowedTools become `tool:<name>` sub-roles of the peer role (roles only, no Permission rows)
+  assert.ok(roles.some((r) => r.id === 'tool:search_episodes'));
+  assert.ok(roles.some((r) => r.id === 'tool:calculate_metric'));
+  assert.deepEqual(
+    inheritance.filter((i) => i.parentId === 'PeerWorker').map((i) => i.subRoleId).sort(),
+    ['tool:calculate_metric', 'tool:search_episodes']
+  );
 });

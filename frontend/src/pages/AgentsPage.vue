@@ -183,7 +183,7 @@
               >
                 <div class="text-subtitle-2 font-weight-bold">Principle of Least Privilege</div>
                 <div class="text-caption opacity-80">
-                  All tool access in Curator Core is whitelist-based by default. An agent is denied execution of any tool unless granted by its assigned roles or permissions. Sensitive operations require Human-in-the-Loop approval.
+                  All tool access in Curator Core is whitelist-based by default. An agent is denied execution of any tool unless granted by its assigned roles; an agent acting for a user may only use what both are allowed. Sensitive operations require Human-in-the-Loop approval.
                 </div>
               </v-alert>
 

@@ -388,6 +388,12 @@ closes its gaps instead of adding a grants system.
   run, a failing check hides the tool; `tools/call` was already checked by the engine via `host.runTool`. The
   console composer reads these lists, so it needs no change. Blueprint's `web_assistant` and `history_summarizer`
   get `requiredRole: blueprint_user`.
+- Step 4 (writes of 6, docs) done 2026-11-10: `Permission` / `RolePermission` are no longer written (processor tool
+  sync, `plugin-mcp-client`) and are marked `@deprecated` in the MariaDB, Postgres and server schemas (drop next
+  release); the server's GraphQL `Role.permissions` is `@deprecated` (display only). No row migration: the old tool
+  check never loaded these rows (only the removed extra check could deny), so turning them into grants would widen
+  access. Federation `allowedTools` now become `tool:<name>` sub-roles of the peer role (RoleInheritance). Docs:
+  `MINIAPP_SETUP_GUIDE` (narrowing, agent access, roles-only grants, project inheritance), `AGENT_GUIDE` 4.4.
 
 ### Order
 

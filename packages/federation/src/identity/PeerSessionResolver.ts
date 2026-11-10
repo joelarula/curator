@@ -73,28 +73,20 @@ export async function resolvePeerSession(
     });
   }
 
-  // 4. Provision specific tool permissions if allowedTools is configured
+  // 4. allowedTools: roles only. Each tool gets a `tool:<name>` role, included in the peer's role (RoleInheritance);
+  // the access check allows a tool to holders of `tool:<name>`. (Replaces the removed Permission/RolePermission.)
   if (identity.allowedTools && Array.isArray(identity.allowedTools)) {
     for (const toolName of identity.allowedTools) {
-      const permName = `tool:${toolName}:execute`;
-      const perm = await prisma.permission.upsert({
-        where: { name: permName },
+      const toolRoleId = `tool:${toolName}`;
+      await prisma.role.upsert({
+        where: { id: toolRoleId },
         update: {},
-        create: { name: permName, toolName },
+        create: { id: toolRoleId, name: toolRoleId, description: `Runs tool ${toolName}` },
       });
-
-      await prisma.rolePermission.upsert({
-        where: {
-          roleId_permissionId: {
-            roleId: role.id,
-            permissionId: perm.id,
-          },
-        },
+      await prisma.roleInheritance.upsert({
+        where: { parentId_subRoleId: { parentId: role.id, subRoleId: toolRoleId } },
         update: {},
-        create: {
-          roleId: role.id,
-          permissionId: perm.id,
-        },
+        create: { parentId: role.id, subRoleId: toolRoleId },
       });
     }
   }

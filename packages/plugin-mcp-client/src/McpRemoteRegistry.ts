@@ -76,7 +76,7 @@ export interface McpToolExpectation {
 
 /**
  * What a server is expected to provide. Declared items get catalog rows at register time (existent=false
- * until a sync sees them), so roles and permissions exist before the first connection.
+ * until a sync sees them), so their role grants exist before the first connection.
  */
 export interface McpServerExpectations {
   tools?: Record<string, McpToolExpectation>;
@@ -514,7 +514,6 @@ export class McpRemoteRegistry {
       const row = existing
         ? await this.prisma.tool.update({ where: { id: existing.id }, data: { ...shared, ...level } })
         : await this.prisma.tool.create({ data: { ...shared, ...level, name: key, version: '1.0.0' } });
-      await this.grantExecutePermission(row);
       await this.grantToolRoles(row, expected?.roles);
       this.registerEngineTool(server, row);
     }
@@ -575,29 +574,6 @@ export class McpRemoteRegistry {
     return count;
   }
 
-  /** Mirrors the processor's RBAC seeding for databases with a Permission table (MariaDB/Postgres). */
-  private async grantExecutePermission(row: any): Promise<void> {
-    const prisma = this.prisma;
-    if (!prisma.permission?.upsert || !prisma.rolePermission?.upsert) return;
-    const name = `tool:${row.name}:execute`;
-    const fields = { toolName: row.name, accessLevel: row.accessLevel, requiresConfirmation: row.requiresConfirmation };
-    const permission = await prisma.permission.upsert({
-      where: { name },
-      update: fields,
-      create: { ...fields, name, description: `Execute remote tool ${row.name}` },
-    });
-    const roles = ['Admin', ...(row.accessLevel === 'read_only' || row.accessLevel === 'safe_write' ? ['AgentWorker'] : [])];
-    for (const roleName of roles) {
-      const role = await prisma.role.findFirst({ where: { name: roleName } });
-      if (!role) continue;
-      await prisma.rolePermission.upsert({
-        where: { roleId_permissionId: { roleId: role.id, permissionId: permission.id } },
-        update: {},
-        create: { roleId: role.id, permissionId: permission.id },
-      });
-    }
-  }
-
   /** Grants `declared` roles exactly (others revoked) or, without a declaration, adds the `toolRoles`. */
   private async grantToolRoles(row: any, declared?: string[]): Promise<void> {
     const prisma = this.prisma;
@@ -653,7 +629,6 @@ export class McpRemoteRegistry {
               existent: false,
             },
           });
-      await this.grantExecutePermission(row);
       await this.grantToolRoles(row, expected?.roles);
     }
     for (const uri of expect.resources ?? []) {

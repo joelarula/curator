@@ -196,6 +196,24 @@ When writing agent scripts, **never confuse conversational roles with database R
    - `poker:dealer` inherits `poker:player`
    - `poker:player` inherits `poker:spectator`
    - A dealer actor can automatically execute player and spectator tools without duplicate privilege assignments.
+6. **Narrowing, never widening**:
+   An agent acting for a user (the request's `userId`: the signed-in user, or the agent's owner for scheduled runs)
+   may only run tools that both the agent and the user are allowed. Errors and missing role tables deny.
+7. **Agents are role-controlled too**:
+   A user may address an agent (chat, `@agent`, `triggerAgent`) only with `agent:<name>`, `agent:*`, a super-admin
+   role, or the role named by the agent definition's `requiredRole`:
+   ```typescript
+   agents: {
+     web_assistant: { requiredRole: 'blueprint_user', roles: ['web_assistant'], ast: { /* ... */ } },
+   }
+   ```
+   An agent without `requiredRole` is addressable only by super-admins and `agent:<name>` holders. Refused runs
+   fail with an `AGENT_BLOCKED` response. Tool and agent lists (GraphQL `tools` / `agents(usable: true)`, MCP
+   `tools/list`, the console composer) show only what the caller may use (`AccessService.canUse` / `filterUsable`).
+8. **Grants are roles only**:
+   Grant tools with `requiredRole`, `ToolRole` or a `tool:<name>` role (a sub-role works: the federation provisioner
+   gives a peer role `tool:<name>` sub-roles for its `allowedTools`). `Permission` / `RolePermission` are deprecated,
+   no longer read or written.
 
 ### Multi-Project Architecture & Database Model Relation Scoping
 
@@ -206,7 +224,10 @@ A single MiniApp can run the **same engine and tools** across **several distinct
 2. **`UserRole` with `projectId`**:
    User permissions are scoped to specific projects through the `UserRole.projectId` foreign key:
    - `projectId == null`: Global role (e.g. system administrator).
-   - `projectId == 'table_casual'`: User possesses that role *only* within that specific project.
+   - `projectId == 'table_casual'`: User possesses that role within that project and its sub-projects
+     (`Project.parentId`), never in other projects or globally.
+   - A project that lists roles in `ProjectRole` narrows which roles count there; every project up the chain that
+     lists roles must list the role, so a sub-project can narrow but never widen its parent.
 3. **Multi-Project Host APIs**:
    ```typescript
    // Create multiple tables/projects sharing the same engine

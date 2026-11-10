@@ -75,6 +75,7 @@ model RoleInheritance {
   @@id([parentId, subRoleId])
 }
 
+/// @deprecated Redundant with role names (tool:<name>, ToolRole); no longer read or written. Dropped next release.
 model Permission {
   id                   String           @id @default(cuid())
   name                 String           @unique
@@ -90,6 +91,7 @@ model Permission {
   updatedAt DateTime @updatedAt
 }
 
+/// @deprecated Redundant with role names (tool:<name>, ToolRole); no longer read or written. Dropped next release.
 model RolePermission {
   roleId       String
   role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
