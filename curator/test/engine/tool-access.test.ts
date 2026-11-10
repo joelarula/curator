@@ -244,6 +244,9 @@ test('narrowing: an agent acting for a user may only use tools both are allowed'
     await env.prisma.userRole.create({ data: { userId: viewer.id, roleId: 'viewer' } });
     const operator = await mkUser(env, 'operator1');
     await env.prisma.userRole.create({ data: { userId: operator.id, roleId: 'operator' } });
+    // Both may address the agent; only the tool rights differ
+    await mkRole(env, 'agent:opagent');
+    for (const u of [viewer, operator]) await env.prisma.userRole.create({ data: { userId: u.id, roleId: 'agent:opagent' } });
 
     const run = async (userId: any) => {
       const req = await env.prisma.request.create({
@@ -305,5 +308,52 @@ test('project inheritance: a sub-project narrows with its own role list and cann
     assert.equal(widened.status, 'FAILED');
     assert.match(widened.blocked.reason, /not assigned to project 'parent'/);
     assert.equal(ran.length, 0);
+  } finally { await env.cleanup(); }
+});
+
+async function addressAgent(env: TestEnv, agentId: string, userId: any) {
+  const req = await env.prisma.request.create({
+    data: { userId, agentId, conversationId: env.conversationId, status: 'NEW', toolName: 'Curator_Workflow', ast: await guarded() },
+  });
+  await env.processor.stepUntil({ conversationId: env.conversationId });
+  const row = await env.prisma.request.findUnique({ where: { id: req.id } });
+  const responses = await env.prisma.response.findMany({ where: { requestId: req.id } });
+  const blocked = responses.map((r: any) => { try { return JSON.parse(r.content); } catch { return null; } }).find((r: any) => r?.type === 'AGENT_BLOCKED');
+  return { status: row.status as string, blocked };
+}
+
+test("agent access: a user needs agent:<name>, agent:* or the agent's requiredRole to address it", async () => {
+  const { env, ran, toolId } = await setup('agent_address');
+  try {
+    await mkRole(env, 'operator'); await mkRole(env, 'agent:helper'); await mkRole(env, 'agent:*'); await mkRole(env, 'helpdesk');
+    await env.prisma.toolRole.create({ data: { toolId, roleId: 'operator' } });
+    const agent = await env.prisma.agent.create({ data: { id: 'ag-helper', name: 'helper', userId: env.userId } });
+    await env.prisma.agentRole.create({ data: { agentId: agent.id, roleId: 'operator' } });
+    const mk = async (n: string, roles: string[]) => {
+      const u = await mkUser(env, n);
+      for (const r of ['operator', ...roles]) await env.prisma.userRole.create({ data: { userId: u.id, roleId: r } });
+      return u;
+    };
+    const none = await mk('noagent', []);
+    const named = await mk('named', ['agent:helper']);
+    const any = await mk('anyagent', ['agent:*']);
+    const desk = await mk('desk', ['helpdesk']);
+
+    const refused = await addressAgent(env, agent.id, none.id);
+    assert.equal(refused.status, 'FAILED');
+    assert.match(refused.blocked.reason, /may not address agent 'helper'/);
+    assert.equal(ran.length, 0);
+
+    assert.equal((await addressAgent(env, agent.id, named.id)).status, 'COMPLETED');
+    assert.equal((await addressAgent(env, agent.id, any.id)).status, 'COMPLETED');
+    assert.equal((await addressAgent(env, agent.id, desk.id)).status, 'FAILED');
+
+    // The agent definition's requiredRole grants it
+    const engine = (env.processor as any).engine;
+    engine.agents ??= new Map<string, any>();
+    engine.agents.set('helper', { requiredRole: 'helpdesk' });
+    env.processor.invalidateDefinitions();
+    assert.equal((await addressAgent(env, agent.id, desk.id)).status, 'COMPLETED');
+    assert.equal(ran.length, 3);
   } finally { await env.cleanup(); }
 });

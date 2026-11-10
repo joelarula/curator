@@ -93,6 +93,11 @@ export interface CuratorAgentDefinition {
   args?: Record<string, unknown>;
   /** Array of role names assigned to this agent (whitelist-based access) */
   roles?: string[];
+  /**
+   * Role a user needs to address this agent (besides `agent:<name>` / `agent:*` and super-admins). Without it, only
+   * those can address the agent (allow-list only).
+   */
+  requiredRole?: string;
   [key: string]: any;
 }
 

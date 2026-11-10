@@ -42,6 +42,7 @@ import type { LlmCallRecord, LlmTelemetryRecord } from './llm/LlmTrace.js';
 import { PostgresWakeChannel } from './WakeChannel.js';
 import { sqlDialect, type SqlDialect } from '../db/sqlDialect.js';
 import { AgentRoleService } from '../services/AgentRoleService.js';
+import { AccessService } from '../services/AccessService.js';
 import { ApprovalService } from '../services/ApprovalService.js';
 import { PluginConfig, PluginConfigService } from '../services/PluginConfigService.js';
 import { defaultOutputFormats, type OutputFormats } from './output/OutputFormats.js';
@@ -178,6 +179,8 @@ export interface CuratorRequestProcessorOptions {
 /** Registries the processor reads; `curatorEngine` by default. Plugin node types, services and systems are optional. */
 export interface ProcessorEngine {
   tools: Map<string, any>;
+  /** Agent definitions by name (CuratorEngine): their `requiredRole` controls who may address them. */
+  agents?: Map<string, any>;
   /** Alias resolution within a project (CuratorEngine); falls back to `tools.get` when absent. */
   resolveTool?(name: string, scope: { projectId?: string | number | null }): any | undefined;
   /** Pattern listing within a project (CuratorEngine); falls back to exact `tools` keys when absent. */
@@ -1636,6 +1639,18 @@ export class CuratorRequestProcessor {
         }
       } catch (_) {}
 
+      // Addressing an agent is role-controlled: checked on a run's first request (requests it creates are covered by
+      // tool narrowing), for explicit agent requests only.
+      if (req.agentId && req.parentId == null && req.createdBy == null) {
+        const access = await this.checkAgentAddressAccess(req, agent);
+        if (!access.allowed) {
+          logger.debug(`[CuratorRequestProcessor] Request ${req.id} refused: ${access.reason}`);
+          await this.saveResponse(req, JSON.stringify({ type: 'AGENT_BLOCKED', agent: agent?.name ?? req.agentId, reason: access.reason }));
+          await this.completeRequest(req.id, 'FAILED');
+          return;
+        }
+      }
+
       await this.ensureScriptReference(req);
       let resolvedNode: CuratorAstNode | null;
       try {
@@ -2526,6 +2541,19 @@ export class CuratorRequestProcessor {
     const script = await this.prisma.script.findUnique({ where: { name: parsed.script }, select: { id: true } });
     if (!script) throw new Error(`Script '${parsed.script}' not found`);
     return { scriptId: script.id, entry: parsed.entry ?? null };
+  }
+
+  /** Whether the request's user may address its agent (`agent:<name>`, `agent:*` or the definition's `requiredRole`). */
+  private async checkAgentAddressAccess(req: any, agentRow: any): Promise<{ allowed: boolean; reason?: string }> {
+    const name = String(agentRow?.name ?? req.agentId);
+    const definition: any = this.engine.agents?.get?.(name);
+    const userId = req.userId || req.context?.userId;
+    const projectId = req.projectId || req.context?.projectId;
+    const actor = { userId: userId ? String(userId) : undefined, projectId: projectId ? String(projectId) : undefined };
+    const policy = { requiredRole: definition?.requiredRole };
+    return this.definition(`agent-access:${JSON.stringify([actor, name, policy])}`, () =>
+      AccessService.canUse(this.prisma, actor, 'agent', name, policy)
+    );
   }
 
   private async checkToolRoleAccess(req: any, toolName: string, tool: any): Promise<ToolRoleAccessResult> {

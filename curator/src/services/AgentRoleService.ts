@@ -142,6 +142,99 @@ export class AgentRoleService {
         toolName: string,
         toolConfig?: ToolSecurityConfig
     ): Promise<{ allowed: boolean; reason?: string; roleNames: string[] }> {
+        const effective = await AgentRoleService.resolveEffectiveRoles(prisma, actor);
+        if (!effective.ok) return { allowed: false, reason: effective.reason, roleNames: effective.roleNames };
+        const { roleNames, actorName } = effective;
+        if (effective.superAdmin) return { allowed: true, roleNames };
+
+        // 4. Tool's required role configuration match
+        const requiredRole = toolConfig?.requiredRole;
+        if (requiredRole && roleNames.includes(requiredRole)) {
+            return { allowed: true, roleNames };
+        }
+
+        // 4b. Explicit ToolRole database relation match (many-to-many)
+        if (prisma.toolRole?.findMany) {
+            try {
+                const dbToolRoles = await prisma.toolRole.findMany({
+                    where: { tool: { name: toolName } },
+                    include: { role: true },
+                });
+                for (const tr of dbToolRoles) {
+                    const rName = tr.role?.name || tr.roleId;
+                    if (rName && roleNames.includes(rName)) {
+                        return { allowed: true, roleNames };
+                    }
+                }
+            } catch {}
+        }
+
+        // 4c. Direct tool role match: e.g. "tool:poker_apply_action" or "poker_apply_action"
+        if (roleNames.includes(`tool:${toolName}`) || roleNames.includes(toolName)) {
+            return { allowed: true, roleNames };
+        }
+
+        // Access denied if not explicitly whitelisted
+        const requiredText = requiredRole ? `'${requiredRole}' or 'tool:${toolName}'` : `'tool:${toolName}'`;
+        return {
+            allowed: false,
+            roleNames,
+            reason: `Access Denied: ${actorName} with roles [${roleNames.join(', ')}] is not whitelisted for tool '${toolName}'. Requires role ${requiredText}.`
+        };
+    }
+
+    /**
+     * Whether a user (or an agent) may address an agent: super-admins, holders of `agent:<name>` or `agent:*`, or of
+     * the agent definition's `requiredRole`. Allow-list only: an agent that declares nothing is addressable only by
+     * super-admins and `agent:<name>` holders. Project scoping and narrowing are the same as for tools.
+     */
+    static async validateAgentAddressAccess(
+        prisma: PrismaClient | any,
+        actor: ActorIdentity,
+        agentName: string,
+        policy: { requiredRole?: string } = {}
+    ): Promise<{ allowed: boolean; reason?: string; roleNames: string[] }> {
+        if (!prisma) return { allowed: false, roleNames: [], reason: `Access Denied: no role database to check agent '${agentName}' against.` };
+        const projectId = actor?.projectId != null ? String(actor.projectId) : null;
+        const subjects: Array<{ agentId?: string; userId?: string; projectId: string | null }> = [];
+        if (actor?.agentId != null) subjects.push({ agentId: String(actor.agentId), projectId });
+        if (actor?.userId != null) subjects.push({ userId: String(actor.userId), projectId });
+        if (subjects.length === 0) {
+            return { allowed: false, roleNames: [], reason: `Access Denied: addressing agent '${agentName}' needs an authenticated user or agent.` };
+        }
+        let lastRoles: string[] = [];
+        // Narrowing: every actor in the chain (calling agent, user) must be allowed
+        for (const subject of subjects) {
+            const effective = await AgentRoleService.resolveEffectiveRoles(prisma, subject);
+            if (!effective.ok) return { allowed: false, reason: effective.reason, roleNames: effective.roleNames };
+            lastRoles = effective.roleNames;
+            if (effective.superAdmin) continue;
+            const names = effective.roleNames;
+            const ok = names.includes(`agent:${agentName}`) || names.includes('agent:*') || (!!policy.requiredRole && names.includes(policy.requiredRole));
+            if (!ok) {
+                const requiredText = policy.requiredRole ? `'${policy.requiredRole}' or 'agent:${agentName}'` : `'agent:${agentName}'`;
+                return {
+                    allowed: false,
+                    roleNames: names,
+                    reason: `Access Denied: ${effective.actorName} with roles [${names.join(', ')}] may not address agent '${agentName}'. Requires role ${requiredText}.`,
+                };
+            }
+        }
+        return { allowed: true, roleNames: lastRoles };
+    }
+
+    /**
+     * The roles one actor (an agent or a user) holds in a project: assigned roles valid in the project chain, expanded
+     * with RoleInheritance, then narrowed by every `ProjectRole` list in the chain. Denials (unknown, deleted,
+     * disabled, wrong project, no roles) come back as `ok: false`.
+     */
+    static async resolveEffectiveRoles(
+        prisma: PrismaClient | any,
+        actor: { agentId?: string | null; userId?: string | null; projectId: string | null }
+    ): Promise<
+        | { ok: true; roleNames: string[]; actorName: string; superAdmin: boolean }
+        | { ok: false; reason: string; roleNames: string[] }
+    > {
         const agentId = actor.agentId ?? null;
         const userId = actor.userId ?? null;
         const targetProjectId = actor.projectId;
@@ -181,7 +274,7 @@ export class AgentRoleService {
 
             if (!agent || agent.existent === false || agent.deletedAt != null) {
                 return {
-                    allowed: false,
+                    ok: false,
                     roleNames: [],
                     reason: `Access Denied: Agent '${agent?.name || agentId}' not found or has been deleted.`
                 };
@@ -189,7 +282,7 @@ export class AgentRoleService {
 
             if (agent.enabled === false) {
                 return {
-                    allowed: false,
+                    ok: false,
                     roleNames: [],
                     reason: `Access Denied: Agent '${agent.name || agentId}' is disabled.`
                 };
@@ -198,7 +291,7 @@ export class AgentRoleService {
             // If agent belongs to a specific project, it may act there and in that project's sub-projects
             if (targetProjectId && agent.projectId && !(await isProjectWithin(prisma, targetProjectId, agent.projectId))) {
                 return {
-                    allowed: false,
+                    ok: false,
                     roleNames: [],
                     reason: `Access Denied: Agent '${agent.name || agentId}' is bound to project '${agent.projectId}' and cannot act in project '${targetProjectId}'.`
                 };
@@ -228,7 +321,7 @@ export class AgentRoleService {
 
             if (!user) {
                 return {
-                    allowed: false,
+                    ok: false,
                     roleNames: [],
                     reason: `User '${userId}' not found.`
                 };
@@ -259,16 +352,16 @@ export class AgentRoleService {
         if (roleNames.length === 0) {
             const scopeMsg = targetProjectId ? ` for project '${targetProjectId}'` : '';
             return {
-                allowed: false,
+                ok: false,
                 roleNames: [],
-                reason: `Access Denied: ${actorName} has no assigned roles${scopeMsg}. All tool access is whitelist-based by default.`
+                reason: `Access Denied: ${actorName} has no assigned roles${scopeMsg}. All access is whitelist-based by default.`
             };
         }
 
         // 2. Universal / admin wildcard roles (super-admins bypass project constraints)
         const isSuperAdmin = roleNames.some((r: string) => AgentRoleService.SUPER_ADMIN_ROLES.includes(r));
         if (isSuperAdmin) {
-            return { allowed: true, roleNames };
+            return { ok: true, roleNames, actorName, superAdmin: true };
         }
 
         // 3. Project role lists (ProjectRole): every project in the chain that lists roles must list the role,
@@ -277,7 +370,7 @@ export class AgentRoleService {
             const projectScopedNames = roleNames.filter((r) => list.roles.has(r));
             if (projectScopedNames.length === 0) {
                 return {
-                    allowed: false,
+                    ok: false,
                     roleNames,
                     reason: `Access Denied: Roles held by ${actorName} [${roleNames.join(', ')}] are not assigned to project '${list.projectId}' (active project roles: [${Array.from(list.roles).join(', ')}]).`
                 };
@@ -285,40 +378,7 @@ export class AgentRoleService {
             roleNames = projectScopedNames;
         }
 
-        // 4. Tool's required role configuration match
-        const requiredRole = toolConfig?.requiredRole;
-        if (requiredRole && roleNames.includes(requiredRole)) {
-            return { allowed: true, roleNames };
-        }
-
-        // 4b. Explicit ToolRole database relation match (many-to-many)
-        if (prisma.toolRole?.findMany) {
-            try {
-                const dbToolRoles = await prisma.toolRole.findMany({
-                    where: { tool: { name: toolName } },
-                    include: { role: true },
-                });
-                for (const tr of dbToolRoles) {
-                    const rName = tr.role?.name || tr.roleId;
-                    if (rName && roleNames.includes(rName)) {
-                        return { allowed: true, roleNames };
-                    }
-                }
-            } catch {}
-        }
-
-        // 4c. Direct tool role match: e.g. "tool:poker_apply_action" or "poker_apply_action"
-        if (roleNames.includes(`tool:${toolName}`) || roleNames.includes(toolName)) {
-            return { allowed: true, roleNames };
-        }
-
-        // Access denied if not explicitly whitelisted
-        const requiredText = requiredRole ? `'${requiredRole}' or 'tool:${toolName}'` : `'tool:${toolName}'`;
-        return {
-            allowed: false,
-            roleNames,
-            reason: `Access Denied: ${actorName} with roles [${roleNames.join(', ')}] is not whitelisted for tool '${toolName}'. Requires role ${requiredText}.`
-        };
+        return { ok: true, roleNames, actorName, superAdmin: false };
     }
 
     /**

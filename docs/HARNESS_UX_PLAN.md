@@ -372,6 +372,12 @@ closes its gaps instead of adding a grants system.
   permissions. The processor's role check denies on error; its `Permission` check and `resolveActorPermissions` are
   removed (tool sync still writes `Permission` rows until the write side of 6). Tests: `tool-access.test.ts`
   (narrowing, downward inheritance, sub-project narrowing).
+- Step 2 (4 and the shared check) done 2026-11-10: `AccessService.canUse(prisma, actor, 'tool' | 'agent' | 'secret',
+  name, policy)` and `filterUsable` (exported from `curator`); `AgentRoleService.resolveEffectiveRoles` (shared role
+  resolution) and `validateAgentAddressAccess`. Agent definitions get `requiredRole`. The processor checks addressing
+  on a run's first request with an agent (no `parentId` / `createdBy`): refused runs fail with an `AGENT_BLOCKED`
+  response. Allow-list: an agent without `requiredRole` is addressable only by super-admins and `agent:<name>` /
+  `agent:*` holders.
 
 ### Order
 
