@@ -285,6 +285,11 @@ export interface ClientShellConfig<TState = any, _TAction = any> {
   prompts?: () => PromptInfo[] | Promise<PromptInfo[]>;
   /** Fills a prompt's arguments (e.g. `prompt_get`); the text is then sent like a typed message. */
   renderPrompt?: (name: string, args: Record<string, any>) => Promise<string>;
+  /**
+   * Channel commands (`/channels`, `/join`, `/leave`, `/invite`, `/post`) through the host's channel tools, and
+   * printing of what channel workflows address to the user (deliveries, invitations, refusals).
+   */
+  channels?: boolean;
   redrawView?: () => void;
   onToolCall?: (toolName: string, args: Record<string, any>, ctx?: ClientShellConfig<TState, _TAction>) => Promise<any>;
   onSpeech?: (text: string, speechAct?: string, targetId?: string) => Promise<any>;

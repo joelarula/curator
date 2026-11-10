@@ -32,6 +32,7 @@ export {
   type ActiveChoice,
 } from './cli/clientShell.js';
 export { ShellAuthController, openInBrowser, isAuthRequiredError, type ShellAuthOptions } from './cli/shellAuth.js';
+export { ChannelShell, type ChannelShellHost } from './cli/channelCommands.js';
 export {
   FileIdentityStore,
   defaultIdentityDir,

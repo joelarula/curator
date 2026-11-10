@@ -460,7 +460,14 @@ delivered only to their participant (see live delivery).
   Adapters must send the user's token on the WebSocket (keeris already sends `?token=`); gallery's console has no
   live-feed adapter yet, so it polls.
 
-Not done (next): CLI join / leave / invite / post commands.
+### Channels: CLI commands (done 2026-11-11)
+
+`ClientShell({ channels: true })` adds `/channels`, `/join <channel>`, `/leave [channel]`,
+`/invite <userId | agent:<id>> [channel]` and `/post <text>` (`ChannelShell`, `cli/channelCommands.ts`). They hold no
+channel logic: join / leave / invite call `channel_request` (the channel's workflow decides), `/post` calls
+`channel_post` in the active channel (set by `/join`); a channel is named by id or title. Events the workflow addresses
+to the user (`conversation:message_delivered`, `conversation:invited`, `conversation:join_denied`,
+`conversation:invite_denied`) are printed as they arrive.
 
 ## Cross-cutting
 

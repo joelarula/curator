@@ -398,3 +398,22 @@ createClientShell({
   renderPrompt: async (name, args) => (await host.runTool('prompt_get', { name, arguments: args })).result.text,
 });
 ```
+
+
+## Channels
+
+A channel is a conversation with members (like a poker table). Joining, leaving and inviting are decided by the
+conversation's workflow: clients only send requests (`channel_request`), the default `conversation_channel_workflow`
+lets in invited senders, or holders of `channels:join` when the conversation's state says `channel.open`, and invites
+when the sender holds `channels:invite`. Your own workflow can replace that policy (seats, approval) with the
+`conversation_join` / `conversation_leave` / `conversation_invite` / `conversation_membership` steps and `access_check`.
+
+Messages: `channel_post` / `channel_messages`; the workflow delivers each message live to the owner and members as an
+addressed event. For live delivery, bind your event-stream sockets to the signed-in user:
+
+```typescript
+createCuratorServer(host, { wsIdentify: async (req) => ({ userId: await userFromToken(req) }) });
+```
+
+CLI: `createClientShell({ channel, channels: true })` adds `/channels`, `/join`, `/leave`, `/invite`, `/post` and
+prints deliveries, invitations and refusals.

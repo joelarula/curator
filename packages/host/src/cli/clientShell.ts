@@ -14,6 +14,7 @@ import type {
   PromptInfo,
 } from '../types.js';
 import { ShellAuthController, isAuthRequiredError } from './shellAuth.js';
+import { ChannelShell } from './channelCommands.js';
 import {
   parseSpeechActs,
   formatSpeechActsForTerminal,
@@ -71,6 +72,9 @@ export class ClientShell<TState = any, TAction = ToolAction> {
   public readonly auth?: ShellAuthController;
   private unsubscribeAuth?: () => void;
   private unsubscribeProgress?: () => void;
+  private unsubscribeChannels?: () => void;
+  /** Channel commands and the printing of channel events (`config.channels`). */
+  public readonly channelShell?: ChannelShell;
   /** Interrupt whose answers are the active choices (they then aren't replaced by speech-act choices). */
   private interruptChoiceId?: string;
   /** Prompt interrupt answered by the next non-command line. */
@@ -101,6 +105,13 @@ export class ClientShell<TState = any, TAction = ToolAction> {
     const initialCmds = config.commands || [];
     for (const cmd of initialCmds) {
       this.registerCommand(cmd);
+    }
+    if (config.channels) {
+      this.channelShell = new ChannelShell({
+        dispatchTool: (toolName, args) => this.dispatchTool(toolName, args),
+        printAsync: (text) => this.printAsync(text),
+      });
+      for (const cmd of this.channelShell.commands()) this.registerCommand(cmd);
     }
     const initialTools = config.tools || config.availableTools || [];
     for (const t of initialTools) {
@@ -1134,6 +1145,13 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       });
     }
 
+    // Channel events the host addressed to this user (deliveries, invitations, refusals)
+    if (this.config.channel && this.channelShell) {
+      this.unsubscribeChannels = this.config.channel.on((event: any) => {
+        if (event?.type) this.channelShell!.ingest(event.type, event.payload);
+      });
+    }
+
     this.rl.on('line', async (line) => {
       this.isHandlingLine = true;
       try {
@@ -1163,6 +1181,8 @@ export class ClientShell<TState = any, TAction = ToolAction> {
     this.unsubscribeAuth = undefined;
     this.unsubscribeProgress?.();
     this.unsubscribeProgress = undefined;
+    this.unsubscribeChannels?.();
+    this.unsubscribeChannels = undefined;
     this.progress.dispose();
     this.auth?.cancel();
     if (this.rl) {
