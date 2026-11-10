@@ -334,6 +334,9 @@ CREATE TABLE `Conversation` (
     `userId` VARCHAR(191) NOT NULL,
     `projectId` VARCHAR(191) NULL,
     `metadata` JSON NULL,
+    `title` VARCHAR(200) NULL,
+    `pinnedAt` DATETIME(3) NULL,
+    `archivedAt` DATETIME(3) NULL,
     `existent` BOOLEAN NULL DEFAULT true,
     `deletedAt` DATETIME(3) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -341,6 +344,7 @@ CREATE TABLE `Conversation` (
 
     UNIQUE INDEX `Conversation_externalId_key`(`externalId`),
     INDEX `Conversation_existent_idx`(`existent`),
+    INDEX `Conversation_projectId_userId_existent_idx`(`projectId`, `userId`, `existent`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 

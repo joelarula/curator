@@ -357,6 +357,29 @@ shims, surface formatters. Not chosen now: conversation organisation, channels.
   `renderPrompt(name, args)`; `/name args` is filled and sent like a typed message. Needs: the server module's
   `db:push`, and apps wiring `prompts` / `renderPrompt` in their shells.
 
+## Phase 12: Conversation organisation (done 2026-11-10)
+
+- Schema (all four): `Conversation.title` (null: the first message is shown), `pinnedAt`, `archivedAt`; index
+  `[projectId, userId, existent]`.
+- Core tools (people only, project from the session, role `conversations:own`, seeded): `conversation_list`
+  (`archived`, `query`, `limit`; pinned first, then the newest request; untitled ones show the first root request's
+  message), `conversation_rename` (empty title: back to the first message), `conversation_pin`, `conversation_archive`
+  (archiving unpins), `conversation_delete` (soft: `existent` NULL + `deletedAt`; not the conversation the call runs
+  in). Someone else's conversation answers "not found".
+- Access is decided only by `conversationAccess(userId, projectId)`: the owner today.
+- Console: `useConversations` and a Conversations tab (shown with `conversation_list`): search, active/archived,
+  rename inline, pin, archive/restore, delete (confirm; not the open one); opening a conversation sets the console's
+  conversation id for later turns.
+- Blueprint: `listChats` shows titles, leaves archived chats out and puts pinned ones first.
+
+### Channels (next, not started)
+
+A channel is a conversation with many members, like a poker table. Joining (`conversation_join` or an equivalent
+construct) is what makes a conversation a channel. Today a join is a live session only (`ConversationSessionManager`,
+in memory, mostly agents); for channels it persists a member row, and `conversationAccess` grows to "owner or member"
+(per-member pin/archive then move to the member row). Open: who may join (roles, invitations), how agents join, the
+shared message stream in the console.
+
 ## Cross-cutting
 
 - Rebuild `packages/host` / `curator` before testing miniapps (blueprint, gallery, keeris).

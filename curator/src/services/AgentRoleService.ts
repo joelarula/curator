@@ -512,7 +512,8 @@ export class AgentRoleService {
             { name: 'curator:db:export', description: 'May download the whole database file' },
             { name: 'curator:db:import', description: 'May replace the database file' },
             { name: 'curator:requests:read', description: "May read other users' requests and responses in the project" },
-            { name: 'prompts:write', description: 'May save and delete prompts of the project prompt library' }
+            { name: 'prompts:write', description: 'May save and delete prompts of the project prompt library' },
+            { name: 'conversations:own', description: 'May list, rename, pin, archive and delete their own conversations' }
         ];
 
         for (const r of defaultRoles) {

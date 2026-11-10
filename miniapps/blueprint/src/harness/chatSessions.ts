@@ -11,15 +11,17 @@ const CHAT_PREFIX = `chat:${ASSISTANT_AGENT}:`;
 export interface ChatSummary {
   conversationId: number;
   turns: number;
-  /** The first user message, for picking a chat to resume. */
+  /** The chat's title (conversation_rename), else its first user message, for picking a chat to resume. */
   title: string;
+  /** Pinned chats come first (conversation_pin). */
+  pinned: boolean;
   lastActiveAt: Date;
 }
 
-/** Earlier chats with at least one turn, most recently active first. */
+/** Earlier chats with at least one turn, pinned first, then most recently active; archived chats are left out. */
 export async function listChats(host: CuratorHost, limit = 5): Promise<ChatSummary[]> {
   const conversations = await host.prisma.conversation.findMany({
-    where: { projectId: host.project.id, userId: host.user.id, externalId: { startsWith: CHAT_PREFIX }, existent: true },
+    where: { projectId: host.project.id, userId: host.user.id, externalId: { startsWith: CHAT_PREFIX }, existent: true, archivedAt: null },
     include: {
       requests: {
         where: { agentId: { not: null }, parentId: null },
@@ -36,11 +38,14 @@ export async function listChats(host: CuratorHost, limit = 5): Promise<ChatSumma
     chats.push({
       conversationId: c.id,
       turns: c.requests.length,
-      title: String(first.message ?? '').slice(0, 60),
+      title: c.title ?? String(first.message ?? '').slice(0, 60),
+      pinned: c.pinnedAt != null,
       lastActiveAt: new Date(Math.max(...c.requests.map((r: any) => new Date(r.updatedAt).getTime()))),
     });
   }
-  return chats.sort((a, b) => b.lastActiveAt.getTime() - a.lastActiveAt.getTime()).slice(0, limit);
+  return chats
+    .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.lastActiveAt.getTime() - a.lastActiveAt.getTime())
+    .slice(0, limit);
 }
 
 export async function createChat(host: CuratorHost): Promise<number> {

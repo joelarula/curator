@@ -132,6 +132,9 @@
           <v-tab value="events" prepend-icon="mdi-broadcast">
             Events ({{ eventLogs.length }})
           </v-tab>
+          <v-tab v-if="conversations.available.value" value="conversations" prepend-icon="mdi-forum-outline">
+            Conversations
+          </v-tab>
           <v-tab value="settings" prepend-icon="mdi-cog-outline">
             Settings
           </v-tab>
@@ -201,6 +204,10 @@
               />
             </v-window-item>
 
+            <v-window-item value="conversations">
+              <ConversationsTab :list="conversations" :active-external-id="conversationContextId" @open="openConversation" />
+            </v-window-item>
+
             <v-window-item value="settings">
               <SettingsTab :config="pluginConfig" />
             </v-window-item>
@@ -268,12 +275,14 @@ import DatabaseHealthTab from './components/tabs/DatabaseHealthTab.vue';
 import GraphQLStudioTab from './components/tabs/GraphQLStudioTab.vue';
 import EventStreamTab, { type EventLogEntry } from './components/tabs/EventStreamTab.vue';
 import SettingsTab from './components/tabs/SettingsTab.vue';
+import ConversationsTab from './components/tabs/ConversationsTab.vue';
 import { usePluginConfig } from './composables/usePluginConfig';
 import { useSurfaces } from './composables/useSurfaces';
 import { useCommandCatalog, isCommandAllowed } from './composables/useCommandCatalog';
 import { useAttachments, promptWithAttachments, type AttachedResource } from './composables/useAttachments';
 import { useSources } from './composables/useSources';
 import { usePromptLibrary } from './composables/usePromptLibrary';
+import { useConversations, type ConversationView } from './composables/useConversations';
 
 interface Props {
   adapter?: CuratorConsoleAdapter;
@@ -400,8 +409,11 @@ const allowedActions = ref<string[]>([]);
 const attachments = useAttachments(tools, runHostTool);
 // Prompt library: saved project prompts and MCP prompts, offered after / (reloaded with the tool list)
 const promptLibrary = usePromptLibrary(tools, runHostTool);
+// Conversation organisation (conversation_list / _rename / _pin / _archive / _delete)
+const conversations = useConversations(tools, runHostTool);
 watch(tools, () => {
   promptLibrary.load();
+  if (activeWorkspaceTab.value === 'conversations') conversations.load();
 });
 const commandCatalog = useCommandCatalog({ tools, agents, choices: availableChoices, allowedActions, resources: attachments.hits, prompts: promptLibrary.entries });
 // Source chips under the latest answer: the run's tool calls and the resources attached to that turn
@@ -1298,6 +1310,16 @@ function closeWorkflowEditor() {
   execMode.value = 'agent';
 }
 
+/** Continues a conversation from the list: later turns carry its id. */
+function openConversation(c: ConversationView) {
+  conversationContextId.value = c.externalId;
+  clearPromptInput();
+  lastExecOutput.value = null;
+  lastExecRaw.value = null;
+  lastExecStatus.value = null;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
 function loadWorkflowIntoOpPrompt(code?: string) {
   execMode.value = 'workflow';
   if (code) {
@@ -1597,6 +1619,7 @@ provideHarnessContext({
   attachments,
   sources,
   promptLibrary,
+  conversations,
   toolFormTarget,
   toolFormArgs,
   submitToolForm,

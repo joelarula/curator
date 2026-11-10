@@ -9,6 +9,7 @@ import type { CommandCatalogHandle } from './composables/useCommandCatalog';
 import type { AttachmentsHandle } from './composables/useAttachments';
 import type { SourcesHandle } from './composables/useSources';
 import type { PromptLibraryHandle } from './composables/usePromptLibrary';
+import type { ConversationsHandle } from './composables/useConversations';
 import type {
   HarnessLayoutMode,
   HarnessResourceViewMode,
@@ -119,6 +120,8 @@ export interface CuratorHarnessContext {
   sources: SourcesHandle;
   /** Prompt library entries offered after `/` (saved and MCP prompts). */
   promptLibrary: PromptLibraryHandle;
+  /** The caller's conversations (organisation tools). */
+  conversations: ConversationsHandle;
   /** Tool waiting for its required arguments (composer form), and the form's values. */
   toolFormTarget: Ref<any | null>;
   toolFormArgs: Ref<Record<string, unknown>>;

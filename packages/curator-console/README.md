@@ -134,3 +134,11 @@ attached with `#`. Clicking a tool chip shows the stored result the model read; 
 Saved project prompts (`prompt_list`) and MCP prompts (`mcp_prompts_list`) appear after `/`. `/name args` fills the
 prompt box with the prompt (missing arguments open a form); `/save-prompt` saves the current prompt text
 (`prompt_save`, role `prompts:write`). Use `{name}` placeholders in a prompt's text for arguments.
+
+---
+
+## Conversations
+
+The Conversations tab lists your conversations in the project (pinned first, then most recently active; untitled ones
+show their first message). Rename, pin, archive or delete them, or open one to continue it. It needs the
+`conversations:own` role (`conversation_list` and the other conversation tools).

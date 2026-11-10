@@ -42,6 +42,14 @@ import { interruptTools, conversation_interrupts, conversation_resume } from './
 import { timeTravelTools, conversation_state_history, conversation_state_at, conversation_fork } from './timeTravel.js';
 import { pluginConfigTools, config_get, config_set, config_unset } from './pluginConfig.js';
 import { promptTools, prompt_list, prompt_get, prompt_save, prompt_delete } from './prompts.js';
+import {
+  conversationOrganisationTools,
+  conversation_list,
+  conversation_rename,
+  conversation_pin,
+  conversation_archive,
+  conversation_delete,
+} from './conversations.js';
 import type { CuratorTool } from './CuratorTool.js';
 
 export {
@@ -96,6 +104,12 @@ export {
   prompt_get,
   prompt_save,
   prompt_delete,
+  // Conversation organisation tools
+  conversation_list,
+  conversation_rename,
+  conversation_pin,
+  conversation_archive,
+  conversation_delete,
 };
 
 export const toolRegistry: Record<string, CuratorTool> = {
@@ -112,4 +126,5 @@ export const toolRegistry: Record<string, CuratorTool> = {
   ...(timeTravelTools as Record<string, CuratorTool>),
   ...(pluginConfigTools as Record<string, CuratorTool>),
   ...(promptTools as Record<string, CuratorTool>),
+  ...(conversationOrganisationTools as Record<string, CuratorTool>),
 };

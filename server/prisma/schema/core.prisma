@@ -388,12 +388,17 @@ model Conversation {
   responses  Response[]
   resources  Resource[] @relation("ConversationResources")
   metadata   Json?
+  /// Organisation (conversation_rename / _pin / _archive); a null title shows the first message
+  title      String?
+  pinnedAt   DateTime?
+  archivedAt DateTime?
   existent   Boolean?   @default(true)
   deletedAt  DateTime?
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
   
   @@index([existent])
+  @@index([projectId, userId, existent])
 }
 
 

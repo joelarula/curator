@@ -290,6 +290,9 @@ CREATE TABLE "Conversation" (
     "userId" TEXT NOT NULL,
     "projectId" TEXT,
     "metadata" JSONB,
+    "title" TEXT,
+    "pinnedAt" TIMESTAMP(3),
+    "archivedAt" TIMESTAMP(3),
     "existent" BOOLEAN DEFAULT true,
     "deletedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -716,6 +719,9 @@ CREATE UNIQUE INDEX "Conversation_externalId_key" ON "Conversation"("externalId"
 
 -- CreateIndex
 CREATE INDEX "Conversation_existent_idx" ON "Conversation"("existent");
+
+-- CreateIndex
+CREATE INDEX "Conversation_projectId_userId_existent_idx" ON "Conversation"("projectId", "userId", "existent");
 
 -- CreateIndex
 CREATE INDEX "ResourceTree_treeName_treeStart_treeEnd_existent_idx" ON "ResourceTree"("treeName", "treeStart", "treeEnd", "existent");
