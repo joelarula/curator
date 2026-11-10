@@ -410,7 +410,19 @@ conversation's workflow decides; people and the console only send request events
   delete only for the owner), and an "Open channels" section with Join. Both lists reload after the workflow had time
   to decide (`CHANNEL_SETTLE_MS`).
 
-Not done (next): the shared message stream of a channel, CLI join / leave commands, invitations.
+### Channels: shared message stream (done 2026-11-11)
+
+- A channel message is the event `conversation:message` (`{ text, sender: { type, id, name } }`) in the channel's
+  event log; agents' workflows can react to it like any event, and post into it by emitting the same event.
+- `ChannelService.post` sends it as the caller. Core tools (owner or current member, role `conversations:own`):
+  `channel_post` (the sender comes from the session, never the arguments; 4000 characters) and `channel_messages`
+  (latest ones, or those after `afterId`, oldest first).
+- Console: `useChannelStream` (latest messages, polling every `CHANNEL_POLL_MS` after the last id, posting) and
+  `HarnessChannelStream`; in the Conversations tab a channel opens its stream (Back returns to the list), a private
+  conversation is still continued in the prompt.
+- Limit: messages live in the event log (`BusEvent`), so its retention also retires old channel messages.
+
+Not done (next): CLI join / leave / post commands, invitations, live push instead of polling.
 
 ## Cross-cutting
 

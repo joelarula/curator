@@ -44,7 +44,7 @@ import { sqlDialect, type SqlDialect } from '../db/sqlDialect.js';
 import { AgentRoleService } from '../services/AgentRoleService.js';
 import { AccessService } from '../services/AccessService.js';
 import { normalizeExpression } from './expressionNormalize.js';
-import { ChannelService, CHANNEL_REQUEST_EVENTS, type ChannelApi } from '../conversations/ChannelService.js';
+import { ChannelService, CHANNEL_REQUEST_EVENTS, CHANNEL_MESSAGE_EVENT, type ChannelApi } from '../conversations/ChannelService.js';
 import { ApprovalService } from '../services/ApprovalService.js';
 import { PluginConfig, PluginConfigService } from '../services/PluginConfigService.js';
 import { defaultOutputFormats, type OutputFormats } from './output/OutputFormats.js';
@@ -437,6 +437,10 @@ export class CuratorRequestProcessor {
           projectId,
           origin: 'API',
         });
+        return { requestId: res.requestId };
+      },
+      post: async ({ conversationId, userId, projectId, payload }: Parameters<ChannelApi['post']>[0]) => {
+        const res = await this.emitEventRequest({ eventName: CHANNEL_MESSAGE_EVENT, payload, conversationId, userId, projectId, origin: 'API' });
         return { requestId: res.requestId };
       },
     });

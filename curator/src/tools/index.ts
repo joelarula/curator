@@ -51,7 +51,7 @@ import {
   conversation_delete,
 } from './conversations.js';
 import { accessCheckTools, access_check } from './accessCheck.js';
-import { channelTools, channel_list, channel_request } from './channels.js';
+import { channelTools, channel_list, channel_request, channel_post, channel_messages } from './channels.js';
 import type { CuratorTool } from './CuratorTool.js';
 
 export {
@@ -117,6 +117,8 @@ export {
   // Channels for people
   channel_list,
   channel_request,
+  channel_post,
+  channel_messages,
 };
 
 export const toolRegistry: Record<string, CuratorTool> = {

@@ -23,4 +23,11 @@ export {
   type MemberType,
   type ConversationMemberRef,
 } from './ConversationMembers.js';
-export { ChannelService, CHANNEL_REQUEST_EVENTS, type ChannelApi, type ChannelRequestAction } from './ChannelService.js';
+export {
+  ChannelService,
+  CHANNEL_REQUEST_EVENTS,
+  CHANNEL_MESSAGE_EVENT,
+  type ChannelApi,
+  type ChannelRequestAction,
+  type ChannelMessagePayload,
+} from './ChannelService.js';

@@ -6,7 +6,7 @@ import { createConversationTools, ConversationToolName } from '../../src/convers
 import { channelWorkflowAst } from '../../src/conversations/ConversationWorkflows.ts';
 import { access_check } from '../../src/tools/accessCheck.ts';
 import { conversation_list, conversation_pin, conversation_rename } from '../../src/tools/conversations.ts';
-import { channel_list, channel_request } from '../../src/tools/channels.ts';
+import { channel_list, channel_request, channel_post, channel_messages } from '../../src/tools/channels.ts';
 import { appendStatePatch } from '../../src/engine/ConversationStateLog.ts';
 
 // Channels: join / leave are decided by the conversation's workflow (default policy: open channel + channels:join).
@@ -21,6 +21,8 @@ async function setup(name: string) {
   tools.set('access_check', access_check);
   tools.set('channel_list', channel_list);
   tools.set('channel_request', channel_request);
+  tools.set('channel_post', channel_post);
+  tools.set('channel_messages', channel_messages);
   await saveScript(env, 'conversation_channel_workflow', channelWorkflowAst, { projectId: 'p1' });
   await env.prisma.role.create({ data: { id: 'channels:join', name: 'channels:join' } });
   await env.prisma.role.create({ data: { id: 'conversations:own', name: 'conversations:own' } });
@@ -111,5 +113,30 @@ test('channels: people find open channels and ask to join or leave; the workflow
     await run('channel_request', { conversationId: env.conversationId, action: 'leave' });
     await env.processor.stepUntil({ conversationId: env.conversationId });
     assert.deepEqual(await members(env), []);
+  } finally { await env.cleanup(); }
+});
+
+test('channels: members post and read messages; the sender comes from the session; others cannot read', async () => {
+  const { env, user } = await setup('channels_messages');
+  try {
+    const dan = await user('dan', ['channels:join', 'conversations:own']);
+    const eve = await user('eve', ['conversations:own']);
+    const run = (who: any, toolName: string, args: any) =>
+      env.processor.runToolRequest({ toolName, args, conversationId: env.conversationId, userId: who.id, projectId: 'p1', origin: 'API' } as any);
+
+    await appendStatePatch(env.prisma, env.conversationId, { set: { channel: { open: true } } });
+    await run(dan, 'channel_request', { conversationId: env.conversationId, action: 'join' });
+    await env.processor.stepUntil({ conversationId: env.conversationId });
+
+    await run(dan, 'channel_post', { conversationId: env.conversationId, text: ' Hello all ' });
+    await run(dan, 'channel_post', { conversationId: env.conversationId, text: 'Second' });
+    const all: any = (await run(dan, 'channel_messages', { conversationId: env.conversationId })).result;
+    assert.deepEqual(all.messages.map((m: any) => [m.text, m.sender.id, m.sender.name]), [['Hello all', dan.id, 'dan'], ['Second', dan.id, 'dan']]);
+    const after: any = (await run(dan, 'channel_messages', { conversationId: env.conversationId, afterId: all.messages[0].id })).result;
+    assert.deepEqual(after.messages.map((m: any) => m.text), ['Second']);
+
+    // Not a member: the channel looks unknown
+    await assert.rejects(run(eve, 'channel_messages', { conversationId: env.conversationId }), /not found/);
+    await assert.rejects(run(eve, 'channel_post', { conversationId: env.conversationId, text: 'hi' }), /not found/);
   } finally { await env.cleanup(); }
 });

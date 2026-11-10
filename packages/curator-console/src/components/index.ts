@@ -13,6 +13,7 @@ export { default as HarnessSchemaField } from './harness/HarnessSchemaField.vue'
 export { default as HarnessSchemaForm } from './harness/HarnessSchemaForm.vue';
 export { default as SettingsTab } from './tabs/SettingsTab.vue';
 export { default as ConversationsTab } from './tabs/ConversationsTab.vue';
+export { default as HarnessChannelStream } from './harness/HarnessChannelStream.vue';
 export { default as HarnessSurfacePanel } from './harness/HarnessSurfacePanel.vue';
 export { default as HarnessMarkdown } from './harness/HarnessMarkdown.vue';
 export { default as HarnessToolArgsDialog } from './harness/HarnessToolArgsDialog.vue';

@@ -205,7 +205,7 @@
             </v-window-item>
 
             <v-window-item value="conversations">
-              <ConversationsTab :list="conversations" :active-external-id="conversationContextId" @open="openConversation" />
+              <ConversationsTab :list="conversations" :stream="channelStream" :active-external-id="conversationContextId" @open="openConversation" />
             </v-window-item>
 
             <v-window-item value="settings">
@@ -283,6 +283,7 @@ import { useAttachments, promptWithAttachments, type AttachedResource } from './
 import { useSources } from './composables/useSources';
 import { usePromptLibrary } from './composables/usePromptLibrary';
 import { useConversations, type ConversationView } from './composables/useConversations';
+import { useChannelStream } from './composables/useChannelStream';
 
 interface Props {
   adapter?: CuratorConsoleAdapter;
@@ -411,6 +412,8 @@ const attachments = useAttachments(tools, runHostTool);
 const promptLibrary = usePromptLibrary(tools, runHostTool);
 // Conversation organisation (conversation_list / _rename / _pin / _archive / _delete)
 const conversations = useConversations(tools, runHostTool);
+// The shared message stream of an open channel (channel_messages / channel_post)
+const channelStream = useChannelStream(tools, runHostTool);
 watch(tools, () => {
   promptLibrary.load();
   if (activeWorkspaceTab.value === 'conversations') conversations.load();
@@ -1620,6 +1623,7 @@ provideHarnessContext({
   sources,
   promptLibrary,
   conversations,
+  channelStream,
   toolFormTarget,
   toolFormArgs,
   submitToolForm,

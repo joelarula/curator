@@ -1,5 +1,8 @@
 <template>
   <div class="conversations-tab">
+    <!-- An open channel shows its shared message stream -->
+    <HarnessChannelStream v-if="stream && stream.conversationId.value != null" :stream="stream" />
+    <template v-else>
     <div class="d-flex align-center ga-2 mb-3 flex-wrap">
       <span class="text-subtitle-2 font-weight-bold">{{ list.showArchived.value ? 'Archived conversations' : 'Conversations' }}</span>
       <v-text-field
@@ -138,15 +141,18 @@
         </v-list-item>
       </v-list>
     </template>
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import type { ConversationsHandle, ConversationView } from '../../composables/useConversations';
+import type { ChannelStreamHandle } from '../../composables/useChannelStream';
+import HarnessChannelStream from '../harness/HarnessChannelStream.vue';
 
 /** The caller's conversations in the project: open one, rename, pin, archive or delete it (useConversations). */
-const props = defineProps<{ list: ConversationsHandle; activeExternalId?: string }>();
+const props = defineProps<{ list: ConversationsHandle; activeExternalId?: string; stream?: ChannelStreamHandle }>();
 const emit = defineEmits<{ (e: 'open', conversation: ConversationView): void }>();
 
 const editingId = ref<number | null>(null);
@@ -156,8 +162,14 @@ const busy = (c: ConversationView) => props.list.busyId.value === c.conversation
 /** Open channels the user is in neither as owner nor as member. */
 const joinable = computed(() => props.list.channels.value.filter((ch) => !ch.joined && !ch.owned));
 
+/** A channel (shared with members) opens its message stream; a private conversation is continued in the prompt. */
 function open(c: ConversationView) {
   if (editingId.value === c.conversationId) return;
+  const isChannel = c.owned === false || (c.memberCount ?? 0) > 0;
+  if (isChannel && props.stream?.available.value) {
+    props.stream.open(c.conversationId, c.title);
+    return;
+  }
   emit('open', c);
 }
 

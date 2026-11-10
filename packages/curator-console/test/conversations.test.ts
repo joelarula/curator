@@ -60,3 +60,28 @@ test('channels: open channels are listed; join / leave send a request and reload
   await c.request(7, 'leave', 0);
   assert.deepEqual(c.conversations.value, []);
 });
+
+test('channel stream: opens with the latest messages, polls after the last id, posts and refreshes', async () => {
+  const { useChannelStream } = await import('../src/composables/useChannelStream.ts');
+  const calls: any[] = [];
+  let stored = [{ id: 1, text: 'hi', sender: { type: 'user', id: 'u1', name: 'Ann' }, at: '2026-01-01T00:00:00Z' }];
+  const run = async (name: string, args: any) => {
+    calls.push([name, args]);
+    if (name === 'channel_messages') return { messages: stored.filter((m) => args.afterId === undefined || m.id > args.afterId) };
+    if (name === 'channel_post') { stored = [...stored, { id: stored.length + 1, text: args.text, sender: { type: 'user', id: 'u2', name: 'Bo' }, at: '' }]; return { posted: true }; }
+    return {};
+  };
+  const s = useChannelStream(tools(['channel_messages', 'channel_post']), run, { pollMs: 0 });
+  assert.equal(s.available.value, true);
+  await s.open(7, 'General');
+  assert.deepEqual(s.messages.value.map((m) => m.text), ['hi']);
+  assert.deepEqual(calls[0], ['channel_messages', { conversationId: 7 }]);
+
+  assert.equal(await s.post('  hello  '), true);
+  assert.deepEqual(calls.find((c) => c[0] === 'channel_post'), ['channel_post', { conversationId: 7, text: 'hello' }]);
+  assert.deepEqual(calls.at(-1), ['channel_messages', { conversationId: 7, afterId: 1 }]);
+  assert.deepEqual(s.messages.value.map((m) => m.text), ['hi', 'hello']);
+
+  s.close();
+  assert.equal(s.conversationId.value, null);
+});
