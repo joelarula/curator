@@ -6,5 +6,6 @@ export * from './app.js';
 export * from './progress.js';
 export * from './runTimeline.js';
 export * from './interrupts.js';
+export * from './surfaces.js';
 export * from './speechActs.js';
 

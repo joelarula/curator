@@ -10,7 +10,10 @@
     "./style.css": "./src/style.css"
   },
   "dependencies": {
-    "@curator/host": "workspace:*"
+    "@curator/host": "workspace:*",
+    "dompurify": "^3.4.0",
+    "marked": "^18.0.0",
+    "mermaid": "^11.17.2"
   },
   "peerDependencies": {
     "vue": "^3.5.0",

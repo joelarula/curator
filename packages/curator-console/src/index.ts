@@ -46,3 +46,5 @@ export {
   type ConfigKeyView,
   type ConfigScope,
 } from './composables/usePluginConfig';
+export { useSurfaces, type SurfacesHandle, type SurfaceEntry, type ShowSurfaceOptions } from './composables/useSurfaces';
+export { renderMarkdown, renderMermaid, isAllowedImageSource, sandboxDocument } from './composables/richText';

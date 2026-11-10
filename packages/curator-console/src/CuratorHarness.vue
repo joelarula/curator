@@ -219,7 +219,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { parseSpeechActs, interruptOptions, interruptTitle, PROGRESS_EVENT_TYPE } from '@curator/host/contracts';
+import { parseSpeechActs, interruptOptions, interruptTitle, PROGRESS_EVENT_TYPE, extractSurface } from '@curator/host/contracts';
 import type {
   CuratorConsoleAdapter,
   DatabaseHealth,
@@ -265,6 +265,7 @@ import GraphQLStudioTab from './components/tabs/GraphQLStudioTab.vue';
 import EventStreamTab, { type EventLogEntry } from './components/tabs/EventStreamTab.vue';
 import SettingsTab from './components/tabs/SettingsTab.vue';
 import { usePluginConfig } from './composables/usePluginConfig';
+import { useSurfaces } from './composables/useSurfaces';
 
 interface Props {
   adapter?: CuratorConsoleAdapter;
@@ -293,8 +294,10 @@ const dbHealth = ref<DatabaseHealth | null>(null);
 
 // Layout & Generative UI Surface State
 const layoutMode = ref<HarnessLayoutMode>(props.defaultLayout || 'stack');
-const uiSurface = ref<HarnessUiSurface | null>(null);
-const worktableSurface = ref<HarnessUiSurface | null>(null);
+// Surfaces of this session (output panel); the active one is what the surface tab and the worktable show
+const surfaces = useSurfaces();
+const uiSurface = surfaces.active;
+const worktableSurface = surfaces.active;
 const resourceViewMode = ref<HarnessResourceViewMode>('grid');
 const resourceSearchQuery = ref('');
 const resourceCategoryFilter = ref('');
@@ -514,18 +517,19 @@ function updateChoicesFromPayload(payload: any, eventType?: string) {
 // -----------------------------------------------------------------------------
 // Extract or Hydrate UI Surface from Tool / Agent Payloads
 // -----------------------------------------------------------------------------
-function applySurfaceIfPresent(payload: any): boolean {
+function applySurfaceIfPresent(payload: any, requestId?: string | number | null): boolean {
   if (!payload || typeof payload !== 'object') return false;
-  const candidate = payload.uiSurface || payload.surface || (payload.component && payload.items ? payload : null);
-  if (candidate && typeof candidate === 'object') {
-    uiSurface.value = candidate;
-    worktableSurface.value = candidate;
+  const candidate = extractSurface(payload) as HarnessUiSurface | null;
+  if (candidate) {
+    surfaces.show(candidate, { requestId });
     if (candidate.viewMode) {
       resourceViewMode.value = candidate.viewMode;
     }
     outputTab.value = 'surface';
     return true;
   }
+  // @deprecated (one release): guessing a resource grid from `items` / `galleryItems` / `resources`. Return
+  // `uiSurface: { component: 'resource-collection', items }` from the tool instead.
   const itemsArray = payload.items || payload.galleryItems || payload.resources;
   if (Array.isArray(itemsArray)) {
     const built: HarnessUiSurface = {
@@ -542,8 +546,7 @@ function applySurfaceIfPresent(payload: any): boolean {
       categories: payload.categories,
       authors: payload.authors,
     };
-    uiSurface.value = built;
-    worktableSurface.value = built;
+    surfaces.show(built, { requestId });
     outputTab.value = 'surface';
     return true;
   }
@@ -1094,11 +1097,11 @@ async function executeOpPrompt() {
           ) {
             channelOutput = payload?.text || payload?.content || payload?.message || (typeof payload === 'string' ? payload : JSON.stringify(payload));
             channelRaw = payload;
-            applySurfaceIfPresent(payload);
+            applySurfaceIfPresent(payload, payload?.requestId);
           } else if (type === 'curator:tool_call_result') {
             channelOutput = typeof payload?.result === 'object' ? JSON.stringify(payload.result, null, 2) : String(payload?.result ?? JSON.stringify(payload));
             channelRaw = payload;
-            applySurfaceIfPresent(payload?.result);
+            applySurfaceIfPresent(payload?.result, payload?.requestId);
           }
 
           if (
@@ -1176,7 +1179,7 @@ async function executeOpPrompt() {
       lastExecStatus.value = toolRes.status === 'WAITING_FOR_USER' ? 'WAITING_FOR_USER' : 'COMPLETED';
       lastExecRaw.value = toolRes.result;
       lastExecOutput.value = JSON.stringify(toolRes.result, null, 2);
-      if (!applySurfaceIfPresent(toolRes.result)) {
+      if (!applySurfaceIfPresent(toolRes.result, toolRes.requestId)) {
         outputTab.value = 'formatted';
       }
     } else if (execMode.value === 'workflow') {
@@ -1210,6 +1213,7 @@ async function executeOpPrompt() {
       output: lastExecOutput.value || '',
       timestamp: Date.now(),
       run: runTimeline.snapshot(),
+      surfaceId: surfaces.entryFor(lastExecRequestId.value)?.id ?? null,
     });
 
     fetchRequests();
@@ -1332,7 +1336,8 @@ async function runMessageAction(tool: any) {
   lastExecStatus.value = 'COMPLETED';
   lastExecRaw.value = out.result;
   lastExecOutput.value = typeof out.result === 'string' ? out.result : JSON.stringify(out.result, null, 2);
-  if (!applySurfaceIfPresent(out.result)) outputTab.value = 'formatted';
+  const actionSurface = applySurfaceIfPresent(out.result, null);
+  if (!actionSurface) outputTab.value = 'formatted';
   turnHistory.value.unshift({
     id: String(Date.now()),
     target: tool.name,
@@ -1340,6 +1345,7 @@ async function runMessageAction(tool: any) {
     prompt: `${tool.ui?.messageAction?.label ?? tool.name}: ${message.text.slice(0, 60)}`,
     output: lastExecOutput.value || '',
     timestamp: Date.now(),
+    surfaceId: actionSurface ? surfaces.activeId.value : null,
   });
 }
 
@@ -1458,6 +1464,7 @@ provideHarnessContext({
   liveStepMessage,
   runTimeline: runTimeline.current,
   interrupts,
+  surfaces,
   lastExecChoice,
   lastExecStatus,
   lastExecDuration,
@@ -1511,6 +1518,8 @@ let unsubscribeDbChange: (() => void) | null = null;
 onMounted(async () => {
   await loadAllData();
   interrupts.hydrate().catch(() => {});
+  // Restore result surfaces from stored responses (a reload loses the in-memory list)
+  surfaces.rebuildFrom(requests.value as any);
   // Automatically hydrate initial resource surface if available
   showResourcesSurface().catch(() => {});
 

@@ -21,6 +21,7 @@ import {
 import { describeProgressEvent, isProgressEventPayload, PROGRESS_EVENT_TYPE } from '../contracts/progress.js';
 import { ShellProgressRenderer } from './progressRenderer.js';
 import { interruptInputMode, interruptOptions, interruptTitle } from '../contracts/interrupts.js';
+import { extractSurface, surfaceToText } from '../contracts/surfaces.js';
 import type { CuratorInterrupt } from '@curator/agent-server';
 
 export {
@@ -403,8 +404,19 @@ export class ClientShell<TState = any, TAction = ToolAction> {
       this.printAbove(() => this.printChoices());
     } else if (mode === 'text' || mode === 'json') {
       this.pendingInputInterrupt = interrupt;
-      this.printAsync(`[90m  (type your answer${mode === 'json' ? ' as JSON' : ''}; lines starting with / are still commands)[0m`);
+      this.printAsync(`\x1b[90m  (type your answer${mode === 'json' ? ' as JSON' : ''}; lines starting with / are still commands)\x1b[0m`);
     }
+  }
+
+  /**
+   * Prints a tool result's UI surface (`uiSurface`) as text: tables as aligned rows, others as a one-line description.
+   * Returns false when the payload has no surface.
+   */
+  public printSurface(payload: unknown): boolean {
+    const surface = extractSurface(payload);
+    if (!surface) return false;
+    this.printAsync(`\x1b[32m[Result]\x1b[0m ${surfaceToText(surface)}`);
+    return true;
   }
 
   public printChoices(): void {
@@ -600,7 +612,7 @@ export class ClientShell<TState = any, TAction = ToolAction> {
         console.log(`\x1b[36m[Exec]\x1b[0m Executing tool "${toolName}"...`);
         try {
           const result = await this.dispatchTool(toolName, parsedArgs);
-          if (result !== undefined) {
+          if (result !== undefined && !this.printSurface(result)) {
             console.log('\x1b[32m[Result]\x1b[0m', typeof result === 'object' ? JSON.stringify(result, null, 2) : result);
           }
         } catch (err: any) {
@@ -941,7 +953,7 @@ export class ClientShell<TState = any, TAction = ToolAction> {
         try {
           value = JSON.parse(trimmed);
         } catch (err: any) {
-          console.log(`[31mNot valid JSON: ${err?.message ?? err}[0m`);
+          console.log(`\x1b[31mNot valid JSON: ${err?.message ?? err}\x1b[0m`);
           return;
         }
       }

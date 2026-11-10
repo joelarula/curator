@@ -327,3 +327,18 @@ agents: {
 Capabilities (`tools`: native | prompt | none, `vision`, `json`, `streaming`, `embeddings`) come from the provider's
 `capabilities` and `capabilitiesFor(model)` (`ILlmProvider`); `tools` is `none` when the agent node offers no tools,
 and `dynamic: true` marks a `$`-expression provider/model.
+
+
+## Showing results in the console panel (`uiSurface`)
+
+Return a `uiSurface` with a tool result to show it in the console's output panel (and as text in the CLI):
+
+```typescript
+return {
+  orders,
+  uiSurface: { component: 'table', title: 'Open orders', data: { columns: ['id', 'customer', 'total'], rows: orders } },
+};
+```
+
+Components: `table`, `markdown`, `code`, `json`, `mermaid`, `html`, `svg`, `image`, `resource-collection`,
+`resource-detail`, or one your app registers in `customComponents`.

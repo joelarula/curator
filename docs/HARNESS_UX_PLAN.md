@@ -58,7 +58,7 @@ Scope (agreed 2026-11-09):
 7. Phase 7: Prompt-based tool calling, done.
 
 **Track C, harness and miniapps**
-8. Phase 8: Output panel (M). Independent.
+8. Phase 8: Output panel, done.
 9. Phase 9: Composer `/` and `@` on the shared command list (M). `@` needs 6; args form shares Phase 5's form.
 
 Shared piece: `useSchemaForm` + `HarnessSchemaForm.vue`, built in Phase 5 (also used by interrupt cards; Phase 9
@@ -253,56 +253,34 @@ Tests: `curator/test/engine/agent-catalog.test.ts`.
 Tests: `curator/test/engine/prompt-tool-calling.test.ts` (mode, parser incl. invalid calls, conversion, retry, an agent
 run in prompt mode).
 
-## Phase 8: Output panel
+## Phase 8: Output panel (implemented 2026-11-10)
 
-### Today
+- Host contract `contracts/surfaces.ts` (shared, browser-safe): `CuratorSurface` (built-ins `resource-collection`,
+  `resource-detail`, `table`, `markdown`, `code`, `json`, `mermaid`, `html`, `svg`, `image`, plus `data`),
+  `extractSurface` (explicit `uiSurface` / `surface`, or a surface-shaped result; no guessing), `surfaceTable`,
+  `describeSurface`, `surfaceToText` (CLI tables), `textPanelBlocks` (fenced mermaid/html/svg/json blocks and Markdown
+  tables in agent text). The console's `HarnessUiSurface` now uses its component names and `data`.
+- Console:
+  - `useSurfaces()`: the session's surfaces (newest first; same request, or same client-opened component and title,
+    replaces), active surface, `rebuildFrom(requests)` after a reload from stored responses. `uiSurface` and
+    `worktableSurface` are now its active surface.
+  - `HarnessSurfacePanel.vue`, used by both the 2-column worktable and the output's UI Surface tab: earlier surfaces
+    in a dropdown, close, renderer = `customComponents[name]` (miniapps can override built-ins), then the built-in,
+    then resource views; unknown components show their data as JSON.
+  - Built-in renderers (`components/surfaces`, lazy): table (`v-data-table-virtual` with filter), markdown, code /
+    json (copy), mermaid (`securityLevel: 'strict'`, falls back to source), html / svg (iframe `sandbox="allow-scripts"`
+    without `allow-same-origin`, CSP `default-src 'none'`), image (data URLs and same-origin only).
+  - Agent text renders as Markdown (`HarnessMarkdown`: `marked` with raw HTML dropped, DOMPurify, links in a new tab
+    with `noopener`; plain text if the libraries aren't installed) with "Open …" chips for its diagrams, pages, JSON
+    and tables. The latest turn and each Turns entry (`TurnHistoryEntry.surfaceId`) show a chip for their surface.
+  - The `items` / `galleryItems` / `resources` guess in `applySurfaceIfPresent` is `@deprecated` (kept one release).
+- CLI: `ClientShell.printSurface(payload)` (used by `exec`): tables as aligned text, others as a one-line description.
+- Dependencies: `@curator/console` now lists `marked`, `dompurify` and `mermaid` (needs `pnpm install`).
 
-- Tools return `uiSurface: { component, title, items, item, props, ... }` (gallery does); `applySurfaceIfPresent`
-  also guesses one from any payload with `items` / `galleryItems` / `resources`.
-- Shown in `HarnessOutput`'s "UI Surface" tab (stack layout) or `HarnessWorktable` (2-column layout); built-ins
-  `resource-collection` / `resource-detail`; miniapps add components via `adapter.customComponents`.
-- Agent text is raw text in a `<pre>`.
+Not done: surface formatters through plugin `formatters` / `toolOutput` (tools return `uiSurface` directly for now).
 
-Problems: one surface at a time; lost on reload although the tool result is stored; the payload guess misfires; only
-resource views built in; no Markdown.
-
-### Design
-
-- **Contract**: `HarnessUiSurface` moves to `@curator/host/contracts` (re-exported by the console, same name) with
-  more built-in `component` values: `table`, `markdown`, `code`, `json`, `mermaid`, `html`, `image`, plus `data`
-  for their content.
-- **How tools produce surfaces**: an explicit `uiSurface` field, or the existing `toolOutput` / `output.display`
-  format pipeline with surface formatters (e.g. `surface:table`) registered through the existing plugin
-  `formatters`. The payload guess is deprecated (kept one release).
-- **One registry**: built-in renderers are default entries of the same map as `adapter.customComponents`; a miniapp
-  overrides or adds by key.
-- **`useSurfaces()`** composable: list of surfaces per conversation `{ id, title, component, requestId }`, active
-  surface, rebuild on reload from the conversation's `TOOL_RESULT` responses (one query, no new table).
-- **`HarnessSurfacePanel.vue`**: used by both `HarnessWorktable` and the surface tab (layouts unchanged). Header: title
-  + dropdown of earlier surfaces + close. Each turn shows a chip for its surface that opens it.
-- **Agent text**: `parseSpeechActs` runs first (callouts, suggestion chips, choices unchanged); its `cleanText` is then
-  rendered with `marked` + `dompurify` (no raw HTML) instead of the `<pre>`. Fenced `mermaid` / `html` / `svg` /
-  `json` blocks and Markdown tables get "Open in panel". No new speech-act tag for panels: standard fenced blocks
-  are enough and keep prompts simple.
-- **Renderers** (lazy-loaded):
-
-| component | Rendering | Notes |
-|---|---|---|
-| `table` | `v-data-table-virtual` | tool truncates large results, sends `total` |
-| `markdown` | `marked` + `dompurify` | same as agent text |
-| `code` / `json` | `<pre>` + copy; collapsible JSON | no editor dependency |
-| `mermaid` | `mermaid` (lazy), `securityLevel: 'strict'` | also usable for `CuratorMermaid` workflow output |
-| `html` / `svg` | `<iframe sandbox="allow-scripts" srcdoc>`, no `allow-same-origin`, CSP `default-src 'none'` + inline | untrusted model output: no app, cookie or network access |
-| `image` | `data:` URLs or project resource URLs only | |
-| `resource-collection` / `resource-detail` | existing components | unchanged |
-
-- **CLI**: one-line summary per surface; `table` as a compact text table.
-
-Steps: (1) contract + `useSurfaces` + panel with today's renderers, no visible change; (2) surface list, turn chips,
-reload; (3) Markdown agent text; (4) `table`/`code`/`json`, then `mermaid`/`html`/`image`; (5) "Open in panel",
-surface formatters, deprecate the guess.
-
-Tests: explicit surfaces + deprecated guess, rebuild from responses, sandbox attributes, Markdown sanitising.
+Tests: `packages/host/test/surfaces_contract.test.ts` (extraction, tables, text, panel blocks, CLI),
+`packages/curator-console/test/surfaces.test.ts` (`useSurfaces`, image sources, sandbox document).
 
 ## Phase 9: Composer `/` and `@` on the shared command list
 

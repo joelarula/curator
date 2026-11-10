@@ -1,3 +1,4 @@
+import type { CuratorSurfaceComponent } from '@curator/host/contracts';
 /**
  * Universal Channel Interface aligned with Curator Core channel contract.
  */
@@ -47,8 +48,15 @@ export interface HarnessResourceItem {
   updatedAt?: string;
 }
 
+/**
+ * A surface the harness renders (the console's view of `CuratorSurface` from `@curator/host/contracts`, with typed
+ * resource fields). Built-in components: resource-collection, resource-detail, table, markdown, code, json, mermaid,
+ * html, svg, image; others come from `customComponents`.
+ */
 export interface HarnessUiSurface {
-  component: 'resource-collection' | 'resource-detail' | string;
+  component: CuratorSurfaceComponent;
+  /** Content of the built-in components (see CuratorSurface.data). */
+  data?: unknown;
   title?: string;
   subtitle?: string;
   viewMode?: HarnessResourceViewMode;

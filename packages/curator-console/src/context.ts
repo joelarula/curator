@@ -4,6 +4,7 @@ import type { TurnHistoryEntry } from './components/harness/HarnessOutput.vue';
 import type { RunTimeline } from './composables/useRunTimeline';
 import type { InterruptsHandle } from './composables/useInterrupts';
 import type { HarnessMessageRef, MessageActionsHandle } from './composables/useMessageActions';
+import type { SurfacesHandle } from './composables/useSurfaces';
 import type {
   HarnessLayoutMode,
   HarnessResourceViewMode,
@@ -66,6 +67,8 @@ export interface CuratorHarnessContext {
   runTimeline: Ref<RunTimeline | null>;
   /** Open interrupts (cards and interrupt choices); answer with `interrupts.resume(id, value)`. */
   interrupts: InterruptsHandle;
+  /** Result surfaces of this session and the one the panel shows. */
+  surfaces: SurfacesHandle;
   lastExecChoice: Ref<any | null>;
   lastExecStatus: Ref<string | null>;
   lastExecDuration: Ref<number | null>;

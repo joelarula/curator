@@ -12,6 +12,9 @@ export { default as HarnessInterruptCard } from './harness/HarnessInterruptCard.
 export { default as HarnessSchemaField } from './harness/HarnessSchemaField.vue';
 export { default as HarnessSchemaForm } from './harness/HarnessSchemaForm.vue';
 export { default as SettingsTab } from './tabs/SettingsTab.vue';
+export { default as HarnessSurfacePanel } from './harness/HarnessSurfacePanel.vue';
+export { default as HarnessMarkdown } from './harness/HarnessMarkdown.vue';
+export { builtinSurfaceComponents } from './surfaces';
 
 export { default as AgentsTab } from './tabs/AgentsTab.vue';
 export { default as ToolsTab } from './tabs/ToolsTab.vue';

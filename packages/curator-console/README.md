@@ -97,3 +97,14 @@ Open interrupts (prompts, tool approvals, event waits) appear as cards (`Harness
 choices, in the choice bar. Answers go through the `conversation_resume` tool via your server's `executeTool`
 mutation; the list is loaded with `conversation_interrupts` and kept current from `curator:progress`. An open
 interrupt's choices take precedence over speech-act choices.
+
+---
+
+## Output panel (`useSurfaces`, `HarnessSurfacePanel`)
+
+Tools return `uiSurface: { component, title, data }` with their result. Built-in components: `table`
+(`data: { columns?, rows }`), `markdown`, `code` (`{ language, text }`), `json`, `mermaid`, `html` / `svg` (rendered in a
+sandboxed iframe), `image` (`{ src }`, data URLs and same-origin only), and the resource views. Register a component
+under the same name in `customComponents` to replace a built-in. Agent replies render as sanitized Markdown, and their
+diagrams, pages, JSON and tables can be opened in the panel. Requires `marked`, `dompurify` and `mermaid`
+(dependencies of this package; without them text stays plain and diagrams show their source).

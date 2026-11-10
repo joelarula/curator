@@ -97,21 +97,9 @@
 
         <!-- 0. Interactive UI Surface View (Grid | List Resource Explorer, Detail Editor, Custom Components) -->
         <template v-else-if="tab === 'surface'">
-          <component
-            :is="customSurfaceComponent"
-            v-if="customSurfaceComponent"
-            :surface="activeSurface"
-            v-bind="activeSurface?.props || {}"
-          />
-          <HarnessResourceDetail
-            v-else-if="activeDetail || activeSurface?.component === 'resource-detail'"
-            :item="activeDetail || activeSurface?.item || null"
-          />
-          <HarnessResourceCollection
-            v-else-if="activeSurface"
-            :surface="activeSurface"
-          />
-          <div v-else class="text-center py-8">
+          <HarnessSurfacePanel>
+            <template #empty>
+          <div class="text-center py-8">
             <v-icon size="36" class="mb-2 opacity-30" color="primary">mdi-view-grid-plus-outline</v-icon>
             <div class="text-body-2 text-medium-emphasis">
               Interactive Feedback Surface Ready
@@ -129,6 +117,8 @@
               Show App Resources
             </v-btn>
           </div>
+            </template>
+          </HarnessSurfacePanel>
         </template>
 
         <!-- 1. Formatted View -->
@@ -219,7 +209,19 @@
 
             <!-- Text / Markdown Output Container -->
             <div class="mb-3" @contextmenu.prevent="openLatestTurnMenu($event)">
-              <pre class="font-monospace text-caption pa-3 rounded bg-surface-variant text-primary overflow-auto text-wrap">{{ displayCleanText || 'Turn completed with no text output.' }}</pre>
+              <!-- Agent text as sanitized Markdown; diagrams, pages, JSON and tables in it can open in the panel -->
+              <HarnessMarkdown :text="displayCleanText || 'Turn completed with no text output.'" panel-blocks @open="openInPanel" />
+              <v-chip
+                v-if="latestSurface"
+                size="small"
+                variant="outlined"
+                color="primary"
+                prepend-icon="mdi-dock-right"
+                class="mt-2 cursor-pointer"
+                @click="openSurface(latestSurface.id)"
+              >
+                {{ describeSurface(latestSurface.surface) }}
+              </v-chip>
             </div>
 
             <!-- Suggestion Chips if parsed from conversational speech acts -->
@@ -317,6 +319,17 @@
                 {{ turn.output }}
               </div>
               <HarnessRunStatus v-if="turn.run" :run="turn.run" class="mt-1" @click.stop />
+              <v-chip
+                v-if="turn.surfaceId && surfaceById(turn.surfaceId)"
+                size="x-small"
+                variant="outlined"
+                color="primary"
+                prepend-icon="mdi-dock-right"
+                class="mt-1"
+                @click.stop="openSurface(turn.surfaceId)"
+              >
+                {{ describeSurface(surfaceById(turn.surfaceId)!.surface) }}
+              </v-chip>
             </v-card>
           </div>
         </template>
@@ -327,14 +340,14 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import { parseSpeechActs } from '@curator/host/contracts';
+import { parseSpeechActs, describeSurface, type CuratorSurface } from '@curator/host/contracts';
 import { useHarnessContext } from '../../context';
 import HarnessChoices, { type ChoiceItem } from './HarnessChoices.vue';
 import HarnessRunStatus from './HarnessRunStatus.vue';
 import HarnessInterruptCard from './HarnessInterruptCard.vue';
+import HarnessSurfacePanel from './HarnessSurfacePanel.vue';
+import HarnessMarkdown from './HarnessMarkdown.vue';
 import type { RunTimeline } from '../../composables/useRunTimeline';
-import HarnessResourceCollection from './HarnessResourceCollection.vue';
-import HarnessResourceDetail from './HarnessResourceDetail.vue';
 
 export interface TurnHistoryEntry {
   id: string;
@@ -346,6 +359,8 @@ export interface TurnHistoryEntry {
   timestamp: number;
   /** The turn's run as it ended (from `curator:progress`); absent for turns without a root request. */
   run?: RunTimeline | null;
+  /** The surface the turn produced (an entry of the session's surfaces). */
+  surfaceId?: string | null;
 }
 
 interface Props {
@@ -420,6 +435,24 @@ const starterPrompts = computed<string[]>(() => {
   return Array.isArray(agent?.starterPrompts) ? agent.starterPrompts : [];
 });
 
+const latestSurface = computed(() => harness?.surfaces?.entryFor(reqId.value) ?? null);
+const surfaceById = (id: string) => harness?.surfaces?.entries.value.find((e) => e.id === id) ?? null;
+
+/** Shows a surface: in the stack layout the output switches to its UI Surface tab; the worktable shows it anyway. */
+function revealPanel() {
+  if (harness?.layoutMode.value !== 'workbench') tab.value = 'surface';
+}
+
+function openSurface(id: string) {
+  harness?.surfaces?.open(id);
+  revealPanel();
+}
+
+function openInPanel(surface: CuratorSurface) {
+  harness?.surfaces?.show(surface as any, { requestId: null });
+  revealPanel();
+}
+
 function openLatestTurnMenu(e: MouseEvent) {
   harness?.openTurnMenu(e, {
     text: displayCleanText.value || outputText.value || '',
@@ -455,12 +488,6 @@ const execError = computed(() => props.lastExecError ?? harness?.lastExecError.v
 
 // UI Surface State
 const activeSurface = computed(() => harness?.uiSurface.value ?? null);
-const activeDetail = computed(() => harness?.activeResourceDetail.value ?? null);
-const customSurfaceComponent = computed(() => {
-  const compName = activeSurface.value?.component;
-  if (!compName || !harness?.customComponents) return null;
-  return harness.customComponents[compName] || null;
-});
 
 const tab = computed({
   get: () => props.outputTab ?? harness?.outputTab.value ?? 'formatted',

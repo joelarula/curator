@@ -37,28 +37,11 @@
 
     <!-- Worktable Body -->
     <div class="pa-3 flex-grow-1 overflow-y-auto">
-      <!-- 1. Custom Registered Component if matched -->
-      <component
-        :is="customSurfaceComponent"
-        v-if="customSurfaceComponent"
-        :surface="surface"
-        v-bind="surface?.props || {}"
-      />
-
-      <!-- 2. Resource Detail Inspector -->
-      <HarnessResourceDetail
-        v-else-if="activeDetail || surface?.component === 'resource-detail'"
-        :item="activeDetail || surface?.item || null"
-      />
-
-      <!-- 3. Resource Collection Grid | List View -->
-      <HarnessResourceCollection
-        v-else-if="surface"
-        :surface="surface"
-      />
-
+      <!-- The shared surface panel (same as the output's UI Surface tab) -->
+      <HarnessSurfacePanel>
+        <template #empty>
       <!-- 4. Empty Scene Placeholder -->
-      <div v-else class="d-flex flex-column align-center justify-center py-12 text-center">
+      <div class="d-flex flex-column align-center justify-center py-12 text-center">
         <v-icon size="44" class="mb-2 opacity-30" color="primary">mdi-view-dashboard-outline</v-icon>
         <div class="text-subtitle-2 text-medium-emphasis">Scene / Worktable Ready</div>
         <div class="text-caption text-disabled mt-1 mb-3">
@@ -74,6 +57,8 @@
           Show App Resources
         </v-btn>
       </div>
+        </template>
+      </HarnessSurfacePanel>
     </div>
   </v-card>
 </template>
@@ -81,19 +66,13 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useHarnessContext } from '../../context';
-import HarnessResourceCollection from './HarnessResourceCollection.vue';
-import HarnessResourceDetail from './HarnessResourceDetail.vue';
+import HarnessSurfacePanel from './HarnessSurfacePanel.vue';
 
 const harness = useHarnessContext();
 
 const surface = computed(() => harness?.worktableSurface.value ?? harness?.uiSurface.value ?? null);
 const activeDetail = computed(() => harness?.activeResourceDetail.value ?? null);
 
-const customSurfaceComponent = computed(() => {
-  const compName = surface.value?.component;
-  if (!compName || !harness?.customComponents) return null;
-  return harness.customComponents[compName] || null;
-});
 
 function loadResources() {
   harness?.showResourcesSurface();
